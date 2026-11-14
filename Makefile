@@ -1,7 +1,7 @@
 PYTHON ?= python3
 .DEFAULT_GOAL := build
 
-.PHONY: build check test test-bootstrap test-debconf test-cuda audit validate themes test-isolation post-change-check static-check
+.PHONY: build offline check test test-bootstrap test-debconf test-cuda audit validate themes test-isolation post-change-check static-check
 
 # Check before unittest discovery, including newly added test modules.
 test-isolation:
@@ -10,6 +10,11 @@ test-isolation:
 check test test-bootstrap test-debconf test-cuda audit validate: test-isolation
 build:
 	$(PYTHON) -B tools/build.py
+
+# Independent bundle: public metadata only; normal products remain untouched.
+offline:
+	$(PYTHON) -I -B tools/offline.py
+
 check:
 	$(PYTHON) -B tools/check_build.py
 	$(PYTHON) -B tools/check_shells.py
