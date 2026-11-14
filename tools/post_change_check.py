@@ -2396,6 +2396,11 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
             if ('Pin: origin apt.llvm.org\nPin-Priority: 1001' in vendors
                     or 'Pin: origin apt.llvm.org\nPin-Priority: -1' not in vendors):
                 raise ValueError('suite/family does not force LLVM and Clang packages to Debian archives')
+            family_suite_pref = members[f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/00-suite.pref'].decode()
+            snapshot_pin = ('Package: src:llvm-toolchain-snapshot:any\n'
+                            'Pin: release o=Debian,a=experimental\nPin-Priority: 1001')
+            if snapshot_pin not in family_suite_pref:
+                raise ValueError(f'{suite}/{family} blocks transitive LLVM snapshot dependencies from Experimental')
         suite_pref = members[f'frontends/{suite}/hooks/target/etc/apt/desktop/preferences.d/00-suite.pref'].decode()
         fallback_pins = ('Pin: release o=Debian,n=sid\nPin-Priority: 100',
                          'Pin: release o=Debian,a=experimental\nPin-Priority: 1')
@@ -2466,20 +2471,17 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
                 raise ValueError('Trixie APT fragment omits the Zabbly Incus repository')
             if 'https://downloadcontent.opensuse.org/repositories/home:/cramerz:/debian/Debian_Unstable/ /' not in apt_fragment:
                 raise ValueError('Trixie APT fragment omits the Cramerz archive')
-        if 'wget curl libcurl4t64 unzip' not in apt_fragment:
-            raise ValueError(f'{suite} APT fragment does not request libcurl4t64 alongside curl')
+        if f'wget curl/{suite} libcurl4t64/{suite} unzip' not in apt_fragment:
+            raise ValueError(f'{suite} APT fragment does not bind curl and libcurl4t64 to the same native suite')
         for name, data in members.items():
             if not (name.startswith(f'frontends/{suite}/classes/') and name.endswith('.cfg')):
                 continue
             decoded = data.decode()
-            if re.search(r'(?<![A-Za-z0-9+.-])libclang-rt-24-dev(?!/experimental)(?![A-Za-z0-9+.-])',
-                          decoded):
-                raise ValueError('libclang-rt-24-dev must be selected explicitly from Experimental')
             llvm_selector = re.compile(
                 r'^(?:clang(?:-[a-z0-9]+)*|clangd|llvm(?:-[a-z0-9]+)*|lldb?|'
                 r'libclang(?:-[a-z0-9]+)*|libllvm(?:-[a-z0-9]+)*|liblldb(?:-[a-z0-9]+)*|'
                 r'libpolly|python3-lldb)'
-                r'-(21|22|24)(?:-|$)')
+                r'-(21|22|24)(?:-|$)|^(?:libclang-cpp|libclang1|libllvm)(21|22|24)(?:-|$)')
             for package_line in re.findall(r'^d-i pkgsel/include string ([^\n]+)$', decoded, re.M):
                 packages = package_line.split()
                 if 'lldb' in packages and any(item.startswith('lldb-') for item in packages):
@@ -2489,9 +2491,16 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
                     match = llvm_selector.match(package_name)
                     if not match:
                         continue
-                    major = match.group(1)
-                    expected_suite = 'experimental' if major == '24' else (
-                        'trixie-backports' if suite == 'trixie' and major == '21' else None)
+                    major = match.group(1) or match.group(2)
+                    if major == '24':
+                        # The source-wide Experimental pin above selects every
+                        # snapshot binary without APT recursively retargeting
+                        # unrelated native dependencies such as libcurl4t64.
+                        if separator:
+                            raise ValueError(
+                                f'{suite} LLVM 24 package {package} bypasses the source-wide Experimental pin')
+                        continue
+                    expected_suite = 'trixie-backports' if suite == 'trixie' and major == '21' else None
                     if expected_suite is not None and (not separator or selected_suite != expected_suite):
                         raise ValueError(
                             f'{suite} LLVM {major} package {package} is not selected from Debian {expected_suite}')

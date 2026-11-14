@@ -2,9 +2,16 @@ Package: *
 Pin: release o=Debian,n=forky
 Pin-Priority: 900
 
-# The LLVM 24 runtime is supplied by Debian Experimental. Keep the
-# package-qualified pkgsel request from being captured by the apt.llvm.org
-# wildcard policy in 20-vendors.pref.
+# Experimental's codename is rc-buggy. Its deny rule below also matches the
+# experimental URL, including dependencies not named in pkgsel/include.
+# Select the complete Debian snapshot source so libllvm24, libclang-cpp24 and
+# the requested tools can share one installable build. Other sources stay out.
+Package: src:llvm-toolchain-snapshot:any
+Pin: release o=Debian,a=experimental
+Pin-Priority: 1001
+
+# Keep the runtime on Debian Experimental alongside the complete source
+# pin above and the apt.llvm.org exclusion in 20-vendors.pref.
 Package: libclang-rt-24-dev
 Pin: release o=Debian,a=experimental
 Pin-Priority: 1001
