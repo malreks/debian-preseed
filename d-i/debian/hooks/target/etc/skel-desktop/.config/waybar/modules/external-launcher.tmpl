@@ -1,0 +1,22 @@
+{
+  "custom/launcher": {
+    "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-exec menu-state",
+    "return-type": "json",
+    "format": "{}",
+    "signal": 8,
+    "exec-on-event": false,
+    "cursor": true,
+    "tooltip": false,
+    "on-click-release": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --output-class=EXTERNAL -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu",
+    "menu": "on-click-right",
+    "menu-file": "~/.config/waybar/gtk/launcher-menu.xml",
+    "menu-actions": {
+      "launcher_debug_gtk": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --output-class=EXTERNAL -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu --debug=gtk",
+      "launcher_debug_electron": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --output-class=EXTERNAL -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu --debug=electron",
+      "launcher_debug_qt": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --output-class=EXTERNAL -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu --debug=qt",
+      "launcher_debug_full": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --output-class=EXTERNAL -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu --debug=full",
+      "launcher_debug_wayland_graphics": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --output-class=EXTERNAL -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu --debug=wayland-graphics",
+      "launcher_debug_xwayland": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --output-class=EXTERNAL -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu --debug=xwayland"
+    }
+  }
+}

@@ -1,0 +1,109 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Close Waybar-owned FDs before entering a narrower status-helper profile.
+
+This executable shares waybar's AppArmor attachment. It does not
+widen the destination helper profiles to accept inherited rfkill, procfs or
+menu-file descriptors. Only the fixed read-only status calls exist.
+"""
+from __future__ import annotations
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+
+COMMANDS = {
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-battery",),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-battery", "--watch"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events", "notifications"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events", "capture"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state", "status", "cpu"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state", "status", "memory"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state", "status", "storage"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state", "status", "taskview"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state", "status", "power"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state", "status", "wayscriber"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-tomat", "watch"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications", "status"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture", "status"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-brightness-control", "status"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth", "status"),
+    ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-keyboard-layout", "status"),
+}
+BLOCKED_ENVIRONMENT = (
+    "LD_PRELOAD", "LD_AUDIT", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONHOME",
+    "GI_TYPELIB_PATH", "GIO_MODULE_DIR", "GTK_MODULES", "DISPLAY", "XAUTHORITY",
+)
+
+
+def command(arguments: list[str]) -> tuple[str, ...]:
+    if not arguments:
+        raise ValueError("exactly one managed status command is required")
+    executable, *parameters = arguments
+    if "/" not in executable:
+        executable = "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/" + executable
+    result = (executable, *parameters)
+    if result not in COMMANDS:
+        raise ValueError("unapproved Waybar status command")
+    return result
+
+
+def close_inherited_fds() -> None:
+    # CPython implements closerange with the kernel close_range/closefrom fast
+    # path where available. This API takes a C int; sys.maxsize overflows on
+    # 64-bit Python. Linux descriptors are strictly below this INT_MAX bound.
+    os.closerange(3, 2147483647)
+
+
+def menu_state() -> None:
+    """Emit the state of the private Fuzzel PID marker for the launcher CSS."""
+    uid = os.getuid()
+    runtime = Path('__INSTALLER_PATH_DIR_RUN_USER__') / str(uid)
+    active = False
+    try:
+        runtime_info = runtime.lstat()
+        if (stat.S_ISDIR(runtime_info.st_mode) and runtime_info.st_uid == uid
+                and stat.S_IMODE(runtime_info.st_mode) == 0o700):
+            for name in ('labwc-fuzzel.pid', 'labwc-main-menu.pid'):
+                marker = runtime / name
+                try:
+                    descriptor = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                    with os.fdopen(descriptor, 'rb') as stream:
+                        marker_info = os.fstat(stream.fileno())
+                        if (not stat.S_ISREG(marker_info.st_mode) or marker_info.st_uid != uid
+                                or marker_info.st_nlink != 1
+                                or stat.S_IMODE(marker_info.st_mode) != 0o600):
+                            continue
+                        value = stream.read(32)
+                    if value.endswith(b'\n') and value[:-1].isdigit() and int(value[:-1]) > 0:
+                        active = True
+                        break
+                except (FileNotFoundError, OSError, ValueError):
+                    continue
+    except (OSError, ValueError):
+        active = False
+    print(json.dumps({'text': 'Menu', 'class': 'active' if active else 'idle',
+                      'tooltip': 'Main menu is open' if active else 'Main menu'}), flush=True)
+
+
+def main(arguments: list[str]) -> None:
+    if os.getuid() == 0 or os.geteuid() != os.getuid():
+        raise ValueError("status helpers require an unprivileged desktop user")
+    if arguments == ['menu-state']:
+        close_inherited_fds()
+        menu_state()
+        return
+    argv = command(arguments)
+    close_inherited_fds()
+    # Fixed argv, no shell expansion, no eval, no command or profile override.
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in BLOCKED_ENVIRONMENT}
+    os.execve(argv[0], argv, environment)
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1:])
+    except (OSError, ValueError) as exc:
+        print(f"labwc-waybar-exec: {exc}", file=sys.stderr)
+        sys.exit(1)

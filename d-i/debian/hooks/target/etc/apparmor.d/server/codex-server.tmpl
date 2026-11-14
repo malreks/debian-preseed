@@ -1,0 +1,58 @@
+#include <tunables/global>
+
+# Headless Codex has no desktop, runner, host-manager or hardware socket grant.
+profile codex-server __INSTALLER_PATH_DIR_DATA_CODEX__/lib/codex flags=(attach_disconnected) {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/python>
+  __INSTALLER_PATH_DIR_USR__/** mr,
+  __INSTALLER_PATH_DIR_USR_BIN__/python3{,.*} mrix,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/credentials/codex-app-server.service/{,codex-mcp.env} r,
+  __INSTALLER_PATH_DIR_USR_BIN__/bwrap cx -> sandbox,
+  __INSTALLER_PATH_DIR_ETC__/** r,
+  __INSTALLER_PATH_DIR_RUN_SYSTEMD__/resolve/{,resolv.conf,stub-resolv.conf} r,
+  __INSTALLER_PATH_DIR_RUN__/{NetworkManager,resolvconf}/{,resolv.conf} r,
+  # Linux anonymous sealed resolver input, never a persistent target path.
+  "/memfd:codex-resolver{, (deleted)}" rw,
+  __INSTALLER_PATH_DIR_DATA_CODEX__/{,**} r,
+  __INSTALLER_PATH_DIR_POOL__/{,build/,cache/,db/} r,
+  __INSTALLER_PATH_DIR_POOL__/{build,cache,db}/*/ r,
+  owner @{HOME}/ r,
+  owner @{HOME}/** r,
+  owner __INSTALLER_PATH_DIR_TMP__/codex-daemon-*/ rw,
+  owner __INSTALLER_PATH_DIR_TMP__/codex-daemon-*/** rwkl,
+  @{PROC}/@{pid}/{,**} r,
+  __INSTALLER_PATH_DIR_PROC__/filesystems r,
+  __INSTALLER_PATH_DIR_PROC__/sys/kernel/{overflowuid,overflowgid} r,
+
+  profile sandbox flags=(attach_disconnected) {
+    #include <abstractions/base>
+    #include <abstractions/nameservice>
+    #include <abstractions/python>
+    # Shared namespace-construction mechanics only; --cap-drop ALL removes
+    # every payload capability. Application mounts remain specific below.
+    #include <abstractions/bwrap-common>
+    "/memfd:codex-resolver{, (deleted)}" r,
+    signal (send,receive) peer=codex-server//sandbox,
+    signal (receive) peer=unconfined,
+    network inet stream,
+    network inet6 stream,
+    network inet dgram,
+    network inet6 dgram,
+    network unix stream,
+    __INSTALLER_PATH_DIR_USR__/** mrix,
+    __INSTALLER_PATH_DIR_ETC__/** r,
+    __INSTALLER_PATH_DIR_DATA_CODEX__/{,**} mrix,
+    owner __INSTALLER_PATH_DIR_DATA_CODEX__/{usr,log,sqlite,runtime,packages,sockets}/{,**} rwklix,
+    deny __INSTALLER_PATH_DIR_DATA_CODEX__/credentials/{,**} rwklm,
+    deny __INSTALLER_PATH_DIR_DATA_CODEX__/{share,lib}/{,**} wkl,
+    owner __INSTALLER_PATH_DIR_POOL__/{build,cache,db}/*/{,**} rwklix,
+    owner @{HOME}/{,**} rwklix,
+    owner __INSTALLER_PATH_DIR_TMP__/{,**} rwklix,
+    owner __INSTALLER_PATH_DIR_RUN__/{,**} rwkl,
+    __INSTALLER_PATH_DIR_PROC__/{,**} r,
+    owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/{uid_map,gid_map,setgroups} rw,
+    deny __INSTALLER_PATH_DIR_PROC__/sys/{,**} wklx,
+    deny __INSTALLER_PATH_DIR_PROC__/{sysrq-trigger,kcore,keys,timer_list} rwklx,
+  }
+}

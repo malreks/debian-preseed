@@ -1,0 +1,47 @@
+# Managed by unattended-installer.
+#
+# Narrow network boundary for the local Whisper server and its client. These
+# profiles are intentionally separate from desktop-wrappers so that
+# interpreter wrappers retain their no-network default.
+
+#include <tunables/global>
+
+profile whisper-http-client flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+
+  __INSTALLER_PATH_DIR_USR__/bin/curl rix,
+  network inet stream,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/.whisper-* rwk,
+  owner @{HOME}/Music/Whisper/audio/*.wav r,
+
+  include if exists <local/usr.bin.curl>
+}
+
+profile whisper-cli /{usr/local/bin/whisper-cli,data/whisper/bin/whisper-cli} flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+  #include <abstractions/desktop-graphics>
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/whisper-cli rix,
+  __INSTALLER_PATH_DIR_DATA__/whisper/bin/whisper-cli rix,
+  __INSTALLER_PATH_DIR_POOL__/cache/whisper/models/** r,
+  owner @{HOME}/Music/Whisper/ rw,
+  owner @{HOME}/Music/Whisper/** rwkl,
+
+  include if exists <local/whisper-cli>
+}
+
+profile whisper-server /{usr/local/bin/whisper-server,data/whisper/bin/whisper-server} flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+  #include <abstractions/desktop-graphics>
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/whisper-server rix,
+  __INSTALLER_PATH_DIR_DATA__/whisper/bin/whisper-server rix,
+  __INSTALLER_PATH_DIR_POOL__/cache/whisper/models/** r,
+  @{PROC}/devices r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/vm/mmap_min_addr r,
+  owner @{PROC}/@{pid}/cmdline r,
+  network inet stream,
+
+  include if exists <local/whisper-server>
+}

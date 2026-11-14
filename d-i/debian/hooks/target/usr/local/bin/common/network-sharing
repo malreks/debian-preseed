@@ -1,0 +1,13 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Terminal sharing entrypoint; all operations use the common backend."""
+from managed_network_sharing import clean, main
+import sys
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        raise SystemExit(130)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+        print('network-sharing: ' + clean(str(error), 1600), file=sys.stderr)
+        raise SystemExit(2)

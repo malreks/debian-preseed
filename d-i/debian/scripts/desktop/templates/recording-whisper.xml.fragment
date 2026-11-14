@@ -1,0 +1,10 @@
+    <keybind key="W-r">
+      <action name="Execute" command="__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/whisper-record-toggle toggle" />
+    </keybind>
+    <keybind key="C-A-r">
+      <action name="Execute" command="__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/whisper-record-toggle toggle" />
+    </keybind>
+    <!-- The less-than keysym is XML-escaped because it appears in an attribute. -->
+    <keybind key="W-&lt;">
+      <action name="Execute" command="__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/whisper-record-toggle toggle" />
+    </keybind>

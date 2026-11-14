@@ -1,0 +1,35 @@
+# CPU/GPU focused btop profile for the managed Waybar CPU action.
+# Keys are from the packaged btop 1.3.x configuration contract. Optional GPU
+# and sensor data use Auto/true so btop keeps the view usable when unavailable.
+color_theme = "__THEME_BTOP_THEME__"
+theme_background = __THEME_BTOP_THEME_BACKGROUND_ENABLED__
+truecolor = True
+rounded_corners = True
+graph_symbol = "braille"
+graph_symbol_cpu = "default"
+graph_symbol_gpu = "default"
+graph_symbol_proc = "default"
+shown_boxes = "cpu gpu0 proc"
+update_ms = 2000
+proc_sorting = "cpu direct"
+proc_reversed = False
+proc_tree = False
+proc_colors = True
+proc_gradient = True
+proc_per_core = False
+proc_mem_bytes = True
+proc_cpu_graphs = True
+cpu_graph_upper = "Auto"
+cpu_graph_lower = "Auto"
+show_gpu_info = "Auto"
+check_temp = True
+cpu_sensor = "Auto"
+show_coretemp = True
+temp_scale = "celsius"
+show_cpu_freq = True
+show_uptime = True
+background_update = True
+show_battery = True
+selected_battery = "Auto"
+show_battery_watts = True
+log_level = "WARNING"

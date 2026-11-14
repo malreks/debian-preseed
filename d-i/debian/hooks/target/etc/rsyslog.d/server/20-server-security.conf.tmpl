@@ -1,0 +1,29 @@
+# Only local, kernel-attested privileged authentication enters CrowdSec input.
+# Tags and message text alone never authorize a remediation input.
+if ($syslogfacility-text == "auth" or $syslogfacility-text == "authpriv") then {
+  if ($inputname == "imuxsock" and exists($!uid) and exists($!pid) and
+      ($!uid == "0" or $!exe == "__INSTALLER_PATH_DIR_USR_BIN__/su" or
+       $!exe == "__INSTALLER_PATH_DIR_USR_BIN__/sudo" or
+       $!exe == "__INSTALLER_PATH_DIR_USR_SBIN__/sshd" or
+       $!exe == "__INSTALLER_PATH_DIR_USR__/lib/openssh/sshd-session" or
+       $!exe == "__INSTALLER_PATH_DIR_USR__/lib/openssh/sshd-auth")) then {
+    action(type="omfile" file="__INSTALLER_LOG_AUTH_FILE__" createDirs="off"
+           rotation.sizeLimit="__INSTALLER_LOG_RSYSLOG_ROTATE_BYTES__"
+           rotation.sizeLimitCommand="__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-size-rotate"
+           rotation.sizeLimitCommandPassFileName="on")
+  } else {
+    action(type="omfile" file="__INSTALLER_LOG_AUTH_UNVERIFIED_FILE__" createDirs="off"
+           rotation.sizeLimit="__INSTALLER_LOG_RSYSLOG_ROTATE_BYTES__"
+           rotation.sizeLimitCommand="__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-size-rotate"
+           rotation.sizeLimitCommandPassFileName="on")
+  }
+  stop
+}
+if ($inputname == "imklog" and $syslogfacility-text == "kern" and
+    ($msg contains "[managed-server-ssh]" or $msg contains "nftables drop ")) then {
+  action(type="omfile" file="__INSTALLER_LOG_NFTABLES_FILE__" createDirs="off"
+         rotation.sizeLimit="__INSTALLER_LOG_RSYSLOG_ROTATE_BYTES__"
+         rotation.sizeLimitCommand="__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-size-rotate"
+         rotation.sizeLimitCommandPassFileName="on")
+  stop
+}

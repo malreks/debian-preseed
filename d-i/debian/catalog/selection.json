@@ -1,0 +1,362 @@
+{
+  "format": 1,
+  "groups": [
+    {
+      "Type": "group",
+      "Name": "site",
+      "Required": "true",
+      "Order": "10",
+      "Purpose": "site",
+      "Source": "class-select",
+      "Description": "site and timezone defaults"
+    },
+    {
+      "Type": "group",
+      "Name": "role",
+      "Required": "true",
+      "Multi": "true",
+      "Order": "20",
+      "Purpose": "host-variant",
+      "Source": "class-select",
+      "Description": "one desktop tier or one or more server roles; families cannot be mixed"
+    },
+    {
+      "Type": "group",
+      "Name": "arch",
+      "Required": "true",
+      "Order": "40",
+      "Purpose": "arch",
+      "Source": "class-auto",
+      "Description": "auto-detected architecture, kernel, and boot-chain package fragment"
+    },
+    {
+      "Type": "group",
+      "Name": "cpu",
+      "Required": "true",
+      "Order": "50",
+      "Purpose": "cpu",
+      "Source": "class-auto",
+      "Description": "auto-detected CPU vendor tuning and microcode"
+    },
+    {
+      "Type": "group",
+      "Name": "kernel",
+      "Required": "true",
+      "Order": "55",
+      "Purpose": "kernel",
+      "Source": "class-auto",
+      "Description": "CPU-qualified fixed XanMod EDGE image/header pair on amd64; native arm64 kernel"
+    },
+    {
+      "Type": "group",
+      "Name": "gpu",
+      "Required": "true",
+      "Multi": "true",
+      "Order": "60",
+      "Purpose": "gpu",
+      "Source": "class-auto",
+      "Description": "auto-detected graphics baseline; vendor drivers require explicit policy selection"
+    },
+    {
+      "Type": "group",
+      "Name": "network",
+      "Required": "true",
+      "Order": "80",
+      "Purpose": "network",
+      "Source": "class-select",
+      "Description": "network configuration mode"
+    },
+    {
+      "Type": "group",
+      "Name": "disk",
+      "Required": "true",
+      "Order": "90",
+      "Purpose": "storage",
+      "Source": "class-auto",
+      "Description": "auto-detected storage family and host profile derivation"
+    },
+    {
+      "Type": "group",
+      "Name": "profile",
+      "Required": "true",
+      "Order": "95",
+      "Purpose": "host-profile-override",
+      "Source": "class-profile",
+      "Description": "explicit registered profile policy and identity"
+    },
+    {
+      "Name": "optional",
+      "Required": "false",
+      "Multi": "true",
+      "Order": "100",
+      "Purpose": "optional",
+      "Source": "class-select",
+      "Description": "explicit optional installation policies"
+    }
+  ],
+  "classes": [
+    {
+      "Type": "class",
+      "Group": "arch",
+      "Name": "amd64",
+      "Description": "amd64 kernel and signed EFI boot chain"
+    },
+    {
+      "Type": "class",
+      "Group": "arch",
+      "Name": "arm64",
+      "Description": "arm64 kernel and EFI boot chain"
+    },
+    {
+      "Type": "class",
+      "Group": "cpu",
+      "Name": "amd",
+      "Description": "AMD CPU microcode"
+    },
+    {
+      "Type": "class",
+      "Group": "cpu",
+      "Name": "intel",
+      "Description": "Intel CPU microcode"
+    },
+    {
+      "Type": "class",
+      "Group": "gpu",
+      "Name": "amd-radeon",
+      "Description": "AMD Radeon graphics"
+    },
+    {
+      "Type": "class",
+      "Group": "gpu",
+      "Name": "intel-uhd",
+      "Description": "Intel integrated graphics"
+    },
+    {
+      "Type": "class",
+      "Group": "gpu",
+      "Name": "generic",
+      "Description": "generic graphics or headless target with no vendor-specific firmware baseline"
+    },
+    {
+      "Type": "class",
+      "Group": "cpu",
+      "Name": "generic-arm64",
+      "Description": "arm64 CPU without x86 microcode or platform policy"
+    },
+    {
+      "Type": "class",
+      "Group": "disk",
+      "Name": "nvme",
+      "Description": "NVMe and fixed bare-metal Btrfs/XFS storage family",
+      "HostProfilePrefix": "btrfs",
+      "HostFamily": "btrfs",
+      "HookFamily": "btrfs",
+      "InstallDiskCandidates": "/dev/nvme0n1, /dev/nvme*n*, /dev/sd*",
+      "DefaultInstallDisk": "/dev/nvme0n1"
+    },
+    {
+      "Type": "class",
+      "Group": "disk",
+      "Name": "emmc",
+      "Description": "dedicated eMMC F2FS storage family",
+      "HostProfilePrefix": "f2fs",
+      "HostFamily": "f2fs",
+      "HookFamily": "f2fs",
+      "InstallDiskCandidates": "/dev/mmcblk0, /dev/mmcblk*",
+      "DefaultInstallDisk": "/dev/mmcblk0"
+    },
+    {
+      "Type": "class",
+      "Group": "disk",
+      "Name": "vm",
+      "Description": "VM Btrfs/XFS storage family",
+      "HostProfilePrefix": "vm",
+      "HostFamily": "vm",
+      "HookFamily": "vm",
+      "InstallDiskCandidates": "/dev/nvme0n1, /dev/nvme*n*, /dev/vd*, /dev/sd*, /dev/mmcblk*",
+      "DefaultInstallDisk": "/dev/vda"
+    },
+    {
+      "Type": "class",
+      "Group": "site",
+      "Name": "dmz",
+      "Description": "DMZ site defaults"
+    },
+    {
+      "Type": "class",
+      "Group": "site",
+      "Name": "lab",
+      "Description": "lab site defaults"
+    },
+    {
+      "Type": "class",
+      "Group": "site",
+      "Name": "prod",
+      "Description": "production site defaults"
+    },
+    {
+      "Type": "class",
+      "Group": "network",
+      "Name": "dhcp",
+      "Description": "DHCP networking"
+    },
+    {
+      "Type": "class",
+      "Group": "network",
+      "Name": "static",
+      "Description": "static networking from kernel cmdline"
+    },
+    {
+      "Group": "optional",
+      "Name": "dualboot",
+      "Description": "explicit optional/dualboot class"
+    },
+    {
+      "Group": "optional",
+      "Name": "nvidia",
+      "Description": "explicit optional/nvidia class"
+    },
+    {
+      "Group": "optional",
+      "Name": "nvidia-legacy",
+      "Description": "explicit optional/nvidia-legacy class"
+    },
+    {
+      "Group": "optional",
+      "Name": "cuda",
+      "Description": "explicit optional/cuda class"
+    },
+    {
+      "Group": "optional",
+      "Name": "cuda-legacy",
+      "Description": "explicit optional/cuda-legacy class"
+    },
+    {
+      "Type": "class",
+      "Group": "kernel",
+      "Name": "x64v2",
+      "Description": "Fixed XanMod EDGE 7.3.1 x64v2 image/header pair"
+    },
+    {
+      "Type": "class",
+      "Group": "kernel",
+      "Name": "x64v3",
+      "Description": "Fixed XanMod EDGE 7.3.1 x64v3 image/header pair"
+    },
+    {
+      "Type": "class",
+      "Group": "kernel",
+      "Name": "arm64",
+      "Description": "Native selected-suite arm64 image/header pair"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "btrfs-de-duo",
+      "family": "desktop",
+      "filesystem": "btrfs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/btrfs-de-duo.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-de-flex-duo",
+      "family": "desktop",
+      "filesystem": "btrfs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/btrfs-de-flex-duo.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-de-flex",
+      "family": "desktop",
+      "filesystem": "btrfs",
+      "mode": "fresh",
+      "source": "hosts/profiles/desktop/btrfs-de-flex.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-de-p15s-duo",
+      "family": "desktop",
+      "filesystem": "btrfs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/btrfs-de-p15s-duo.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-de-p15s",
+      "family": "desktop",
+      "filesystem": "btrfs",
+      "mode": "fresh",
+      "source": "hosts/profiles/desktop/btrfs-de-p15s.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-de",
+      "family": "desktop",
+      "filesystem": "btrfs",
+      "mode": "fresh",
+      "source": "hosts/profiles/desktop/btrfs-de.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "f2fs-de-hp14-duo",
+      "family": "desktop",
+      "filesystem": "f2fs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/f2fs-de-hp14-duo.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "f2fs-de-hp14",
+      "family": "desktop",
+      "filesystem": "f2fs",
+      "mode": "fresh",
+      "source": "hosts/profiles/desktop/f2fs-de-hp14.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "f2fs-de-x360-duo",
+      "family": "desktop",
+      "filesystem": "f2fs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/f2fs-de-x360-duo.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "f2fs-de-x360",
+      "family": "desktop",
+      "filesystem": "f2fs",
+      "mode": "fresh",
+      "source": "hosts/profiles/desktop/f2fs-de-x360.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-srv-flex-duo",
+      "family": "server",
+      "filesystem": "btrfs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/server/btrfs-srv-flex-duo.env",
+      "quarantined": true,
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-srv-flex",
+      "family": "server",
+      "filesystem": "btrfs",
+      "mode": "fresh",
+      "source": "hosts/profiles/server/btrfs-srv-flex.env",
+      "quarantined": false,
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "f2fs-srv-hp14",
+      "family": "server",
+      "filesystem": "f2fs",
+      "mode": "fresh",
+      "source": "hosts/profiles/server/f2fs-srv-hp14.env",
+      "quarantined": false,
+      "identity_policy": "explicit-profile-only"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "blocks": [
+    {
+      "type": "paragraph",
+      "text": "The system uses Debian packages and declared signed external package sources. Computer Management → System & Recovery → Maintenance & Health → Packages & Firmware provides package-health and pending-upgrade views and deliberately authorized update actions."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Inspect before changing"
+    },
+    {
+      "type": "code",
+      "text": "apt list --upgradable\ndpkg --audit"
+    },
+    {
+      "type": "paragraph",
+      "text": "These commands inspect local package metadata. The first may be stale until an authorized index refresh. They do not download updates. Review available space and backups before applying a large update."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Configuration and recovery"
+    },
+    {
+      "type": "paragraph",
+      "text": "Package source definitions and scoped keys live under __INSTALLER_PATH_DIR_ETC__/apt/. Preserve conffiles and the selected release/pinning policy. If an update is interrupted, inspect package-health/log evidence before an administrator resumes repair."
+    },
+    {
+      "type": "warning",
+      "text": "Do not disable signature verification, add arbitrary package sources, delete package locks or reboot while package configuration is active. Help never contacts APT or installs dependencies."
+    }
+  ]
+}

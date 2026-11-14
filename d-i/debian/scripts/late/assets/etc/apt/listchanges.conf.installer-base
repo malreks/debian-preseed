@@ -1,0 +1,8 @@
+[apt]
+frontend=none
+which=news
+confirm=false
+headers=false
+email_address=
+save_seen=__INSTALLER_PATH_DIR_VAR__/lib/apt/listchanges.db
+no_network=true

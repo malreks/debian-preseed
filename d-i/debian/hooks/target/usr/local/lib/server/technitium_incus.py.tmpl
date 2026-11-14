@@ -1,0 +1,814 @@
+"""Persistent Technitium workload lifecycle, using only the native Incus API.
+
+The server controller supplies reviewed acquisition/locking/publication APIs.
+This module never runs during source generation or inspection. It imports no
+desktop code, exposes no Incus socket to the guest and executes no archive data
+on the host. Initial setup only serializes an image; explicit private operator
+configuration creates the stopped instance, and systemd owns start/stop.
+"""
+from __future__ import annotations
+
+import hashlib
+from contextlib import contextmanager
+import http.client
+import io
+import ipaddress
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import socket
+import stat
+import struct
+import tarfile
+import time
+import urllib.parse
+
+SOCKET = Path('__INSTALLER_PATH_FILE_INCUS_ADMIN_SOCKET__')
+HOME = Path('__INSTALLER_PATH_DIR_SERVER_DNS__')
+POOL_ROOT = Path('__INSTALLER_PATH_DIR_POOL__')
+IMAGES = Path('__INSTALLER_PATH_DIR_SERVER_DNS_IMAGES__')
+POOL = Path('__INSTALLER_PATH_DIR_SERVER_DNS_INCUS_POOL__')
+INIT = Path('__INSTALLER_PATH_FILE_SERVER_DNS_INIT__')
+IDENTITY = Path('__INSTALLER_PATH_FILE_SERVER_DNS_IDENTITY__')
+MANAGEMENT = Path('__INSTALLER_PATH_FILE_SERVER_DNS_MANAGEMENT_SOCKET__')
+APP = PurePosixPath('__INSTALLER_PATH_DIR_SERVER_DNS_GUEST_APP__')
+CONFIG = PurePosixPath('__INSTALLER_PATH_DIR_SERVER_DNS_GUEST_CONFIG__')
+PRIVATE = PurePosixPath('__INSTALLER_PATH_DIR_SERVER_DNS_GUEST_PRIVATE__')
+PROC = Path('__INSTALLER_PATH_DIR_PROC__')
+MAX_FILES, MAX_BYTES, MAX_FILE = 12000, 1073741824, 134217728
+
+
+class MissingObject(ValueError):
+    pass
+
+
+class UnixHTTP(http.client.HTTPConnection):
+    socket_path = SOCKET
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(str(self.socket_path))
+        _, uid, _ = struct.unpack('3i', self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        if uid != 0:
+            self.close()
+            raise ValueError('private API peer is not its root owner')
+
+
+class ManagementHTTP(UnixHTTP):
+    socket_path = MANAGEMENT
+
+    def connect(self):
+        for parent in MANAGEMENT.parents:
+            info = parent.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+                raise ValueError('unsafe private web API ancestry')
+        info = MANAGEMENT.lstat()
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid or stat.S_IMODE(info.st_mode) != 0o600:
+            raise ValueError('private web API socket differs')
+        super().connect()
+
+
+def elf_dependencies(data: bytes) -> tuple[list[str], str | None]:
+    """Read amd64 ELF dynamic records as data; never use ldd or execute it."""
+    if not data.startswith(b'\x7fELF'):
+        return [], None
+    if len(data) < 64 or data[4:7] != b'\x02\x01\x01' or struct.unpack_from('<H', data, 18)[0] != 62:
+        raise ValueError('guest native ELF is not qualified amd64')
+    offset = struct.unpack_from('<Q', data, 32)[0]
+    width, count = struct.unpack_from('<HH', data, 54)
+    if width != 56 or count > 128 or offset + width * count > len(data):
+        raise ValueError('guest ELF program table exceeds bounds')
+    loads, dynamic, interpreter = [], None, None
+    for index in range(count):
+        kind, _, start, address, _, size, _, _ = struct.unpack_from('<IIQQQQQQ', data, offset + index * width)
+        if start + size > len(data):
+            raise ValueError('guest ELF segment exceeds file bounds')
+        if kind == 1:
+            loads.append((address, start, size))
+        elif kind == 2:
+            dynamic = (start, size)
+        elif kind == 3:
+            interpreter = data[start:start + size].rstrip(b'\0').decode('ascii')
+            if interpreter != '/lib64/ld-linux-x86-64.so.2':
+                raise ValueError('guest interpreter is outside the native amd64 ABI')
+    needed, strings, string_size = [], None, 0
+    if dynamic:
+        start, size = dynamic
+        if size > 1048576 or size % 16:
+            raise ValueError('guest ELF dynamic table is invalid')
+        for cursor in range(start, start + size, 16):
+            tag, value = struct.unpack_from('<qQ', data, cursor)
+            if tag == 0:
+                break
+            if tag == 1:
+                needed.append(value)
+            elif tag == 5:
+                strings = value
+            elif tag == 10:
+                string_size = value
+    if not needed:
+        return [], interpreter
+    locations = [start + strings - address for address, start, size in loads
+                 if strings is not None and address <= strings < address + size]
+    if len(locations) != 1 or not 0 < string_size <= 16777216:
+        raise ValueError('guest ELF has an ambiguous string table')
+    start = locations[0]
+    if start + string_size > len(data) or len(needed) > 256:
+        raise ValueError('guest ELF dependencies exceed bounds')
+    names = []
+    for value in needed:
+        if value >= string_size:
+            raise ValueError('guest ELF dependency offset is invalid')
+        end = data.find(b'\0', start + value, min(start + string_size, start + value + 256))
+        if end < 0:
+            raise ValueError('guest ELF dependency is unterminated')
+        name = data[start + value:end].decode('ascii')
+        if re.fullmatch(r'[A-Za-z0-9_+.-]{1,255}', name) is None:
+            raise ValueError('guest ELF dependency is not a library identity')
+        names.append(name)
+    return names, interpreter
+
+
+class Workload:
+    def __init__(self, context: dict):
+        self.ctx = context
+        self.read = context['regular']
+        self.write = context['write']
+        self.parse = context['json_document']
+        self.directory = context['protected_directory']
+        self.unknown = context['OutcomeUnknown']
+        identity = self.parse(self.read(IDENTITY, private=True))
+        self.user = identity.get('username')
+        if (not isinstance(self.user, str) or re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', self.user) is None
+                or identity.get('format') != 1 or identity.get('uid') != 2103
+                or identity.get('gid') != 2103 or identity.get('locked') is not True):
+            raise ValueError('invalid designated DNS service identity')
+        catalog = self.parse(self.read(context['CATALOG']))
+        self.policy = catalog['dns_container']
+        self.project = self.policy['project']
+        self.instance = self.policy['instance']
+        self.base = '/1.0/instances/' + self.instance
+        self.owner = hashlib.sha256((str(HOME) + '|' + self.project + '|' + self.instance).encode()).hexdigest()
+        self.journal = HOME / 'private/incus-transaction.json'
+        self.receipt = HOME / 'private/incus-instance.json'
+
+    def remaining(self, maximum=30):
+        value = min(maximum, self.ctx['deadline']() - time.monotonic())
+        if value <= 0:
+            raise TimeoutError('DNS workload operation deadline expired')
+        return value
+
+    def api(self, method, path, body=None, *, project=True, headers=None, maximum=8388608, raw=False):
+        for parent in SOCKET.parents:
+            info = parent.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+                raise ValueError('untrusted Incus socket ancestry')
+        info = SOCKET.lstat()
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid or info.st_mode & 0o007:
+            raise ValueError('unsafe native Incus socket')
+        if not path.startswith('/1.0/') and path != '/1.0':
+            raise ValueError('invalid Incus API path')
+        if project:
+            path += ('&' if '?' in path else '?') + urllib.parse.urlencode({'project': self.project})
+        request_headers = {'Content-Type': 'application/json', **(headers or {})}
+        if body is not None and not isinstance(body, bytes):
+            body = json.dumps(body, separators=(',', ':')).encode()
+        connection = UnixHTTP('localhost', timeout=self.remaining())
+        try:
+            connection.request(method, path, body=body, headers=request_headers)
+            response = connection.getresponse()
+            if response.status == 404:
+                raise MissingObject('owned Incus object is absent')
+            data = bytearray()
+            while True:
+                remaining = self.remaining()
+                if connection.sock is not None:
+                    connection.sock.settimeout(remaining)
+                chunk = response.read(min(65536, maximum + 1 - len(data)))
+                if not chunk:
+                    break
+                data.extend(chunk)
+                if len(data) > maximum:
+                    raise ValueError('Incus response exceeds its byte bound')
+            if response.status not in (200, 201, 202):
+                # Never expose daemon output, guest bytes or private file data.
+                raise ValueError('Incus rejected the owned workload operation')
+            response_headers = {key.lower(): value for key, value in response.getheaders()}
+            if raw and response_headers.get('content-type', '').startswith('application/octet-stream'):
+                return bytes(data), response_headers
+            document = self.parse(bytes(data))
+            if document.get('type') == 'async':
+                operation = document.get('operation', '')
+                if re.fullmatch(r'/1\.0/operations/[a-fA-F0-9-]+', operation) is None:
+                    raise self.unknown('Incus operation identity is uncertain')
+                result, _ = self.api('GET', operation + '/wait?timeout=' + str(max(1, int(self.remaining(30)))))
+                if result.get('status_code') != 200:
+                    raise self.unknown('Incus operation did not prove completion; journal retained')
+                return result.get('metadata', {}), response_headers
+            if document.get('type') != 'sync':
+                raise ValueError('unrecognized Incus response type')
+            return document.get('metadata'), response_headers
+        except MissingObject:
+            raise
+        except (OSError, TimeoutError, http.client.HTTPException) as error:
+            if method != 'GET':
+                raise self.unknown('Incus mutation outcome is uncertain; journal retained') from error
+            raise
+        finally:
+            connection.close()
+
+    def begin(self, action):
+        if self.journal.exists() or self.journal.is_symlink():
+            raise ValueError('DNS workload transaction already needs operator review')
+        self.write(self.journal, json.dumps({'format': 1, 'action': action, 'owner': self.owner,
+                                           'state': 'prepared; no automatic retry'}).encode())
+
+    def finish(self):
+        self.journal.unlink()
+        self.ctx['sync_directory'](self.journal.parent)
+
+    def instance_record(self):
+        value, _ = self.api('GET', self.base)
+        if (value.get('type') != 'container' or value.get('profiles') != []
+                or value.get('config', {}).get('user.managed-dns-owner') != self.owner
+                or value.get('config', {}).get('security.privileged') != 'false'
+                or value.get('config', {}).get('security.nesting') != 'false'):
+            raise ValueError('DNS instance identity or authority differs')
+        expected = self.parse(self.read(self.receipt, private=True))
+        if value.get('devices') != expected['devices'] or any(
+                value.get('config', {}).get(key) != setting for key, setting in expected['config'].items()):
+            raise ValueError('DNS instance configuration changed outside its owner')
+        return value
+
+    def stopped(self):
+        try:
+            self.instance_record()
+        except MissingObject:
+            if self.receipt.exists():
+                raise ValueError('recorded DNS instance disappeared')
+            return
+        value, _ = self.api('GET', self.base + '/state')
+        if value.get('status_code') != 102 or value.get('pid', 0) != 0:
+            raise ValueError('DNS guest must be stopped before configuration or maintenance')
+
+    def file(self, method, name, data=None, *, kind='file', uid=0, gid=0, mode=0o644):
+        path = PurePosixPath(name)
+        if not path.is_absolute() or any(part in ('.', '..') for part in path.parts):
+            raise ValueError('invalid guest member path')
+        return self.api(method, self.base + '/files?' + urllib.parse.urlencode({'path': str(path)}), data,
+                        headers={'Content-Type': 'application/octet-stream', 'X-Incus-type': kind,
+                                 'X-Incus-uid': str(uid), 'X-Incus-gid': str(gid),
+                                 'X-Incus-mode': format(mode, '04o'), 'X-Incus-write': 'overwrite'},
+                        maximum=MAX_FILE if method == 'GET' else 8388608, raw=method == 'GET')
+
+    def pool_driver(self):
+        """Select from the mounted data partition, independently of rootfs."""
+        # findmnt's exact mountpoint interface refuses an absent /pool mount;
+        # --target would silently report the root filesystem in that case.
+        mounted = self.ctx['command'](['/usr/bin/findmnt', '-n', '-o', 'FSTYPE,OPTIONS',
+                                      '--mountpoint', str(POOL_ROOT)]).decode('ascii').split()
+        if len(mounted) != 2:
+            raise ValueError('the dedicated data pool is not a mounted filesystem')
+        filesystem, flags = mounted[0], set(mounted[1].split(','))
+        if 'rw' not in flags:
+            raise ValueError('the data pool is not writable')
+        self.directory(POOL_ROOT, 0o755)
+        if filesystem == 'xfs':
+            if not flags.intersection({'prjquota', 'pquota'}) or flags.intersection({'pqnoenforce', 'noquota'}):
+                raise ValueError('DNS container disk limits require enabled XFS project quotas on the data pool')
+            return 'dir'
+        if filesystem == 'btrfs':
+            return 'btrfs'
+        raise ValueError('DNS container pool requires XFS with project quotas or Btrfs; no filesystem conversion permitted')
+
+    def image(self, bundle: Path) -> Path:
+        """Serialize native runtime closure plus pinned data, without execution."""
+        self.ctx['validate_dns_bundle'](bundle)
+        self.pool_driver()
+        self.directory(IMAGES)
+        files, queue, total = {}, [], 0
+        artifact_roots = tuple((bundle / component).resolve(strict=True) for component in ('release', 'dotnet'))
+        native_versions = self.ctx['command'](['/usr/bin/dpkg-query', '-W',
+            '-f=${binary:Package}\t${Version}\t${Architecture}\n', 'libc6', 'dash', 'iproute2', 'tini', 'util-linux'])
+
+        def add(destination, source=None, data=None, mode=0o644):
+            nonlocal total
+            name = str(PurePosixPath(destination))
+            if not name.startswith('/') or '..' in PurePosixPath(name).parts:
+                raise ValueError('unsafe guest image member')
+            if name in files:
+                return
+            if source is not None:
+                source = source.resolve(strict=True)
+                data = self.read(source, maximum=MAX_FILE)
+            if data is None:
+                raise ValueError('missing guest image bytes')
+            if len(files) >= MAX_FILES or total + len(data) > MAX_BYTES:
+                raise ValueError('DNS image aggregate bound exceeded')
+            self.remaining()
+            total += len(data)
+            files[name] = {'source': source, 'data': data if source is None else None,
+                           'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data), 'mode': mode}
+            if data.startswith(b'\x7fELF'):
+                queue.append((source, data))
+
+        for component in ('release', 'dotnet'):
+            tree = (bundle / component).resolve(strict=True)
+            stack = [(tree, APP / component, frozenset())]
+            while stack:
+                source, destination, ancestors = stack.pop()
+                resolved = source.resolve(strict=True)
+                if not resolved.is_relative_to(tree):
+                    raise ValueError('DNS artifact link escapes its verified tree')
+                info = resolved.stat()
+                if (info.st_dev, info.st_ino) in ancestors:
+                    raise ValueError('DNS artifact directory link cycle')
+                if stat.S_ISDIR(info.st_mode):
+                    ancestry = ancestors | {(info.st_dev, info.st_ino)}
+                    with os.scandir(resolved) as entries:
+                        for entry in entries:
+                            if len(stack) + len(files) >= MAX_FILES:
+                                raise ValueError('DNS artifact traversal bound exceeded')
+                            stack.append((Path(entry.path), destination / entry.name, ancestry))
+                elif stat.S_ISREG(info.st_mode):
+                    add(destination, resolved, mode=0o755 if info.st_mode & 0o111 else 0o644)
+                else:
+                    raise ValueError('DNS image source is not regular data')
+        # Immutable Debian package/FHS command interfaces inside this image.
+        for destination, source in (('/bin/sh', '/usr/bin/dash'), ('/usr/bin/tini', '/usr/bin/tini'),
+                                    ('/usr/bin/setpriv', '/usr/bin/setpriv'), ('/usr/sbin/ip', '/usr/sbin/ip'),
+                                    ('/usr/sbin/nologin', '/usr/sbin/nologin')):
+            add(destination, Path(source), mode=0o755)
+        # .NET also dlopens these native libraries; include the installed suite
+        # candidates and their ELF closure without assuming any native version.
+        library_root = Path('/usr/lib/x86_64-linux-gnu')
+        for pattern in ('libicu*.so.*', 'libssl.so.*', 'libcrypto.so.*', 'libgssapi_krb5.so.*', 'libnss_dns.so.*', 'libnss_files.so.*'):
+            for source in sorted(library_root.glob(pattern)):
+                add(library_root / source.name, source)
+        cursor = 0
+        while cursor < len(queue):
+            source, data = queue[cursor]; cursor += 1
+            needed, interpreter = elf_dependencies(data)
+            if interpreter:
+                add(interpreter, Path(interpreter), mode=0o755)
+            for name in needed:
+                if (source is not None and (source.parent / name).is_file()
+                        and any(source.is_relative_to(root) for root in artifact_roots)):
+                    continue  # Already captured in the complete verified vendor tree.
+                candidate = library_root / name
+                if not candidate.is_file():
+                    raise ValueError('selected Debian suite lacks a required DNS guest library')
+                add(candidate, candidate)
+        add('/sbin/init', INIT, mode=0o755)
+        add('/etc/passwd', data=('root:x:0:0:root:/root:/usr/sbin/nologin\n'
+            + self.user + ':x:2103:2103:DNS:' + str(CONFIG) + ':/usr/sbin/nologin\n').encode())
+        add('/etc/group', data=('root:x:0:\n' + self.user + ':x:2103:\n').encode())
+        add('/etc/shadow', data=('root:!*:0:0:99999:7:::\n' + self.user + ':!*:0:0:99999:7:::\n').encode(), mode=0o600)
+        add('/etc/nsswitch.conf', data=b'passwd: files\ngroup: files\nhosts: files dns\n')
+        add('/etc/resolv.conf', data=('nameserver ' + self.policy['bootstrap_dns'] + '\n').encode())
+        add('/etc/ssl/certs/ca-certificates.crt', Path('/etc/ssl/certs/ca-certificates.crt'))
+        add('/etc/os-release', Path('/etc/os-release'))
+        receipt = {'format': 1, 'bundle': bundle.name, 'suite': self.policy['suite'],
+                   'native_packages': native_versions.decode(), 'members': {
+                       name: {key: value[key] for key in ('sha256', 'bytes', 'mode')}
+                       for name, value in sorted(files.items())}}
+        identity = hashlib.sha256(json.dumps(receipt, sort_keys=True).encode()).hexdigest()
+        destination = IMAGES / (identity + '.tar')
+        if destination.exists():
+            existing = self.parse(self.read(destination.with_suffix('.json'), maximum=8388608))
+            if existing['source'] != receipt or existing['sha256'] != self.digest(destination):
+                raise ValueError('retained DNS image differs from its source identity')
+            return destination
+        candidate = IMAGES / (identity + '.candidate')
+        with candidate.open('xb') as output:
+            os.fchmod(output.fileno(), 0o600)
+            with tarfile.open(fileobj=output, mode='w', format=tarfile.PAX_FORMAT) as archive:
+                metadata = ('architecture: x86_64\ncreation_date: 0\nproperties:\n  os: Debian\n  release: '
+                            + self.policy['suite'] + '\n').encode()
+                member = tarfile.TarInfo('metadata.yaml'); member.size = len(metadata); member.mode = 0o644
+                archive.addfile(member, io.BytesIO(metadata))
+                directories = {'rootfs', 'rootfs/dev', 'rootfs/proc', 'rootfs/sys', 'rootfs/tmp'}
+                directories.update('rootfs' + str(parent) for name in files for parent in PurePosixPath(name).parents if str(parent) != '/')
+                directories.update(('rootfs' + str(CONFIG), 'rootfs' + str(PRIVATE)))
+                for name in sorted(directories, key=lambda value: (value.count('/'), value)):
+                    member = tarfile.TarInfo(name); member.type = tarfile.DIRTYPE
+                    member.mode = 0o1777 if name == 'rootfs/tmp' else 0o755
+                    if name == 'rootfs' + str(CONFIG): member.uid = member.gid = 2103; member.mode = 0o700
+                    if name == 'rootfs' + str(PRIVATE): member.gid = 2103; member.mode = 0o750
+                    archive.addfile(member)
+                for name, record in sorted(files.items()):
+                    data = record['data'] if record['source'] is None else self.read(record['source'], maximum=MAX_FILE)
+                    if hashlib.sha256(data).hexdigest() != record['sha256']:
+                        raise ValueError('DNS native runtime changed during image capture')
+                    member = tarfile.TarInfo('rootfs' + name); member.size = len(data); member.mode = record['mode']
+                    archive.addfile(member, io.BytesIO(data))
+            output.flush(); os.fsync(output.fileno())
+        os.rename(candidate, destination)
+        self.ctx['sync_directory'](IMAGES)
+        self.write(destination.with_suffix('.json'), json.dumps({'format': 1, 'source': receipt,
+                   'sha256': self.digest(destination)}, sort_keys=True).encode())
+        return destination
+
+    @contextmanager
+    def image_stream(self, path):
+        # Pin one regular private inode for hashing and every subsequent read.
+        # The caller holds the shared server ownership lock throughout mutation.
+        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, 'rb') as stream:
+            before = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(before.st_mode) or before.st_uid or before.st_nlink != 1
+                    or before.st_mode & 0o077 or before.st_size > MAX_BYTES + 33554432):
+                raise ValueError('unsafe DNS image archive')
+            yield stream
+            after = os.fstat(stream.fileno())
+            named = path.lstat()
+            identity = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+            if identity(after) != identity(before) or identity(named) != identity(before):
+                raise self.unknown('DNS image identity changed; preparation evidence retained')
+
+    def stream_digest(self, stream):
+        hasher = hashlib.sha256()
+        total = 0
+        stream.seek(0)
+        while block := stream.read(1048576):
+            self.remaining(); total += len(block)
+            if total > MAX_BYTES + 33554432:
+                raise ValueError('DNS image exceeds its archive bound')
+            hasher.update(block)
+        stream.seek(0)
+        return hasher.hexdigest()
+
+    def digest(self, path):
+        with self.image_stream(path) as stream:
+            return self.stream_digest(stream)
+
+    def upload(self, image):
+        receipt = self.parse(self.read(image.with_suffix('.json'), maximum=8388608))
+        count, expanded = 0, 0
+        with self.image_stream(image) as stream:
+            if receipt['sha256'] != self.stream_digest(stream):
+                raise ValueError('DNS image archive digest differs')
+            with tarfile.open(fileobj=stream, mode='r:') as archive:
+                for member in archive:
+                    count += 1
+                    if count > MAX_FILES * 2 or member.size > MAX_FILE or member.size < 0:
+                        raise ValueError('DNS image member bound exceeded')
+                    if member.name == 'metadata.yaml':
+                        continue
+                    if not member.name.startswith('rootfs/'):
+                        if member.name == 'rootfs' and member.isdir():
+                            continue
+                        raise ValueError('DNS image member namespace differs')
+                    path = PurePosixPath('/' + member.name.removeprefix('rootfs/'))
+                    if '..' in path.parts or '.' in path.parts or not (member.isfile() or member.isdir()):
+                        raise ValueError('unsafe DNS image member')
+                    if member.isdir():
+                        self.file('POST', str(path), b'', kind='directory', uid=member.uid, gid=member.gid, mode=member.mode)
+                        continue
+                    with archive.extractfile(member) as source:
+                        data = source.read(MAX_FILE + 1)
+                    expanded += len(data)
+                    record = receipt['source']['members'].get(str(path))
+                    if (not record or len(data) != member.size or expanded > MAX_BYTES
+                            or member.mode != record['mode'] or member.uid or member.gid
+                            or hashlib.sha256(data).hexdigest() != record['sha256']):
+                        raise ValueError('DNS image member differs from its captured source')
+                    self.file('POST', str(path), data, mode=member.mode)
+        return receipt
+
+    def prepare(self, bundle: Path):
+        image = self.image(bundle)
+        self.stopped()
+        api, _ = self.api('GET', '/1.0', project=False)
+        if api.get('config', {}).get('core.https_address'):
+            raise ValueError('DNS host Incus must retain a local-only management API')
+        self.begin('prepare-stopped-guest')
+        try:
+            project_url = '/1.0/projects/' + self.project
+            try:
+                project, _ = self.api('GET', project_url, project=False)
+                if project.get('config', {}).get('user.managed-dns-owner') != self.owner:
+                    raise ValueError('DNS project has a competing owner')
+            except MissingObject:
+                self.api('POST', '/1.0/projects', {'name': self.project, 'config': {
+                    'features.images': 'true', 'features.profiles': 'true', 'features.networks': 'false',
+                    'features.storage.volumes': 'true', 'user.managed-dns-owner': self.owner}}, project=False)
+            driver = self.pool_driver()
+            self.directory(POOL.parent)
+            pool_url = '/1.0/storage-pools/' + self.policy['pool']
+            try:
+                pool, _ = self.api('GET', pool_url, project=False)
+                if (pool.get('driver') != driver or pool.get('config', {}).get('source') != str(POOL)
+                        or pool.get('config', {}).get('user.managed-dns-owner') != self.owner):
+                    raise ValueError('DNS storage pool differs; no reset permitted')
+            except MissingObject:
+                # Incus dir requires a precreated empty source; Btrfs creates
+                # its subvolume itself. Never adopt or reset an existing path.
+                if POOL.exists() or POOL.is_symlink():
+                    raise ValueError('DNS storage source already exists; no reset or adoption permitted')
+                if driver == 'dir':
+                    POOL.mkdir(mode=0o700)
+                    self.ctx['sync_directory'](POOL.parent)
+                self.api('POST', '/1.0/storage-pools', {'name': self.policy['pool'], 'driver': driver,
+                         'config': {'source': str(POOL), 'user.managed-dns-owner': self.owner}}, project=False)
+            if not POOL.is_dir() or POOL.is_symlink():
+                raise self.unknown('native DNS pool path is unavailable; evidence retained')
+            self.directory(POOL, 0o700)
+            self.cache_storage(create=True)
+            network_config = {'ipv4.address': self.policy['ipv4_cidr'], 'ipv4.nat': 'false',
+                'ipv4.dhcp': 'false', 'ipv4.firewall': 'false', 'dns.mode': 'none',
+                'ipv6.address': self.policy['ipv6_cidr'] if self.policy['ipv6_enabled'] else 'none',
+                'ipv6.nat': 'false',
+                'ipv6.dhcp': 'false', 'ipv6.firewall': 'false', 'user.managed-dns-owner': self.owner}
+            try:
+                network, _ = self.api('GET', '/1.0/networks/' + self.policy['bridge'], project=False)
+                if any(network.get('config', {}).get(key) != value for key, value in network_config.items()):
+                    raise ValueError('DNS bridge has a competing configuration')
+            except MissingObject:
+                self.api('POST', '/1.0/networks', {'name': self.policy['bridge'], 'type': 'bridge',
+                         'config': network_config}, project=False)
+            raw_config = 'lxc.sysctl.net.ipv4.ip_unprivileged_port_start = 53\n'
+            if (PROC / 'sys/net/ipv6/conf/all/disable_ipv6').exists():
+                raw_config += 'lxc.sysctl.net.ipv6.conf.all.disable_ipv6 = ' + ('0' if self.policy['ipv6_enabled'] else '1')
+            elif self.policy['ipv6_enabled']:
+                raise ValueError('the enabled IPv6 profile has no native IPv6 namespace support')
+            config = {'boot.autostart': 'false', 'security.privileged': 'false', 'security.nesting': 'false',
+                'security.idmap.isolated': 'true', 'security.protection.delete': 'true',
+                'limits.memory': str(self.policy['memory_mib']) + 'MiB', 'limits.cpu': str(self.policy['cpus']),
+                'limits.processes': str(self.policy['processes']), 'user.managed-dns-owner': self.owner,
+                'raw.lxc': raw_config}
+            devices = {'root': {'type': 'disk', 'pool': self.policy['pool'], 'path': '/',
+                               'size': str(self.policy['disk_gib']) + 'GiB'},
+                'eth0': {'type': 'nic', 'network': self.policy['bridge'], 'name': 'eth0',
+                         'host_name': self.policy['veth'], 'security.mac_filtering': 'true'},
+                'management': {'type': 'proxy', 'listen': 'unix:' + str(MANAGEMENT),
+                               'connect': 'tcp:127.0.0.1:5380', 'bind': 'host',
+                               'uid': '0', 'gid': '0', 'mode': '0600',
+                               'security.uid': '0', 'security.gid': '0'}}
+            if not self.receipt.exists():
+                self.api('POST', '/1.0/instances', {'name': self.instance, 'type': 'container',
+                         'architecture': 'x86_64', 'profiles': [], 'source': {'type': 'none'},
+                         'config': config, 'devices': devices, 'start': False})
+                self.write(self.receipt, json.dumps({'format': 1, 'owner': self.owner,
+                           'config': config, 'devices': devices, 'image': image.name}, sort_keys=True).encode())
+            self.instance_record()
+            previous = self.parse(self.read(self.receipt, private=True))
+            next_source = self.parse(self.read(image.with_suffix('.json'), maximum=8388608))['source']
+            if previous['image'] != image.name:
+                old_name = previous['image']
+                if re.fullmatch(r'[a-f0-9]{64}\.tar', old_name) is None:
+                    raise ValueError('invalid retained DNS image identity')
+                old_source = self.parse(self.read((IMAGES / old_name).with_suffix('.json'), maximum=8388608))['source']
+                obsolete = [name for name in old_source['members'] if PurePosixPath(name).is_relative_to(APP)
+                            and name not in next_source['members']]
+                for name in sorted(obsolete, reverse=True):
+                    self.file('DELETE', name)
+                old_directories = {str(parent) for name in old_source['members']
+                                   for parent in PurePosixPath(name).parents if parent.is_relative_to(APP)}
+                next_directories = {str(parent) for name in next_source['members']
+                                    for parent in PurePosixPath(name).parents if parent.is_relative_to(APP)}
+                for name in sorted(old_directories - next_directories,
+                                   key=lambda value: (value.count('/'), value), reverse=True):
+                    # Native non-recursive DELETE refuses unexpected content.
+                    # It must never erase data outside the prior image manifest.
+                    self.file('DELETE', name)
+            self.upload(image)
+            self.file('POST', str(PRIVATE / 'admin-password'), self.read(HOME / 'private/admin-password', private=True), uid=2103, gid=2103, mode=0o400)
+            certificate = Path('__INSTALLER_PATH_FILE_SERVER_DNS_TLS_CERTIFICATE__')
+            if certificate.exists() or certificate.is_symlink():
+                self.file('POST', '__INSTALLER_PATH_FILE_SERVER_DNS_GUEST_TLS_CERTIFICATE__',
+                          self.read(certificate, private=True, maximum=1048576), uid=2103, gid=2103, mode=0o400)
+            acl = self.read(HOME / 'private/recursion-acl', private=True)
+            self.file('POST', str(PRIVATE / 'recursion-acl'), acl, gid=2103, mode=0o640)
+            previous['image'] = image.name
+            self.write(self.receipt, json.dumps(previous, sort_keys=True).encode())
+        except BaseException as error:
+            # Preserve the exact request owner after any partial native mutation.
+            raise self.unknown('DNS guest preparation is incomplete; native objects and journal retained') from error
+        else:
+            self.finish()
+        return image
+
+    def cache_storage(self, *, create=False):
+        """Keep native image/backup archives in owned pool custom volumes."""
+        pool = self.policy['pool']
+        expected = {'storage.images_volume': pool + '/managed-images',
+                    'storage.backups_volume': pool + '/managed-backups',
+                    'storage.logs_volume': pool + '/managed-logs'}
+        server, headers = self.api('GET', '/1.0', project=False)
+        settings = server.get('config', {})
+        for key, value in expected.items():
+            if settings.get(key, '') not in ('', value):
+                raise ValueError('native Incus archive storage has another owner')
+            if not create and settings.get(key) != value:
+                raise ValueError('native Incus archive storage escaped the DNS data pool')
+            name = value.split('/', 1)[1]
+            endpoint = '/1.0/storage-pools/' + pool + '/volumes/custom/' + name
+            try:
+                volume, _ = self.api('GET', endpoint, project=False)
+            except MissingObject:
+                if not create:
+                    raise
+                self.api('POST', '/1.0/storage-pools/' + pool + '/volumes/custom',
+                         {'name': name, 'content_type': 'filesystem',
+                          'config': {'user.managed-dns-owner': self.owner}}, project=False)
+                volume, _ = self.api('GET', endpoint, project=False)
+            if (volume.get('content_type') != 'filesystem'
+                    or volume.get('config', {}).get('user.managed-dns-owner') != self.owner):
+                raise ValueError('native DNS archive volume identity differs; no reset or adoption')
+        if create and any(settings.get(key) != value for key, value in expected.items()):
+            if not headers.get('etag'):
+                raise ValueError('native archive storage update lacks an ETag')
+            self.api('PATCH', '/1.0', {'config': expected}, project=False,
+                     headers={'If-Match': headers['etag']})
+            current, _ = self.api('GET', '/1.0', project=False)
+            if any(current.get('config', {}).get(key) != value for key, value in expected.items()):
+                raise self.unknown('native archive storage update did not verify; evidence retained')
+
+    def state(self):
+        self.instance_record()
+        value, _ = self.api('GET', self.base + '/state')
+        return {'format': 1, 'container_state': value.get('status'), 'container_pid': value.get('pid', 0),
+                'online': False, 'service_health': 'not inferred from the container or systemd state'}
+
+    def web_api(self, path, fields=None, token=None):
+        if path not in {'/api/status', '/api/user/login', '/api/user/logout',
+                        '/api/admin/users/create', '/api/admin/users/set',
+                        '/api/admin/users/get', '/api/settings/set'}:
+            raise ValueError('unsupported private web API operation')
+        body = urllib.parse.urlencode(fields or {}).encode()
+        if len(body) > 8192:
+            raise ValueError('private web API input exceeds its bound')
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        if token is not None:
+            if not isinstance(token, str) or re.fullmatch(r'[a-fA-F0-9]{32,256}', token) is None:
+                raise ValueError('invalid private web session token')
+            headers['Authorization'] = 'Bearer ' + token
+        connection = ManagementHTTP('localhost', timeout=self.remaining(10))
+        try:
+            connection.request('POST', path, body=body, headers=headers)
+            response = connection.getresponse()
+            if response.status != 200 or response.getheader('Location'):
+                raise ValueError('private web API rejected the operation')
+            data = bytearray()
+            while True:
+                if connection.sock is not None:
+                    connection.sock.settimeout(self.remaining(10))
+                block = response.read(min(16384, 65537 - len(data)))
+                if not block:
+                    break
+                data.extend(block)
+                if len(data) > 65536:
+                    raise ValueError('private web API response exceeds its bound')
+            result = self.parse(bytes(data))
+            if not isinstance(result, dict) or result.get('status') != 'ok':
+                raise ValueError('private web API did not acknowledge the operation')
+            return result
+        finally:
+            connection.close()
+
+    def web_credentials(self):
+        user = self.read(HOME / 'private/web-username', private=True, maximum=256).decode('utf-8')
+        password = self.read(HOME / 'private/web-password', private=True, maximum=1024).decode('utf-8')
+        if re.fullmatch(r'[a-zA-Z0-9_.@-]{1,64}', user) is None or not 16 <= len(password) <= 256:
+            raise ValueError('complete private web credentials are required')
+        return user, password
+
+    def configure_web(self):
+        user, password = self.web_credentials()
+        journal = HOME / 'private/web-configuration.json'
+        previous = self.parse(self.read(journal, private=True)) if journal.exists() or journal.is_symlink() else None
+        if previous is not None and (previous.get('state') != 'configured' or previous.get('username') != user):
+            raise self.unknown('private web configuration requires recovery; no automatic retry')
+        # Readiness probes are nonmutating. Authentication or configuration is
+        # attempted once, with a durable uncertainty record before either.
+        ready_by = time.monotonic() + self.remaining(30)
+        while True:
+            try:
+                self.web_api('/api/status')
+                break
+            except (OSError, http.client.HTTPException):
+                if time.monotonic() >= ready_by:
+                    raise ValueError('private web API did not become ready') from None
+                time.sleep(0.25)
+        if previous is None:
+            self.write(journal, json.dumps({'format': 1, 'state': 'configuring', 'username': user}, sort_keys=True).encode())
+        tokens = []
+        try:
+            if previous is None and user != 'admin':
+                bootstrap = self.read(HOME / 'private/admin-password', private=True, maximum=1024).decode('utf-8')
+                login = self.web_api('/api/user/login', {'user': 'admin', 'pass': bootstrap})
+                token = login['token']; tokens.append(token)
+                self.web_api('/api/admin/users/create', {'user': user, 'pass': password, 'displayName': user}, token)
+                self.web_api('/api/admin/users/set', {'user': user, 'memberOfGroups': 'Administrators'}, token)
+            login = self.web_api('/api/user/login', {'user': user, 'pass': password})
+            token = login['token']; tokens.append(token)
+            if login.get('username') != user:
+                raise ValueError('private web login returned a different identity')
+            details = self.web_api('/api/admin/users/get', {'user': user, 'includeGroups': 'true'}, token)
+            if 'Administrators' not in details.get('response', {}).get('memberOfGroups', []):
+                raise ValueError('requested web account lacks its explicit administration role')
+            if self.web_api('/api/status').get('hasDefaultCredentials') is not False:
+                raise ValueError('vendor default credentials remain active')
+            tls = 'private Unix management; certificate not supplied'
+            certificate = Path('__INSTALLER_PATH_FILE_SERVER_DNS_TLS_CERTIFICATE__')
+            if certificate.exists() or certificate.is_symlink():
+                tls_password = self.read(HOME / 'private/tls-passphrase', private=True, maximum=1024).decode('utf-8')
+                self.web_api('/api/settings/set', {'webServiceEnableTls': 'true',
+                    'webServiceTlsCertificatePath': '__INSTALLER_PATH_FILE_SERVER_DNS_GUEST_TLS_CERTIFICATE__',
+                    'webServiceTlsCertificatePassword': tls_password}, token)
+                tls = 'certificate accepted by private authenticated settings API'
+            for session in tokens:
+                self.web_api('/api/user/logout', token=session)
+            self.write(journal, json.dumps({'format': 1, 'state': 'configured', 'username': user,
+                'tls': tls, 'online': False, 'management': 'root-private Unix socket only'}, sort_keys=True).encode())
+        except (OSError, ValueError, KeyError, http.client.HTTPException) as error:
+            raise self.unknown('private web configuration may have changed; journal retained') from error
+
+    def transition(self, action):
+        self.instance_record()
+        if action == 'start':
+            self.pool_driver()
+            self.cache_storage()
+            self.stopped()
+            self.web_credentials()
+            self.ctx['command'](['__INSTALLER_PATH_FILE_SERVER_DNS_PREFLIGHT__'], timeout=30)
+            policy = self.parse(self.read(HOME / 'private/firewall.json', private=True))
+            loaded = self.parse(self.ctx['command'](['/usr/sbin/nft', '-j', 'list', 'chain',
+                                      'inet', 'managed_server', 'technitium_forward'], timeout=15))
+            chains = [row['chain'] for row in loaded.get('nftables', []) if 'chain' in row]
+            if len(chains) != 1 or chains[0].get('comment') != 'managed-technitium:' + policy['sha256']:
+                raise ValueError('reload the staged DNS firewall policy before starting the guest')
+        self.begin(action)
+        try:
+            self.api('PUT', self.base + '/state', {'action': action, 'timeout': 30, 'force': False})
+            value, _ = self.api('GET', self.base + '/state')
+            if value.get('status_code') != (103 if action == 'start' else 102):
+                raise ValueError('DNS guest transition did not reach the requested state')
+            if action == 'start':
+                self.configure_web()
+            self.finish()
+        except BaseException as error:
+            # A running guest or partly changed web account must never be
+            # reported as an ordinary failure or retried automatically.
+            raise self.unknown('DNS guest transition may have changed; native and web journals retained') from error
+
+    def snapshot(self, name):
+        self.stopped()
+        if re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[a-f0-9]{16}', name) is None:
+            raise ValueError('invalid owned DNS snapshot name')
+        self.begin('snapshot')
+        self.api('POST', self.base + '/snapshots', {'name': name, 'stateful': False})
+        self.finish()
+        return name
+
+    def restore_snapshot(self, name):
+        self.stopped()
+        if re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[a-f0-9]{16}', name) is None:
+            raise ValueError('invalid owned DNS snapshot name')
+        saved, _ = self.api('GET', self.base + '/snapshots/' + name)
+        if saved.get('config', {}).get('user.managed-dns-owner') != self.owner:
+            raise ValueError('DNS snapshot has another owner')
+        self.begin('restore-stopped-snapshot')
+        self.api('PUT', self.base, {'restore': name, 'stateful': False})
+        self.finish()
+
+    def export_config(self, name):
+        self.stopped()
+        if re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[a-f0-9]{16}', name) is None:
+            raise ValueError('invalid DNS backup identity')
+        candidate = HOME / ('config-export-' + name)
+        if candidate.exists() or candidate.is_symlink():
+            raise ValueError('DNS configuration export requires review before retry')
+        self.begin('export-stopped-config')
+        self.directory(candidate)
+        stack, count, total = [(str(CONFIG), candidate)], 0, 0
+        while stack:
+            guest, local = stack.pop()
+            data, headers = self.file('GET', guest)
+            if isinstance(data, list):
+                if len(data) + count + len(stack) > 10000:
+                    raise ValueError('DNS backup member bound exceeded')
+                for leaf in data:
+                    if not isinstance(leaf, str) or re.fullmatch(r'[A-Za-z0-9_.@+-]{1,200}', leaf) is None or leaf in ('.', '..'):
+                        raise ValueError('unsafe DNS configuration filename')
+                    stack.append((guest + '/' + leaf, local / leaf))
+                self.directory(local)
+            else:
+                if headers.get('x-incus-type') != 'file':
+                    raise ValueError('DNS backup contains a link or special object')
+                total += len(data); count += 1
+                if total > 134217728 or count > 10000:
+                    raise ValueError('DNS backup aggregate bound exceeded')
+                self.directory(local.parent)
+                self.write(local, data)
+        previous = HOME / ('config-before-export-' + name)
+        if previous.exists() or previous.is_symlink():
+            raise ValueError('previous DNS export evidence needs review')
+        os.rename(HOME / 'config', previous)
+        os.rename(candidate, HOME / 'config')
+        self.ctx['sync_directory'](HOME)
+        self.finish()
+        return previous

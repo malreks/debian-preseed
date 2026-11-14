@@ -1,0 +1,19 @@
+{
+  "custom/power": {
+    "cursor": true,
+    "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-exec __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state status power",
+    "return-type": "json",
+    "signal": 8,
+    "format": "__THEME_WAYBAR_BUTTON_POWER_NORMAL_ICON_GLYPH__",
+    "tooltip": false,
+    "on-click-release": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --menu=power",
+    "menu-file": "~/.config/waybar/gtk/power-menu.xml",
+    "menu-actions": {
+      "power_lock": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings lock",
+      "power_suspend": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings suspend",
+      "power_reboot": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings reboot",
+      "power_logout": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings logout",
+      "power_shutdown": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings poweroff"
+    }
+  }
+}

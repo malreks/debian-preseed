@@ -1,0 +1,1092 @@
+"""Declarative application and sandbox profile policy."""
+
+from __future__ import annotations
+
+from .browsers import browser_args
+from .electron import electron_args, electron_js_flags, electron_privacy_args, discord_x11_args
+
+INTEL_ACCELERATION_ENV = {
+    "LIBVA_DRIVER_NAME": "iHD",
+}
+NVIDIA_ACCELERATION_ENV = {
+    "GBM_BACKEND": "nvidia-drm",
+    "LIBVA_DRIVER_NAME": "nvidia",
+    "NVD_BACKEND": "direct",
+    "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
+    "__NV_PRIME_RENDER_OFFLOAD": "1",
+}
+TUTA_DBUS_NAMES = (
+    "org.freedesktop.secrets",
+    # Electron tray registration and callbacks, without owning the watcher.
+    "org.kde.StatusNotifierWatcher",
+)
+# The private PID namespace keeps AppRun/Electron at PID 2 (bwrap is PID 1).
+# xdg-dbus-proxy only supports dot-prefix wildcards, not Item-*-* globs.
+# Own only the logged single tray item; never the watcher or freedesktop.*.
+TUTA_DBUS_OWN_NAMES = ("org.freedesktop.StatusNotifierItem-2-1",)
+DISCORD_SESSION_DBUS_NAMES = (
+    "com.canonical.AppMenu.Registrar",
+    "com.canonical.Unity",
+    "com.canonical.indicator.application",
+    "org.freedesktop.ScreenSaver",
+    "org.freedesktop.secrets",
+    "org.kde.StatusNotifierWatcher",
+)
+ZOOM_SESSION_DBUS_NAMES = (
+    "org.freedesktop.ScreenSaver",
+)
+ZOOM_SESSION_DBUS_OWN_NAMES = ()
+CHATGPT_SESSION_DBUS_NAMES = (
+    "org.freedesktop.secrets",
+)
+CHATGPT_SYSTEM_DBUS_NAMES = (
+    "org.freedesktop.UPower",
+)
+TUTA_SYSTEM_DBUS_NAMES = (
+    "org.freedesktop.UPower",
+)
+DISCORD_ROOT = "__INSTALLER_PATH_DIR_OPT__/discord"
+DISCORD_MODULES_ROOT = f"{DISCORD_ROOT}/modules"
+DISCORD_RELEASE_FILE = f"{DISCORD_ROOT}/.release"
+DISCORD_MODULES_FILE = f"{DISCORD_MODULES_ROOT}/installed.json"
+DISCORD_STATE_FILE = "__INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE__/state/discord.installed.json"
+DISCORD_EXECUTABLE_FILES = (
+    f"{DISCORD_ROOT}/Discord",
+    f"{DISCORD_ROOT}/chrome-sandbox",
+    f"{DISCORD_ROOT}/chrome_crashpad_handler",
+)
+DISCORD_REQUIRED_MODULES = (
+    "discord_desktop_core",
+    "discord_erlpack",
+    "discord_spellcheck",
+    "discord_utils",
+    "discord_voice",
+)
+DISCORD_REQUIRED_FILES = (
+    *DISCORD_EXECUTABLE_FILES,
+    f"{DISCORD_ROOT}/discord.png",
+    f"{DISCORD_ROOT}/libffmpeg.so",
+    DISCORD_RELEASE_FILE,
+)
+WAYLAND_COMPAT_APPS = ("discord", "zoom")
+WAYLAND_COMPAT_RUNTIME_ROOT = "__INSTALLER_PATH_DIR_OPT__/xwayland"
+
+
+APPS = {
+    "help": {
+        "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-help-gtk",
+        "env": {"GDK_BACKEND": "wayland", "GTK_A11Y": "atspi", "NO_AT_BRIDGE": "0", "GTK_CSD": "0"},
+        "args": [],
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "required_runtime_files": (
+            "__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-help/catalog.json",
+            "__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-help/theme.json",
+            "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-help",
+        ),
+    },
+    "calix": {
+        "exec": "__INSTALLER_PATH_DIR_OPT__/calix/calix",
+        "env": {"GDK_BACKEND": "wayland",
+                "TZ": "Europe/Stockholm",
+                # GTK 4.24 can report conflicting presentation feedback for
+                # one frame. Use its native Wayland frame-callback timing path
+                # for Calix only; retain rendering and diagnostic output.
+                "GDK_WAYLAND_DISABLE": "wp_presentation"},
+        "args": [],
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "required_runtime_files": ("__INSTALLER_PATH_DIR_OPT__/calix/release.json",),
+    },
+    "agenda": {
+        "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/com.github.dahenson.agenda",
+        "env": {"GDK_BACKEND": "wayland",
+                "TZ": "Europe/Stockholm",
+                # Agenda explicitly sets a GtkHeaderBar; GTK_CSD alone does
+                # not disable it. Keep the packaged interposer app-local.
+                "GTK_CSD": "0",
+                "LD_PRELOAD": "__INSTALLER_PATH_DIR_USR__/lib/x86_64-linux-gnu/libgtk-nocsd.so.0",
+                "GSETTINGS_SCHEMA_DIR": "__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/agenda/schemas"},
+        "args": [],
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "required_runtime_files": (
+            "__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/agenda/schemas/gschemas.compiled",
+            "__INSTALLER_PATH_DIR_USR__/lib/x86_64-linux-gnu/libgtk-nocsd.so.0",
+        ),
+    },
+    "tor-browser": {
+        "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tor-browser-run",
+        "env": {"MOZ_ENABLE_WAYLAND": "1", "GDK_BACKEND": "wayland", "MOZ_CRASHREPORTER_DISABLE": "1"},
+        "args": [], "intel_env": {"MOZ_WEBRENDER": "1"}, "intel_args": [],
+        "nvidia_env": {"MOZ_WEBRENDER": "1"}, "nvidia_args": [],
+        "pure_privacy": True, "privacy_args": ("--anon",),
+        "privacy_dbus": False, "bind_workspace": False,
+        "ram_sandbox": True,
+        "required_runtime_files": (
+            "__INSTALLER_PATH_DIR_OPT_TOR_BROWSER__/Browser/firefox.real",
+            "__INSTALLER_PATH_DIR_OPT_TOR_BROWSER__/Browser/TorBrowser/Tor/tor",
+            "__INSTALLER_PATH_DIR_OPT_TOR_BROWSER__/Browser/distribution/policies.json",
+            # Tor Browser 15's Firefox ESR supports this Forky FFmpeg ABI.
+            # Both nested sandboxes retain the immutable system /usr tree.
+            "__INSTALLER_PATH_DIR_USR__/lib/x86_64-linux-gnu/libavcodec.so.62",
+            "__INSTALLER_PATH_DIR_USR__/lib/x86_64-linux-gnu/libavutil.so.60",
+            "__INSTALLER_PATH_DIR_USR__/lib/x86_64-linux-gnu/libswresample.so.6",
+        ),
+    },
+    "chromium": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/chromium",
+        "env": {},
+        "args": browser_args("chromium", "launch"),
+        "intel_env": {},
+        "intel_args": browser_args("chromium", "intel"),
+        "nvidia_env": {},
+        "nvidia_args": browser_args("chromium", "nvidia"),
+        "bind_workspace": False,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+    },
+    "microsoft-edge": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/microsoft-edge-stable",
+        "env": {},
+        "args": browser_args("microsoft-edge", "launch"),
+        "intel_env": {},
+        "intel_args": browser_args("microsoft-edge", "intel"),
+        "nvidia_env": {},
+        "nvidia_args": browser_args("microsoft-edge", "nvidia"),
+        "bind_workspace": False,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+    },
+    "vivaldi": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/vivaldi-stable",
+        "env": {
+            "VIVALDI_FFMPEG_AUTO": "0",
+        },
+        "args": browser_args("vivaldi", "launch"),
+        "intel_env": {},
+        "intel_args": browser_args("vivaldi", "intel"),
+        "nvidia_env": {},
+        "nvidia_args": browser_args("vivaldi", "nvidia"),
+        "bind_workspace": False,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+    },
+    "code": {
+        # Invoke Electron directly. __INSTALLER_PATH_DIR_USR__/bin/code is the CLI wrapper and
+        # intentionally sets ELECTRON_RUN_AS_NODE=1, so it exits after handing
+        # off to a detached client; the transient service would then reap the
+        # GUI cgroup. The real binary keeps the managed service attached.
+        "exec": "__INSTALLER_PATH_DIR_USR_SHARE__/code/code",
+        "library_dirs": ("__INSTALLER_PATH_DIR_USR_SHARE__/code",),
+        "required_runtime_files": ("__INSTALLER_PATH_DIR_USR_SHARE__/code/libffmpeg.so",),
+        "env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+        },
+        "args": electron_args("code", "launch"),
+        "intel_env": {},
+        "intel_args": electron_args("code", "intel"),
+        "nvidia_env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+        },
+        "nvidia_args": electron_args("code", "nvidia"),
+        "privacy_args": electron_privacy_args("code"),
+        "bind_workspace": True,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+    },
+    "mullvad-browser": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/mullvad-browser",
+        "env": {
+            "MOZ_ENABLE_WAYLAND": "1",
+        },
+        "args": [],
+        "intel_env": {
+            "LIBVA_DRIVER_NAME": "iHD",
+            "MOZ_WEBRENDER": "1",
+        },
+        "intel_args": [],
+        "nvidia_env": {
+            "MOZ_ENABLE_WAYLAND": "1",
+            "MOZ_WEBRENDER": "1",
+        },
+        "nvidia_args": [],
+        "bind_workspace": False,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+    },
+    "bitwarden": {
+        "exec": "__INSTALLER_PATH_DIR_OPT__/Bitwarden/bitwarden",
+        "library_dirs": ("__INSTALLER_PATH_DIR_OPT__/Bitwarden",),
+        "required_runtime_files": ("__INSTALLER_PATH_DIR_OPT__/Bitwarden/libffmpeg.so",),
+        "env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            # Use native GTK settings so Desktop Appearance controls the mode.
+        },
+        "args": electron_args("bitwarden", "launch"),
+        "intel_env": {},
+        "intel_args": electron_args("bitwarden", "intel"),
+        "nvidia_env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+        },
+        "nvidia_args": electron_args("bitwarden", "nvidia"),
+        "privacy_args": electron_privacy_args("bitwarden"),
+        "bind_workspace": False,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+    },
+    "chatgpt": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/lib/chatgpt/ChatGPT",
+        "library_dirs": ("__INSTALLER_PATH_DIR_USR__/lib/chatgpt",),
+        "required_runtime_files": (
+            "__INSTALLER_PATH_DIR_USR__/lib/chatgpt/codex-launcher",
+            "__INSTALLER_PATH_DIR_USR__/lib/chatgpt/resources/codex",
+            "__INSTALLER_PATH_DIR_USR__/lib/chatgpt/resources/codex-code-mode-host",
+        ),
+        "env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "args": electron_args("chatgpt", "launch"),
+        "intel_env": {},
+        "intel_args": electron_args("chatgpt", "intel"),
+        "nvidia_env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "nvidia_args": electron_args("chatgpt", "nvidia"),
+        "bind_workspace": True,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+        "requires_devops_environment": True,
+    },
+    "obsidian": {
+        "exec": "__INSTALLER_PATH_DIR_OPT__/Obsidian/obsidian",
+        "exec_candidates": ("__INSTALLER_PATH_DIR_USR__/bin/obsidian",),
+        "library_dirs": ("__INSTALLER_PATH_DIR_OPT__/Obsidian",),
+        "required_runtime_files": ("__INSTALLER_PATH_DIR_OPT__/Obsidian/libffmpeg.so",),
+        "env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "args": electron_args("obsidian", "launch"),
+        "intel_env": {},
+        "intel_args": electron_args("obsidian", "intel"),
+        "nvidia_env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "nvidia_args": electron_args("obsidian", "nvidia"),
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+    },
+    "qoredb": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/qoredb",
+        "env": {
+            "GTK_USE_PORTAL": "1",
+        },
+        "args": [],
+        "intel_env": {},
+        "intel_args": [],
+        "nvidia_env": {
+            "GTK_USE_PORTAL": "1",
+        },
+        "nvidia_args": [],
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+        "database_state_directory": "qoredb",
+    },
+    "postman": {
+        "exec": "__INSTALLER_PATH_DIR_OPT__/postman/app/Postman",
+        "library_dirs": ("__INSTALLER_PATH_DIR_OPT__/postman/app",),
+        "required_runtime_files": ("__INSTALLER_PATH_DIR_OPT__/postman/app/libffmpeg.so",),
+        "env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+            "POSTMAN_CLI_SYSTEM_INSTALL": "0",
+            "POSTMAN_CLI_NO_MODIFY_PATH": "1",
+        },
+        "args": electron_args("postman", "launch"),
+        "intel_env": {},
+        "intel_args": electron_args("postman", "intel"),
+        "nvidia_env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "nvidia_args": electron_args("postman", "nvidia"),
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+    },
+    "keepassxc": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/keepassxc",
+        "env": {
+            "GTK_USE_PORTAL": "1",
+            "QT_QPA_PLATFORM": "wayland",
+            "QT_WAYLAND_DISABLE_WINDOWDECORATION": "1",
+        },
+        "args": [],
+        "intel_env": {},
+        "intel_args": [],
+        "nvidia_env": {
+            "GTK_USE_PORTAL": "1",
+            "QT_QPA_PLATFORM": "wayland",
+            "QT_WAYLAND_DISABLE_WINDOWDECORATION": "1",
+        },
+        "nvidia_args": [],
+        "bind_workspace": False,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+        "privacy_share_net": False,
+    },
+    "sleek": {
+        "exec": "__INSTALLER_PATH_DIR_OPT__/sleek/sleek",
+        "exec_candidates": ("__INSTALLER_PATH_DIR_USR__/bin/sleek",),
+        "library_dirs": ("__INSTALLER_PATH_DIR_OPT__/sleek",),
+        "required_runtime_files": ("__INSTALLER_PATH_DIR_OPT__/sleek/libffmpeg.so",),
+        "env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "args": electron_args("sleek", "launch"),
+        "intel_env": {},
+        "intel_args": electron_args("sleek", "intel"),
+        "nvidia_env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "nvidia_args": electron_args("sleek", "nvidia"),
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+    },
+    "spotify": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/spotify",
+        "env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "args": electron_args("spotify", "launch"),
+        "intel_env": {},
+        "intel_args": electron_args("spotify", "intel"),
+        "nvidia_env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "nvidia_args": electron_args("spotify", "nvidia"),
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+    },
+    "filen": {
+        "exec": "__INSTALLER_PATH_DIR_OPT__/Filen/Filen",
+        "exec_candidates": ("__INSTALLER_PATH_DIR_USR__/bin/filen", "__INSTALLER_PATH_DIR_USR__/bin/filen-desktop"),
+        "library_dirs": ("__INSTALLER_PATH_DIR_OPT__/Filen",),
+        "required_runtime_files": ("__INSTALLER_PATH_DIR_OPT__/Filen/libffmpeg.so",),
+        "env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "args": electron_args("filen", "launch"),
+        "intel_env": {},
+        "intel_args": electron_args("filen", "intel"),
+        "nvidia_env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "nvidia_args": electron_args("filen", "nvidia"),
+        "privacy_args": electron_privacy_args("filen"),
+        "bind_workspace": False,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+    },
+    "discord": {
+        "exec": "__INSTALLER_PATH_DIR_OPT__/discord/Discord",
+        "library_dirs": (DISCORD_ROOT,),
+        "required_runtime_files": DISCORD_REQUIRED_FILES,
+        "env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "x11",
+            "GTK_USE_PORTAL": "1",
+        },
+        "args": discord_x11_args( "launch"),
+        "intel_env": {},
+        "intel_args": discord_x11_args( "intel"),
+        "nvidia_env": {
+            "ELECTRON_OZONE_PLATFORM_HINT": "x11",
+            "GTK_USE_PORTAL": "1",
+        },
+        "nvidia_args": discord_x11_args( "nvidia"),
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+    },
+    "ledger-live": {
+        "exec": "__INSTALLER_PATH_DIR_OPT__/ledger-live/AppRun",
+        "env": {
+            "APPDIR": "__INSTALLER_PATH_DIR_OPT__/ledger-live",
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "args": [
+            *electron_args("ledger-live", "launch"),
+            electron_js_flags("ledger-live"),
+        ],
+        "intel_env": {},
+        "intel_args": electron_args("ledger-live", "intel"),
+        "nvidia_env": {
+            "APPDIR": "__INSTALLER_PATH_DIR_OPT__/ledger-live",
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+        },
+        "nvidia_args": electron_args("ledger-live", "nvidia"),
+        "privacy_args": electron_privacy_args("ledger-live"),
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+    },
+    "tutanota": {
+        "exec": "__INSTALLER_PATH_DIR_OPT__/tuta-mail/AppRun",
+        "env": {
+            "APPDIR": "__INSTALLER_PATH_DIR_OPT__/tuta-mail",
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+            # Tuta's Electron renderer otherwise uses a UTC/host fallback in
+            # the private sandbox. Pin the installed Swedish desktop profile
+            # explicitly so message/calendar timestamps match the session.
+            "TZ": "Europe/Stockholm",
+        },
+        "args": electron_args("tutanota", "launch"),
+        "intel_env": {},
+        "intel_args": electron_args("tutanota", "intel"),
+        "nvidia_env": {
+            "APPDIR": "__INSTALLER_PATH_DIR_OPT__/tuta-mail",
+            "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+            "GTK_USE_PORTAL": "1",
+            "TZ": "Europe/Stockholm",
+        },
+        "nvidia_args": electron_args("tutanota", "nvidia"),
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+    },
+    "zoom": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/zoom",
+        "env": {
+            "GTK_USE_PORTAL": "1",
+        },
+        "args": [],
+        "intel_env": {},
+        "intel_args": [],
+        "nvidia_env": {},
+        "nvidia_args": [],
+        "bind_workspace": False,
+        "pure_privacy": False,
+        "persistent_sandbox": True,
+    },
+    "telegram-desktop": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/telegram-desktop",
+        "env": {
+            "QT_QPA_PLATFORM": "wayland",
+            "QT_WAYLAND_DISABLE_WINDOWDECORATION": "1",
+        },
+        "args": [],
+        "intel_env": {},
+        "intel_args": [],
+        "nvidia_env": {
+            "QT_QPA_PLATFORM": "wayland",
+            "QT_WAYLAND_DISABLE_WINDOWDECORATION": "1",
+        },
+        "nvidia_args": [],
+        "bind_workspace": False,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+    },
+    "retroarch": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/retroarch",
+        "env": {
+            "SDL_VIDEODRIVER": "wayland",
+        },
+        "args": [],
+        "intel_env": {},
+        "intel_args": [],
+        "nvidia_env": {
+            "SDL_VIDEODRIVER": "wayland",
+        },
+        "nvidia_args": [],
+        "bind_workspace": False,
+        "pure_privacy": True,
+        "persistent_sandbox": True,
+        "privacy_share_net": False,
+        "privacy_home_ro_paths": (".config/retroarch/retroarch.cfg",),
+    },
+    "mpv": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/mpv",
+        "env": {}, "args": [], "intel_env": {}, "intel_args": [], "nvidia_env": {}, "nvidia_args": [],
+        "bind_workspace": False, "pure_privacy": False, "persistent_sandbox": True,
+    },
+    "liferea": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/liferea",
+        "env": {}, "args": [], "intel_env": {}, "intel_args": [], "nvidia_env": {}, "nvidia_args": [],
+        "bind_workspace": False, "pure_privacy": False, "persistent_sandbox": True,
+    },
+    "freerdp": {
+        "exec": "__INSTALLER_PATH_DIR_USR__/bin/sdl-freerdp",
+        "exec_candidates": ("__INSTALLER_PATH_DIR_USR__/bin/sdl-freerdp3",),
+        "env": {"FREERDP_ASKPASS": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-freerdp-askpass"},
+        "args": [], "intel_env": {}, "intel_args": [], "nvidia_env": {}, "nvidia_args": [],
+        "bind_workspace": False, "pure_privacy": False, "persistent_sandbox": True,
+    },
+    "qbittorrent": {
+        "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-qbittorrent",
+        "privacy_exec": "__INSTALLER_PATH_DIR_USR__/bin/qbittorrent",
+        "env": {
+            "QT_QPA_PLATFORM": "wayland",
+            # Also cover the disposable profile used by pure-privacy launches.
+            "QT_STYLE_OVERRIDE": "Fusion",
+        },
+        "args": [],
+        "intel_env": {},
+        "intel_args": ("--acceleration=intel",),
+        "nvidia_env": {
+            "QT_QPA_PLATFORM": "wayland",
+        },
+        "nvidia_args": ("--acceleration=nvidia",),
+        "bind_workspace": False,
+        "pure_privacy": True,
+    },
+}
+
+MAX_DBUS_ADDRESS_LENGTH = 4096
+NOTIFICATIONS_DBUS_NAME = "org.freedesktop.Notifications"
+PORTAL_DBUS_NAMESPACE = "org.freedesktop.portal.*"
+PORTAL_DBUS_BROADCAST_RULE = "@/org/freedesktop/portal/*"
+TUTA_PERSISTENT_PATHS = (
+    ".cache/tutanota-desktop",
+    ".config/tutanota-desktop",
+    ".local/share/tutanota-desktop",
+    ".local/state/tutanota-desktop",
+)
+TUTA_INTEGRATION_DIRECTORY_BINDS = (
+    (".local/state/tutanota-desktop/desktop-integration/config", ".config"),
+    (".local/state/tutanota-desktop/desktop-integration/applications", ".local/share/applications"),
+    (".local/state/tutanota-desktop/desktop-integration/icons", ".local/share/icons"),
+)
+TUTA_ATTACHMENT_READ_WRITE_PATHS = (
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "Music",
+    "Pictures",
+    "Public",
+    "Templates",
+    "Videos",
+    "Workspace",
+    "Syncthing",
+)
+DISCORD_PERSISTENT_PATHS = (
+    ".cache/discord",
+    ".config/discord",
+    ".local/share/discord",
+    ".local/state/discord",
+)
+ZOOM_PERSISTENT_PATHS = (
+    ".cache/zoom",
+    ".local/share/zoom",
+    ".zoom",
+)
+ZOOM_CONFIG_SOURCE = ".config/zoom"
+CHATGPT_PERSISTENT_PATHS = (
+    ".cache/Codex",
+    ".config/Codex",
+    ".local/share/Codex",
+    ".local/state/Codex",
+)
+# Keep managed host policy inspectable from ChatGPT without exposing
+# privileged service sockets to the sandbox.
+CHATGPT_DEVOPS_READ_ONLY_HOME_DIRECTORIES = (
+    ".cmake/packages",
+    ".config/Code/User/snippets",
+    ".config/bat",
+    ".config/bazel",
+    ".config/clangd",
+    ".config/direnv",
+    ".config/gtk-3.0",
+    ".config/gtk-4.0",
+    ".config/l3afpad",
+    ".config/fzf",
+    ".config/git",
+    ".config/micro",
+    ".config/mise",
+    ".config/nano",
+    ".config/nvim",
+    ".config/pip",
+    ".config/powershell",
+    ".config/retroarch",
+    ".config/satty",
+    ".config/sleek",
+    ".config/task",
+    ".config/vim",
+    ".config/yamllint",
+    ".local/bin",
+    ".local/lib",
+    ".local/share/powershell/Modules",
+)
+CHATGPT_DEVOPS_READ_ONLY_HOME_FILES = (
+    ".bash_aliases",
+    ".bash_logout",
+    ".bash_profile",
+    ".bashrc",
+    ".config/Code/User/keybindings.json",
+    ".config/Code/User/settings.json",
+    ".config/cargo/config.toml",
+    ".config/containers/containers.conf",
+    ".config/containers/mounts.conf",
+    ".config/containers/policy.json",
+    ".config/containers/registries.conf",
+    ".config/containers/seccomp.json",
+    ".config/containers/storage.conf",
+    ".config/gh/config.yml",
+    ".config/go/env",
+    ".config/mimeapps.list",
+    ".config/obsidian/obsidian.json",
+    ".config/starship.toml",
+    ".config/user-dirs.dirs",
+    ".config/uv/uv.toml",
+    ".config/xdg-terminals.list",
+    ".dircolors",
+    ".gitconfig",
+    ".gitlint",
+    ".lldbinit",
+    ".markdownlint-cli2.cjs",
+    ".markdownlint-cli2.jsonc",
+    ".markdownlint-cli2.mjs",
+    ".markdownlint-cli2.yaml",
+    ".markdownlint.json",
+    ".markdownlint.yaml",
+    ".markdownlint.yml",
+    ".profile",
+    ".profile.d/71-devops-de.sh",
+    ".profile.d/72-incus.sh",
+    ".profile.d/75-firmware-workspace.sh",
+    ".recoll/recoll.conf",
+    ".ripgreprc",
+    ".rustfmt.toml",
+    ".shellcheckrc",
+    ".vimrc",
+    ".zlogin",
+    ".zlogout",
+    ".zprofile",
+    ".zsh_aliases",
+    ".zshenv",
+    ".zshrc",
+)
+CHATGPT_VIRTUALIZATION_READ_ONLY_SYSTEM_PATHS = (
+    "__INSTALLER_PATH_DIR_ETC__/incus/host.conf",
+    "__INSTALLER_PATH_DIR_ETC__/incus",
+    "__INSTALLER_PATH_DIR_ETC__/modprobe.d",
+    "__INSTALLER_PATH_DIR_ETC__/modules-load.d",
+    "__INSTALLER_PATH_DIR_ETC__/qemu",
+    "__INSTALLER_PATH_DIR_SYSTEMD_ETC__/system/incus-host.service",
+    "__INSTALLER_PATH_DIR_ETC__/tmpfiles.d/85-qemu-incus-storage.conf",
+)
+CHATGPT_DEVOPS_READ_WRITE_HOME_DIRECTORIES = (
+    "Downloads",
+    "Workspace",
+)
+CHATGPT_DOWNLOAD_HOME_DIRECTORIES = (
+    "Desktop", "Documents", "Music", "Pictures", "Public", "Templates", "Videos",
+)
+CHATGPT_DEVOPS_READ_WRITE_PATHS = (
+    "__INSTALLER_PATH_DIR_POOL__",
+    "__INSTALLER_PATH_DIR_DATA__/codex",
+    "__INSTALLER_PATH_DIR_DATA__/downloads",
+)
+BITWARDEN_NATIVE_MESSAGING_PATHS = (
+    ".config/chromium/NativeMessagingHosts",
+    ".config/google-chrome/NativeMessagingHosts",
+    ".config/microsoft-edge/NativeMessagingHosts",
+    ".config/vivaldi/NativeMessagingHosts",
+    ".mozilla/native-messaging-hosts",
+    ".var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts",
+    ".var/app/com.google.Chrome/config/google-chrome/NativeMessagingHosts",
+    ".var/app/org.chromium.Chromium/config/chromium/NativeMessagingHosts",
+    ".var/app/com.microsoft.Edge/config/microsoft-edge/NativeMessagingHosts",
+)
+
+# Reuse the existing persistent sandbox and explicitly retain only application
+# state, documents and client IPC. Every online policy unshares the host network
+# before obtaining a veth lease; the payload never receives the lease socket.
+NATIVE_VETH_SANDBOX_DEFAULTS = {
+    "chdir": ".",
+    "config_args": (),
+    "dbus_names": (
+        "org.freedesktop.Notifications",
+        "org.freedesktop.portal.*",
+        "org.freedesktop.secrets",
+        "org.kde.StatusNotifierWatcher",
+    ),
+    "dbus_own_names": (),
+    "inner_sandbox_args": (),
+    "require_session_bus": True,
+    "ro_bind_paths": (),
+    "ro_bind_home_directories": (".config/gtk-3.0", ".config/gtk-4.0", ".config/l3afpad", ".config/dconf",
+                                 ".config/qt5ct", ".config/qt6ct", ".config/Kvantum",
+                                 ".config/fontconfig", ".local/share/icons"),
+    "ro_bind_home_optional_files": (".config/user-dirs.dirs",),
+    "rw_bind_home_directories": ("Downloads", "Documents", "Pictures"),
+    "runtime_directories": ("doc",),
+    "runtime_sockets": ("pipewire-0", "pulse/native"),
+    "preserve_persistent_modes": True,
+    "shared_temp_directory_by_application": True,
+    "share_net": False,
+    "system_dbus_names": ("org.freedesktop.UPower",),
+}
+PERSISTENT_SANDBOX_CONFIG = {
+    "chromium": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "camera_devices": True,
+        "persistent_paths": (".cache/chromium", ".config/chromium", ".pki/nssdb",
+                             ".local/state/browser-devtools/chromium"),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_ETC_OPT__/chrome",),
+    },
+    "microsoft-edge": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "camera_devices": True,
+        "persistent_paths": (".cache/microsoft-edge", ".config/microsoft-edge",
+                             ".pki/nssdb", ".local/state/browser-devtools/microsoft-edge"),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/microsoft/msedge", "__INSTALLER_PATH_DIR_ETC_OPT__/edge", "__INSTALLER_PATH_DIR_ETC_OPT__/chrome"),
+    },
+    "vivaldi": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "camera_devices": True,
+        # Chromium appends its instance PID to the MPRIS name. Own only this
+        # application's namespace through the filtered session-bus proxy.
+        "dbus_own_names": ("org.mpris.MediaPlayer2.vivaldi.*",),
+        "persistent_paths": (".cache/vivaldi", ".config/vivaldi", ".pki/nssdb",
+                             ".local/state/browser-devtools/vivaldi"),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/vivaldi", "__INSTALLER_PATH_DIR_ETC__/vivaldi", "__INSTALLER_PATH_DIR_ETC_OPT__/chrome"),
+    },
+    "mullvad-browser": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "camera_devices": True,
+        "persistent_paths": (".mullvad-browser", ".mullvad/mullvadbrowser",
+                             ".cache/mullvad/mullvadbrowser"),
+    },
+    "code": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "system_dbus_policy_arguments": (
+            "--see=org.freedesktop.login1",
+            "--call=org.freedesktop.login1=org.freedesktop.login1.Manager.Inhibit@/org/freedesktop/login1",
+            # Electron must release its delay FD before sleep/shutdown and
+            # reacquire it after cancellation/resume. SEE does not pass signals.
+            "--broadcast=org.freedesktop.login1=org.freedesktop.login1.Manager.PrepareForSleep@/org/freedesktop/login1",
+            "--broadcast=org.freedesktop.login1=org.freedesktop.login1.Manager.PrepareForShutdown@/org/freedesktop/login1",
+        ),
+        "persistent_paths": (".cache/Code", ".cache/Microsoft/DeveloperTools",
+                             ".config/Code", ".local/share/code", ".vscode", ".vscode-shared"),
+        "rw_bind_home_directories": ("Workspace", "Documents", "Downloads"),
+        "ro_bind_home_directories": (".config/gtk-3.0", ".config/gtk-4.0"),
+        "ro_bind_home_optional_files": (
+            ".config/user-dirs.dirs", ".gitconfig", ".ssh/config", ".ssh/known_hosts",
+        ),
+        "rw_bind_paths": ("__INSTALLER_PATH_DIR_POOL__",),
+        "preserve_working_directory": True,
+    },
+    "bitwarden": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        # Electron's main process is PID 2 in this private PID namespace.
+        "dbus_own_names": ("org.freedesktop.StatusNotifierItem-2-1",),
+        "persistent_paths": (".cache/Bitwarden", ".cache/com.bitwarden.desktop",
+                             ".config/Bitwarden", ".local/share/Bitwarden",
+                             *BITWARDEN_NATIVE_MESSAGING_PATHS),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/Bitwarden",),
+    },
+    "obsidian": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/obsidian", ".config/obsidian",
+                             ".local/share/obsidian"),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/Obsidian",),
+        "rw_bind_home_directories": ("Syncthing/obsidian-md", "Documents", "Downloads"),
+        "ro_bind_home_optional_files": (".config/user-dirs.dirs", ".gitconfig"),
+    },
+    "qoredb": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (),
+        # The runtime adds the already validated per-account database state.
+        "database_state": True,
+    },
+    "postman": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/Postman", ".config/Postman", ".local/share/Postman", "Postman"),
+        # Persist only Postman's own CLI tools at the native lookup location;
+        # the account's actual .local/bin and other launchers remain hidden.
+        "integration_directory_binds": ((".local/share/Postman/cli-bin", ".local/bin"),),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/postman/app", "__INSTALLER_PATH_DIR_ETC__/zsh", "__INSTALLER_PATH_DIR_ETC__/profile", "__INSTALLER_PATH_DIR_ETC__/profile.d"),
+        "rw_bind_home_directories": ("Workspace", "Documents", "Downloads"),
+    },
+    "keepassxc": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/keepassxc", ".config/keepassxc", ".local/share/keepassxc"),
+        "rw_bind_home_directories": ("Syncthing/keepassxc", "Documents", "Downloads"),
+    },
+    "mpv": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/mpv", ".config/mpv", ".local/share/mpv", ".local/state/mpv"),
+        "rw_bind_home_directories": ("Music", "Videos", "Documents", "Downloads"),
+        "user_media_directory": True,
+    },
+    "liferea": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/liferea", ".config/liferea", ".local/share/liferea",
+                             ".cache/net.sourceforge.liferea", ".local/share/net.sourceforge.liferea"),
+    },
+    "freerdp": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".config/freerdp", ".cache/freerdp", ".local/share/freerdp"),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_ETC__/freerdp", "__INSTALLER_PATH_DIR_ETC__/krb5.conf", "__INSTALLER_PATH_DIR_ETC__/krb5.conf.d",
+                          "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-freerdp-askpass"),
+    },
+    "sleek": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/sleek", ".config/sleek", ".local/share/sleek"),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/sleek",),
+        "rw_bind_home_directories": ("Syncthing/sleek", "Documents", "Downloads"),
+    },
+    "spotify": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/spotify", ".config/spotify", ".local/share/spotify"),
+        "dbus_own_names": ("org.mpris.MediaPlayer2.spotify",),
+        "rw_bind_home_directories": ("Music", "Downloads"),
+    },
+    "filen": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/Filen", ".cache/filen", ".config/Filen", ".config/filen",
+                             ".config/@filen", ".config/rclone", ".local/share/Filen", ".local/share/filen"),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/Filen",),
+        "rw_bind_home_directories": ("Filen", "Desktop", "Documents", "Downloads", "Music",
+                                     "Pictures", "Videos", "Workspace", "Syncthing"),
+    },
+    "ledger-live": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/Ledger Live", ".config/Ledger Live", ".config/Ledger Wallet",
+                             ".config/ledger-live-desktop", ".local/share/Ledger Live"),
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/ledger-live",),
+        "usb_devices": True,
+    },
+    "telegram-desktop": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "camera_devices": True,
+        "persistent_paths": (".cache/telegram-desktop", ".config/telegram-desktop",
+                             ".local/share/TelegramDesktop"),
+    },
+    "retroarch": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/retroarch", ".config/retroarch", ".local/share/retroarch"),
+        "rw_bind_home_directories": ("Games", "Documents", "Downloads"),
+        "game_devices": True,
+    },
+    "qbittorrent": {
+        **NATIVE_VETH_SANDBOX_DEFAULTS,
+        "persistent_paths": (".cache/qBittorrent", ".config/qBittorrent", ".local/share/qBittorrent"),
+    },
+    "chatgpt": {
+        "chdir": "Workspace",
+        "config_args": (),
+        "dbus_names": CHATGPT_SESSION_DBUS_NAMES,
+        "dbus_own_names": (),
+        "inner_sandbox_args": (),
+        "persistent_paths": CHATGPT_PERSISTENT_PATHS,
+        "require_session_bus": True,
+        "require_system_bus": True,
+        "required_runtime_sockets": ("pipewire-0", "pulse/native"),
+        "ro_bind_home_directories": CHATGPT_DEVOPS_READ_ONLY_HOME_DIRECTORIES,
+        "ro_bind_home_optional_files": CHATGPT_DEVOPS_READ_ONLY_HOME_FILES,
+        "ro_bind_directory_paths": (
+            "__INSTALLER_PATH_DIR_DATA__",
+            "__INSTALLER_PATH_DIR_OPT__",
+            "__INSTALLER_PATH_DIR_VAR_CACHE__/apt",
+            "__INSTALLER_PATH_DIR_VAR_LIB__/apt/lists",
+            "__INSTALLER_PATH_DIR_VAR_LIB__/dpkg",
+        ),
+        "ro_bind_paths": (
+            *CHATGPT_VIRTUALIZATION_READ_ONLY_SYSTEM_PATHS,
+            "__INSTALLER_PATH_DIR_ETC__/codex",
+            "__INSTALLER_PATH_DIR_ETC__/llama",
+        ),
+        "rw_bind_home_directories": (*CHATGPT_DEVOPS_READ_WRITE_HOME_DIRECTORIES,
+                                     *CHATGPT_DOWNLOAD_HOME_DIRECTORIES),
+        "rw_bind_paths": CHATGPT_DEVOPS_READ_WRITE_PATHS,
+        "rw_bind_directory_pairs": (
+            (
+                "__INSTALLER_LOG_CHATGPT_RUNTIME_DIR__",
+                "__INSTALLER_PATH_DIR_DATA__/codex/log",
+            ),
+            # Codex's native default is CODEX_HOME/log. Bind that spelling
+            # to the same managed destination as the explicit wrapper path.
+            (
+                "__INSTALLER_LOG_CHATGPT_RUNTIME_DIR__",
+                "__INSTALLER_PATH_DIR_DATA__/codex/usr/home/log",
+            ),
+        ),
+        "preserve_working_directory": True,
+        "runtime_directories": ("doc",),
+        "required_runtime_directories": ("doc",),
+        "prepare_document_portal": True,
+        "runtime_sockets": (
+            "pipewire-0",
+            "pulse/native",
+        ),
+        "share_net": False,
+        "shared_temp_directory": "labwc-chatgpt-tmp",
+        "synthetic_identity": True,
+        "system_dbus_names": CHATGPT_SYSTEM_DBUS_NAMES,
+    },
+    "discord": {
+        "camera_devices": True,
+        "clipboard_bridge": True,
+        "chdir": ".",
+        "config_args": (),
+        "dbus_names": DISCORD_SESSION_DBUS_NAMES,
+        "dbus_own_names": (),
+        "inner_sandbox_args": (),
+        "persistent_paths": DISCORD_PERSISTENT_PATHS,
+        "require_session_bus": True,
+        "require_system_bus": True,
+        "required_runtime_sockets": ("pipewire-0", "pulse/native"),
+        "ro_bind_paths": (
+            DISCORD_ROOT,
+            WAYLAND_COMPAT_RUNTIME_ROOT,
+        ),
+        "rw_bind_home_directories": ("Downloads",),
+        "runtime_directories": ("doc",),
+        "runtime_sockets": ("pipewire-0", "pulse/native"),
+        "share_net": False,
+        "system_dbus_names": (),
+    },
+    "tutanota": {
+        "chdir": ".",
+        "config_args": (),
+        "dbus_names": TUTA_DBUS_NAMES,
+        "dbus_own_names": TUTA_DBUS_OWN_NAMES,
+        "inner_sandbox_args": ("--enable-sandbox",),
+        "persistent_paths": TUTA_PERSISTENT_PATHS,
+        "require_session_bus": True,
+        "require_system_bus": True,
+        "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/tuta-mail",),
+        "rw_bind_home_directories": TUTA_ATTACHMENT_READ_WRITE_PATHS,
+        "user_media_directory": True,
+        # Parent mounts precede .config/tutanota-desktop, preserving the real
+        # account/key-vault data while keeping integration writes off the host.
+        "integration_directory_binds": TUTA_INTEGRATION_DIRECTORY_BINDS,
+        "shared_temp_directory": "labwc-tutanota-tmp",
+        "ro_bind_home_paths": (".config/user-dirs.dirs",),
+        "runtime_directories": ("doc",),
+        "runtime_sockets": ("pipewire-0", "pulse/native"),
+        "share_net": False,
+        "system_dbus_names": TUTA_SYSTEM_DBUS_NAMES,
+    },
+    "zoom": {
+        "chdir": ".",
+        "camera_devices": True,
+        "clipboard_bridge": True,
+        "config_args": (),
+        "dbus_names": ZOOM_SESSION_DBUS_NAMES,
+        "dbus_own_names": ZOOM_SESSION_DBUS_OWN_NAMES,
+        "inner_sandbox_args": (),
+        "persistent_paths": ZOOM_PERSISTENT_PATHS,
+        "persistent_directory_binds": (
+            (ZOOM_CONFIG_SOURCE, ".config"),
+        ),
+        "require_session_bus": True,
+        "require_system_bus": True,
+        "required_runtime_sockets": ("pipewire-0", "pulse/native"),
+        "ro_bind_paths": (
+            "__INSTALLER_PATH_DIR_OPT__/zoom",
+            WAYLAND_COMPAT_RUNTIME_ROOT,
+        ),
+        "rw_bind_home_directories": (
+            "Documents",
+            "Downloads",
+        ),
+        "runtime_directories": ("doc",),
+        "runtime_sockets": ("pipewire-0", "pulse/native"),
+        "share_net": False,
+        "system_dbus_names": (),
+    },
+}
+
+OBSIDIAN_VAULT_RELATIVE_PATH = "Syncthing/obsidian-md"
+OBSIDIAN_REGISTRY_MAX_BYTES = 1024 * 1024
+
+MANAGED_RUNTIME_STATE = {
+    "agenda": {
+        "directories": ((".local/share/agenda", 0o700),),
+    },
+    "bitwarden": {
+        "directories": (
+            (".config/autostart", 0o700),
+            (".config/chromium/NativeMessagingHosts", 0o700),
+            (".config/google-chrome/NativeMessagingHosts", 0o700),
+            (".config/microsoft-edge/NativeMessagingHosts", 0o700),
+            (".config/vivaldi/NativeMessagingHosts", 0o700),
+            (".mozilla/native-messaging-hosts", 0o700),
+            (
+                ".var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts",
+                0o700,
+            ),
+            (
+                ".var/app/com.google.Chrome/config/google-chrome/NativeMessagingHosts",
+                0o700,
+            ),
+            (
+                ".var/app/org.chromium.Chromium/config/chromium/NativeMessagingHosts",
+                0o700,
+            ),
+            (
+                ".var/app/com.microsoft.Edge/config/microsoft-edge/NativeMessagingHosts",
+                0o700,
+            ),
+        ),
+    },
+    "chatgpt": {
+        "directories": tuple((path, 0o700) for path in CHATGPT_PERSISTENT_PATHS),
+    },
+    "discord": {
+        "directories": tuple((path, 0o700) for path in DISCORD_PERSISTENT_PATHS),
+    },
+    "keepassxc": {
+        "directories": (
+            (".cache/keepassxc", 0o700),
+            (".config/keepassxc", 0o700),
+            (".local/share/keepassxc", 0o700),
+            ("Syncthing", 0o700),
+            ("Syncthing/keepassxc", 0o700),
+            ("Syncthing/keepassxc/backups", 0o700),
+        ),
+        "files": (
+            (
+                ".config/keepassxc/keepassxc.ini",
+                0o600,
+                "__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.config/keepassxc/keepassxc.ini",
+            ),
+        ),
+    },
+    "telegram-desktop": {
+        "directories": (
+            (".cache/telegram-desktop", 0o700),
+            (".config/telegram-desktop", 0o700),
+            (".local/share/TelegramDesktop", 0o700),
+        ),
+        "files": (
+            (".local/share/TelegramDesktop/log.txt", 0o600, None),
+        ),
+    },
+    "zoom": {
+        "directories": tuple(
+            (path, 0o700)
+            for path in (*ZOOM_PERSISTENT_PATHS, ZOOM_CONFIG_SOURCE)
+        ),
+    },
+}

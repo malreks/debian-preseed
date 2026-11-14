@@ -1,0 +1,242 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Bounded Digital Assets picker and catalog dispatcher."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+
+import labwc_desktop_runtime as desktop_runtime
+
+PICKER = "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-fuzzel"
+ACTION = "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-digital-assets-action"
+MAX_CANDIDATES = 400
+MAX_INPUT_BYTES = 209_715_200
+MAX_CATALOG_BYTES = 131_072
+MAX_CATALOG_ROWS = 128
+
+EXTENSIONS = {
+    "docx": {".docx"},
+    "pdf": {".pdf"},
+    "image": {".avif", ".bmp", ".gif", ".heic", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"},
+    "markdown": {".markdown", ".md", ".mdown", ".mkdn"},
+}
+ACTION_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+class DigitalAssetsError(RuntimeError):
+    pass
+
+
+def fatal(message: str) -> int:
+    print(f"fatal: {message}", file=sys.stderr)
+    return 1
+
+
+def runtime_root() -> Path:
+    uid = os.getuid()
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR", ""))
+    if uid == 0 or runtime != Path("__INSTALLER_PATH_DIR_RUN_USER__") / str(uid):
+        raise DigitalAssetsError("Digital Assets requires a non-root desktop user runtime directory")
+    try:
+        metadata = runtime.stat(follow_symlinks=False)
+    except OSError as error:
+        raise DigitalAssetsError("unable to inspect XDG_RUNTIME_DIR") from error
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != uid or metadata.st_mode & 0o077:
+        raise DigitalAssetsError("XDG_RUNTIME_DIR ownership or mode is unsafe")
+    return runtime
+
+
+def picker(rows: list[str], prompt: str) -> str | None:
+    result = desktop_runtime.run(
+        [PICKER, "menu", "--dmenu", "--prompt", prompt],
+        input_text="".join(f"{row}\n" for row in rows), capture=True, timeout=120,
+        env=dict(os.environ, LABWC_MENU_ACTION_WAIT="1", LABWC_FUZZEL_MANAGED_ICONS="1"))
+    if result.returncode == 1:
+        return None
+    if result.returncode == 3:
+        raise SystemExit(3)
+    if result.returncode != 0:
+        raise DigitalAssetsError(f"unable to open the {prompt} menu (status {result.returncode})")
+    selected = result.stdout.rstrip("\n")
+    return selected if selected in rows else None
+
+
+def require_wayland() -> None:
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        raise DigitalAssetsError("Digital Assets requires an active Wayland display")
+    if os.environ.get("XDG_SESSION_TYPE", "wayland") != "wayland":
+        raise DigitalAssetsError("Digital Assets must run in a Wayland session")
+
+
+def candidate_files(kind: str) -> list[str]:
+    if kind not in EXTENSIONS:
+        raise DigitalAssetsError(f"unsupported candidate asset kind: {kind}")
+    home = Path.home()
+    try:
+        home_metadata = home.lstat()
+    except OSError as error:
+        raise DigitalAssetsError("the desktop home directory is unavailable") from error
+    if (not stat.S_ISDIR(home_metadata.st_mode) or home_metadata.st_uid != os.getuid()
+            or home_metadata.st_mode & 0o022):
+        raise DigitalAssetsError("the desktop home directory has unsafe metadata")
+    roots = [home / name for name in ("Downloads", "Documents", "Desktop")]
+    valid_roots: list[Path] = []
+    for root in roots:
+        try:
+            root_stat = root.stat(follow_symlinks=False)
+            if not root.is_dir() or root_stat.st_uid != os.getuid():
+                continue
+        except OSError:
+            continue
+        valid_roots.append(root)
+    return desktop_runtime.candidates(valid_roots, suffixes=EXTENSIONS[kind], max_depth=3,
+                                      limit=MAX_CANDIDATES, max_bytes=MAX_INPUT_BYTES)
+
+
+def write_private(runtime: Path, prefix: str, content: str = "") -> Path:
+    descriptor, name = tempfile.mkstemp(prefix=prefix, dir=runtime, text=True)
+    path = Path(name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(content)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        path.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def choose_file(kind: str, prompt: str) -> str | None:
+    candidates = candidate_files(kind)
+    if not candidates:
+        picker([f"No {kind.upper()} files detected in Downloads, Documents, or Desktop"], prompt)
+        return None
+    return picker(candidates, prompt)
+
+
+def choose_multiple_files(kind: str, prompt: str, runtime: Path) -> Path | None:
+    candidates = candidate_files(kind)
+    if not candidates:
+        picker([f"No {kind.upper()} files detected in Downloads, Documents, or Desktop"], prompt)
+        return None
+    selected: list[str] = []
+    while True:
+        choice = picker(["Finish selection", "Cancel", *candidates], prompt)
+        if choice in (None, "Cancel"):
+            return None
+        if choice == "Finish selection":
+            break
+        if "\n" in choice:
+            print("warning: file names containing newlines are unsupported", file=sys.stderr)
+            continue
+        if choice not in selected:
+            selected.append(choice)
+    if len(selected) < 2:
+        print("warning: select at least two files before finishing", file=sys.stderr)
+        return None
+    return write_private(runtime, "labwc-digital-assets-list.", "\n".join(selected) + "\n")
+
+
+def load_catalog() -> dict[str, dict[str, tuple[str, str, str]]]:
+    try:
+        result = desktop_runtime.run([ACTION, "--menu-catalog"], capture=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise DigitalAssetsError("unable to load the Digital Assets action catalog") from error
+    if result.returncode or len(result.stdout) > MAX_CATALOG_BYTES:
+        raise DigitalAssetsError("unable to load the Digital Assets action catalog")
+    text = result.stdout
+    if not isinstance(text, str):
+        raise DigitalAssetsError("Digital Assets action catalog is not decoded text")
+    catalog: dict[str, dict[str, tuple[str, str, str]]] = {"docx": {}, "pdf": {}, "image": {}}
+    seen_actions: set[str] = set()
+    seen_labels: set[tuple[str, str]] = set()
+    lines = text.splitlines()
+    if not lines or len(lines) > MAX_CATALOG_ROWS:
+        raise DigitalAssetsError("Digital Assets action catalog is malformed")
+    for line in lines:
+        fields = line.split("\t")
+        if len(fields) != 5:
+            raise DigitalAssetsError("Digital Assets action catalog is malformed")
+        category, action, selector, label, prompt = fields
+        if category not in catalog or not ACTION_NAME.fullmatch(action):
+            raise DigitalAssetsError("Digital Assets action catalog is malformed")
+        if selector not in {"docx", "pdf", "image", "markdown", "pdf-list", "image-list"} or not label or not prompt:
+            raise DigitalAssetsError("Digital Assets action catalog is malformed")
+        if action in seen_actions or (category, label) in seen_labels:
+            raise DigitalAssetsError("Digital Assets action catalog is malformed")
+        seen_actions.add(action)
+        seen_labels.add((category, label))
+        catalog[category][label] = (action, selector, prompt)
+    return catalog
+
+
+def run_action(*args: str) -> None:
+    try:
+        result = desktop_runtime.run([ACTION, *args], timeout=900)
+    except (OSError, subprocess.TimeoutExpired):
+        print(f"warning: Digital Assets action unavailable: {args[0] if args else 'unknown'}", file=sys.stderr)
+        return
+    if result.returncode:
+        print(f"warning: Digital Assets action returned status {result.returncode}: {args[0] if args else 'unknown'}", file=sys.stderr)
+
+
+def category_menu(category: str, prompt: str, catalog: dict[str, dict[str, tuple[str, str, str]]], runtime: Path) -> None:
+    while True:
+        label = picker([*catalog[category], "← Back"], prompt)
+        if label in (None, "← Back"):
+            return
+        entry = catalog[category].get(label)
+        if entry is None:
+            print("warning: selected Digital Assets action is unavailable", file=sys.stderr)
+            continue
+        action, selector, action_prompt = entry
+        if selector in {"docx", "pdf", "image", "markdown"}:
+            path = choose_file(selector, action_prompt)
+            if path:
+                run_action(action, path)
+        elif selector in {"pdf-list", "image-list"}:
+            list_path = choose_multiple_files(selector.removesuffix("-list"), action_prompt, runtime)
+            if list_path:
+                try:
+                    run_action(action, str(list_path))
+                finally:
+                    list_path.unlink(missing_ok=True)
+        else:
+            raise DigitalAssetsError("Digital Assets action catalog has an unsupported selector")
+
+
+def main(argv: list[str]) -> int:
+    if argv:
+        raise DigitalAssetsError(f"unsupported Digital Assets arguments: {' '.join(argv)}")
+    if not os.access(PICKER, os.X_OK):
+        raise DigitalAssetsError("labwc-fuzzel is not installed")
+    if not os.access(ACTION, os.X_OK):
+        raise DigitalAssetsError("labwc-digital-assets-action is not installed")
+    if os.getuid() == 0:
+        raise DigitalAssetsError("labwc-digital-assets must run as the logged-in desktop user")
+    runtime = runtime_root()
+    require_wayland()
+    catalog = load_catalog()
+    while True:
+        category = picker(["DOCX Actions", "PDF Actions", "Image Actions", "← Back"], "Digital Assets")
+        if category in (None, "← Back"):
+            return 0
+        category_menu({"DOCX Actions": "docx", "PDF Actions": "pdf", "Image Actions": "image"}[category], category, catalog, runtime)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except SystemExit:
+        raise
+    except (DigitalAssetsError, OSError, subprocess.TimeoutExpired) as error:
+        raise SystemExit(fatal(str(error)))

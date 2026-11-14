@@ -1,0 +1,10 @@
+.build/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+todo
+downloads
+
+# Retired output roots only; all flat suite products remain visible to Git.
+/d-i/debian/releases/
+/d-i/debian/publications/

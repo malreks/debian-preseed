@@ -1,0 +1,73 @@
+#!/usr/bin/python3
+"""Target-only DNS listener preflight; never invoked by build or source checks.
+
+Read native proc socket tables before the DNS guest starts. No resolver query,
+service manager or policy loader is contacted by this preflight.
+"""
+from pathlib import Path
+import os
+import stat
+import sys
+
+DROPIN = Path('__INSTALLER_PATH_FILE_SERVER_DNS_RESOLVED__')
+RESOLV = Path('__INSTALLER_PATH_DIR_ETC__/resolv.conf')
+UPLINK_RESOLV = Path('__INSTALLER_PATH_DIR_RUN_SYSTEMD__/resolve/resolv.conf')
+PROC = Path('__INSTALLER_PATH_DIR_PROC__/net')
+IPV6_ENABLED = '__INSTALLER_IPV6_ENABLE__' == 'true'
+EXPECTED = b'# Technitium owns host port 53; resolved retains the uplink resolver.\n[Resolve]\nDNSStubListener=no\n'
+
+
+def main():
+    for parent in DROPIN.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('resolver policy ancestry is unsafe')
+    fd = os.open(DROPIN, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                or info.st_mode & 0o022 or stream.read(4097) != EXPECTED):
+            raise ValueError('explicit resolver handover is absent')
+    if not RESOLV.is_symlink() or RESOLV.resolve(strict=True) != UPLINK_RESOLV:
+        raise ValueError('the host resolver must use the native non-stub uplink resolver')
+    with UPLINK_RESOLV.open('rb') as stream:
+        text = stream.read(65537).decode('utf-8')
+    if len(text) > 65536 or not any(line.split()[:1] == ['nameserver'] for line in text.splitlines()):
+        raise ValueError('the non-stub uplink resolver has no configured upstream')
+    for relative, expected in (('ipv4/ip_forward', '1'), ('ipv6/conf/all/forwarding', '1' if IPV6_ENABLED else '0')):
+        path = PROC.parent / 'sys/net' / relative
+        try:
+            value = path.read_text(encoding='ascii').strip()
+        except FileNotFoundError:
+            if not IPV6_ENABLED and relative.startswith('ipv6/'):
+                continue
+            raise
+        if value != expected:
+            raise ValueError('the staged DNS routing policy has not been applied')
+    # Linux procfs socket interfaces: field 2 is local address:port and field
+    # 4 is socket state. Check both families, including loopback listeners.
+    total = 0
+    for name in ('tcp', 'tcp6', 'udp', 'udp6'):
+        if name.endswith('6') and not IPV6_ENABLED and not (PROC / name).exists():
+            continue
+        with (PROC / name).open('rb') as stream:
+            for number, raw in enumerate(stream):
+                total += len(raw)
+                if number > 65536 or total > 8388608 or len(raw) > 4096:
+                    raise ValueError('socket inspection exceeds its bound')
+                if number == 0:
+                    continue
+                fields = raw.split()
+                if len(fields) < 4:
+                    raise ValueError('unrecognized native socket table')
+                local_port = fields[1].rsplit(b':', 1)[1]
+                if int(local_port, 16) == 53 and (name.startswith('udp') or fields[3] == b'0A'):
+                    raise ValueError('another host listener owns port 53')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, IndexError):
+        print('Technitium remains pending: resolver handover or exclusive port-53 ownership is unverified', file=sys.stderr)
+        raise SystemExit(1)

@@ -1,0 +1,16 @@
+# The system X11/X.Org runtime is forbidden for every suite and role.
+# Client libraries do not create an X11 server or a login session.
+
+Package: dbus-x11 x11-xkb-utils x11-xserver-utils xauth xinit xterm xwayland xserver-common xserver-xorg* xorg xvfb xnest xserver-xephyr
+Pin: version *
+Pin-Priority: -1
+
+# Vulkan runtime exclusions. Keep the loader ABI available, but do not install
+# Vulkan ICDs, tools, development, validation, NVIDIA or Primus wrappers.
+Package: mesa-vulkan-drivers vulkan-tools libvulkan-dev vulkan-validationlayers vulkan-validationlayers-dev vulkan-utility-libraries-dev vulkan-headers
+Pin: version *
+Pin-Priority: -1
+
+Package: nvidia-vulkan-icd nvidia-primus-vk-common nvidia-primus-vk-wrapper primus-vk libprimus-vk1
+Pin: version *
+Pin-Priority: -1

@@ -1,0 +1,19 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/perl -T
+use strict;
+use warnings;
+use lib '__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/filen';
+use lib '__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/runtime';
+use FilenSync::Daemon;
+
+@ARGV == 1 && $ARGV[0] =~ /\A(private|offsec)\z/
+    or die "filen_sync outcome=invalid-configuration cause=account\n";
+my $account = $1;
+umask 0007;
+my $status = eval { FilenSync::Daemon->new(account => $account)->run };
+if ($@) {
+    # Never print exception strings: third-party output may contain secrets
+    # or filenames. The daemon emits bounded, structured failure categories.
+    print STDERR "filen_sync account=$account outcome=failed cause=runtime\n";
+    exit 1;
+}
+exit $status;

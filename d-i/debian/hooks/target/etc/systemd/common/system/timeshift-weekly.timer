@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule the profile-managed weekly Timeshift snapshot
+
+[Timer]
+OnCalendar=__INSTALLER_TIMESHIFT_WEEKLY_CALENDAR__
+Persistent=true
+RandomizedDelaySec=30m
+Unit=timeshift-weekly.service
+
+[Install]
+WantedBy=timers.target

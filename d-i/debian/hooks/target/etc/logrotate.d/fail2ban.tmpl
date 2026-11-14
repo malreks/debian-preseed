@@ -1,0 +1,16 @@
+__INSTALLER_LOG_FAIL2BAN_FILE__
+{
+	rotate __INSTALLER_LOG_ROTATE_COUNT__
+	maxage __INSTALLER_LOG_ROTATE_MAXAGE_DAYS__
+	size __INSTALLER_LOG_ROTATE_MAXSIZE_MIB__M
+	missingok
+	notifempty
+	compress
+	delaycompress
+	create __INSTALLER_LOG_FILE_MODE__ __INSTALLER_LOG_OWNER__ __INSTALLER_LOG_GROUP__
+	su __INSTALLER_LOG_OWNER__ __INSTALLER_LOG_GROUP__
+	sharedscripts
+	postrotate
+		__INSTALLER_PATH_DIR_USR__/bin/fail2ban-client flushlogs >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || true
+	endscript
+}

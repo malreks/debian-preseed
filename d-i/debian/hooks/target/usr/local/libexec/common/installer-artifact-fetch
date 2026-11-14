@@ -1,0 +1,46 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/perl
+# Data-only transport for installer callers, using the servicing HTTP owner.
+# No package/archive execution, discovery, policy loading or enrollment.
+use strict;
+use warnings;
+use File::Basename qw(dirname);
+use Fcntl qw(:mode);
+use lib '__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/apt-repo-local';
+use APTRepoLocal::Servicing::HTTP;
+
+$< == 0 && $> == 0 or die "installer artifact acquisition requires root\n";
+umask 0077;
+@ARGV == 5 || @ARGV == 6 or die "invalid installer artifact acquisition arguments\n";
+my ($url, $destination, $minimum, $maximum, $policy, $hosts) = @ARGV;
+for my $number ($minimum, $maximum) {
+    $number =~ /\A(?:0|[1-9][0-9]{0,9})\z/ && $number <= 2_147_483_648
+        or die "invalid installer artifact byte bound\n";
+}
+$maximum > 0 && $minimum <= $maximum or die "inconsistent installer artifact byte bounds\n";
+$destination =~ m{\A/[A-Za-z0-9._/-]+\z} && $destination !~ m{(?:^|/)\.\.?(?:/|$)|//}
+    or die "invalid installer artifact destination\n";
+my $parent = dirname($destination);
+my $current = q{};
+for my $part (grep { length } split m{/}, $parent) {
+    $current .= "/$part";
+    my @st = lstat $current;
+    @st && S_ISDIR($st[2]) && $st[4] == 0 or die "untrusted artifact parent\n";
+    # /tmp is a native sticky interface; the immediate workspace must still
+    # be a private, root-owned directory and may never be /tmp itself.
+    !($st[2] & 0022) || ($current eq '__INSTALLER_PATH_DIR_TMP__' && ($st[2] & 01777) == 01777)
+        or die "writable artifact ancestry\n";
+    if ($current eq $parent) {
+        !($st[2] & 0077) or die "artifact workspace must be private\n";
+    }
+}
+!-e $destination && !-l $destination or die "artifact destination already exists\n";
+my %response;
+my %arguments = (label => 'installer artifact', url => $url, destination => $destination,
+                 minimum => $minimum, maximum => $maximum, content_policy => $policy,
+                 response_metadata => \%response);
+if (defined $hosts) {
+    $arguments{allowed_hosts} = [split / /, $hosts];
+}
+APTRepoLocal::Servicing::HTTP->new()->download(%arguments);
+print $response{status}, "\n", $response{effective_url}, "\n", $response{content_type}, "\n"
+    or die "cannot write artifact response metadata\n";

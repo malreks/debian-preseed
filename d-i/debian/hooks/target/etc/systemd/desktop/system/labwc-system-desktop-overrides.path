@@ -1,0 +1,12 @@
+[Unit]
+Description=Watch system inputs for Labwc desktop override reconciliation
+
+[Path]
+# APT/dpkg reconcile package changes synchronously after resources are ready.
+PathChanged=__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf
+PathChanged=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files
+Unit=labwc-system-desktop-overrides.service
+TriggerLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target

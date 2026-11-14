@@ -1,0 +1,131 @@
+#!/bin/sh
+# apt-setup generator: install target APT preferences before apt-setup mutates
+# target APT state.
+set -eu
+
+RUNTIME_DIR=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+RUNTIME_CACHE_DIR="${RUNTIME_DIR}/cache"
+RUNTIME_LOG_FILE=
+COMMON_LIB="${RUNTIME_DIR}/bootstrap/common-lib.sh"
+TARGET=
+FETCH_DIR=${INSTALLER_APT_PREFERENCES_FETCH_DIR:-${RUNTIME_CACHE_DIR}/apt-setup-preferences.d}
+TARGET_DIR=
+TARGET_APT_CONF_DIR=
+NO_RECOMMENDS_POLICY_NAME=99noinstall-recommends
+NVIDIA_OPT_IN_POLICY_NAME=nvidia-opt-in.pref
+DEBUG_LOGS=1
+
+if [ -r "$COMMON_LIB" ]; then
+  # shellcheck disable=SC1090
+  . "$COMMON_LIB"
+  installer_operation_context_repo FILE_INST_APT_99_APT_PREFERENCES 21 apt_preferences_setup
+  LOG=$(installer_runtime_log_file)
+  if command -v installer_export_logging_policy >/dev/null 2>&1; then
+    installer_export_logging_policy
+  fi
+  HOST_ENV="${DIR_INSTALLER_ENV}/host.env"
+  [ -r "$HOST_ENV" ] || {
+    printf '%s\n' "fatal: composed host environment is unavailable: ${HOST_ENV}" >&2
+    exit 1
+  }
+# shellcheck disable=SC1090,SC1091
+if installer_load_data_env "$HOST_ENV"; then
+  :
+else
+  host_env_status=$?
+  installer_fatal_status "$host_env_status" "apt-setup host profile data was rejected: ${HOST_ENV}"
+fi
+  RUNTIME_DIR=$(installer_runtime_dir)
+  RUNTIME_CACHE_DIR=$(installer_runtime_cache_dir)
+  TARGET=${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}
+  FETCH_DIR=${INSTALLER_APT_PREFERENCES_FETCH_DIR:-${RUNTIME_CACHE_DIR}/apt-setup-preferences.d}
+  TARGET_DIR="${TARGET}${DIR_APT_PREFERENCES_D}"
+  TARGET_APT_CONF_DIR="${TARGET}${DIR_APT_CONF_D}"
+else
+  printf '%s\n' "fatal: installer common library is unavailable: ${COMMON_LIB}" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$LOG")"
+: >>"$LOG"
+chmod 0600 "$LOG" 2>/dev/null || true
+exec >>"$LOG" 2>&1
+
+log() {
+  level=info
+  message=$*
+  case "$message" in
+    fatal:\ *) level=fatal; message=${message#fatal: } ;;
+    error:\ *) level=error; message=${message#error: } ;;
+    warn:\ *) level=warn; message=${message#warn: } ;;
+    info:\ *) level=info; message=${message#info: } ;;
+  esac
+  printf '%s stage=apt_config level=%s component=apt-setup-apt-preferences %s\n' \
+    "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf unknown-time)" \
+    "$level" \
+    "$message" >&2
+  case "$level" in
+    error|fatal)
+      if command -v installer_error >/dev/null 2>&1; then
+        installer_error "apt-setup preferences: $message"
+      fi
+      ;;
+  esac
+}
+
+fatal() {
+  log "fatal: $*"
+  exit 1
+}
+
+target_is_mounted() {
+  while IFS=' ' read -r _mount_source mount_path _mount_type _mount_options _mount_rest || [ -n "${mount_path:-}" ]; do
+    [ "$mount_path" = "$TARGET" ] && return 0
+  done </proc/mounts
+  return 1
+}
+
+purge_target_cdrom_apt_sources() {
+  installer_apt_strip_cdrom "$TARGET" || return $?
+  log "info: removed cdrom apt sources before apt-setup hands the target to pkgsel"
+}
+
+dedupe_target_apt_sources() {
+  # apt-setup writes generator output to sources.list.new and renames it after
+  # all generators complete. Deduplicate that file before verification and
+  # keep the current file safe for any hook that reads it during this stage.
+  installer_apt_dedupe_source_list "${TARGET}${DIR_APT}/sources.list.new" || return $?
+  installer_apt_dedupe_source_list "${TARGET}${DIR_APT}/sources.list" || return $?
+  log "info: removed duplicate target APT source records before pkgsel"
+}
+
+persist_log() {
+  return 0
+}
+
+finish_log() {
+  status=${1:-0}
+  if [ "$status" -eq 0 ]; then
+    log "info: completed target apt preferences staging during apt-setup"
+  else
+    log "error: target apt preferences staging exited with status ${status}"
+  fi
+  persist_log
+}
+
+trap 'finish_log "$?"' EXIT
+[ -d "$TARGET" ] || fatal 'target directory is missing'
+target_is_mounted || fatal 'target is not mounted during apt setup'
+installer_assert_class_plan
+install -d -m 0755 "$TARGET_DIR" "$TARGET_APT_CONF_DIR"
+installer_fetch_file "$(installer_seed_base "")" \
+  "$(installer_repo_apt_file APT_CONF_D_99NOINSTALL_RECOMMENDS)" \
+  "$TARGET_APT_CONF_DIR/99noinstall-recommends" 0644
+# Keep all suite/role preference drop-ins in the apt-setup stage.  The helper
+# installs them in APT filename order, then appends selected vendor policies;
+# CD-ROM cleanup follows only after the complete preferences.d set is present,
+# matching the legacy generator's ordering before pkgsel.
+installer_stage_suite_apt_preferences
+purge_target_cdrom_apt_sources
+dedupe_target_apt_sources
+log 'info: selected suite/family APT files installed before pkgsel'

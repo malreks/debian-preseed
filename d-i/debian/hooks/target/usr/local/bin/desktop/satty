@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+
+PATH=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/bin:/bin
+LC_ALL=C.UTF-8
+unset GTK_THEME
+export PATH LC_ALL
+
+runtime_root=__INSTALLER_PATH_DIR_OPT__/glibc/2.44-1/satty
+satty_binary=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/satty/satty
+
+[ -x "$satty_binary" ] || {
+  printf 'fatal: managed Satty binary is missing: %s\n' "$satty_binary" >&2
+  exit 1
+}
+[ -d "$runtime_root" ] && [ ! -L "$runtime_root" ] || {
+  printf 'fatal: managed Satty GLIBC runtime is missing: %s\n' "$runtime_root" >&2
+  exit 1
+}
+trusted_runtime=$(
+  find "$runtime_root" \
+    -maxdepth 0 \
+    -type d \
+    -uid 0 \
+    ! -perm /022 \
+    -print \
+    -quit 2>__INSTALLER_PATH_DIR_DEV__/null || true
+)
+[ "$trusted_runtime" = "$runtime_root" ] || {
+  printf 'fatal: managed Satty GLIBC runtime is not trusted\n' >&2
+  exit 1
+}
+
+satty_loader=
+for loader_candidate in \
+  "$runtime_root/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" \
+  "$runtime_root/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" \
+  "$runtime_root/lib64/ld-linux-x86-64.so.2"
+do
+  if [ -x "$loader_candidate" ]; then
+    satty_loader=$loader_candidate
+    break
+  fi
+done
+[ -n "$satty_loader" ] || {
+  printf 'fatal: managed Satty GLIBC loader is missing\n' >&2
+  exit 1
+}
+
+satty_library_path="${runtime_root}__INSTALLER_PATH_DIR_USR__/lib/x86_64-linux-gnu:${runtime_root}/lib/x86_64-linux-gnu:__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/x86_64-linux-gnu:__INSTALLER_PATH_DIR_USR__/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu"
+exec "$satty_loader" \
+  --library-path "$satty_library_path" \
+  "$satty_binary" \
+  "$@"

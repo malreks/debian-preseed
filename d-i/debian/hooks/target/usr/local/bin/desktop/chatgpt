@@ -1,0 +1,85 @@
+#!/bin/sh
+
+# Never inherit launcher diagnostics or application output into a terminal,
+# compositor console, or generic session log.
+exec <__INSTALLER_PATH_DIR_DEV__/null >__INSTALLER_PATH_DIR_DEV__/null 2>&1
+
+set -eu
+umask 077
+
+managed_path=__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__:__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin
+
+chatgpt_fatal() {
+  printf '%s\n' "fatal: $*" >&2
+  exit 1
+}
+
+case "$#" in
+  0)
+    mode=auto
+    ;;
+  *)
+    mode=$1
+    shift
+    ;;
+esac
+case "$mode" in
+  auto|launch|intel|nvidia) ;;
+  *)
+    chatgpt_fatal 'launch mode must be auto, launch, intel, or nvidia'
+    ;;
+esac
+
+case "${USER:-}" in
+  ''|.|..|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.@-]*)
+    chatgpt_fatal 'the current account name is unsafe'
+    ;;
+esac
+actual_user=$(__INSTALLER_PATH_DIR_USR__/bin/id -un) ||
+  chatgpt_fatal 'cannot resolve the current account name'
+[ "$USER" = "$actual_user" ] ||
+  chatgpt_fatal 'USER does not match the current account'
+case "${LOGNAME:-$USER}" in
+  "$USER") ;;
+  *) chatgpt_fatal 'LOGNAME does not match the current account' ;;
+esac
+case "${HOME:-}" in
+  /*) ;;
+  *) chatgpt_fatal 'HOME must be an absolute path' ;;
+esac
+case "$HOME" in
+  /|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/@+-]*|*/../*|*/./*|*//*)
+    chatgpt_fatal 'HOME contains unsupported path syntax'
+    ;;
+esac
+
+# Start private capture before the managed Python launcher validates and
+# activates 71-devops-de.sh. Its authoritative environment loader checks the
+# profile's path, ownership, mode, link count and size; failures now reach the
+# same protected log as application output instead of disappearing below.
+exec __INSTALLER_PATH_DIR_USR__/bin/env -i \
+  HOME="$HOME" \
+  USER="$USER" \
+  LOGNAME="${LOGNAME:-$USER}" \
+  SHELL=/bin/zsh \
+  PATH="$managed_path" \
+  XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+  WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+  DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
+  QT_QPA_PLATFORMTHEME="${QT_QPA_PLATFORMTHEME:-}" \
+  COLORTERM="${COLORTERM:-}" \
+  TERM="${TERM:-}" \
+  LANG="${LANG:-}" \
+  LC_ALL="${LC_ALL:-}" \
+  LC_CTYPE="${LC_CTYPE:-}" \
+  TZ="${TZ:-}" \
+  LABWC_DEBUG_PROFILE="${LABWC_DEBUG_PROFILE:-}" \
+  LABWC_DEBUG_SESSION="${LABWC_DEBUG_SESSION:-}" \
+  LABWC_DEBUG_DESKTOP_ID="${LABWC_DEBUG_DESKTOP_ID:-}" \
+  LABWC_DEBUG_EXECUTABLE="${LABWC_DEBUG_EXECUTABLE:-}" \
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-chatgpt-log-runner \
+  "$mode" \
+  "$@" \
+  <__INSTALLER_PATH_DIR_DEV__/null \
+  >__INSTALLER_PATH_DIR_DEV__/null \
+  2>&1

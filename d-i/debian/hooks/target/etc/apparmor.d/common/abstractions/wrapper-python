@@ -1,0 +1,25 @@
+# Managed by unattended-installer.
+#
+# System Python runtime for repository-owned wrappers. The package abstraction
+# supplies standard-library and extension-module paths; explicit deny rules
+# prevent wrappers from importing user-controlled Python modules or creating
+# interpreter caches below the user's home directory.
+
+#include <abstractions/wrapper-base>
+#include <abstractions/python>
+
+__INSTALLER_PATH_DIR_USR__/bin/python3 rix,
+__INSTALLER_PATH_DIR_USR__/bin/python3.[0-9]* rix,
+
+deny owner @{HOME}/.local/lib/python*/ r,
+deny owner @{HOME}/.local/lib/python*/** mrwkl,
+deny owner @{HOME}/.cache/Python/ rw,
+deny owner @{HOME}/.cache/Python/** rwkl,
+deny __INSTALLER_PATH_DIR_ROOT_HOME__/ r,
+
+include if exists <local/wrapper-python>
+
+# Debian's native site loader reads this root-owned data-only path entry.
+__INSTALLER_PATH_DIR_PYTHON3_SYSTEM_PACKAGES__/installer-managed.pth r,
+__INSTALLER_PATH_DIR_PYTHON3_LOCAL__/ r,
+__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,

@@ -1,0 +1,35 @@
+# Managed aliases use the root-owned executable, not shell functions.
+[alias]
+	# Sync/init/push aliases are zero-argument self-healing workflows. The
+	# entrypoint fetches origin, applies policy and verifies publication.
+	mcr-branch-init = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-branch-init
+	mcr-branch-create = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-branch-create
+	mcr-branch-push = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-branch-push
+	mcr-branch-delete = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-branch-delete
+	mcr-branch-clear = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-branch-clear
+	mcr-branch-show = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-branch-show
+	mcr-repo-clone = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-repo-clone
+	mcr-repo-sync = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-repo-sync
+	mcr-repo-status = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-repo-status
+	mcr-tag-create = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-tag-create
+	mcr-tag-push = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-tag-push
+	mcr-tag-delete = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-tag-delete
+	mcr-tag-clear = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-tag-clear
+	mcr-tag-show = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-tag-show
+	mcr-fork-init = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-init
+	mcr-fork-sync = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-sync
+	mcr-fork-cicd = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-cicd
+	mcr-fork-check = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-check
+	mcr-fork-update = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-update
+	mcr-fork-verify-protected-sync = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-verify-protected-sync
+	mcr-fork-test = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-test
+	mcr-fork-push = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-push
+	mcr-salsa-init = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-init
+	mcr-salsa-sync = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-sync
+	mcr-salsa-cicd = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-cicd
+	mcr-salsa-check = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-check
+	mcr-salsa-update = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-update
+	mcr-salsa-verify-protected-sync = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-verify-protected-sync
+	mcr-salsa-test = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-test
+	mcr-salsa-push = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-push
+	mcr-repo-mirror = !__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-repo-mirror

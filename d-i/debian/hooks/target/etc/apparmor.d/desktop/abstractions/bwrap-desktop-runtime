@@ -1,0 +1,35 @@
+# Managed by unattended-installer.
+#
+# Runtime policy for applications that stay inside labwc-app's
+# Bubblewrap payload domain. Bubblewrap sets no_new_privs before exec, so those
+# payloads cannot gain permission by transitioning into their top-level
+# attachment. Keep the common Electron and desktop-runtime access in this
+# capability-free abstraction; namespace-construction privileges remain in
+# bwrap-common and application installation trees remain explicit in
+# the caller.
+
+#include <abstractions/electron-runtime>
+
+# The runtime mounts only pulse/native into an application-owned directory,
+# so libpulse may manage that private directory without changing the host one.
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/pulse/ rw,
+
+# Nested desktop/URI launchers read policy but cannot reach the lease socket,
+# which the private /run mount hides from every payload.
+__INSTALLER_PATH_DIR_ETC__/app-veth.json r,
+__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/app_veth_policy.py r,
+__INSTALLER_PATH_DIR_USR_SHARE__/TelegramDesktop/tresources.rcc r,
+
+# Managed applications use their existing per-application profiles when
+# launched directly. Their Bubblewrap payloads need the same client-side
+# network primitives, but remain restricted by the separate Bubblewrap
+# network namespace when the launcher selects private networking.
+network inet stream,
+network inet6 stream,
+network inet dgram,
+network inet6 dgram,
+# Network-aware payloads may read transport tables visible in the private
+# procfs mount. @{pid} is a numeric PID glob, not a kernel self-only variable;
+# isolation comes from the private PID/net namespaces, with no procfs bind from
+# the host. These procfs table inodes are root-owned, so do not use owner here.
+@{PROC}/@{pid}/net/{tcp,tcp6,udp,udp6} r,

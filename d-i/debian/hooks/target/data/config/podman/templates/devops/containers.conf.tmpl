@@ -1,0 +1,33 @@
+# Root-owned server configuration. Do not export this into desktop shells.
+[containers]
+cgroupns = "private"
+netns = "bridge"
+utsns = "private"
+pids_limit = 2048
+log_driver = "k8s-file"
+log_size_max = 16777216
+# Keep distribution seccomp/AppArmor policies and the default capability set.
+
+[engine]
+cgroup_manager = "cgroupfs"
+events_logger = "journald"
+image_copy_tmp_dir = "__INSTALLER_PATH_DIR_POOL__/podman/tmp"
+runtime = "crun"
+# Supported custom uplink command: only a lease client, never a packet proxy.
+network_cmd_path = "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/app-veth-podman"
+network_cmd_options = ["allow_host_loopback=false", "enable_ipv6=false"]
+static_dir = "__INSTALLER_PATH_DIR_POOL__/podman/libpod"
+tmp_dir = "__INSTALLER_PATH_DIR_RUN__/podman-devops/libpod/tmp"
+volume_path = "__INSTALLER_PATH_DIR_POOL__/podman/volumes"
+
+[engine.runtimes]
+crun = ["__INSTALLER_PATH_DIR_USR__/bin/crun"]
+
+[network]
+network_backend = "netavark"
+network_config_dir = "__INSTALLER_PATH_DIR_POOL__/podman/networks"
+firewall_driver = "nftables"
+# Podman's fixed ABI selector for network_cmd_path.  The executable is the
+# managed kernel-veth lease client above; this token does not install or run a
+# packet-proxy binary. Netavark owns every container bridge.
+default_rootless_network_cmd = "slirp4netns"

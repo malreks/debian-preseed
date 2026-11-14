@@ -1,0 +1,439 @@
+#!/bin/sh
+set -eu
+umask 077
+
+target_root=${1:-${TARGET_ROOT}}
+[ -d "$target_root" ] || exit 0
+
+tailscale_fatal() {
+  tailscale_message=$(printf '%s' "$*" | tr '\r\n\t' '   ')
+  if command -v installer_error >/dev/null 2>&1; then
+    installer_error "Tailscale: ${tailscale_message}"
+  else
+    printf 'fatal: %s\n' "$tailscale_message" >&2
+    if [ -c /dev/tty4 ] && [ -w /dev/tty4 ]; then
+      printf '[late:tailscale] fatal: %s\n' "$tailscale_message" >/dev/tty4 || :
+    fi
+    if command -v logger >/dev/null 2>&1; then
+      logger -t preseed-tailscale "fatal: $tailscale_message" 2>/dev/null || :
+    fi
+  fi
+  exit 1
+}
+
+tailscale_info() {
+  printf '[late:tailscale] %s\n' "$*" >&2
+}
+
+tailscale_validate_abs_target_path() {
+  case "${1:-}" in
+    /*) ;;
+    *) tailscale_fatal "target path must be absolute: ${1:-unset}" ;;
+  esac
+}
+
+tailscale_validate_port() {
+  label=$1
+  value=$2
+  case "$value" in
+    ''|*[!0-9]*)
+      tailscale_fatal "${label} must be a numeric TCP/UDP port"
+      ;;
+  esac
+  [ "$value" -ge 1 ] && [ "$value" -le 65535 ] || tailscale_fatal "${label} must be in range 1..65535"
+}
+
+tailscale_validate_bool() {
+  label=$1
+  value=$2
+  case "$value" in
+    true|false) ;;
+    *) tailscale_fatal "${label} must be true or false" ;;
+  esac
+}
+
+tailscale_validate_iface_name() {
+  label=$1
+  value=$2
+  case "$value" in
+    ''|.|..|lo|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-]*)
+      tailscale_fatal "${label} must be a non-loopback interface name"
+      ;;
+  esac
+  [ "${#value}" -le 15 ] || tailscale_fatal "${label} must be 15 characters or fewer"
+}
+
+tailscale_normalize_token() {
+  token_value=$1
+
+  case "$token_value" in
+    \"*\")
+      token_value=${token_value#\"}
+      token_value=${token_value%\"}
+      ;;
+    \'*\')
+      token_value=${token_value#\'}
+      token_value=${token_value%\'}
+      ;;
+  esac
+
+  [ -n "$token_value" ] || tailscale_fatal "tailscale auth key must not be empty"
+  case "$token_value" in
+    *[![:print:]]*|*[[:space:]]*)
+      tailscale_fatal "tailscale auth key must be a single printable token without whitespace"
+      ;;
+  esac
+  printf '%s\n' "$token_value"
+}
+
+tailscale_cmdline_token() {
+  token=
+  for tailscale_token_key in tailscale_authkey tailscale_auth_key; do
+    token=$(installer_cmdline_value "$tailscale_token_key" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+    [ -n "$token" ] && break
+  done
+  [ -n "$token" ] || return 1
+  token=$(tailscale_normalize_token "$token")
+  [ "${#token}" -le 512 ] || tailscale_fatal "tailscale_authkey must be 512 characters or fewer"
+  printf '%s\n' "$token"
+}
+
+tailscale_stage_target_asset() {
+  repo_path=$1
+  target_path=$2
+  mode=$3
+  tmp_asset="${tmp_env_dir}/$(basename "$target_path").$$"
+  target_host_path="${target_root}${target_path}"
+
+  tailscale_validate_abs_target_path "$target_path"
+  bootstrap_fetch_seed_file "$seed_base" "$repo_path" "$tmp_asset" 0600 "tailscale asset ${repo_path}"
+  tmp_paths_rendered="${tmp_asset}.paths"
+  installer_apply_scalar_placeholders "$tmp_asset" "$tmp_paths_rendered"
+  mv -f "$tmp_paths_rendered" "$tmp_asset"
+  installer_assert_no_unresolved_installer_placeholders "$tmp_asset" "tailscale asset ${repo_path}"
+  target_normalize_systemd_config_parent_modes "$target_path" "$target_root"
+  [ -d "${target_root}$(dirname "$target_path")" ] || install -d -m 0755 "${target_root}$(dirname "$target_path")"
+  install -m "$mode" "$tmp_asset" "$target_host_path"
+  chmod "$mode" "$target_host_path"
+  rm -f "$tmp_asset"
+}
+
+tailscale_render_target_asset() {
+  repo_path=$1
+  target_path=$2
+  mode=$3
+  shift 3
+  asset_renderer=installer_apply_scalar_placeholders
+  if [ "${1:-}" = --environment ]; then
+    asset_renderer=installer_apply_systemd_environment_placeholders
+    shift
+  fi
+  tmp_asset="${tmp_env_dir}/$(basename "$target_path").src.$$"
+  tmp_rendered="${tmp_env_dir}/$(basename "$target_path").out.$$"
+  target_host_path="${target_root}${target_path}"
+
+  tailscale_validate_abs_target_path "$target_path"
+  bootstrap_fetch_seed_file "$seed_base" "$repo_path" "$tmp_asset" 0600 "tailscale template ${repo_path}"
+  "$asset_renderer" "$tmp_asset" "$tmp_rendered" "$@"
+  if grep -Eq '__INSTALLER_[A-Z0-9_]+__' "$tmp_rendered"; then
+    rm -f "$tmp_asset" "$tmp_rendered"
+    tailscale_fatal "tailscale template rendered with unresolved placeholders: ${repo_path}"
+  fi
+  target_normalize_systemd_config_parent_modes "$target_path" "$target_root"
+  [ -d "${target_root}$(dirname "$target_path")" ] || install -d -m 0755 "${target_root}$(dirname "$target_path")"
+  install -m "$mode" "$tmp_rendered" "$target_host_path"
+  chmod "$mode" "$target_host_path"
+  rm -f "$tmp_asset" "$tmp_rendered"
+}
+
+tailscale_unstage_vendor_syncthing_unit() {
+  account_user=$1
+  for link_dir in "${target_root}__INSTALLER_PATH_DIR_ETC__/systemd/system"/*.wants "${target_root}__INSTALLER_PATH_DIR_ETC__/systemd/system"/*.requires; do
+    [ -d "$link_dir" ] || continue
+    rm -f "${link_dir}/syncthing@${account_user}.service"
+  done
+}
+
+tailscale_stage_target_unit() {
+  unit=$1
+  if ! target_systemd_unit_path "$unit" system >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    tailscale_fatal "expected target systemd unit is missing: ${unit}"
+  fi
+  stage_target_systemd_unit_enabled "$unit" system
+}
+
+tailscale_run_target_chroot() {
+  label=$1
+  shift
+  output="${tmp_env_dir}/chroot.$$.log"
+
+  [ -x __INSTALLER_PATH_DIR_USR_SBIN__/chroot ] || tailscale_fatal "installer chroot helper is unavailable"
+  tailscale_info "target chroot: ${label}"
+  if __INSTALLER_PATH_DIR_USR_SBIN__/chroot "$target_root" "$@" >"$output" 2>&1; then
+    rm -f "$output"
+    return 0
+  else
+    code=$?
+  fi
+
+  cat "$output" >&2 || true
+  rm -f "$output"
+  tailscale_fatal "target chroot failed during ${label} (status ${code})"
+}
+
+runtime_dir=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
+
+[ -s "$bootstrap_lib" ] || tailscale_fatal "installer bootstrap library is unavailable: ${bootstrap_lib}"
+# shellcheck disable=SC1090,SC1091
+. "$bootstrap_lib"
+bootstrap_source_common_lib ""
+# Load di.env through the common bootstrap before deriving d-i state paths.
+tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/tailscale}
+installer_operation_context_repo FILE_LATE_TAILSCALE 192 tailscale
+seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
+bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target || {
+  tailscale_fatal "failed to source installer late support libraries"
+}
+installer_ensure_context_loaded "$seed_base"
+
+installer_class_selected_any role/desktop/medium role/desktop/full 2>__INSTALLER_PATH_DIR_DEV__/null || exit 0
+
+host_profile=${INSTALLER_HOST_PROFILE:-$(installer_resolve_host_profile "" 2>__INSTALLER_PATH_DIR_DEV__/null || true)}
+[ -n "$host_profile" ] || tailscale_fatal "selected host profile is unavailable for tailscale helper"
+
+host_env=${DIR_INSTALLER_LATE_ENV}/host.env
+account_env=${DIR_INSTALLER_LATE_ENV}/account.env
+runtime_common=${DIR_INSTALLER_LATE_ENV}/runtime-common.sh
+account_runtime=${DIR_INSTALLER_LATE_ENV}/account-runtime.sh
+[ -r "$host_env" ] || installer_fetch_host_env "$seed_base" "$host_profile" "$host_env" 0600
+[ -r "$account_env" ] || installer_fetch_account_env "$seed_base" "$account_env" 0600
+[ -r "$runtime_common" ] || fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_COMMON)" "$runtime_common"
+[ -r "$account_runtime" ] || fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" "$account_runtime"
+runtime_env_file=${INSTALLER_RUNTIME_ENV_FILE:-${DIR_INSTALLER_ENV}/runtime.env}
+if [ ! -r "$runtime_env_file" ]; then
+  runtime_env_file="${INSTALLER_RUNTIME_STATE_DIR:-$(installer_runtime_state_dir)}/runtime.env"
+fi
+[ -r "$runtime_env_file" ] || tailscale_fatal "runtime env is unavailable for tailscale helper: ${runtime_env_file}"
+dbus_helper="${tmp_env_dir}/dbus-broker.sh"
+[ -r "$dbus_helper" ] || fetch_hook_file "$(installer_repo_file_value FILE_LATE_DBUS_BROKER)" "$dbus_helper"
+
+# shellcheck disable=SC1090,SC1091
+installer_load_data_env "$host_env"
+# shellcheck disable=SC1090,SC1091
+installer_load_data_env "$account_env"
+# shellcheck disable=SC1090,SC1091
+. "$runtime_env_file"
+RUNTIME_COMMON_LIB=$runtime_common
+export RUNTIME_COMMON_LIB
+# shellcheck disable=SC1090,SC1091
+. "$account_runtime"
+# shellcheck disable=SC1090,SC1091
+. "$dbus_helper"
+runtime_apply_account_from_credentials
+
+tailscale_validate_port TAILSCALE_UDP_PORT "${TAILSCALE_UDP_PORT:-41641}"
+tailscale_validate_port SYNCTHING_TCP_PORT "${SYNCTHING_TCP_PORT:-35000}"
+tailscale_validate_bool TAILSCALE_RUN_SSH_SERVER "${TAILSCALE_RUN_SSH_SERVER:-true}"
+tailscale_validate_bool TAILSCALE_AUTH_KEY_REQUIRED "${TAILSCALE_AUTH_KEY_REQUIRED:-true}"
+tailscale_validate_bool TAILSCALE_ACCEPT_DNS "${TAILSCALE_ACCEPT_DNS:-false}"
+tailscale_interface=${TAILSCALE_INTERFACE:-tailscale0}
+tailscale_validate_iface_name TAILSCALE_INTERFACE "$tailscale_interface"
+tailscale_ethernet_interface=${MANAGED_NETWORK_ETHERNET_IFACE:-eth0}
+tailscale_wifi_interface=${MANAGED_NETWORK_WIFI_IFACE:-wifi0}
+tailscale_validate_iface_name MANAGED_NETWORK_ETHERNET_IFACE "$tailscale_ethernet_interface"
+tailscale_validate_iface_name MANAGED_NETWORK_WIFI_IFACE "$tailscale_wifi_interface"
+for tailscale_name in "$tailscale_interface" "$tailscale_ethernet_interface" "$tailscale_wifi_interface"; do
+  case "$tailscale_name" in
+    veth*|ts-uplink) tailscale_fatal "netkit interface identities must not overlap application interfaces" ;;
+  esac
+done
+[ "$tailscale_interface" != "$tailscale_ethernet_interface" ] &&
+  [ "$tailscale_interface" != "$tailscale_wifi_interface" ] &&
+  [ "$tailscale_ethernet_interface" != "$tailscale_wifi_interface" ] ||
+  tailscale_fatal "Tailscale, Ethernet and Wi-Fi interface identities must differ"
+[ "${APP_VETH_DNS_HOST_ADDRESS:-}" = 127.0.0.1 ] || tailscale_fatal "netkit requires the managed loopback DNS cache"
+tailscale_validate_port APP_VETH_DNS_HOST_PORT "${APP_VETH_DNS_HOST_PORT:-}"
+[ "$APP_VETH_DNS_HOST_PORT" -ge 1024 ] || tailscale_fatal "managed DNS cache port must be unprivileged"
+tailscale_interface_log_regex=$(printf '%s\n' "$tailscale_interface" | sed 's/[.]/[.]/g')
+
+: "${FILE_TAILSCALED_DEFAULT:?FILE_TAILSCALED_DEFAULT must be set}"
+: "${FILE_TAILSCALE_MANAGED_HELPER:?FILE_TAILSCALE_MANAGED_HELPER must be set}"
+: "${FILE_TAILSCALE_BOOTSTRAP_SERVICE:?FILE_TAILSCALE_BOOTSTRAP_SERVICE must be set}"
+: "${FILE_TAILSCALED_SERVICE_OVERRIDE:?FILE_TAILSCALED_SERVICE_OVERRIDE must be set}"
+: "${FILE_TAILSCALE_TUN_MODULES_LOAD:?FILE_TAILSCALE_TUN_MODULES_LOAD must be set}"
+: "${FILE_TAILSCALE_AUTH_KEY:?FILE_TAILSCALE_AUTH_KEY must be set}"
+: "${FILE_TAILSCALE_COMPLETE:?FILE_TAILSCALE_COMPLETE must be set}"
+: "${FILE_TAILSCALE_STATUS:?FILE_TAILSCALE_STATUS must be set}"
+: "${LOG_SYSTEM_SERVICES_FILE:?LOG_SYSTEM_SERVICES_FILE must be set}"
+: "${FILE_MANAGED_SYNCTHING_DEFAULT:?FILE_MANAGED_SYNCTHING_DEFAULT must be set}"
+: "${FILE_MANAGED_SYNCTHING_HELPER:?FILE_MANAGED_SYNCTHING_HELPER must be set}"
+: "${FILE_MANAGED_SYNCTHING_SERVICE:?FILE_MANAGED_SYNCTHING_SERVICE must be set}"
+
+for config_file in "$FILE_TAILSCALED_DEFAULT" "$FILE_MANAGED_SYNCTHING_DEFAULT"; do
+  config_parent="${target_root}$(dirname "$config_file")"
+  [ ! -L "$config_parent" ] || tailscale_fatal "configuration directory must not be a symlink: $config_parent"
+  if [ ! -e "$config_parent" ]; then
+    install -d -m 0755 "$config_parent" || tailscale_fatal "cannot create configuration directory: $config_parent"
+  fi
+  [ -d "$config_parent" ] || tailscale_fatal "configuration parent is not a directory: $config_parent"
+  [ "$(readlink -f "$config_parent")" = "$config_parent" ] ||
+    tailscale_fatal "configuration directory must be a direct path: $config_parent"
+  [ "$(installer_metadata_value "$config_parent" uid_gid_mode)" = 0:0:755 ] ||
+    tailscale_fatal "unsafe configuration directory: $config_parent"
+  [ ! -e "${target_root}${config_file}" ] || [ -f "${target_root}${config_file}" ] ||
+    tailscale_fatal "configuration is not a regular file: $config_file"
+  [ ! -L "${target_root}${config_file}" ] || tailscale_fatal "configuration must not be a symlink: $config_file"
+  if [ -e "${target_root}${config_file}" ]; then
+    case "$(installer_metadata_value "${target_root}${config_file}" uid_gid_mode_links)" in
+      0:0:400:1|0:0:440:1|0:0:444:1|0:0:600:1|0:0:640:1|0:0:644:1|0:0:700:1|0:0:750:1|0:0:755:1) ;;
+      *) tailscale_fatal "unsafe existing configuration metadata: $config_file ($(installer_metadata_value "${target_root}${config_file}" uid_gid_mode_links))" ;;
+    esac
+  fi
+done
+unset config_file config_parent
+
+tailscale_validate_abs_target_path __INSTALLER_PATH_DIR_VAR__/lib/firstboot/bin
+install -d -m 0700 "${target_root}__INSTALLER_PATH_DIR_VAR__/lib/firstboot" "${target_root}__INSTALLER_PATH_DIR_VAR__/lib/firstboot/bin"
+
+auth_key_file=$FILE_TAILSCALE_AUTH_KEY
+complete_file=$FILE_TAILSCALE_COMPLETE
+status_file=$FILE_TAILSCALE_STATUS
+log_file=$LOG_SYSTEM_SERVICES_FILE
+
+install -d -m 0700 \
+  "${target_root}$(dirname "$auth_key_file")" \
+  "${target_root}$(dirname "$complete_file")" \
+  "${target_root}$(dirname "$status_file")"
+
+if auth_key=$(tailscale_cmdline_token 2>__INSTALLER_PATH_DIR_DEV__/null); then
+  auth_destination="${target_root}${auth_key_file}"
+  [ ! -e "$auth_destination" ] && [ ! -L "$auth_destination" ] ||
+    tailscale_fatal "refusing an existing Tailscale enrollment credential"
+  auth_temporary=$(mktemp "${auth_destination}.XXXXXX") || tailscale_fatal "cannot stage Tailscale credential"
+  if ! (umask 077; printf '%s\n' "$auth_key" >"$auth_temporary" &&
+        chmod 0600 "$auth_temporary" && mv -fT -- "$auth_temporary" "$auth_destination"); then
+    rm -f -- "$auth_temporary"
+    tailscale_fatal "cannot publish Tailscale enrollment credential"
+  fi
+  unset auth_temporary auth_destination
+  tailscale_info "staged optional Tailscale auth key for deferred post-boot bootstrap"
+else
+  rm -f "${target_root}${auth_key_file}"
+  tailscale_info "tailscale_authkey not provided by the installer cmdline or /preseed.env; deferred join stays manual"
+fi
+unset auth_key 2>__INSTALLER_PATH_DIR_DEV__/null || true
+
+tailscale_render_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_DEFAULT_TAILSCALED_TMPL)" \
+  "$FILE_TAILSCALED_DEFAULT" 0644 \
+  PORT "$(installer_shell_quote "${TAILSCALE_UDP_PORT:-41641}")" \
+  FLAGS "$(installer_shell_quote "--tun=${tailscale_interface} --no-logs-no-support")"
+
+tailscale_stage_target_asset \
+  "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_BIN_TAILSCALE_UP)" \
+  "${FILE_TAILSCALE_MANAGED_HELPER}" \
+  0755
+tailscale_render_target_asset \
+  "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_UNIT_TAILSCALE_BOOTSTRAP_SERVICE_TMPL)" \
+  "${FILE_TAILSCALE_BOOTSTRAP_SERVICE}" \
+  0644 --environment \
+  TAILSCALE_AUTH_KEY_FILE "$auth_key_file" \
+  TAILSCALE_COMPLETE_FILE "$complete_file" \
+  TAILSCALE_STATUS_FILE "$status_file" \
+  TAILSCALE_LOG_FILE "$log_file" \
+  TAILSCALE_HOSTNAME "$SYSTEM_HOSTNAME" \
+  TAILSCALE_INTERFACE "$tailscale_interface" \
+  TAILSCALE_UDP_PORT "${TAILSCALE_UDP_PORT:-41641}" \
+  TAILSCALE_ACCEPT_DNS "${TAILSCALE_ACCEPT_DNS:-false}" \
+  TAILSCALE_ACCEPT_ROUTES "${TAILSCALE_ACCEPT_ROUTES:-false}" \
+  TAILSCALE_RUN_SSH_SERVER "${TAILSCALE_RUN_SSH_SERVER:-true}" \
+  TAILSCALE_NETFILTER_MODE "${TAILSCALE_NETFILTER_MODE:-off}" \
+  TAILSCALE_OPERATOR_USER "${TAILSCALE_OPERATOR_USER:-$ACCOUNT_USERNAME}" \
+  TAILSCALE_ACCEPT_RISK "${TAILSCALE_ACCEPT_RISK:-}" \
+  TAILSCALE_ADVERTISE_TAGS "${TAILSCALE_ADVERTISE_TAGS:-}" \
+  TAILSCALE_ADVERTISE_ROUTES "${TAILSCALE_ADVERTISE_ROUTES:-}" \
+  TAILSCALE_ADVERTISE_EXIT_NODE "${TAILSCALE_ADVERTISE_EXIT_NODE:-false}" \
+  TAILSCALE_EXIT_NODE "${TAILSCALE_EXIT_NODE:-}" \
+  TAILSCALE_EXIT_NODE_ALLOW_LAN_ACCESS "${TAILSCALE_EXIT_NODE_ALLOW_LAN_ACCESS:-false}" \
+  TAILSCALE_SHIELDS_UP "${TAILSCALE_SHIELDS_UP:-false}" \
+  TAILSCALE_REPORT_POSTURE "${TAILSCALE_REPORT_POSTURE:-false}" \
+  TAILSCALE_SNAT_SUBNET_ROUTES "${TAILSCALE_SNAT_SUBNET_ROUTES:-true}" \
+  TAILSCALE_STATEFUL_FILTERING "${TAILSCALE_STATEFUL_FILTERING:-false}" \
+  TAILSCALE_AUTH_KEY_REQUIRED "${TAILSCALE_AUTH_KEY_REQUIRED:-true}" \
+  TAILSCALE_FORCE_REAUTH "${TAILSCALE_FORCE_REAUTH:-false}" \
+  TAILSCALE_TIMEOUT "${TAILSCALE_TIMEOUT:-2m}" \
+  TAILSCALE_DAEMON_WAIT_SECONDS "${TAILSCALE_DAEMON_WAIT_SECONDS:-60}"
+tailscale_render_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_UNIT_TAILSCALED_SERVICE_D_OVERRIDE_TMPL)" \
+  "${FILE_TAILSCALED_SERVICE_OVERRIDE}" \
+  0644 \
+  TAILSCALE_INTERFACE_REGEX "$tailscale_interface_log_regex"
+tailscale_stage_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_MODULES_LOAD_D_50_TAILSCALE)" \
+  "${FILE_TAILSCALE_TUN_MODULES_LOAD}" \
+  0644
+tailscale_stage_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TAILSCALE_NETKIT)" \
+  "${DIR_USR_LOCAL_LIBEXEC}/tailscale-netkit" 0755
+tailscale_stage_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TAILSCALE_SSH_HOST)" \
+  "${DIR_USR_LOCAL_LIBEXEC}/tailscale-ssh-host" 0755
+tailscale_render_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_TAILSCALE_NETKIT_TMPL)" \
+  __INSTALLER_PATH_DIR_ETC__/tailscale/netkit.json 0644 \
+  TAILSCALE_INTERFACE "$tailscale_interface" \
+  ETHERNET_INTERFACE "$tailscale_ethernet_interface" WIFI_INTERFACE "$tailscale_wifi_interface" \
+  TAILSCALE_UDP_PORT "${TAILSCALE_UDP_PORT:-41641}" \
+  DNS_HOST_ADDRESS "$APP_VETH_DNS_HOST_ADDRESS" DNS_HOST_PORT "$APP_VETH_DNS_HOST_PORT" \
+  TAILSCALE_ACCEPT_DNS "${TAILSCALE_ACCEPT_DNS:-false}"
+tailscale_render_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_NETWORKMANAGER_CONF_D_75_TAILSCALE_NETKIT_TMPL)" \
+  __INSTALLER_PATH_DIR_ETC__/NetworkManager/conf.d/75-tailscale-netkit.conf 0644 \
+  TAILSCALE_INTERFACE "$tailscale_interface"
+tailscale_render_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_92_TAILSCALE_NETKIT_TMPL)" \
+  __INSTALLER_PATH_DIR_ETC__/sysctl.d/92-tailscale-netkit.conf 0644 \
+  ETHERNET_INTERFACE "$tailscale_ethernet_interface" WIFI_INTERFACE "$tailscale_wifi_interface"
+tailscale_run_target_chroot "verify private Tailscale assets without activation" \
+  "${DIR_USR_LOCAL_LIBEXEC}/tailscale-netkit" validate-target
+tailscale_stage_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_SYNCTHING_CONFIGURE)" \
+  "${FILE_MANAGED_SYNCTHING_HELPER}" \
+  0755
+tailscale_render_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_UNIT_SYNCTHING_SERVICE_TMPL)" \
+  "${FILE_MANAGED_SYNCTHING_SERVICE}" \
+  0644 \
+  ACCOUNT_USERNAME "$ACCOUNT_USERNAME" \
+  ACCOUNT_HOME "$ACCOUNT_HOME" \
+  DIR_HOME_SYNCTHING "$DIR_HOME_SYNCTHING" \
+  DIR_HOME_SYNCTHING_STATE "$DIR_HOME_SYNCTHING_STATE"
+tailscale_stage_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_UNIT_SYNCTHING_SERVICE_D_60_RESOURCE_CLASS)" \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_SYNCTHING_DROPIN__/60-resource-class.conf 0644
+
+
+
+tailscale_render_target_asset \
+  "$(installer_repo_file_value FILE_TARGET_SYNCTHING_SERVICE_TMPL)" \
+  "$FILE_MANAGED_SYNCTHING_DEFAULT" 0644 \
+  SYNCTHING_TCP_PORT "$(installer_shell_quote "${SYNCTHING_TCP_PORT:-35000}")" \
+  SYNCTHING_USER "$(installer_shell_quote "$ACCOUNT_USERNAME")" \
+  SYNCTHING_DATA_DIR "$(installer_shell_quote "$DIR_HOME_SYNCTHING")" \
+  SYNCTHING_STATE_DIR "$(installer_shell_quote "$DIR_HOME_SYNCTHING_STATE")" \
+  SYNCTHING_GUI_ENABLED "$(installer_shell_quote false)"
+
+tailscale_run_target_chroot "prepare managed syncthing state during install" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+PATH=__INSTALLER_PATH_DIR_USR_LOCAL__/sbin:__INSTALLER_PATH_DIR_USR_LOCAL__/bin:__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__
+export PATH
+test -r __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/syncthing-configure
+__INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$1" -- __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/syncthing-configure --prepare
+' sh "$ACCOUNT_USERNAME"
+
+tailscale_unstage_vendor_syncthing_unit "$ACCOUNT_USERNAME"
+tailscale_stage_target_unit tailscaled.service
+tailscale_stage_target_unit tailscale-bootstrap.service
+tailscale_stage_target_unit syncthing.service
+
+tailscale_info "staged Tailscale + Syncthing target assets for account=${ACCOUNT_USERNAME}"

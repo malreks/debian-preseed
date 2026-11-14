@@ -1,0 +1,33 @@
+# Trusted desktop panels/control clients, not compositor hardware access.
+#include <abstractions/desktop-runtime>
+#include <abstractions/pipewire-audio>
+include if exists <abstractions/user-tmp>
+unix,
+network netlink raw,
+network netlink dgram,
+__INSTALLER_PATH_DIR_USR__/lib/** mr,
+__INSTALLER_PATH_DIR_USR_SHARE__/** r,
+__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/{icons,applications}/ r,
+__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/{icons,applications}/** r,
+__INSTALLER_PATH_DIR_ETC__/{os-release,localtime,passwd,group,machine-id} r,
+__INSTALLER_PATH_DIR_PROC__/ r,
+__INSTALLER_PATH_DIR_PROC__/{cpuinfo,meminfo,stat,uptime,loadavg,net/**} r,
+owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/{stat,statm,status,comm,cmdline,fd/,fdinfo/*} r,
+__INSTALLER_PATH_DIR_SYS__/ r,
+__INSTALLER_PATH_DIR_SYS__/** r,
+__INSTALLER_PATH_DIR_RUN__/udev/data/** r,
+__INSTALLER_PATH_DIR_DEV__/shm/ r,
+owner __INSTALLER_PATH_DIR_DEV__/shm/** rwkl,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ rw,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,wayland-*,pulse/**,pipewire-*,mako,sway-ipc.*,hypr/**} rwkl,
+owner @{HOME}/.config/{gtk-3.0,gtk-4.0,qt5ct,qt6ct}/** r,
+owner @{HOME}/.config/{kdeglobals,kdeglobals.lock} rwkl,
+owner @{HOME}/.cache/ rw,
+owner @{HOME}/.cache/fontconfig/ rw,
+owner @{HOME}/.cache/fontconfig/** rwkl,
+owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/cgroup r,
+# Profile-attached wrappers retain their domain across a panel click.
+__INSTALLER_PATH_DIR_USR_LOCAL__/{bin,sbin,libexec}/** rPx,
+# Prefer per-application policies; unprofiled simple helpers inherit these
+# limited panel permissions, not an unconfined label or compositor devices.
+__INSTALLER_PATH_DIR_USR__/bin/** rPix,

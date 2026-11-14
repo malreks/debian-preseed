@@ -1,0 +1,46 @@
+#!/bin/sh
+# Managed by debugsys; do not edit.
+# Best-effort and bounded. Never stop the boot, enable xtrace, or read secrets.
+umask 077
+export PATH=__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin LC_ALL=C
+phase=${1:-}
+case "$phase" in init-top|init-premount|local-top|local-premount|local-bottom|init-bottom) ;; *) exit 0 ;; esac
+if [ "${2:-}" != --bounded-worker ]; then
+    # Bound the complete collection, including file reads, redaction and final
+    # pipeline waits. Diagnostic failure must never block the boot contract.
+    timeout -k 1 30 "$0" "$phase" --bounded-worker >__INSTALLER_PATH_DIR_DEV__/null 2>&1
+    exit 0
+fi
+base=__INSTALLER_PATH_DIR_RUN__/initramfs/debugsys
+[ -d __INSTALLER_PATH_DIR_RUN__ ] && [ ! -L __INSTALLER_PATH_DIR_RUN__ ] || exit 0
+[ ! -L __INSTALLER_PATH_DIR_RUN__/initramfs ] && [ ! -L "$base" ] || exit 0
+mkdir -p "$base" 2>__INSTALLER_PATH_DIR_DEV__/null || exit 0
+chmod 0700 "$base" 2>__INSTALLER_PATH_DIR_DEV__/null || exit 0
+[ "$(find -P "$base" -maxdepth 0 -printf '%U:%m' 2>__INSTALLER_PATH_DIR_DEV__/null)" = 0:700 ] || exit 0
+out="$base/$phase.log"
+[ ! -e "$out" ] && [ ! -L "$out" ] || exit 0
+# Redact common credential assignments before anything is persisted. No shell
+# trace is enabled: /preseed.env, encryption keys and process environ are excluded.
+(
+    printf 'phase=%s\n' "$phase"
+    date -u 2>__INSTALLER_PATH_DIR_DEV__/null
+    uname -a 2>__INSTALLER_PATH_DIR_DEV__/null
+    for source in __INSTALLER_PATH_DIR_PROC__/uptime __INSTALLER_PATH_DIR_PROC__/cmdline __INSTALLER_PATH_DIR_PROC__/mounts __INSTALLER_PATH_DIR_PROC__/modules __INSTALLER_PATH_DIR_PROC__/meminfo __INSTALLER_PATH_DIR_PROC__/partitions __INSTALLER_PATH_DIR_PROC__/pressure/cpu __INSTALLER_PATH_DIR_PROC__/pressure/memory __INSTALLER_PATH_DIR_PROC__/pressure/io; do
+        [ -r "$source" ] || continue
+        printf '\n--- %s ---\n' "$source"
+        timeout -k 1 2 head -c 65536 "$source" 2>__INSTALLER_PATH_DIR_DEV__/null
+    done
+    printf '\n--- kernel ring buffer (bounded tail unavailable on minimal initrd) ---\n'
+    timeout -k 1 5 dmesg 2>__INSTALLER_PATH_DIR_DEV__/null
+    printf '\n--- interfaces and routes ---\n'
+    timeout -k 1 5 ip -brief address 2>__INSTALLER_PATH_DIR_DEV__/null
+    timeout -k 1 5 ip route show table all 2>__INSTALLER_PATH_DIR_DEV__/null
+    count=0
+    for source in __INSTALLER_PATH_DIR_SYS__/class/block/*/dev __INSTALLER_PATH_DIR_SYS__/class/block/*/size __INSTALLER_PATH_DIR_SYS__/class/block/*/queue/rotational __INSTALLER_PATH_DIR_SYS__/class/drm/card*/device/uevent; do
+        [ -r "$source" ] || continue
+        count=$((count+1)); [ "$count" -le 64 ] || break
+        printf '\n--- %s ---\n' "$source"
+        timeout -k 1 2 head -c 4096 "$source" 2>__INSTALLER_PATH_DIR_DEV__/null
+    done
+) 2>__INSTALLER_PATH_DIR_DEV__/null | sed -E 's/^.*([[:alnum:]_.-]*([Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Pp][Aa][Ss][Ss][Pp][Hh][Rr][Aa][Ss][Ee]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Aa][Pp][Ii]_[Kk][Ee][Yy])[[:alnum:]_.-]*=).*$/[REDACTED: credential-bearing line]/' | head -c 1048576 >"$out" 2>__INSTALLER_PATH_DIR_DEV__/null
+exit 0

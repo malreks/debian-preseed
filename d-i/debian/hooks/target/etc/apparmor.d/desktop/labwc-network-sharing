@@ -1,0 +1,108 @@
+#include <tunables/global>
+
+# The menu and terminal wrapper are unprivileged. Fixed systemd operations
+# cross the existing Polkit boundary; no privileged shell or mount helper.
+profile labwc-network-sharing __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-sharing flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/managed_network_sharing.py r,
+  #include <abstractions/wrapper-desktop>
+  #include <abstractions/wrapper-terminal>
+  #include <abstractions/dbus-session-strict>
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/nfsmnt r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/filenmnt r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{network-sharing,labwc-network-sharing} rix,
+  / r,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_ETC__/network-sharing/ r,
+  __INSTALLER_PATH_DIR_ETC__/network-sharing/config.json r,
+  __INSTALLER_PATH_DIR_ETC__/filen/ r,
+  __INSTALLER_PATH_DIR_ETC__/filen/{private,offsec}.json r,
+  __INSTALLER_PATH_DIR_ETC__/fstab r,
+  # Bounded IPv4 TCP availability check; PID 1 performs the actual mounts.
+  network inet stream,
+  __INSTALLER_PATH_DIR_RUN__/ r,
+  __INSTALLER_PATH_DIR_RUN__/network-sharing/ r,
+  __INSTALLER_PATH_DIR_RUN__/network-sharing/report.json r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/.sharing-toggle.lock rwk,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-fuzzel rPx -> labwc-fuzzel,
+  __INSTALLER_PATH_DIR_USR__/bin/{notify-send,timeout} rix,
+  dbus (send) bus=session peer=(name=org.freedesktop.Notifications),
+  __INSTALLER_PATH_DIR_USR__/bin/systemctl rCx -> systemctl,
+  __INSTALLER_PATH_DIR_USR__/bin/journalctl rCx -> journalctl,
+
+  # Cross-profile child lifecycle: Python may kill/reap a timed-out command.
+  signal (send) set=(term, kill) peer=labwc-network-sharing//{systemctl,journalctl},
+  signal (receive) set=(chld) peer=labwc-network-sharing//{systemctl,journalctl},
+  signal (send) set=(term, kill) peer=labwc-{fuzzel,fzf-menu},
+  signal (receive) set=(chld) peer=labwc-{fuzzel,fzf-menu},
+  signal (receive) set=(term, kill) peer=labwc-computer-management,
+  signal (send) set=(chld) peer=labwc-computer-management,
+  # nfsmnt runs in the terminal's foreground process group.
+  signal (receive) set=(hup, int, term, kill) peer=desktop-launcher,
+  signal (send) set=(chld) peer=desktop-launcher,
+
+  profile systemctl {
+    #include <abstractions/base>
+    #include <abstractions/dbus-strict>
+    __INSTALLER_PATH_DIR_USR__/bin/systemctl mr,
+    # The native agent launches both fallback agents when a controlling TTY exists,
+    # even when the wrapper captures stdout and supplies __INSTALLER_PATH_DIR_DEV__/null on stdin.
+    # Keep both agents inside this unprivileged systemctl child profile.
+    __INSTALLER_PATH_DIR_USR__/bin/{pkttyagent,systemd-tty-ask-password-agent} rix,
+    # Trixie's polkit 126 uses the packaged setuid PAM helper; Forky's
+    # socket-based helper remains covered below. This is a native authorization
+    # boundary, never a project-provided privilege helper or password argument.
+    /{lib,usr/lib}/polkit-1/polkit-agent-helper-1 rPUx,
+    __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf,machine-id} r,
+    __INSTALLER_PATH_DIR_RUN__/systemd/{system,private} rw,
+    __INSTALLER_PATH_DIR_RUN__/systemd/system/ r,
+    __INSTALLER_PATH_DIR_RUN__/systemd/ask-password/{,ask.*} r,
+    owner __INSTALLER_PATH_DIR_RUN__/systemd/ask-password/sck.* w,
+    __INSTALLER_PATH_DIR_RUN__/systemd/ask-password-block/ rw,
+    owner __INSTALLER_PATH_DIR_RUN__/systemd/ask-password-block/[0-9]*:[0-9]* rw,
+    # The native systemd implementation creates its user request directory before adding the watch.
+    owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/ask-password/ rw,
+    owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/ask-password/ask.* r,
+    owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/ask-password/sck.* w,
+    # Polkit 127 delegates PAM to its socket-activated root service.
+    __INSTALLER_PATH_DIR_RUN__/polkit/agent-helper.socket rw,
+    __INSTALLER_PATH_DIR_PROC__/sys/fs/nr_open r,
+    __INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id r,
+    owner @{PROC}/@{pid}/{stat,status,cgroup,mountinfo} r,
+    # Polkit 127 resolves the caller's pidfd through its own fdinfo file.
+    owner @{PROC}/@{pid}/fdinfo/[0-9]* r,
+    __INSTALLER_PATH_DIR_DEV__/tty rw,
+    # Observed file_inherit denial for the invoking user's terminal.
+    owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+    network unix stream,
+    # The password agent sends replies to its owned sck.* datagram socket.
+    network unix dgram,
+    dbus (send, receive) bus=system peer=(name=org.freedesktop.systemd1),
+    dbus (send, receive) bus=system peer=(name=org.freedesktop.PolicyKit1),
+    dbus (receive) bus=system interface=org.freedesktop.PolicyKit1.AuthenticationAgent,
+    dbus receive bus=system peer=(name=org.freedesktop.DBus),
+    # The desktop agent remains primary; pkttyagent registers as a fallback.
+    # systemctl reaps its agents and pkttyagent restores/reraises TTY signals.
+    # The packaged AppArmor parser spells SIGTSTP "stp".
+    signal (send, receive) set=(hup, int, term, kill, chld, cont, stp, ttin, ttou) peer=labwc-network-sharing//systemctl,
+    signal (receive) set=(term, kill) peer=labwc-network-sharing,
+    signal (send) set=(chld) peer=labwc-network-sharing,
+    signal (receive) set=(hup, int, term, kill) peer=desktop-launcher,
+  }
+
+  profile journalctl {
+    #include <abstractions/base>
+    __INSTALLER_PATH_DIR_USR__/bin/journalctl mr,
+    __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf,machine-id} r,
+    __INSTALLER_PATH_DIR_RUN__/log/journal/{,**} r,
+    __INSTALLER_PATH_DIR_VAR_LOG__/journal/{,**} r,
+    __INSTALLER_PATH_DIR_USR__/lib/systemd/catalog/database r,
+    __INSTALLER_PATH_DIR_RUN__/systemd/journal/{,**} r,
+    __INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id r,
+    owner @{PROC}/@{pid}/{stat,status,cgroup,mountinfo} r,
+    signal (receive) set=(term, kill) peer=labwc-network-sharing,
+    signal (send) set=(chld) peer=labwc-network-sharing,
+  }
+  include if exists <local/labwc-network-sharing>
+}
+

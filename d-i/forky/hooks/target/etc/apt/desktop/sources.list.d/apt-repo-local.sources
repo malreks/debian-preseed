@@ -1,0 +1,5 @@
+Types: deb
+URIs: file:__INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE__/repo
+Suites: ./
+Signed-By: __INSTALLER_PATH_DIR_ETC__/apt/keyrings/apt-repo-local.gpg
+By-Hash: force

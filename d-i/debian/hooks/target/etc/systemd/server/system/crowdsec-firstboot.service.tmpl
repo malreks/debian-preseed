@@ -1,0 +1,27 @@
+[Unit]
+Description=Headless CrowdSec bootstrap and optional private console enrollment
+Wants=network-online.target time-sync.target auditd.service
+After=network-online.target time-sync.target auditd.service nftables.service
+ConditionPathExists=!__INSTALLER_PATH_FILE_CROWDSEC_COMPLETE__
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+Environment="CROWDSEC_HOST_VARIANT=server"
+Environment="CROWDSEC_ENROLL_TOKEN_FILE=__INSTALLER_CROWDSEC_ENROLL_TOKEN_FILE__"
+Environment="CROWDSEC_COMPLETE_FILE=__INSTALLER_CROWDSEC_COMPLETE_FILE__"
+Environment="CROWDSEC_STATUS_FILE=__INSTALLER_CROWDSEC_STATUS_FILE__"
+Environment=CROWDSEC_ENROLL_ATTEMPTS=1
+Environment=CROWDSEC_ENROLL_RETRY_DELAY_SECONDS=10
+ExecStart=__INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/crowdsec-firstboot
+TimeoutStartSec=10min
+TimeoutStopSec=30
+KillMode=control-group
+Restart=on-failure
+RestartSec=65min
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=multi-user.target

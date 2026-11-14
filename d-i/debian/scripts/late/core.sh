@@ -1,0 +1,708 @@
+#!/bin/sh
+# Shared late_command core helpers. This file is sourced, not executed.
+
+late_command_bootstrap_fatal() {
+  late_command_bootstrap_message=$(printf '%s' "$*" | tr '\r\n\t' '   ')
+  printf '[bootstrap] fatal: %s\n' "$late_command_bootstrap_message" >&2
+  if [ -c /dev/tty4 ] && [ -w /dev/tty4 ]; then
+    printf '[bootstrap] fatal: %s\n' "$late_command_bootstrap_message" >/dev/tty4 || :
+  fi
+  if command -v logger >/dev/null 2>&1; then
+    logger -t preseed-late "fatal: $late_command_bootstrap_message" 2>/dev/null || :
+  fi
+  exit 1
+}
+
+late_command_load_bootstrap() {
+  if command -v bootstrap_source_common_lib >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    return 0
+  fi
+
+  runtime_dir=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+  bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
+
+  [ -s "$bootstrap_lib" ] || {
+    late_command_bootstrap_fatal "installer bootstrap library is unavailable: ${bootstrap_lib}"
+  }
+
+  # shellcheck disable=SC1090,SC1091
+  . "$bootstrap_lib" || {
+    late_command_bootstrap_fatal "failed to source installer bootstrap library: ${bootstrap_lib}"
+  }
+  command -v bootstrap_source_common_lib >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
+    late_command_bootstrap_fatal "installer bootstrap library did not define bootstrap_source_common_lib: ${bootstrap_lib}"
+  }
+}
+
+late_command_shared_init() {
+  requested_seed_base=${1:-}
+  requested_host_profile=${2:-}
+  hook_family=${3:-}
+
+  [ -n "$hook_family" ] || late_command_bootstrap_fatal "late-command hook family is required"
+  late_command_load_bootstrap
+  bootstrap_source_common_lib "$requested_seed_base" || {
+    late_command_bootstrap_fatal "failed to source installer common library"
+  }
+  LOG="$(installer_runtime_log_file)"
+  installer_init_log_file "$LOG" "" "${hook_family} late_command" late-command late_command
+  installer_operation_context_repo FILE_LATE_CORE 49 late_command_shared_init
+  trap 'installer_finalize_log "$?"' EXIT
+  SEED_BASE=$(installer_seed_base "$requested_seed_base")
+  installer_persist_seed_source "$SEED_BASE"
+  installer_ensure_context_loaded "$SEED_BASE"
+  HOST_PROFILE=$(installer_resolve_host_profile "$requested_host_profile")
+
+  TMP_ENV_DIR=${DIR_INSTALLER_LATE_ENV}
+  RUNTIME_DIR=$(installer_runtime_dir)
+  LATE_COMMAND_HOST_ENV="${TMP_ENV_DIR}/host.env"
+  LATE_COMMAND_ACCOUNT_ENV="${TMP_ENV_DIR}/account.env"
+  mkdir -p "$TMP_ENV_DIR" "$RUNTIME_DIR"
+  bootstrap_source_common_support_libs "$SEED_BASE" "$TMP_ENV_DIR" fetch hook target ssh || {
+    installer_fatal "failed to source installer late support libraries"
+  }
+  late_command_collect_installer_logs
+}
+
+fetch_env() {
+  fetch_env_file "$1" "$2"
+}
+
+late_command_load_themes() {
+  if ! command -v installer_load_themes >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    fetch_hook_file "$(installer_repo_file_value FILE_LATE_THEMES)" "$TMP_ENV_DIR/themes.sh" || return $?
+    # shellcheck disable=SC1090,SC1091
+    . "$TMP_ENV_DIR/themes.sh" || return $?
+  fi
+  installer_load_themes
+}
+
+fetch_hook() {
+  fetch_hook_file "$1" "$2" || return $?
+  # Every fetched late/desktop/firstboot asset uses the same canonical
+  # runtime path namespace.  Render it before the caller sources or executes
+  # the fetched file; leaving a path token in an installer-side helper would
+  # otherwise turn a valid target path into an empty or literal argument.
+  if LC_ALL=C grep -q '__INSTALLER_PATH_' "$2"; then
+    # fetch_hook_file always stages this private helper with mode 0755.  Keep
+    # the renderer independent of the unavailable d-i `stat` applet.
+    fetch_hook_path_mode=0755
+    fetch_hook_path_rendered="${2}.path-rendered"
+    installer_apply_scalar_placeholders "$2" "$fetch_hook_path_rendered" || {
+      rm -f -- "$fetch_hook_path_rendered"
+      installer_fatal "failed to render runtime paths in fetched asset: $1"
+      return 1
+    }
+    installer_assert_no_unresolved_path_placeholders "$fetch_hook_path_rendered" "$1" || {
+      rm -f -- "$fetch_hook_path_rendered"
+      return 1
+    }
+    chmod "$fetch_hook_path_mode" "$fetch_hook_path_rendered" || {
+      rm -f -- "$fetch_hook_path_rendered"
+      installer_fatal "failed to restore fetched asset mode: $1"
+      return 1
+    }
+    mv -f -- "$fetch_hook_path_rendered" "$2" || {
+      rm -f -- "$fetch_hook_path_rendered"
+      installer_fatal "failed to publish rendered fetched asset: $1"
+      return 1
+    }
+  else
+    fetch_hook_path_probe_status=$?
+    [ "$fetch_hook_path_probe_status" = 1 ] || {
+      installer_fatal "could not inspect fetched asset for runtime paths: $1"
+      return 1
+    }
+  fi
+  case "$1" in
+    *.png|*.jpg|*.jpeg|*.webp|*.gif|*.ico|*.ttf|*.otf|*.woff|*.woff2|*.gz|*.xz|*.bz2|*.zip|*.deb)
+      return 0 ;;
+  esac
+  # Appearance Python modules are code, not themed consumer assets.  Keep
+  # their bytes literal even if a diagnostic, grammar, or future test embeds
+  # a token-shaped string.  The fields registry is deliberately the
+  # fields.json.tmpl source asset: themes.sh selects defaults-only rendering
+  # before it is installed as fields.json. Its mapping templates and token
+  # lists must retain their literal markers for native value capture/editing.
+  case "$1" in
+    "${DIR_TARGET_PY}/labwc_appearance/"*.py) return 0 ;;
+  esac
+  case "$1" in
+    "${DIR_HOOKS_TARGET}/"*|"${DIR_SCRIPTS_DESKTOP}/"*|"${DIR_SCRIPTS_FIRSTBOOT}/"*)
+      if LC_ALL=C grep -q '__THEME_' "$2"; then
+        late_command_load_themes || return $?
+        installer_theme_render_file "$2" "$1" || return $?
+      else
+        theme_probe_status=$?
+        [ "$theme_probe_status" = 1 ] || {
+          installer_fatal "could not inspect fetched theme asset: $1"
+          return 1
+        }
+      fi
+      ;;
+  esac
+}
+
+fatal() {
+  installer_fatal "$@"
+}
+
+warn() {
+  installer_warn "$@"
+}
+
+info() {
+  installer_info "$@"
+}
+
+require_in_target() {
+  phase_label=$1
+  target_exec_available || fatal "target command execution is unavailable during ${phase_label}"
+}
+
+ensure_installer_command_logged() {
+  cmd=$1
+  udeb=$2
+
+  if command -v "$cmd" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    return 0
+  fi
+  warn "${cmd} is unavailable in the installer environment; attempting anna-install ${udeb}"
+  hook_ensure_installer_command "$cmd" "$udeb"
+}
+
+late_command_collect_installer_logs() {
+  runtime_log_dir=$(installer_runtime_log_dir)
+
+  if installer_logging_enabled; then
+    installer_info "live installer logs are under ${runtime_log_dir}; late hooks snapshot them into ${TARGET_ROOT} before finish-install runs"
+  fi
+}
+
+late_command_ensure_env_paths() {
+  [ -n "${TMP_ENV_DIR:-}" ] || late_command_bootstrap_fatal "late-command environment directory is not initialized"
+  : "${LATE_COMMAND_HOST_ENV:=${TMP_ENV_DIR}/host.env}"
+  : "${LATE_COMMAND_ACCOUNT_ENV:=${TMP_ENV_DIR}/account.env}"
+}
+
+late_command_host_env_path() {
+  late_command_ensure_env_paths || return $?
+  printf '%s\n' "$LATE_COMMAND_HOST_ENV"
+}
+
+late_command_account_env_path() {
+  late_command_ensure_env_paths || return $?
+  printf '%s\n' "$LATE_COMMAND_ACCOUNT_ENV"
+}
+
+late_command_ensure_host_policy_envs() {
+  late_command_ensure_env_paths || return $?
+  late_command_host_env=$LATE_COMMAND_HOST_ENV
+  late_command_account_env=$LATE_COMMAND_ACCOUNT_ENV
+
+  if [ ! -s "$late_command_host_env" ]; then
+    installer_operation_context_repo FILE_LATE_CORE 205 installer_fetch_host_env
+    installer_fetch_host_env "$SEED_BASE" "$HOST_PROFILE" "$late_command_host_env" 0600 || {
+      late_command_env_status=$?
+      installer_fatal_status "$late_command_env_status" \
+        "failed to fetch host policy environment: source=${HOST_PROFILE:-unset} destination=${late_command_host_env}"
+      return "$late_command_env_status"
+    }
+    LATE_COMMAND_PROFILE_ENV_LOADED=0
+  fi
+
+  if [ ! -s "$late_command_account_env" ]; then
+    installer_operation_context_repo FILE_LATE_CORE 216 installer_fetch_account_env
+    installer_fetch_account_env "$SEED_BASE" "$late_command_account_env" 0600 || {
+      late_command_env_status=$?
+      installer_fatal_status "$late_command_env_status" \
+        "failed to fetch account policy environment: destination=${late_command_account_env}"
+      return "$late_command_env_status"
+    }
+    LATE_COMMAND_ACCOUNT_ENV_LOADED=0
+  fi
+}
+
+late_command_load_profile_env() {
+  [ "${LATE_COMMAND_PROFILE_ENV_LOADED:-0}" = 1 ] && return 0
+
+  late_command_ensure_host_policy_envs || return $?
+  late_command_host_env=$LATE_COMMAND_HOST_ENV
+  [ -r "$late_command_host_env" ] || installer_fatal "host policy env is missing: ${late_command_host_env}"
+  # shellcheck disable=SC1090,SC1091
+  installer_load_data_env "$late_command_host_env" || return $?
+  validate_installed_log_levels || return $?
+  late_command_load_themes || return $?
+  LATE_COMMAND_PROFILE_ENV_LOADED=1
+}
+
+late_command_load_account_env() {
+  [ "${LATE_COMMAND_ACCOUNT_ENV_LOADED:-0}" = 1 ] && return 0
+
+  late_command_ensure_host_policy_envs || return $?
+  late_command_account_env=$LATE_COMMAND_ACCOUNT_ENV
+  [ -r "$late_command_account_env" ] || installer_fatal "account policy env is missing: ${late_command_account_env}"
+  # shellcheck disable=SC1090,SC1091
+  installer_load_data_env "$late_command_account_env" || return $?
+  [ -r "$TMP_ENV_DIR/runtime-common.sh" ] || installer_fatal "runtime common helper is missing: ${TMP_ENV_DIR}/runtime-common.sh"
+  RUNTIME_COMMON_LIB="$TMP_ENV_DIR/runtime-common.sh"
+  export RUNTIME_COMMON_LIB
+  [ -r "$TMP_ENV_DIR/account-runtime.sh" ] || installer_fatal "runtime account helper is missing: ${TMP_ENV_DIR}/account-runtime.sh"
+  # shellcheck disable=SC1090,SC1091
+  . "$TMP_ENV_DIR/account-runtime.sh" || return $?
+  runtime_apply_account_from_credentials || return $?
+  # Addons run in separate shells and read this file. Publish the resolved
+  # identity/home paths, without primary/root passwords, before they start.
+  runtime_write_effective_account_env "$late_command_account_env" || return $?
+  LATE_COMMAND_ACCOUNT_ENV_LOADED=1
+}
+
+late_command_fetch_common_assets() {
+  runtime_script_path=$1
+
+  # The family runs in its own shell. Fetching host.env alone does not load
+  # the target path values needed to render the first bootprofile/unit asset.
+  # Load the validated profile before any fetched template reaches a renderer.
+  late_command_load_profile_env || return $?
+  late_command_fetch_repo_file FILE_RUNTIME_COMMON "$TMP_ENV_DIR/runtime-common.sh" runtime-common.sh
+  late_command_fetch_asset "$runtime_script_path" "$TMP_ENV_DIR/runtime.sh" "${runtime_script_path##*/}"
+  late_command_fetch_repo_file FILE_RUNTIME_ACCOUNT "$TMP_ENV_DIR/account-runtime.sh" account.sh
+  late_command_fetch_repo_file FILE_TARGET_INSTALL_TOOLS_BOOTPROFILE_APPLY_TMPL "$TMP_ENV_DIR/bootprofile-apply.tmpl" bootprofile-apply.tmpl
+  late_command_fetch_repo_file FILE_TARGET_UNIT_BOOTPROFILE_APPLY_SERVICE_TMPL "$TMP_ENV_DIR/bootprofile-apply.service.tmpl" bootprofile-apply.service
+  late_command_fetch_repo_file FILE_TARGET_LIBEXEC_APT_REFRESH_LISTS_TMPL "$TMP_ENV_DIR/apt-refresh-lists.tmpl" apt-refresh-lists.tmpl
+  late_command_fetch_repo_file FILE_TARGET_UNIT_APT_REFRESH_LISTS_SERVICE_TMPL "$TMP_ENV_DIR/apt-refresh-lists.service.tmpl" apt-refresh-lists.service
+  late_command_fetch_repo_file FILE_TARGET_UNIT_APT_DAILY_SERVICE_D_OVERRIDE_TMPL "$TMP_ENV_DIR/apt-daily.override.conf.tmpl" apt-daily.override.conf
+  late_command_fetch_repo_file FILE_TARGET_SUDOERS_D_ACCOUNT_TMPL "$TMP_ENV_DIR/account.sudoers.tmpl" account.sudoers
+  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_SETUP_SERVICE_TMPL "$TMP_ENV_DIR/zram-setup.service.tmpl" zram-setup.service
+  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_WRITEBACK_SERVICE_TMPL "$TMP_ENV_DIR/zram-writeback.service.tmpl" zram-writeback.service
+  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_WRITEBACKD_SERVICE_TMPL "$TMP_ENV_DIR/zram-writebackd.service.tmpl" zram-writebackd.service
+  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_IDLE_WRITEBACK_TIMER_TMPL "$TMP_ENV_DIR/zram-idle-writeback.timer.tmpl" zram-idle-writeback.timer
+  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_COLD_TIER_TIMER_TMPL "$TMP_ENV_DIR/zram-cold-tier.timer.tmpl" zram-cold-tier.timer
+  late_command_fetch_repo_file FILE_TARGET_UNIT_SWAP_FALLBACK_SERVICE_TMPL "$TMP_ENV_DIR/swap-fallback.service.tmpl" swap-fallback.service
+  late_command_fetch_repo_file FILE_TARGET_LIBEXEC_TMPFS_PRE_CLEAN_TMPL "$TMP_ENV_DIR/tmpfs-pre-clean.tmpl" tmpfs-pre-clean.tmpl
+  late_command_fetch_repo_file FILE_TARGET_UNIT_TMPFS_PRE_CLEAN_SERVICE_TMPL "$TMP_ENV_DIR/tmpfs-pre-clean.service.tmpl" tmpfs-pre-clean.service
+}
+
+late_command_fetch_asset() {
+  late_asset_source=$1
+  late_asset_destination=$2
+  late_asset_label=${3:-${late_asset_source##*/}}
+
+  if fetch_hook "$late_asset_source" "$late_asset_destination"; then
+    return 0
+  else
+    late_asset_status=$?
+  fi
+  installer_fatal_status "$late_asset_status" \
+    "late-command asset fetch failed: label=${late_asset_label} source=${late_asset_source} destination=${late_asset_destination}"
+}
+
+late_command_fetch_repo_file() {
+  late_asset_selector=$1
+  late_asset_destination=$2
+  late_asset_label=${3:-$late_asset_selector}
+
+  late_asset_source=$(installer_repo_file_value "$late_asset_selector") || {
+    late_asset_status=$?
+    installer_fatal_status "$late_asset_status" \
+      "late-command repository file selector resolution failed: selector=${late_asset_selector} destination=${late_asset_destination}"
+    return "$late_asset_status"
+  }
+  late_command_fetch_asset "$late_asset_source" "$late_asset_destination" "$late_asset_label"
+}
+
+late_command_fetch_common_assets_file() {
+  late_asset_selector=$1
+
+  late_asset_source=$(installer_repo_file_value "$late_asset_selector") || {
+    late_asset_status=$?
+    installer_fatal_status "$late_asset_status" \
+      "late-command runtime file selector resolution failed: selector=${late_asset_selector}"
+    return "$late_asset_status"
+  }
+  late_command_fetch_common_assets "$late_asset_source"
+}
+
+late_command_load_runtime_env() {
+  capture_dualboot_layout=${1:-false}
+
+  # Propagate each failure even under an if/OR caller (which disables errexit).
+
+  late_command_load_profile_env || return $?
+  RUNTIME_COMMON_LIB="$TMP_ENV_DIR/runtime-common.sh"
+  export RUNTIME_COMMON_LIB
+  # shellcheck disable=SC1090,SC1091
+  . "$TMP_ENV_DIR/runtime.sh" || return $?
+  late_command_runtime_state_env="$(installer_runtime_state_dir)/runtime.env" || return $?
+  [ -n "${DIR_INSTALLER_ENV:-}" ] || installer_fatal 'DIR_INSTALLER_ENV is unavailable; di.env was not loaded'
+  late_command_env_dir=${DIR_INSTALLER_ENV:-}
+  if [ -r "${late_command_env_dir}/runtime.env" ]; then
+    # shellcheck disable=SC1090,SC1091
+    . "${late_command_env_dir}/runtime.env" || return $?
+  elif [ -r "$late_command_runtime_state_env" ]; then
+    # shellcheck disable=SC1090,SC1091
+    . "$late_command_runtime_state_env" || return $?
+  else
+    runtime_apply_layout_from_cmdline || return $?
+    if [ "$capture_dualboot_layout" = true ]; then
+      command -v runtime_capture_dualboot_partition_sizes >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || installer_fatal "runtime_capture_dualboot_partition_sizes is unavailable in ${TMP_ENV_DIR}/runtime.sh"
+      runtime_capture_dualboot_partition_sizes || return $?
+    fi
+    runtime_write_runtime_env "$late_command_runtime_state_env" || return $?
+  fi
+  installer_ensure_context_loaded "${SEED_BASE:-}" || return $?
+  runtime_ensure_system_identity || return $?
+  validate_tmpfs_policy_env
+}
+
+runtime_log_level_canonical() {
+  case "${1:-error}" in
+    debug|DEBUG) printf '%s\n' debug ;;
+    info|INFO) printf '%s\n' info ;;
+    warn|WARN|warning|WARNING) printf '%s\n' warning ;;
+    error|ERROR|fatal|FATAL) printf '%s\n' error ;;
+    none|NONE) printf '%s\n' none ;;
+    *) return 1 ;;
+  esac
+}
+
+runtime_nftables_log_level_canonical() {
+  case "${1:-none}" in
+    debug|DEBUG) printf '%s\n' debug ;;
+    info|INFO) printf '%s\n' info ;;
+    warn|WARN|warning|WARNING) printf '%s\n' warning ;;
+    error|ERROR|fatal|FATAL) printf '%s\n' error ;;
+    none|NONE) printf '%s\n' none ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_installed_log_levels() {
+  nft_level=$(runtime_nftables_log_level_canonical "${NFTABLES_LOG_LEVEL:-none}") ||
+    installer_fatal "NFTABLES_LOG_LEVEL must be debug, info, warning, error, or none"
+  zram_level=$(runtime_log_level_canonical "${ZRAM_LOG_LEVEL:-info}") ||
+    installer_fatal "ZRAM_LOG_LEVEL must be debug, info, warning, error, or none"
+  systemd_level=$(runtime_log_level_canonical "${SYSTEMD_LOG_LEVEL:-error}") ||
+    installer_fatal "SYSTEMD_LOG_LEVEL must be debug, info, warning, error, or none"
+
+  NFTABLES_LOG_LEVEL=$nft_level
+  ZRAM_LOG_LEVEL=$zram_level
+  SYSTEMD_LOG_LEVEL=$systemd_level
+}
+
+late_command_load_host_env() {
+  late_command_load_profile_env || return $?
+  late_command_load_account_env || return $?
+}
+
+install_target_runtime_defaults() {
+  : "${FILE_LOGIND_OVERRIDE_CONF:?FILE_LOGIND_OVERRIDE_CONF must be set}"
+
+  stage_target_iocost || return $?
+
+  validate_installed_log_levels || return $?
+  render_target_asset "$(installer_repo_file_value FILE_TARGET_SYSTEM_RUNTIME_TMPL)" __INSTALLER_PATH_DIR_ETC__/system-runtime.conf 0644 || return $?
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_SYSTEMD_LOGIND_CONF_D_OVERRIDE)" \
+    "${FILE_LOGIND_OVERRIDE_CONF}" \
+    0644
+}
+
+install_target_wpa_supplicant_runtime_policy() {
+  : "${FILE_WPA_SUPPLICANT_CONF:?FILE_WPA_SUPPLICANT_CONF must be set}"
+  : "${FILE_WPA_SUPPLICANT_P2P_DEVICE_CONF:?FILE_WPA_SUPPLICANT_P2P_DEVICE_CONF must be set}"
+  : "${FILE_WPA_SUPPLICANT_DBUS_SERVICE_OVERRIDE:?FILE_WPA_SUPPLICANT_DBUS_SERVICE_OVERRIDE must be set}"
+  : "${FILE_WPA_SUPPLICANT_DBUS_SERVICE_ALIAS:?FILE_WPA_SUPPLICANT_DBUS_SERVICE_ALIAS must be set}"
+  : "${FILE_NETWORKMANAGER_LINK_PRIVACY_CONF:?FILE_NETWORKMANAGER_LINK_PRIVACY_CONF must be set}"
+
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_WPA_SUPPLICANT)" \
+    "${FILE_WPA_SUPPLICANT_CONF}" \
+    0644 || return $?
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_WPA_SUPPLICANT_P2P_DEVICE)" \
+    "${FILE_WPA_SUPPLICANT_P2P_DEVICE_CONF}" \
+    0644 || return $?
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_UNIT_WPA_SUPPLICANT_SERVICE_D_OVERRIDE)" \
+    "${FILE_WPA_SUPPLICANT_DBUS_SERVICE_OVERRIDE}" \
+    0644 || return $?
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_NETWORKMANAGER_CONF_D_80_LINK_PRIVACY)" \
+    "${FILE_NETWORKMANAGER_LINK_PRIVACY_CONF}" \
+    0644 || return $?
+
+  [ -r "${TARGET_ROOT}${FILE_WPA_SUPPLICANT_CONF}" ] ||
+    installer_fatal "staged wpa_supplicant config is missing"
+  [ -r "${TARGET_ROOT}${FILE_WPA_SUPPLICANT_P2P_DEVICE_CONF}" ] ||
+    installer_fatal "staged wpa_supplicant P2P device config is missing"
+  [ -r "${TARGET_ROOT}${FILE_WPA_SUPPLICANT_DBUS_SERVICE_OVERRIDE}" ] ||
+    installer_fatal "staged wpa_supplicant D-Bus override is missing"
+  [ -r "${TARGET_ROOT}${FILE_NETWORKMANAGER_LINK_PRIVACY_CONF}" ] ||
+    installer_fatal "staged NetworkManager link privacy policy is missing"
+  grep -q '^p2p_disabled=1$' "${TARGET_ROOT}${FILE_WPA_SUPPLICANT_CONF}" ||
+    installer_fatal "wpa_supplicant config must disable P2P"
+  grep -q '^p2p_disabled=1$' "${TARGET_ROOT}${FILE_WPA_SUPPLICANT_P2P_DEVICE_CONF}" ||
+    installer_fatal "wpa_supplicant P2P device config must disable P2P"
+  grep -q 'ExecStart=__INSTALLER_PATH_DIR_USR_SBIN__/wpa_supplicant .* -c __INSTALLER_PATH_DIR_ETC__/wpa_supplicant/wpa_supplicant.conf ' \
+    "${TARGET_ROOT}${FILE_WPA_SUPPLICANT_DBUS_SERVICE_OVERRIDE}" ||
+    installer_fatal "wpa_supplicant D-Bus override must load the managed config"
+  if grep -q ' -m __INSTALLER_PATH_DIR_ETC__/wpa_supplicant/p2p-device.conf ' \
+    "${TARGET_ROOT}${FILE_WPA_SUPPLICANT_DBUS_SERVICE_OVERRIDE}"; then
+    installer_fatal "wpa_supplicant D-Bus override must not start a dedicated P2P device config"
+  fi
+  grep -q '^wifi\.scan-rand-mac-address=yes$' \
+    "${TARGET_ROOT}${FILE_NETWORKMANAGER_LINK_PRIVACY_CONF}" ||
+    installer_fatal "NetworkManager link privacy policy must enable Wi-Fi scan MAC randomization"
+  grep -q '^ethernet\.cloned-mac-address=random$' \
+    "${TARGET_ROOT}${FILE_NETWORKMANAGER_LINK_PRIVACY_CONF}" ||
+    installer_fatal "NetworkManager link privacy policy must randomize Ethernet MAC addresses"
+  grep -q '^wifi\.cloned-mac-address=random$' \
+    "${TARGET_ROOT}${FILE_NETWORKMANAGER_LINK_PRIVACY_CONF}" ||
+    installer_fatal "NetworkManager link privacy policy must randomize Wi-Fi MAC addresses"
+  if command -v target_systemd_unit_path >__INSTALLER_PATH_DIR_DEV__/null 2>&1 &&
+    target_systemd_unit_path wpa_supplicant.service system >__INSTALLER_PATH_DIR_DEV__/null 2>&1
+  then
+    stage_target_systemd_unit_enabled wpa_supplicant.service system || return $?
+    [ -L "${TARGET_ROOT}${FILE_WPA_SUPPLICANT_DBUS_SERVICE_ALIAS}" ] ||
+      installer_fatal "wpa_supplicant D-Bus systemd alias is missing: ${FILE_WPA_SUPPLICANT_DBUS_SERVICE_ALIAS}"
+  fi
+  installer_append_log_category late target_customization info network \
+    "staged wpa_supplicant D-Bus policy config=${FILE_WPA_SUPPLICANT_CONF} p2p_config=${FILE_WPA_SUPPLICANT_P2P_DEVICE_CONF} override=${FILE_WPA_SUPPLICANT_DBUS_SERVICE_OVERRIDE}" || true
+}
+
+configure_target_smartmontools_defaults() {
+  : "${FILE_SMARTMONTOOLS_DEFAULT:?FILE_SMARTMONTOOLS_DEFAULT must be set}"
+
+  if ! test_in_target __INSTALLER_PATH_DIR_BIN__/sh -c 'dpkg-query -s smartmontools >__INSTALLER_PATH_DIR_DEV__/null 2>&1'; then
+    return 0
+  fi
+
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_DEFAULT_SMARTMONTOOLS)" \
+    "${FILE_SMARTMONTOOLS_DEFAULT}" \
+    0644
+}
+
+late_command_set_grub_arch_policy() {
+  arch_class=${INSTALLER_ARCH_CLASS:-$(installer_selected_class_for_purpose arch 2>__INSTALLER_PATH_DIR_DEV__/null || true)}
+
+  [ -n "$arch_class" ] || installer_fatal "selected arch class is unavailable in installer context"
+
+  # shellcheck disable=SC2034
+  # Family hooks source this shared file and consume the arch-policy variables.
+  case "$arch_class" in
+    amd64)
+      INSTALLER_GRUB_EFI_TARGET=x86_64-efi
+      INSTALLER_GRUB_SHIM_EFI_PATH=/EFI/debian/shimx64.efi
+      INSTALLER_GRUB_BINARY_EFI_PATH=/EFI/debian/grubx64.efi
+      INSTALLER_GRUB_MOK_MANAGER_EFI_PATH=/EFI/debian/mmx64.efi
+      INSTALLER_GRUB_REMOVABLE_BOOT_EFI_PATH=/EFI/BOOT/BOOTX64.EFI
+      ;;
+    arm64)
+      INSTALLER_GRUB_EFI_TARGET=arm64-efi
+      INSTALLER_GRUB_SHIM_EFI_PATH=/EFI/debian/shimaa64.efi
+      INSTALLER_GRUB_BINARY_EFI_PATH=/EFI/debian/grubaa64.efi
+      INSTALLER_GRUB_MOK_MANAGER_EFI_PATH=/EFI/debian/mmaa64.efi
+      INSTALLER_GRUB_REMOVABLE_BOOT_EFI_PATH=/EFI/BOOT/BOOTAA64.EFI
+      ;;
+    *)
+      installer_fatal "unsupported arch class for GRUB EFI policy: ${arch_class}"
+      ;;
+  esac
+}
+
+late_command_require_class_policy_env() {
+  INSTALL_POLICY_ENV=$(installer_class_policy_env_path)
+  [ -r "$INSTALL_POLICY_ENV" ] || installer_fatal "installer install policy env is missing: ${INSTALL_POLICY_ENV}"
+  # shellcheck disable=SC1090,SC1091
+  . "$INSTALL_POLICY_ENV" || return $?
+  [ -n "${INSTALLER_PKGSEL_INCLUDE:-}" ] || installer_fatal "INSTALLER_PKGSEL_INCLUDE is missing from ${INSTALL_POLICY_ENV}"
+  [ -n "${INSTALLER_SECURE_BOOT_BOOT_CHAIN_PACKAGES:-}" ] || installer_fatal "INSTALLER_SECURE_BOOT_BOOT_CHAIN_PACKAGES is missing from ${INSTALL_POLICY_ENV}"
+  [ -n "${INSTALLER_SECURE_BOOT_TARGET_PACKAGES:-}" ] || installer_fatal "INSTALLER_SECURE_BOOT_TARGET_PACKAGES is missing from ${INSTALL_POLICY_ENV}"
+  late_command_set_grub_arch_policy
+}
+
+late_command_graphics_initramfs_modules() (
+  gpu_classes=${1:-}
+  include_nvidia=${2:-false}
+  emitted_modules=' '
+
+  emit_unique_module() {
+    module_name=$1
+    case " $emitted_modules " in
+      *" $module_name "*) return 0 ;;
+    esac
+    emitted_modules="${emitted_modules}${module_name} "
+    printf '%s\n' "$module_name"
+  }
+
+  for gpu_class in $gpu_classes; do
+    case "$gpu_class" in
+      intel-uhd)
+        emit_unique_module i915
+        ;;
+      amd-radeon)
+        # AMD display drivers are not required for root discovery. Loading them
+        # from initramfs can trip PSP TA firmware paths before the full target
+        # firmware stack is available, so let udev load them after switch-root.
+        ;;
+      generic)
+        ;;
+      *)
+        installer_fatal "unsupported gpu class: ${gpu_class}"
+        ;;
+    esac
+  done
+
+  case "$include_nvidia" in
+    true)
+      emit_unique_module nvidia
+      emit_unique_module nvidia_modeset
+      emit_unique_module nvidia_uvm
+      emit_unique_module nvidia_drm
+      ;;
+  esac
+)
+
+install_target_firstboot_logger() {
+  : "${FILE_FIRSTBOOT_HELPER:?FILE_FIRSTBOOT_HELPER must be set}"
+  : "${FILE_FIRSTBOOT_SERVICE:?FILE_FIRSTBOOT_SERVICE must be set}"
+  : "${FILE_SECONDBOOT_HELPER:?FILE_SECONDBOOT_HELPER must be set}"
+  : "${FILE_SECONDBOOT_SERVICE:?FILE_SECONDBOOT_SERVICE must be set}"
+  : "${FILE_INITRAMFS_HEALTH_COMMON:?FILE_INITRAMFS_HEALTH_COMMON must be set}"
+  : "${FILE_INITRAMFS_HEALTH_INIT_TOP:?FILE_INITRAMFS_HEALTH_INIT_TOP must be set}"
+  : "${FILE_INITRAMFS_HEALTH_INIT_PREMOUNT:?FILE_INITRAMFS_HEALTH_INIT_PREMOUNT must be set}"
+  : "${FILE_INITRAMFS_HEALTH_LOCAL_TOP:?FILE_INITRAMFS_HEALTH_LOCAL_TOP must be set}"
+  : "${FILE_INITRAMFS_HEALTH_LOCAL_BLOCK:?FILE_INITRAMFS_HEALTH_LOCAL_BLOCK must be set}"
+  : "${FILE_INITRAMFS_HEALTH_LOCAL_PREMOUNT:?FILE_INITRAMFS_HEALTH_LOCAL_PREMOUNT must be set}"
+  : "${FILE_INITRAMFS_HEALTH_LOCAL_BOTTOM:?FILE_INITRAMFS_HEALTH_LOCAL_BOTTOM must be set}"
+  : "${FILE_INITRAMFS_HEALTH_INIT_BOTTOM:?FILE_INITRAMFS_HEALTH_INIT_BOTTOM must be set}"
+  : "${DIR_INITRAMFS_SCRIPTS:?DIR_INITRAMFS_SCRIPTS must be set}"
+  : "${DIR_FIRSTBOOT_LIB:?DIR_FIRSTBOOT_LIB must be set}"
+  : "${DIR_FIRSTBOOT_LOG:?DIR_FIRSTBOOT_LOG must be set}"
+  : "${DIR_FIRSTBOOT_STATE:?DIR_FIRSTBOOT_STATE must be set}"
+  : "${DIR_INSTALL_LOG:?DIR_INSTALL_LOG must be set}"
+  : "${LOG_INITRAMFS_DIR:?LOG_INITRAMFS_DIR must be set}"
+
+  # Finish-install normalizes every active source after vendor setup.
+  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APT_REPO_LOCAL_NORMALIZE_SOURCES)" \
+    "${DIR_USR_LOCAL_LIBEXEC}/apt-repo-local-normalize-sources" 0755
+
+  # Shared by system and desktop command wrappers on every storage family.
+  stage_target_asset "$(installer_repo_file_value FILE_TARGET_PERL_RUNTIME_MANAGED_PROCESS)" \
+    "${DIR_PERL5_SITE_PERL}/runtime/Managed/Process.pm" 0644
+  # Staged across the first reboot only; secondboot removes this entire surface.
+  install -d -m 0700 "${TARGET_ROOT}${DIR_FIRSTBOOT}" "${TARGET_ROOT}${DIR_FIRSTBOOT_BIN}"
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_AA_FIRSTBOOT_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/apparmor.d/firstboot 0644
+  if security_target_is_desktop; then
+    run_in_target "apply selected AppArmor mode to staged first-boot policy" \
+      "${DIR_USR_LOCAL_LIBEXEC}/apparmor-modes-run" --no-reload
+  fi
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_FIRSTBOOT)" "${FILE_FIRSTBOOT_HELPER}" 0755
+  install -d -m 0755 "${TARGET_ROOT}${DIR_FIRSTBOOT_LIB}"
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_LOGGING)" "${DIR_FIRSTBOOT_LIB}/logging.sh" 0644
+  for firstboot_stage in \
+    01-early.sh \
+    02-collect.sh \
+    03-network.sh \
+    04-validation.sh \
+    05-cleanup.sh
+  do
+    stage_target_asset "$(installer_repo_asset_path DIR_SCRIPTS_FIRSTBOOT "${firstboot_stage}")" "${DIR_FIRSTBOOT_LIB}/${firstboot_stage}" 0755
+  done
+  unset firstboot_stage
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_IMPORT_INITRAMFS_TMPL)" \
+    "${DIR_FIRSTBOOT_LIB}/import-initramfs.py" 0644
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_SERVICE_ACCOUNT_PROCESSES)" \
+    "${DIR_FIRSTBOOT_LIB}/service-account-processes.py" 0644
+
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_COMMON)" "${FILE_INITRAMFS_HEALTH_COMMON}" 0644
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_INIT_TOP_ENTRY)" "${FILE_INITRAMFS_HEALTH_INIT_TOP}" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_INIT_PREMOUNT_ENTRY)" "${FILE_INITRAMFS_HEALTH_INIT_PREMOUNT}" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_LOCAL_TOP_ENTRY)" "${FILE_INITRAMFS_HEALTH_LOCAL_TOP}" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_LOCAL_BLOCK_ENTRY)" "${FILE_INITRAMFS_HEALTH_LOCAL_BLOCK}" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_LOCAL_PREMOUNT_ENTRY)" "${FILE_INITRAMFS_HEALTH_LOCAL_PREMOUNT}" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_LOCAL_BOTTOM_ENTRY)" "${FILE_INITRAMFS_HEALTH_LOCAL_BOTTOM}" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_INIT_BOTTOM_ENTRY)" "${FILE_INITRAMFS_HEALTH_INIT_BOTTOM}" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_UNIT_FIRSTBOOT_SERVICE)" "${FILE_FIRSTBOOT_SERVICE}" 0644
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_BIN_SECONDBOOT_CLEANUP)" "${FILE_SECONDBOOT_HELPER}" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_UNIT_SECONDBOOT_SERVICE)" "${FILE_SECONDBOOT_SERVICE}" 0644
+  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_UNIT_SECONDBOOT_PATH)" __INSTALLER_PATH_DIR_ETC__/systemd/system/secondboot.path 0644
+
+  install -d -m 0700 \
+    "${TARGET_ROOT}${LOG_INITRAMFS_DIR}" \
+    "${TARGET_ROOT}${DIR_FIRSTBOOT_LOG}" \
+    "${TARGET_ROOT}${DIR_FIRSTBOOT_STATE}"
+  if installer_logging_enabled; then
+    install -d -m 0700 "${TARGET_ROOT}${DIR_INSTALL_LOG}"
+  fi
+
+  stage_target_systemd_unit_enabled firstboot.service system
+  stage_target_systemd_unit_enabled secondboot.service system
+  stage_target_systemd_unit_enabled secondboot.path system
+  installer_append_log_category late target_customization info firstboot "staged target first-boot wrapper ${FILE_FIRSTBOOT_HELPER}" || true
+  installer_append_log_category late target_customization info secondboot "staged target cleanup service ${FILE_SECONDBOOT_SERVICE} automatic_after_completed_enrollment=true" || true
+  installer_append_log_category bootloader bootloader info initramfs "staged initramfs health hooks under ${DIR_INITRAMFS_SCRIPTS}" || true
+}
+
+# Preserve NVIDIA VRAM only together with the vendor's complete sleep protocol.
+# Both Btrfs/VM and F2FS late paths call this after staging GPU configuration.
+configure_target_nvidia_power_management() (
+  enabled=${1:-false}
+  case "$enabled" in
+    true|false) ;;
+    *) installer_fatal 'NVIDIA power-management selection must be boolean'; exit 1 ;;
+  esac
+  if [ "$enabled" != true ]; then
+    # Remove only our managed target assets, never installer __INSTALLER_PATH_DIR_ETC__ or vendor units.
+    for phase in suspend suspend-then-hibernate hibernate resume; do
+      remove_target_asset "$(installer_systemd_dropin_dir system "nvidia-${phase}.service")/20-vram.conf"
+    done
+    for mode in suspend suspend-then-hibernate hibernate hybrid-sleep; do
+      remove_target_asset "$(installer_systemd_dropin_dir system "systemd-${mode}.service")/20-nvidia-preserve.conf"
+    done
+    remove_target_asset __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/70-nvidia-vram.conf
+    remove_target_asset "${DIR_USR_LOCAL_LIBEXEC}/nvidia-vram-check"
+    return 0
+  fi
+  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_NVIDIA_VRAM_CHECK)" "${DIR_USR_LOCAL_LIBEXEC}/nvidia-vram-check" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_70_NVIDIA_VRAM)" __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/70-nvidia-vram.conf 0644
+  for phase in suspend suspend-then-hibernate hibernate resume; do
+    stage_target_asset "$(installer_repo_asset_path DIR_TARGET_UNIT "nvidia-${phase}.service.d/20-vram.conf")" \
+      "$(installer_systemd_dropin_dir system "nvidia-${phase}.service")/20-vram.conf" 0644
+  done
+  for mode in suspend suspend-then-hibernate hibernate hybrid-sleep; do
+    stage_target_asset "$(installer_repo_asset_path DIR_TARGET_UNIT "systemd-${mode}.service.d/20-nvidia-preserve.conf")" \
+      "$(installer_systemd_dropin_dir system "systemd-${mode}.service")/20-nvidia-preserve.conf" 0644
+  done
+  run_in_target "enable NVIDIA video-memory preservation and validate disk backing" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+    for unit in nvidia-suspend.service nvidia-suspend-then-hibernate.service nvidia-hibernate.service nvidia-resume.service; do
+      if [ ! -f "__INSTALLER_PATH_DIR_USR_LIB__/systemd/system/$unit" ] &&
+         [ ! -f "__INSTALLER_PATH_DIR_LIB__/systemd/system/$unit" ] &&
+         [ ! -f "__INSTALLER_PATH_DIR_ETC__/systemd/system/$unit" ]; then
+        printf "fatal: selected NVIDIA driver package is missing %s\n" "$unit" >&2
+        exit 1
+      fi
+    done
+    if [ ! -x __INSTALLER_PATH_DIR_USR_BIN__/nvidia-sleep.sh ]; then
+      printf "fatal: selected NVIDIA driver package is missing nvidia-sleep.sh\n" >&2
+      exit 1
+    fi
+    if [ ! -x __INSTALLER_PATH_DIR_USR_LIB__/systemd/system-sleep/nvidia ] &&
+       [ ! -x __INSTALLER_PATH_DIR_LIB__/systemd/system-sleep/nvidia ]; then
+      printf "fatal: selected NVIDIA driver package is missing its sleep recovery hook\n" >&2
+      exit 1
+    fi
+    if [ -L __INSTALLER_PATH_DIR_VAR__/lib/nvidia-vram ] ||
+       [ "$(readlink -f __INSTALLER_PATH_DIR_VAR__/lib)" != __INSTALLER_PATH_DIR_VAR__/lib ]; then
+      printf "fatal: NVIDIA backing path is indirect\n" >&2
+      exit 1
+    fi
+    install -d -m 0700 -o root -g root __INSTALLER_PATH_DIR_VAR__/lib/nvidia-vram
+    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/nvidia-vram-check --directory-only
+    # Offline enabling is intentional: do not suspend or start a bus in d-i.
+    systemctl --no-reload enable nvidia-suspend.service nvidia-suspend-then-hibernate.service nvidia-hibernate.service nvidia-resume.service
+  '
+)

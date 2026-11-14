@@ -1,0 +1,51 @@
+#!/bin/sh
+# Root-polkit runner operator boundary. Only the explicit primary account may
+# reach this helper; provider sockets and service users are immutable mappings.
+set -eu
+
+fatal() { printf 'ci-runners: %s\n' "$*" >&2; exit 64; }
+[ "$(id -u)" = 0 ] || fatal 'root authorization is required'
+case "${PKEXEC_UID:-}" in ''|*[!0-9]*) fatal 'pkexec caller identity is missing' ;; esac
+[ -r __INSTALLER_PATH_DIR_ETC__/ci-runners/admin.conf ] &&
+  [ ! -L __INSTALLER_PATH_DIR_ETC__/ci-runners/admin.conf ] ||
+  fatal 'primary-account policy is unavailable'
+admin_uid=$(awk -F= '$1 == "primary_uid" && NF == 2 {print $2; count++} END {if (count != 1) exit 1}' \
+  __INSTALLER_PATH_DIR_ETC__/ci-runners/admin.conf) || fatal 'primary-account policy is malformed'
+[ "$admin_uid" = "$PKEXEC_UID" ] || fatal 'only the configured primary account may manage runners'
+
+provider=${1:-}
+action=${2:-}
+argument=${3:-}
+[ "$#" -le 3 ] || fatal 'too many arguments'
+case "$provider" in
+  github)
+    runner_user=ci-github; runner_uid=2101; runner_home=__INSTALLER_PATH_DIR_SERVER_GITHUB__
+    ;;
+  gitlab)
+    runner_user=ci-gitlab; runner_uid=2102; runner_home=__INSTALLER_PATH_DIR_SERVER_GITLAB__
+    ;;
+  *) fatal 'provider must be github or gitlab' ;;
+esac
+getent passwd "$runner_user" >/dev/null 2>&1 || fatal 'selected runner role is not installed'
+case "$action" in
+  status|ps|images) [ -z "$argument" ] || fatal 'this action does not accept a name' ;;
+  logs)
+    printf '%s\n' "$argument" | LC_ALL=C grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$' ||
+      fatal 'container name is invalid'
+    ;;
+  *) fatal 'action must be status, ps, images, or logs' ;;
+esac
+
+# runuser and Podman are fixed Debian/FHS interfaces. The socket is the
+# provider's rootless socket, never the host management socket.
+socket="unix:///run/user/${runner_uid}/podman/podman.sock"
+case "$action" in
+  status) set -- info ;;
+  ps) set -- ps --all ;;
+  images) set -- images ;;
+  logs) set -- logs --tail 200 "$argument" ;;
+esac
+exec __INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$runner_user" -- \
+  env -i HOME="$runner_home" XDG_RUNTIME_DIR="/run/user/${runner_uid}" \
+    PATH=__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_BIN__ \
+    __INSTALLER_PATH_DIR_USR_BIN__/podman --remote --url "$socket" "$@"

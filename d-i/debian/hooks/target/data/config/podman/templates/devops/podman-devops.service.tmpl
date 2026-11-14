@@ -1,0 +1,50 @@
+[Unit]
+Description=Locked devops rootless Podman API service
+Documentation=man:podman-system-service(1)
+Requires=podman-devops.socket app-veth.service
+After=podman-devops.socket app-veth.service
+RequiresMountsFor=__INSTALLER_PATH_DIR_POOL__/podman __INSTALLER_PATH_DIR_RUN__/podman-devops
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=exec
+User=devops
+Group=devops
+Environment=HOME=/nonexistent
+Environment=XDG_CONFIG_HOME=__INSTALLER_PATH_DIR_RUN__/podman-devops/config
+Environment=XDG_DATA_HOME=__INSTALLER_PATH_DIR_POOL__/podman/xdg-data
+Environment=XDG_CACHE_HOME=__INSTALLER_PATH_DIR_POOL__/podman/xdg-cache
+Environment=XDG_RUNTIME_DIR=__INSTALLER_PATH_DIR_RUN__/podman-devops
+Environment=CONTAINERS_CONF=__INSTALLER_PATH_DIR_ETC__/podman-devops/server/containers/containers.conf
+Environment=CONTAINERS_STORAGE_CONF=__INSTALLER_PATH_DIR_ETC__/podman-devops/server/containers/storage.conf
+Environment=TMPDIR=__INSTALLER_PATH_DIR_POOL__/podman/tmp
+UnsetEnvironment=DBUS_SESSION_BUS_ADDRESS CONTAINER_HOST CONTAINER_CONNECTION CONTAINER_SSHKEY DOCKER_HOST DOCKER_CONTEXT CONTAINERS_CONF_OVERRIDE
+RuntimeDirectory=podman-devops
+RuntimeDirectoryMode=0710
+RuntimeDirectoryPreserve=yes
+WorkingDirectory=__INSTALLER_PATH_DIR_POOL__/podman/workspace
+ExecStartPre=+__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/podman-devops-host verify-start
+ExecStartPre=__INSTALLER_PATH_DIR_USR__/bin/install -d -m 0700 __INSTALLER_PATH_DIR_RUN__/podman-devops/containers __INSTALLER_PATH_DIR_RUN__/podman-devops/libpod/tmp __INSTALLER_PATH_DIR_RUN__/podman-devops/config __INSTALLER_PATH_DIR_RUN__/podman-devops/config/containers
+ExecStartPre=__INSTALLER_PATH_DIR_USR__/bin/install -m 0600 __INSTALLER_PATH_DIR_ETC__/podman-devops/server/containers/registries.conf __INSTALLER_PATH_DIR_RUN__/podman-devops/config/containers/registries.conf
+ExecStart=__INSTALLER_PATH_DIR_USR__/bin/podman --remote=false --log-level=info system service --time=0
+Delegate=yes
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStartSec=90s
+TimeoutStopSec=30s
+Restart=on-failure
+RestartSec=3s
+UMask=0077
+ProtectHome=yes
+LimitNOFILE=65536
+CPUWeight=@CPU_WEIGHT@
+IOWeight=@IO_WEIGHT@
+TasksMax=@TASKS_MAX@
+MemoryHigh=@MEMORY_HIGH@
+MemoryMax=@MEMORY_MAX@
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=podman-devops
+# Rootless newuidmap/newgidmap require normal set-ID execution. Do not add
+# NoNewPrivileges, PrivateUsers, RestrictSUIDSGID, or an empty capability set.

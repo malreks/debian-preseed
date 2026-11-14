@@ -1,0 +1,279 @@
+#!/bin/sh
+# Google Android SDK Platform-Tools installation for the managed desktop role.
+
+desktop_android_platform_tools_fail() {
+  installer_fatal "Android SDK Platform-Tools: $*"
+}
+
+desktop_android_platform_tools_validate_unsigned_integer() {
+  value_name=$1
+  value=$2
+
+  case "$value" in
+    ''|*[!0123456789]*)
+      desktop_android_platform_tools_fail "${value_name} must be an unsigned integer"
+      ;;
+  esac
+}
+
+desktop_android_platform_tools_validate_policy() {
+  : "${ANDROID_PLATFORM_TOOLS_ARCHITECTURE:?ANDROID_PLATFORM_TOOLS_ARCHITECTURE must be set}"
+  : "${ANDROID_PLATFORM_TOOLS_URL:?ANDROID_PLATFORM_TOOLS_URL must be set}"
+  : "${ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES:?ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES must be set}"
+  : "${ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES:?ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES must be set}"
+  : "${ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES:?ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES must be set}"
+  : "${ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS:?ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS must be set}"
+
+  [ "$ANDROID_PLATFORM_TOOLS_ARCHITECTURE" = amd64 ] ||
+    desktop_android_platform_tools_fail \
+      "Google's Linux Platform-Tools archive is unsupported for ${ANDROID_PLATFORM_TOOLS_ARCHITECTURE}"
+  case "$ANDROID_PLATFORM_TOOLS_URL" in
+    https://*/*) ;;
+    *) desktop_android_platform_tools_fail "download URL must be an HTTPS archive URL" ;;
+  esac
+  android_platform_tools_filename=${ANDROID_PLATFORM_TOOLS_URL##*/}
+  [ -n "$android_platform_tools_filename" ] ||
+    desktop_android_platform_tools_fail "download URL has no archive filename"
+  case "$android_platform_tools_filename" in
+    *.zip) ;;
+    *) desktop_android_platform_tools_fail "download URL must name a ZIP archive" ;;
+  esac
+
+  desktop_android_platform_tools_validate_unsigned_integer \
+    ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES \
+    "$ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES"
+  desktop_android_platform_tools_validate_unsigned_integer \
+    ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES \
+    "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES"
+  desktop_android_platform_tools_validate_unsigned_integer \
+    ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES \
+    "$ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES"
+  desktop_android_platform_tools_validate_unsigned_integer \
+    ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS \
+    "$ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS"
+
+  [ "$ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES" -ge 1000000 ] ||
+    desktop_android_platform_tools_fail "minimum archive size is too small"
+  [ "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES" -ge "$ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES" ] ||
+    desktop_android_platform_tools_fail "maximum archive size is smaller than the minimum"
+  [ "$ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES" -ge "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES" ] ||
+    desktop_android_platform_tools_fail "maximum extracted size is smaller than the archive ceiling"
+  [ "$ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS" -ge 12 ] ||
+    desktop_android_platform_tools_fail "archive member ceiling is too small"
+}
+
+desktop_android_platform_tools_preflight_target_architecture() {
+  desktop_android_platform_tools_validate_policy
+
+  ANDROID_PLATFORM_TOOLS_TARGET_ARCHITECTURE=$(
+    capture_in_target \
+      "detect target architecture for Google Android SDK Platform-Tools" \
+      __INSTALLER_PATH_DIR_USR_BIN__/dpkg --print-architecture
+  )
+  [ -n "$ANDROID_PLATFORM_TOOLS_TARGET_ARCHITECTURE" ] ||
+    desktop_android_platform_tools_fail "target architecture detection returned no output"
+  [ "$ANDROID_PLATFORM_TOOLS_TARGET_ARCHITECTURE" = "$ANDROID_PLATFORM_TOOLS_ARCHITECTURE" ] ||
+    desktop_android_platform_tools_fail \
+      "official Google Linux Platform-Tools require ${ANDROID_PLATFORM_TOOLS_ARCHITECTURE}, but the target architecture is ${ANDROID_PLATFORM_TOOLS_TARGET_ARCHITECTURE}"
+}
+
+desktop_android_platform_tools_validate_revision() {
+  revision=$1
+
+  printf '%s\n' "$revision" |
+    awk -F. '
+      NF < 2 || NF > 4 { exit 1 }
+      {
+        for (field = 1; field <= NF; field++) {
+          if ($field !~ /^[0-9]+$/) {
+            exit 1
+          }
+        }
+      }
+    ' ||
+    desktop_android_platform_tools_fail "downloaded archive has an invalid Pkg.Revision: ${revision:-unset}"
+}
+
+desktop_install_android_platform_tools() {
+  [ -n "${ANDROID_PLATFORM_TOOLS_TARGET_ARCHITECTURE:-}" ] ||
+    desktop_android_platform_tools_preflight_target_architecture
+
+  platform_tools_work_dir=$(target_private_stage_dir android-platform-tools) || return 1
+  platform_tools_filename=${ANDROID_PLATFORM_TOOLS_URL##*/}
+  platform_tools_archive="${platform_tools_work_dir}/${platform_tools_filename}"
+  platform_tools_extract_dir="${platform_tools_work_dir}/extract"
+  platform_tools_archive_host="${TARGET_ROOT}${platform_tools_archive}"
+  platform_tools_extract_host="${TARGET_ROOT}${platform_tools_extract_dir}"
+  platform_tools_source_host="${platform_tools_extract_host}/platform-tools/source.properties"
+  platform_tools_install_root_host="${TARGET_ROOT}${DIR_USR_LOCAL_LIB}/android-sdk"
+  platform_tools_install_host="${platform_tools_install_root_host}/platform-tools"
+  platform_tools_staged_host="${platform_tools_install_root_host}/.platform-tools.new.$$"
+
+  rm -rf -- "$platform_tools_staged_host"
+  install -d -m 0700 "$platform_tools_extract_host"
+
+  if ! attempt_in_target "download latest Google Android SDK Platform-Tools" \
+    __INSTALLER_PATH_DIR_USR_BIN__/env -i \
+      HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ \
+      LC_ALL=C \
+      PATH=__INSTALLER_PATH_DIR_USR_LOCAL__/sbin:__INSTALLER_PATH_DIR_USR_LOCAL__/bin:__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__ \
+      __INSTALLER_PATH_DIR_USR_BIN__/curl \
+        --fail \
+        --silent \
+        --show-error \
+        --location \
+        --proto '=https' \
+        --proto-redir '=https' \
+        --connect-timeout 15 \
+        --max-time 300 \
+        --max-redirs 4 \
+        --retry 3 \
+        --retry-all-errors \
+        --max-filesize "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES" \
+        --user-agent 'unattended-installer-android-platform-tools/1.0' \
+        --header 'Accept: application/zip, application/octet-stream;q=0.9, */*;q=0.1' \
+        --output "$platform_tools_archive" \
+        --url "$ANDROID_PLATFORM_TOOLS_URL"
+  then
+    desktop_android_platform_tools_fail "latest Google archive download failed"
+  fi
+
+  [ -f "$platform_tools_archive_host" ] && [ ! -L "$platform_tools_archive_host" ] ||
+    desktop_android_platform_tools_fail "downloaded archive is not a regular file"
+  platform_tools_archive_size=$(wc -c <"$platform_tools_archive_host" | awk '{print $1}')
+  desktop_android_platform_tools_validate_unsigned_integer \
+    "downloaded archive size" \
+    "$platform_tools_archive_size"
+  [ "$platform_tools_archive_size" -ge "$ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES" ] ||
+    desktop_android_platform_tools_fail \
+      "downloaded archive is unexpectedly small: ${platform_tools_archive_size} bytes"
+  [ "$platform_tools_archive_size" -le "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES" ] ||
+    desktop_android_platform_tools_fail \
+      "downloaded archive is unexpectedly large: ${platform_tools_archive_size} bytes"
+
+  platform_tools_archive_sha256=$(
+    capture_in_target \
+      "hash downloaded Google Android SDK Platform-Tools archive" \
+      __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$platform_tools_archive" |
+      awk '{print $1}'
+  )
+  case "$platform_tools_archive_sha256" in
+    *[!0123456789abcdef]*|'')
+      desktop_android_platform_tools_fail "downloaded archive SHA-256 is invalid"
+      ;;
+  esac
+  [ "${#platform_tools_archive_sha256}" -eq 64 ] ||
+    desktop_android_platform_tools_fail "downloaded archive SHA-256 has an invalid length"
+
+  platform_tools_extract_helper="${platform_tools_work_dir}/extract-platform-tools.py"
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_DESKTOP_ANDROID_PLATFORM_TOOLS_EXTRACT)" \
+    "$platform_tools_extract_helper" 0700
+  if ! attempt_in_target "validate and extract Google Android SDK Platform-Tools within limits" \
+    __INSTALLER_PATH_DIR_USR_BIN__/env -i HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ LC_ALL=C PATH=__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__ \
+    __INSTALLER_PATH_DIR_USR_BIN__/timeout --signal=TERM --kill-after=5s 315s \
+    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I "$platform_tools_extract_helper" \
+    "$platform_tools_archive" "$platform_tools_extract_dir" \
+    "$ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES" \
+    "$ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS"
+  then
+    desktop_android_platform_tools_fail "bounded archive extraction failed; private staging retained"
+  fi
+
+  [ -d "${platform_tools_extract_host}/platform-tools" ] &&
+    [ ! -L "${platform_tools_extract_host}/platform-tools" ] ||
+    desktop_android_platform_tools_fail "extracted platform-tools directory is invalid"
+  unsupported_platform_tools_node=$(
+    find "${platform_tools_extract_host}/platform-tools" \
+      -mindepth 1 \
+      ! -type f \
+      ! -type d \
+      -print |
+      sed -n '1p'
+  )
+  [ -z "$unsupported_platform_tools_node" ] ||
+    desktop_android_platform_tools_fail \
+      "downloaded archive extracted an unsupported node: ${unsupported_platform_tools_node}"
+
+  platform_tools_extracted_kib=$(
+    desktop_target_tree_size_kib \
+      "measure extracted Google Android SDK Platform-Tools size" \
+      "${platform_tools_extract_dir}/platform-tools"
+  )
+  desktop_android_platform_tools_validate_unsigned_integer \
+    "extracted archive size" \
+    "$platform_tools_extracted_kib"
+  platform_tools_extracted_bytes=$((platform_tools_extracted_kib * 1024))
+  [ "$platform_tools_extracted_bytes" -le "$ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES" ] ||
+    desktop_android_platform_tools_fail \
+      "downloaded archive expands beyond the managed size ceiling: ${platform_tools_extracted_bytes} bytes"
+
+  [ -r "$platform_tools_source_host" ] && [ ! -L "$platform_tools_source_host" ] ||
+    desktop_android_platform_tools_fail "extracted source.properties is invalid"
+  platform_tools_revision=$(
+    sed -n 's/^Pkg\.Revision=//p' "$platform_tools_source_host"
+  )
+  [ "$(printf '%s\n' "$platform_tools_revision" | awk 'NF { count++ } END { print count + 0 }')" -eq 1 ] ||
+    desktop_android_platform_tools_fail "extracted source.properties must contain one Pkg.Revision"
+  desktop_android_platform_tools_validate_revision "$platform_tools_revision"
+
+  for platform_tools_binary in adb fastboot; do
+    platform_tools_binary_host="${platform_tools_extract_host}/platform-tools/${platform_tools_binary}"
+    [ -f "$platform_tools_binary_host" ] &&
+      [ ! -L "$platform_tools_binary_host" ] &&
+      [ -x "$platform_tools_binary_host" ] ||
+      desktop_android_platform_tools_fail \
+        "extracted ${platform_tools_binary} binary is invalid"
+    platform_tools_file_type=$(
+      capture_in_target \
+        "inspect extracted Google ${platform_tools_binary} binary" \
+        __INSTALLER_PATH_DIR_USR_BIN__/file -b "${platform_tools_extract_dir}/platform-tools/${platform_tools_binary}"
+    )
+    case "$platform_tools_file_type" in
+      *"ELF 64-bit"*"x86-64"*) ;;
+      *)
+        desktop_android_platform_tools_fail \
+          "extracted ${platform_tools_binary} has an unexpected file type: ${platform_tools_file_type:-unset}"
+        ;;
+    esac
+  done
+
+  install -d -m 0755 "$platform_tools_install_root_host" ${TARGET_ROOT}${DIR_USR_LOCAL_BIN}
+  cp -a "${platform_tools_extract_host}/platform-tools" "$platform_tools_staged_host"
+  chown -R root:root "$platform_tools_staged_host"
+  find "$platform_tools_staged_host" -type d -exec chmod 0755 {} \;
+  find "$platform_tools_staged_host" -type f -exec chmod 0644 {} \;
+  for platform_tools_binary in \
+    adb \
+    etc1tool \
+    fastboot \
+    hprof-conv \
+    make_f2fs \
+    make_f2fs_casefold \
+    mke2fs \
+    sqlite3
+  do
+    if [ -f "${platform_tools_staged_host}/${platform_tools_binary}" ]; then
+      chmod 0755 "${platform_tools_staged_host}/${platform_tools_binary}"
+    fi
+  done
+
+  cat >"${platform_tools_staged_host}/.release" <<EOF
+version=${platform_tools_revision}
+url=${ANDROID_PLATFORM_TOOLS_URL}
+archive_sha256=${platform_tools_archive_sha256}
+architecture=${ANDROID_PLATFORM_TOOLS_TARGET_ARCHITECTURE}
+EOF
+  chmod 0644 "${platform_tools_staged_host}/.release"
+
+  [ ! -L "$platform_tools_install_host" ] ||
+    desktop_android_platform_tools_fail "managed installation path must not be a symlink"
+  rm -rf -- "$platform_tools_install_host"
+  mv "$platform_tools_staged_host" "$platform_tools_install_host"
+  ln -sfn ..__INSTALLER_PATH_DIR_LIB__/android-sdk/platform-tools/adb ${TARGET_ROOT}${DIR_USR_LOCAL_BIN}/adb
+  ln -sfn ..__INSTALLER_PATH_DIR_LIB__/android-sdk/platform-tools/fastboot ${TARGET_ROOT}${DIR_USR_LOCAL_BIN}/fastboot
+
+  rm -rf -- "${TARGET_ROOT}${platform_tools_work_dir}"
+  desktop_log \
+    "installed_android_platform_tools version=${platform_tools_revision} architecture=${ANDROID_PLATFORM_TOOLS_TARGET_ARCHITECTURE} archive_sha256=${platform_tools_archive_sha256}"
+}

@@ -1,0 +1,320 @@
+"""R4 native logging and real installer publication; no live services or logs."""
+from __future__ import annotations
+
+# Refuse host execution before importing runtime helpers or creating fixtures.
+from pathlib import Path as _IsolationPath
+import sys as _isolation_sys
+_isolation_sys.path.insert(0, str(_IsolationPath(__file__).resolve().parents[3] / 'tools'))
+# Copied checker/GUI fixtures still use the verified private checkout gate.
+_isolation_sys.path.insert(0, '/workspace/repository/tools')
+from isolation import require_test_isolation as _require_test_isolation
+_isolation_sys.path.pop(0)
+_require_test_isolation()
+
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import runpy
+import shlex
+import shutil
+import signal
+import stat
+import subprocess
+import tempfile
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+from payload_fixture import installed_script, logging_text, source_path
+
+SEED = Path(__file__).resolve().parents[1]
+ROOT = SEED.parents[1]
+TARGET = SEED/'hooks/target'
+CHECKER = runpy.run_path(str(ROOT/'tools/check_logging.py'))
+VALUES = CHECKER['load_logging']()
+loader = importlib.machinery.SourceFileLoader('native_logging_under_test', str(installed_script(TARGET/'usr/local/libexec/native-logging')))
+spec = importlib.util.spec_from_loader(loader.name,loader)
+native = importlib.util.module_from_spec(spec)
+loader.exec_module(native)
+
+class CatalogTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.env=Path(self.tmp.name)/'logging.env'
+        self.original=(SEED/'hosts/logging/observability.env').read_text()
+    def validate(self,text, executable=None):
+        self.env.write_text(text)
+        return subprocess.run((executable or ['awk'])+['-f',str(SEED/'scripts/common/logging-validate.awk'),str(SEED/'hosts/logging/observability-schema.tsv'),str(self.env)],capture_output=True,text=True,timeout=10)
+    def reject(self,text):
+        result=self.validate(text);self.assertNotEqual(result.returncode,0,result.stdout)
+        self.assertEqual(result.stdout,'','invalid catalog must not produce a partial map')
+    def test_all_paths_have_consumers_and_templates_have_suffixes(self):
+        result=CHECKER['check']();self.assertEqual(result['variables'],len(VALUES));self.assertLess(result['variables'],120);self.assertEqual(result['profiles'],10)
+    def test_validator_matches_busybox(self):
+        baseline=self.validate(self.original);self.assertEqual(baseline.returncode,0,baseline.stderr)
+        if shutil.which('busybox'):
+            other=self.validate(self.original,['busybox','awk']);self.assertEqual(other.returncode,0,other.stderr);self.assertEqual(other.stdout,baseline.stdout)
+    def test_duplicate_rejected(self):self.reject(self.original+'\nLOG_ROOT="/var/log/managed"\n')
+    def test_unknown_rejected(self):self.reject(self.original+'\nLOG_UNKNOWN="/var/log/managed/unknown"\n')
+    def test_missing_rejected(self):self.reject(re.sub(r'^LOG_ROOT=.*\n','',self.original,flags=re.M))
+    def test_shell_command_and_substitution_rejected(self):
+        for value in ('$(id)','`id`','/var/log/managed;id'):
+            with self.subTest(value=value):self.reject(self.original.replace('LOG_ROOT="/var/log/managed"',f'LOG_ROOT="{value}"'))
+    def test_path_traversal_and_metacharacters_rejected(self):
+        for value in ('/var/log/../managed','/var/log/managed//bad','/var/log/a b','/var/log/a*','relative'):
+            with self.subTest(value=value):self.reject(self.original.replace('LOG_ROOT="/var/log/managed"',f'LOG_ROOT="{value}"'))
+    def test_forward_reference_rejected(self):self.reject(self.original.replace('LOG_ROOT="/var/log/managed"','LOG_ROOT="${LOG_SECURITY_DIR}"'))
+    def test_category_collision_rejected(self):self.reject(self.original.replace('LOG_APPS_DIR="${LOG_ROOT}/apps"','LOG_APPS_DIR="${LOG_ROOT}/security"'))
+    def test_invalid_queue_and_mode_rejected(self):
+        for key,value in [('LOG_RSYSLOG_QUEUE_HIGH','1'),('LOG_FILE_MODE','0666')]:
+            with self.subTest(key=key):self.reject(re.sub(r'^'+key+r'="[^"]*"',key+'="'+value+'"',self.original,flags=re.M))
+    def test_private_socket_paths_match_created_parents_and_linux_path_limit(self):
+        for key, parent in (
+            ('LOG_SCANNER_SOCKET', '/run/rsyslog/security-scanners'),
+            ('LOG_CHATGPT_SOCKET', '/run/rsyslog/openai'),
+            ('LOG_APPS_SOCKET', '/run/rsyslog/apps'),
+        ):
+            for value in (parent + '/alternate.sock', parent + '/' + 's' * (106 - len(parent))):
+                with self.subTest(key=key, accepted_length=len(value)):
+                    catalog = re.sub(r'^'+key+r'="[^"]*"', key+'="'+value+'"', self.original, flags=re.M)
+                    result = self.validate(catalog)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+            for value in (parent + '/nested/collector.sock', parent + '/' + 's' * (107 - len(parent))):
+                with self.subTest(key=key, rejected_length=len(value)):
+                    self.reject(re.sub(r'^'+key+r'="[^"]*"', key+'="'+value+'"', self.original, flags=re.M))
+    def test_zero_disables_only_rate_intervals_and_other_zero_values_remain_invalid(self):
+        for key in ('LOG_SCANNER_RATE_INTERVAL', 'LOG_SYSLOG_RATE_INTERVAL'):
+            self.assertEqual(VALUES[key], '0')
+            for value in ('0', '1', '3600'):
+                result = self.validate(re.sub(r'^'+key+r'="[^"]*"', key+'="'+value+'"', self.original, flags=re.M))
+                self.assertEqual(result.returncode, 0, result.stderr)
+            for value in ('00', '01', '3601', '-1'):
+                self.reject(re.sub(r'^'+key+r'="[^"]*"', key+'="'+value+'"', self.original, flags=re.M))
+        for key in ('LOG_RSYSLOG_QUEUE_MESSAGES', 'LOG_RSYSLOG_ROTATE_BYTES'):
+            self.reject(re.sub(r'^'+key+r'="[^"]*"', key+'="0"', self.original, flags=re.M))
+    def test_root_relocation_propagates(self):
+        result=self.validate(self.original.replace('LOG_ROOT="/var/log/managed"','LOG_ROOT="/var/log/managed-relocated"'))
+        self.assertEqual(result.returncode,0,result.stderr)
+        changed=dict(line.split('=',1) for line in result.stdout.splitlines())
+        for key,value in VALUES.items():
+            if value.startswith('/var/log/managed'):
+                self.assertEqual(changed[key],value.replace('/var/log/managed','/var/log/managed-relocated',1),key)
+    def test_family_defaults_own_journal_settings_and_profiles_only_override(self):
+        shared = (SEED/'hosts/profiles/desktop/shared-de.env',
+                  SEED/'hosts/profiles/server/shared-srv.env')
+        profiles = sorted(path for family in ('desktop', 'server')
+                          for path in (SEED/'hosts/profiles'/family).glob('*.env')
+                          if path.name not in {'shared-de.env', 'shared-srv.env'})
+        for path in (*shared, *profiles):
+            text=path.read_text();self.assertNotRegex(text,r'^LOG_',path.name)
+        for path in shared:
+            self.assertEqual(re.findall(r'^SYSTEMD_JOURNAL_VOLATILE_ENABLE="(true|false)"$',
+                                        path.read_text(), re.M), ['false'])
+        for path in profiles:
+            self.assertLessEqual(len(re.findall(r'^SYSTEMD_JOURNAL_VOLATILE_ENABLE=',
+                                                 path.read_text(), re.M)), 1)
+    def test_all_composite_profiles_consume_complete_catalog(self):
+        from test_repository_integrity import records
+        overrides={row['Name'] for row in records() if row['Group']=='profile'}
+        root=Path(self.tmp.name)
+        for profile in sorted(path for family in ('desktop', 'server')
+                              for path in (SEED/'hosts/profiles'/family).glob('*.env')
+                              if path.name not in {'shared-de.env', 'shared-srv.env'}):
+            logical=('override-' if profile.stem in overrides else '')+profile.stem
+            dest=root/(profile.stem+'.env')
+            command='\n'.join(('. '+shlex.quote(str(installed_script(SEED/'scripts/common/lib.sh'))),
+                'installer_ensure_repo_env "$INSTALLER_SOURCE_ROOT"','installer_classes_cache_ensure',
+                'installer_fetch_host_env "$INSTALLER_SOURCE_ROOT" '+shlex.quote(logical)+' '+shlex.quote(str(dest)),
+                'set -a','. '+shlex.quote(str(dest)),'env | grep "^LOG_"'))
+            result=subprocess.run(['/bin/sh','-eu','-c',command],text=True,capture_output=True,timeout=45,
+                env={**os.environ,'INSTALLER_SOURCE_ROOT':str(SEED),'INSTALLER_SOURCE_LIBRARY':str(SEED/'scripts/common/source.sh'),
+                    'INSTALLER_RUNTIME_DIR':str(root/'runtime'),'INSTALLER_CMDLINE':'','LC_ALL':'C'})
+            with self.subTest(profile=profile.name):
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual(dict(line.split('=',1) for line in result.stdout.splitlines()),VALUES)
+                self.assertEqual(dest.stat().st_mode&0o777,0o600)
+
+@unittest.skipUnless(os.geteuid()==0,'root-owned native configuration fixtures require root')
+class NativeWriterTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
+        self.mock=patch.object(native.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=0));self.mock.start();self.addCleanup(self.mock.stop)
+        self.conf=self.root/'etc/clamav/freshclam.conf';self.conf.parent.mkdir(parents=True)
+        self.raw=b'DatabaseMirror database.clamav.net\nUpdateLogFile /var/log/clamav/freshclam.log\n'
+        self.conf.write_bytes(self.raw);self.conf.chmod(0o640)
+    def configure(self):native.configure(self.root,only='freshclam')
+    def test_only_logging_keys_changed_and_native_rotation_enabled(self):
+        self.configure();text=self.conf.read_text();self.assertIn('DatabaseMirror database.clamav.net',text)
+        self.assertIn('UpdateLogFile '+VALUES['LOG_FRESHCLAM_FILE'],text)
+        self.assertIn('LogRotate yes',text);self.assertIn('LogSyslog no',text)
+        self.assertLess(text.index('LogFileMaxSize'),text.index('LogRotate'))
+        self.assertEqual(self.conf.stat().st_mode&0o777,0o640)
+    def test_idempotence_and_read_only_verification(self):
+        self.configure();first=self.conf.stat();data=self.conf.read_bytes();self.configure()
+        self.assertEqual(self.conf.stat().st_ino,first.st_ino);self.assertEqual(self.conf.read_bytes(),data)
+        native.configure(self.root,only='freshclam',check=True)
+    def test_check_never_modifies_unconfigured_file(self):
+        with self.assertRaises(native.ConfigError):native.configure(self.root,only='freshclam',check=True)
+        self.assertEqual(self.conf.read_bytes(),self.raw)
+    def test_safe_package_modes_preserved(self):
+        for mode in (0o400,0o440,0o444,0o600,0o640,0o644):
+            self.conf.write_bytes(self.raw);self.conf.chmod(mode);self.configure();self.assertEqual(self.conf.stat().st_mode&0o777,mode)
+    def test_symlink_config_rejected(self):
+        saved=self.conf.with_name('saved');self.conf.rename(saved);self.conf.symlink_to(saved)
+        with self.assertRaises(OSError):self.configure()
+        self.assertEqual(saved.read_bytes(),self.raw)
+    def test_hardlink_rejected(self):
+        os.link(self.conf,self.conf.with_name('other'))
+        with self.assertRaises(native.ConfigError):self.configure()
+    def test_fifo_rejected_without_blocking(self):
+        self.conf.unlink();os.mkfifo(self.conf,0o600)
+        old=signal.signal(signal.SIGALRM,lambda *_: (_ for _ in ()).throw(AssertionError('FIFO read blocked')))
+        signal.alarm(2)
+        try:
+            with self.assertRaises(native.ConfigError):self.configure()
+        finally:signal.alarm(0);signal.signal(signal.SIGALRM,old)
+    def test_writable_parent_rejected(self):
+        self.conf.parent.chmod(0o777)
+        with self.assertRaises(native.ConfigError):self.configure()
+    def test_world_writable_file_rejected(self):
+        self.conf.chmod(0o666)
+        with self.assertRaises(native.ConfigError):self.configure()
+    def test_nul_oversize_and_non_utf8_rejected(self):
+        for raw in (b'\0',b'\xff',b'x'*(2*1024*1024+1)):
+            self.conf.write_bytes(raw)
+            with self.assertRaises((native.ConfigError,UnicodeError)):self.configure()
+    def test_bad_markers_rejected(self):
+        for raw in (native.BEGIN+'\nOtherSetting yes\n'+native.END, native.END, native.BEGIN):
+            with self.assertRaises(native.ConfigError):native.render('freshclam',raw.encode())
+    def test_compound_chkrootkit_assignment_rejected(self):
+        for raw in ('LOG_DIR=/tmp; echo dangerous\n','if true; then LOG_DIR=/tmp; fi\n',' LOG_DIR=/tmp\n'):
+            with self.assertRaises(native.ConfigError):native.render('chkrootkit',raw.encode())
+    def test_prepare_all_before_publication(self):
+        bad=self.root/'etc/chkrootkit/chkrootkit.conf';bad.parent.mkdir(parents=True);bad.write_text('LOG_DIR=/tmp; echo no\n');bad.chmod(0o640)
+        with self.assertRaises(native.ConfigError):native.configure(self.root)
+        self.assertEqual(self.conf.read_bytes(),self.raw)
+    def test_failure_after_replace_rolls_back_attempted_file(self):
+        original=native.publish;calls=[]
+        def failure(fd,name,data,info):
+            calls.append(name);original(fd,name,data,info)
+            if len(calls)==1:raise OSError('injected directory fsync failure after rename')
+        with patch.object(native,'publish',side_effect=failure):
+            with self.assertRaises(OSError):self.configure()
+        self.assertEqual(self.conf.read_bytes(),self.raw);self.assertEqual(len(calls),2)
+    def test_second_publication_failure_restores_both_files(self):
+        other=self.root/'etc/clamav/clamd.conf';raw=b'LogFile /var/log/clamav/clamav.log\n';other.write_bytes(raw);other.chmod(0o640)
+        original=native.publish;calls=[]
+        def fail(fd,name,data,info):
+            calls.append(name);original(fd,name,data,info)
+            if len(calls)==2:raise OSError('injected second publication failure')
+        with patch.object(native,'publish',side_effect=fail):
+            with self.assertRaises(OSError):native.configure(self.root)
+        self.assertEqual(self.conf.read_bytes(),self.raw);self.assertEqual(other.read_bytes(),raw)
+    def test_existing_native_output_symlink_rejected(self):
+        log=self.root/VALUES['LOG_FRESHCLAM_FILE'].lstrip('/');log.parent.mkdir(parents=True);log.symlink_to(self.conf)
+        with self.assertRaises(native.ConfigError):self.configure()
+        self.assertEqual(self.conf.read_bytes(),self.raw)
+    def test_existing_journal_and_mount_files_untouched(self):
+        journal=self.root/'var/log/journal/old/system.journal';journal.parent.mkdir(parents=True);journal.write_bytes(b'old journal')
+        fstab=self.root/'etc/fstab';fstab.write_bytes(b'old mounts');self.configure()
+        self.assertEqual(journal.read_bytes(),b'old journal');self.assertEqual(fstab.read_bytes(),b'old mounts')
+
+class ActualPublisherTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
+        self.source=self.root/'source';self.source.mkdir()
+        for rel in ('scripts/common/logging.sh','scripts/common/logging-validate.awk','scripts/common/logging-render.awk','hosts/logging/observability.env','hosts/logging/observability-schema.tsv'):
+            dest=self.source/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(SEED/rel,dest)
+        self.asset=self.source/'hooks/target/etc/example.conf.tmpl';self.asset.parent.mkdir(parents=True);self.asset.write_text('log=__INSTALLER_LOG_APPLICATIONS_FILE__\n')
+        self.dest=self.root/'installed.conf';self.dest.write_bytes(b'old config\n');self.dest.chmod(0o640)
+    def run_publish(self,prelude=''):
+        code='. '+shlex.quote(str(installed_script(SEED/'scripts/common/lib.sh')))+'\n'+prelude+'\ninstaller_fetch_seed_path "$SOURCE" hooks/target/etc/example.conf "$OUTPUT" 0640'
+        return subprocess.run(['/bin/sh','-eu','-c',code],capture_output=True,text=True,timeout=20,
+            env={**os.environ,'SOURCE':str(self.source),'OUTPUT':str(self.dest),'INSTALLER_SOURCE_ROOT':str(self.source),
+                'INSTALLER_SOURCE_LIBRARY':str(SEED/'scripts/common/source.sh'),'INSTALLER_RUNTIME_DIR':str(self.root/'runtime'),'INSTALLER_CMDLINE':''})
+    def test_atomic_rendered_publication_preserves_source_and_mode(self):
+        raw=self.asset.read_bytes();result=self.run_publish();self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(self.dest.read_text(),'log='+VALUES['LOG_APPLICATIONS_FILE']+'\n');self.assertEqual(self.dest.stat().st_mode&0o777,0o640)
+        self.assertEqual(self.asset.read_bytes(),raw);self.assertFalse(list(self.root.glob('installed.conf.*')))
+    def test_unknown_token_never_replaces_destination(self):
+        self.asset.write_text('__INSTALLER_LOG_UNKNOWN__\n');result=self.run_publish();self.assertNotEqual(result.returncode,0)
+        self.assertEqual(self.dest.read_bytes(),b'old config\n');self.assertFalse(list(self.root.glob('installed.conf.*')))
+    def test_bad_catalog_never_replaces_destination(self):
+        path=self.source/'hosts/logging/observability.env';path.write_text(path.read_text()+'LOG_ROOT="/tmp"\n')
+        result=self.run_publish();self.assertNotEqual(result.returncode,0);self.assertEqual(self.dest.read_bytes(),b'old config\n')
+    def test_ambiguous_plain_and_template_rejected(self):
+        self.asset.with_suffix('').write_text('plain\n');result=self.run_publish();self.assertNotEqual(result.returncode,0);self.assertEqual(self.dest.read_bytes(),b'old config\n')
+    def test_existence_probe_does_not_poison_source_cache(self):
+        result=self.run_publish('installer_load_source_library "$SOURCE"\nsource_exists "$SOURCE" hooks/target/etc/example.conf\nsource_exists "$SOURCE" hooks/target/etc/example.conf')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(self.dest.read_text(),'log='+VALUES['LOG_APPLICATIONS_FILE']+'\n')
+        self.assertFalse(list((self.root/'runtime').rglob('hooks/target/etc/example.conf')))
+    def test_symlink_source_rejected(self):
+        self.asset.unlink();self.asset.symlink_to(self.dest);result=self.run_publish();self.assertNotEqual(result.returncode,0);self.assertEqual(self.dest.read_bytes(),b'old config\n')
+
+class NativeWiringTests(unittest.TestCase):
+    def test_adb_thunar_and_debugsys_categories(self):
+        self.assertEqual(VALUES['LOG_APPLICATIONS_FILE'],VALUES['LOG_APPS_DIR']+'/apps.log')
+        self.assertNotIn('LOG_THUNAR_FILE',VALUES)
+        for rel in ('usr/local/libexec/debugsys.py','etc/systemd/system/debugsys-boot-report.service'):
+            text=logging_text(source_path(TARGET/rel).read_text());self.assertIn(VALUES['LOG_DEBUGSYS_DIR'],text);self.assertNotIn('/var/log/debugsys',text)
+    def test_native_clamav_parent_is_not_collector_writable_destination(self):
+        from test_managed_logging_r3 import layout
+        for path in layout.PROTECTED_FILES:self.assertFalse(path.startswith(VALUES['LOG_CLAMAV_DIR']+'/'),path)
+    def test_crowdsec_native_overlays_have_correct_distinct_rotation_keys(self):
+        engine=logging_text(source_path(TARGET/'etc/crowdsec/config.yaml.local').read_text())
+        bouncer=logging_text(source_path(TARGET/'etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml.local').read_text())
+        self.assertIn('log_max_files:',engine);self.assertNotIn('log_max_backups:',engine)
+        self.assertIn('log_max_backups:',bouncer);self.assertNotIn('log_max_files:',bouncer)
+        self.assertIn(VALUES['LOG_CROWDSEC_DIR'],engine);self.assertIn(VALUES['LOG_CROWDSEC_DIR'],bouncer)
+    def test_native_configure_staged_before_check_and_early_crowdsec_use(self):
+        text=(SEED/'scripts/late/crowdsec.sh').read_text()
+        self.assertLess(text.index('native-logging --preflight'),text.index('# Native logging must be in place'))
+        for unit,kind in [('clamav-freshclam','freshclam'),('clamav-daemon','clamd')]:
+            text=logging_text(source_path(TARGET/f'etc/systemd/system/{unit}.service.d/40-logging.conf').read_text())
+            self.assertIn('native-logging --check '+kind,text);self.assertIn('ReadWritePaths=',text)
+
+
+class InitramfsCmdlineTests(unittest.TestCase):
+    def assert_redaction(self, cmdline, expected):
+        # Substitute only the kernel input path in a private fixture. Execute
+        # the actual shell helper; no boot stage, target log or service runs.
+        helper = SEED/'scripts/firstboot/assets/etc/initramfs-tools/scripts/installer-health-common'
+        shells = [('/bin/dash',)]
+        busybox = shutil.which('busybox')
+        self.assertIsNotNone(busybox, 'BusyBox is required for initramfs portability checks')
+        shells.append((busybox, 'sh'))
+        with tempfile.TemporaryDirectory(prefix='initramfs-cmdline-') as temporary:
+            root = Path(temporary)
+            source = root/'cmdline'
+            source.write_text(cmdline+'\n', encoding='utf-8')
+            copied = root/'health-common'
+            copied.write_text(helper.read_text(encoding='utf-8').replace(
+                '/proc/cmdline', str(source)), encoding='utf-8')
+            for shell in shells:
+                with self.subTest(shell=shell):
+                    result = subprocess.run([*shell, '-eu', '-c',
+                        '. "$1"; installer_health_redacted_cmdline', 'sh', str(copied)],
+                        capture_output=True, text=True, encoding='utf-8', timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), expected)
+
+    def test_initramfs_retains_iommu_booleans_and_redacts_credentials(self):
+        for value in ('0', '1'):
+            with self.subTest(value=value):
+                cmdline = (f'root=UUID=fixture ro iommu.passthrough={value} iommu.strict=1 '
+                           'fruux_password=fixture-password crowdsec_token=fixture-token '
+                           'wireless_wpa=fixture-wifi api_key=fixture-api passthrough_secret=fixture-secret')
+                expected = (f'root=UUID=fixture ro iommu.passthrough={value} iommu.strict=1 '
+                            'fruux_password=REDACTED crowdsec_token=REDACTED '
+                            'wireless_wpa=REDACTED api_key=REDACTED passthrough_secret=REDACTED')
+                self.assert_redaction(cmdline, expected)
+
+    def test_unexpected_iommu_values_remain_redacted(self):
+        for value in ('fixture-secret', '01', '0;fixture', '1-secret'):
+            with self.subTest(value=value):
+                self.assert_redaction('iommu.passthrough='+value, 'iommu.passthrough=REDACTED')
+
+if __name__=='__main__':unittest.main()

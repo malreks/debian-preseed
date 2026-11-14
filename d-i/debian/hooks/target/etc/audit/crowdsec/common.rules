@@ -1,0 +1,6 @@
+## Shared desktop/server CrowdSec audit input for post-exploitation
+## visibility. Include root and user login sessions, exclude only audit events
+## without a valid login UID, and include both syscall ABIs so 32-bit payloads
+## cannot bypass the auditd scenarios.
+-a always,exit -F arch=b64 -S execve -S execveat -F auid>=0 -F auid!=4294967295 -F key=crowdsec-exec
+-a always,exit -F arch=b32 -S execve -S execveat -F auid>=0 -F auid!=4294967295 -F key=crowdsec-exec

@@ -1,0 +1,32 @@
+# Common policy and palette only. Point-sized fonts/geometry come from labwc-fuzzel.
+[main]
+use-bold=yes
+dpi-aware=yes
+terminal=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal
+placeholder=Type to search
+icon-theme=__THEME_FUZZEL_MENU_ICON_THEME__
+icons-enabled=yes
+fields=filename,name,generic,keywords,comment,categories
+match-mode=fzf
+filter-desktop=yes
+layer=overlay
+keyboard-focus=on-demand
+exit-on-keyboard-focus-loss=yes
+
+# Cancellation closes the complete menu workflow. Dmenu's Back binding is
+# defined in menu.ini so it cannot execute an application in launcher mode.
+[key-bindings]
+cancel=Control+g Control+c Control+bracketleft Escape
+
+[colors]
+background=__THEME_FUZZEL_MENU_BACKGROUND_COLOR__
+text=__THEME_FUZZEL_MENU_NORMAL_TEXT_COLOR__
+prompt=__THEME_FUZZEL_MENU_PROMPT_TEXT_COLOR__
+placeholder=__THEME_FUZZEL_MENU_PLACEHOLDER_TEXT_COLOR__
+input=__THEME_FUZZEL_MENU_INPUT_TEXT_COLOR__
+match=__THEME_FUZZEL_MENU_NORMAL_MATCH_TEXT_COLOR__
+selection=__THEME_FUZZEL_MENU_SELECTED_BACKGROUND_COLOR__
+selection-text=__THEME_FUZZEL_MENU_SELECTED_TEXT_COLOR__
+selection-match=__THEME_FUZZEL_MENU_SELECTED_MATCH_TEXT_COLOR__
+counter=__THEME_FUZZEL_MENU_COUNTER_TEXT_COLOR__
+border=__THEME_FUZZEL_MENU_OUTLINE_COLOR__

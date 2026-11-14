@@ -1,0 +1,130 @@
+# Managed by unattended-installer. Rendered during the desktop install stage.
+# labwc-qbittorrent copies the installed file unchanged into its private profile
+# before each new instance. All native application settings belong in this file.
+
+[Application]
+FileLogger\Enabled=true
+FileLogger\Path=__INSTALLER_PATH_DIR_HOME__/user/.local/share/qBittorrent/logs
+FileLogger\Backup=true
+FileLogger\MaxSizeBytes=5242880
+FileLogger\DeleteOld=true
+FileLogger\Age=7
+FileLogger\AgeType=0
+
+# Qt's built-in style avoids the supplied Adwaita focus-paint crash.
+[Appearance]
+Style=Fusion
+
+[BitTorrent]
+# Never expose an embedded tracker or merge another torrent's announce URLs.
+TrackerEnabled=false
+MergeTrackersEnabled=false
+Session\AddExtensionToIncompleteFiles=true
+Session\AnnounceToAllTiers=false
+Session\AnnounceToAllTrackers=false
+Session\AnnounceIP=
+# Zero follows the active native listener selected by the managed veth lease.
+Session\AnnouncePort=0
+Session\AnonymousModeEnabled=false
+# Do not add public fallback trackers to private-tracker torrents.
+Session\AddTrackersEnabled=false
+Session\AddTrackersFromURLEnabled=false
+# Native enum: 0 = TCP and uTP; retain compatibility with either peer transport.
+Session\BTProtocol=0
+Session\BlockPeersOnPrivilegedPorts=true
+Session\ConnectionSpeed=30
+Session\DHTEnabled=false
+Session\DefaultSavePath=__INSTALLER_QBITTORRENT_SAVE_ROOT__/completed
+Session\DisableAutoTMMByDefault=true
+# Use libtorrent's platform backend and the kernel's bounded page cache.
+# Avoid obsolete libtorrent 1.x DiskCacheSize/TTL tuning on Forky.
+Session\DiskIOType=0
+Session\DiskIOReadMode=1
+Session\DiskIOWriteMode=1
+Session\AsyncIOThreadsCount=10
+Session\HashingThreadsCount=1
+Session\FilePoolSize=100
+Session\DiskQueueSize=1048576
+Session\Encryption=0
+Session\FinishedTorrentExportDirectory=__INSTALLER_QBITTORRENT_SAVE_ROOT__/torrents-completed
+Session\GlobalMaxRatio=-1
+Session\GlobalMaxSeedingMinutes=-1
+Session\GlobalMaxInactiveSeedingMinutes=-1
+Session\GlobalDLSpeedLimit=0
+Session\GlobalUPSpeedLimit=0
+Session\AlternativeGlobalDLSpeedLimit=0
+Session\AlternativeGlobalUPSpeedLimit=0
+Session\UseAlternativeGlobalSpeedLimit=false
+Session\BandwidthSchedulerEnabled=false
+# Bind the install-rendered private interface and its reserved primary IPv4.
+# The broker reserves the same endpoint on every launch.
+Session\Interface=__INSTALLER_APP_VETH_NAMESPACE_INTERFACE__
+Session\InterfaceName=__INSTALLER_APP_VETH_NAMESPACE_INTERFACE__
+Session\InterfaceAddress=__INSTALLER_APP_VETH_QBITTORRENT_ADDRESS__
+Session\LSDEnabled=false
+Session\IPFilteringEnabled=false
+Session\TrackerFilteringEnabled=false
+Session\MaxActiveCheckingTorrents=1
+Session\MaxActiveDownloads=-1
+Session\MaxActiveTorrents=-1
+Session\MaxActiveUploads=-1
+Session\MaxConcurrentHTTPAnnounces=50
+# Bound socket usage while permitting unlimited transfer rates and seeding.
+Session\MaxConnections=500
+Session\MaxConnectionsPerTorrent=100
+Session\MaxUploads=-1
+Session\MaxUploadsPerTorrent=-1
+Session\MultiConnectionsPerIp=false
+Session\OutgoingPortsMin=0
+Session\OutgoingPortsMax=0
+Session\PeXEnabled=false
+Session\ProxyPeerConnections=false
+Session\PerformanceWarning=true
+# Offline/privacy default; the online controller supplies the lease's port.
+Session\Port=__INSTALLER_LABWC_QBITTORRENT_ETHERNET_PORT__
+Session\Preallocation=false
+Session\QueueingSystemEnabled=false
+Session\ReannounceWhenAddressChanged=true
+Session\SSRFMitigation=true
+# These persistence intervals are minutes. Limit work lost after a crash.
+Session\SaveResumeDataInterval=5
+Session\SaveStatisticsInterval=5
+# Give private trackers time to receive the stopped announce during shutdown.
+Session\StopTrackerTimeout=5
+Session\TempPath=__INSTALLER_QBITTORRENT_SAVE_ROOT__/active
+Session\TempPathEnabled=true
+Session\TorrentExportDirectory=__INSTALLER_QBITTORRENT_SAVE_ROOT__/torrents-active
+Session\ValidateHTTPSTrackerCertificate=true
+Session\IgnoreLimitsOnLAN=false
+Session\IncludeOverheadInLimits=true
+Session\uTPRateLimited=true
+
+# Torrent names and metadata must never trigger external commands.
+[AutoRun]
+enabled=false
+OnTorrentAdded\Enabled=false
+
+[Core]
+AutoDeleteAddedTorrentFile=Never
+
+[LegalNotice]
+Accepted=true
+
+[Network]
+PortForwardingEnabled=false
+# The namespace-local CONNECT-only proxy rejects HTTP (including redirects)
+# and permits CONNECT on PROXY3_PORTS_ALLOW_QBITTORRENT (443 by default).
+# libtorrent cannot send UDP trackers via HTTP proxy.
+# Peers retain direct TCP/uTP through the same isolated, pinned namespace.
+Proxy\Type=1
+Proxy\IP=127.0.0.1
+Proxy\Port=__INSTALLER_PROXY3_PORT_LISTEN_QBITTORRENT__
+Proxy\AuthEnabled=false
+Proxy\HostnameLookupEnabled=true
+Proxy\Profiles\BitTorrent=true
+Proxy\Profiles\RSS=true
+Proxy\Profiles\Misc=true
+
+[Preferences]
+Connection\ResolvePeerCountries=true
+WebUI\Enabled=false

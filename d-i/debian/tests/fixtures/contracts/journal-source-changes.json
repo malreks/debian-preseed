@@ -1,0 +1,8 @@
+{
+  "renamed": {
+    "d-i/debian/hooks/target/usr/local/libexec/boot-log.tmpl": "d-i/debian/hooks/target/usr/local/libexec/common/journal-snapshot.tmpl"
+  },
+  "retired": {
+    "d-i/debian/hooks/target/etc/systemd/system/boot-log.mount.tmpl": "Removed: snapshots now live directly in /var/lib/journal; there is no bind mount."
+  }
+}

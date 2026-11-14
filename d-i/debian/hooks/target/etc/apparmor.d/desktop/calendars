@@ -1,0 +1,300 @@
+# Managed native calendar applications; no Xwayland eligibility.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+profile agenda __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/com.github.dahenson.agenda flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/desktop-runtime>
+  include if exists <abstractions/user-tmp>
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/com.github.dahenson.agenda mr,
+  # The packaged Agenda startup invokes this loader; retain Agenda confinement.
+  __INSTALLER_PATH_DIR_USR__/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/agenda/{,**} r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/icons/{,**} r,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  owner @{HOME}/.local/ r,
+  owner @{HOME}/.local/share/agenda/{,**} rwkl,
+  owner @{HOME}/.cache/{,fontconfig/,fontconfig/**,mesa_shader_cache/,mesa_shader_cache/**,mesa_shader_cache_db/,mesa_shader_cache_db/**} rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,wayland-[0-9]*} rw,
+  owner __INSTALLER_PATH_DIR_DEV__/shm/** rwkl,
+  unix,
+  dbus (bind) bus=session name=com.github.dahenson.agenda,
+  dbus (send, receive) bus=session peer=(name=com.github.dahenson.agenda),
+  signal (receive) peer={unconfined,labwc-app},
+  # GTK-NoCSD reads the application command line during toolkit startup.
+  owner @{PROC}/@{pid}/cmdline r,
+  owner @{PROC}/[0-9]*/cgroup r,
+  @{sys}/fs/cgroup/**/cpu.max r,
+  owner @{HOME}/.cache/glycin/{,**} rwkl,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rCx -> agenda-glycin-bwrap,
+  signal (send) set=(kill term) peer=agenda//agenda-glycin-bwrap,
+  profile agenda-glycin-bwrap flags=(attach_disconnected, mediate_deleted) {
+    #include <abstractions/base>
+    #include <abstractions/bwrap-common>
+    include if exists <abstractions/fonts>
+    signal (receive) set=(kill term) peer=agenda,
+    __INSTALLER_PATH_DIR_USR__/bin/true rix,
+    __INSTALLER_PATH_DIR_USR_LIBEXEC__/glycin-loaders/2+/{glycin-image-rs,glycin-svg} rix,
+    __INSTALLER_PATH_DIR_USR__/lib/** mr,
+    __INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/{,**} r,
+    __INSTALLER_PATH_DIR_USR_SHARE_MIME__/mime.cache r,
+    __INSTALLER_PATH_DIR_USR__/{,local/}share/icons/{,**} r,
+    owner __INSTALLER_PATH_DIR_TMP__/gdk-pixbuf-glycin-tmp.* rwk,
+    owner @{HOME}/.cache/fontconfig/{,**} r,
+    owner @{HOME}/.cache/glycin/{,**} rwkl,
+  }
+  deny network inet,
+  deny network inet6,
+  include if exists <local/agenda>
+}
+
+profile labwc-calendar-actions __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-actions flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/desktop-runtime>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-actions r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_calendar_reminders.py r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_local_reminders.py r,
+  __INSTALLER_PATH_DIR_USR__/bin/systemctl pux,
+  __INSTALLER_PATH_DIR_USR__/bin/notify-send rix,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rPx -> session-glycin-bwrap,
+  __INSTALLER_PATH_DIR_TMP__/ r,
+  owner __INSTALLER_PATH_DIR_TMP__/gdk-pixbuf-glycin-tmp.* rwk,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-worker rPx -> labwc-calendar-worker,
+  __INSTALLER_PATH_DIR_ETC__/{passwd,timezone,localtime} r,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  owner @{HOME}/.cache/{,fontconfig/,fontconfig/**,mesa_shader_cache/,mesa_shader_cache/**,mesa_shader_cache_db/,mesa_shader_cache_db/**} rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{,bus,wayland-[0-9]*} rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-calendar-actions.lock rwk,
+  owner @{HOME}/.config/calix/local-reminders.json rw,
+  owner @{HOME}/.config/calix/.local-reminders.json.*.tmp rw,
+  owner __INSTALLER_PATH_DIR_DEV__/shm/** rwkl,
+  unix,
+  dbus (send) bus=session path=/org/freedesktop/Notifications
+    interface=org.freedesktop.Notifications member=Notify
+    peer=(name=org.freedesktop.Notifications),
+  signal (send, receive) peer=labwc-calendar-worker,
+  signal (send) set=(kill term) peer=session-glycin-bwrap,
+  signal (send) peer=unconfined,
+  signal (receive) peer=unconfined,
+  deny network inet,
+  deny network inet6,
+}
+
+profile labwc-calendar-worker __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-worker flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  include if exists <abstractions/dbus-session>
+  #include <abstractions/nameservice-strict>
+  include if exists <abstractions/openssl>
+  include if exists <abstractions/ssl_certs>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-worker r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_calendar_reminders.py r,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{glib-2.0,gir-1.0,locale,zoneinfo}/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/{passwd,localtime} r,
+  __INSTALLER_PATH_DIR_HOME__/ r,
+  owner @{HOME}/ r,
+  owner @{HOME}/.config/ r,
+  owner @{HOME}/.config/calix/ rw,
+  owner @{HOME}/.config/calix/fruux-account.json r,
+  owner @{HOME}/.config/calix/.fruux-actions.lock rwk,
+  owner @{HOME}/.config/calix/fruux-pending.json rw,
+  owner @{HOME}/.config/calix/{phone-reminders,phone-deliveries}.json rw,
+  owner @{HOME}/.config/calix/phone-reminders-control.json rw,
+  owner @{HOME}/.config/calix/.phone-{reminders,deliveries}.json.*.tmp rw,
+  owner @{HOME}/.config/calix/.phone-reminders-control.json.*.tmp rw,
+  __INSTALLER_PATH_DIR_ETC__/labwc/plans.conf r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{,bus} rw,
+  unix,
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  # Permit the AF_NETLINK/SOCK_RAW socket reported by the HTTPS worker.
+  network netlink raw,
+  dbus (send, receive) bus=session interface=org.freedesktop.Secret.*,
+  signal (send, receive) peer=labwc-calendar-actions,
+  signal (receive) peer=labwc-plans,
+  signal (receive) peer=unconfined,
+}
+
+profile calix __INSTALLER_PATH_DIR_OPT__/calix/calix flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/desktop-runtime>
+  include if exists <abstractions/user-tmp>
+  __INSTALLER_PATH_DIR_OPT__/calix/{calix,release.json} mr,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/icons/{,**} r,
+  owner @{HOME}/.config/calix/{,**} rwkl,
+  owner @{HOME}/.local/share/calix/{,**} rwkl,
+  owner @{HOME}/.cache/{,calix/,calix/**,fontconfig/,fontconfig/**,mesa_shader_cache/,mesa_shader_cache/**,mesa_shader_cache_db/,mesa_shader_cache_db/**} rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,wayland-[0-9]*} rw,
+  owner __INSTALLER_PATH_DIR_DEV__/shm/** rwkl,
+  unix,
+  network inet stream,
+  network inet6 stream,
+  # The Rust HTTP resolver needs UDP DNS before opening its HTTPS stream.
+  network inet dgram,
+  network inet6 dgram,
+  dbus (bind) bus=session name=com.ianswope.Calix,
+  dbus (send, receive) bus=session peer=(name=com.ianswope.Calix),
+  dbus (send, receive) bus=session interface=org.freedesktop.Secret.*,
+  # Calendar/GTK initialization reads same-owner process metadata.
+  owner @{PROC}/@{pid}/{cmdline,stat} r,
+  signal (receive) peer={unconfined,labwc-app},
+  include if exists <local/calix>
+}
+
+profile waycal __INSTALLER_PATH_DIR_OPT__/waycal/waycal flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/desktop-runtime>
+  include if exists <abstractions/user-tmp>
+  __INSTALLER_PATH_DIR_OPT__/waycal/{waycal,release.json} mr,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  owner @{HOME}/.config/gtk-4.0/{,gtk.css} r,
+  owner @{HOME}/.config/waycal/{,style.css} r,
+  owner @{HOME}/.local/ r,
+  owner @{HOME}/.local/state/ rw,
+  owner @{HOME}/.local/state/waycal/{,**} rwkl,
+  owner @{HOME}/.cache/{,fontconfig/,fontconfig/**,mesa_shader_cache/,mesa_shader_cache/**,mesa_shader_cache_db/,mesa_shader_cache_db/**} rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,wayland-[0-9]*} rw,
+  owner __INSTALLER_PATH_DIR_DEV__/shm/** rwkl,
+  unix,
+  dbus (bind) bus=session name=com.forrestknight.waycal,
+  # GTK-NoCSD inspects its own command line, as with the Agenda profile.
+  owner @{PROC}/@{pid}/cmdline r,
+  signal (send) set=(chld) peer=labwc-waycal-popup,
+  signal (receive) peer=unconfined,
+  deny network inet,
+  deny network inet6,
+  include if exists <local/waycal>
+}
+
+profile calix-fruux-bootstrap __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/calix-fruux-bootstrap flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  include if exists <abstractions/dbus-session>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/calix-fruux-bootstrap r,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{glib-2.0,gir-1.0,locale}/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zoneinfo/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/passwd r,
+  __INSTALLER_PATH_DIR_HOME__/ r,
+  owner @{HOME}/ r,
+  owner @{HOME}/.config/ r,
+  owner @{HOME}/.config/calix/{,**} rwkl,
+  owner @{HOME}/.local/ rw,
+  owner @{HOME}/.local/share/ rw,
+  owner @{HOME}/.local/share/calix/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{,bus} rw,
+  unix,
+  dbus (send, receive) bus=session interface=org.freedesktop.Secret.*,
+  signal (receive) peer=unconfined,
+  deny network inet,
+  deny network inet6,
+}
+
+profile fruux-cleanup __INSTALLER_PATH_DIR_FIRSTBOOT__/bin/fruux-cleanup flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/nameservice-strict>
+  __INSTALLER_PATH_DIR_FIRSTBOOT__/bin/fruux-cleanup r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/calix-fruux-bootstrap rPx -> calix-fruux-bootstrap,
+  capability setuid,
+  capability setgid,
+  signal (receive) peer={unconfined,secondboot-cleanup},
+}
+
+profile labwc-waycal-control __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waycal-control flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  include if exists <abstractions/dbus-session>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waycal-control r,
+  __INSTALLER_PATH_DIR_USR__/bin/systemctl rix,
+  __INSTALLER_PATH_DIR_USR__/bin/systemd-run rix,
+  __INSTALLER_PATH_DIR_USR__/bin/busctl rix,
+  # Waybar can pass a read-only rfkill descriptor across this profile transition.
+  __INSTALLER_PATH_DIR_DEV__/rfkill r,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{glib-2.0,gir-1.0,locale}/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zoneinfo/{,**} r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{,bus,systemd/private} rw,
+  # AppArmor requires a literal hyphen first in a character class.
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/wayland-[-A-Za-z0-9_]* r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-waycal-control.lock rwk,
+  unix,
+  signal (send, receive) peer=labwc-waycal-control,
+  signal (receive) peer=unconfined,
+  deny network inet,
+  deny network inet6,
+}
+
+# Temporary native layer-shell input surfaces. This service-owned supervisor
+# starts only the pinned Waycal executable; no raw input or key injection.
+profile labwc-waycal-popup __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waycal-popup flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/desktop-runtime>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waycal-popup r,
+  __INSTALLER_PATH_DIR_OPT__/waycal/waycal rPx -> waycal,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  owner @{HOME}/.config/gtk-3.0/{,**} r,
+  owner @{HOME}/.cache/{,fontconfig/,fontconfig/**,mesa_shader_cache/,mesa_shader_cache/**,mesa_shader_cache_db/,mesa_shader_cache_db/**} rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{,bus,wayland-[-A-Za-z0-9_]*} rw,
+  owner __INSTALLER_PATH_DIR_DEV__/shm/** rwkl,
+  unix,
+  signal (receive) set=(chld) peer=waycal,
+  signal (receive) set=(term int kill) peer=unconfined,
+  signal (send) set=(chld) peer=unconfined,
+  deny network inet,
+  deny network inet6,
+  deny __INSTALLER_PATH_DIR_DEV__/input/** rw,
+  include if exists <local/labwc-waycal-popup>
+}
+
+profile labwc-calendar-reminders-gtk __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/{labwc-calendar-reminders-gtk,labwc-new-local-reminder,labwc-reminder-manager} flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/desktop-runtime>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/{labwc-calendar-reminders-gtk,labwc-new-local-reminder,labwc-reminder-manager} rix,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/{labwc_calendar_reminders,labwc_calendar_reminders_gtk,labwc_local_reminders}.py r,
+  __INSTALLER_PATH_DIR_USR__/bin/{makoctl,notify-send,paplay,timeout} rix,
+  __INSTALLER_PATH_DIR_USR_SHARE__/sounds/{,**} r,
+  owner @{HOME}/ r,
+  owner @{HOME}/.config/ r,
+  owner @{HOME}/.config/calix/ r,
+  owner @{HOME}/.config/calix/{local-reminders.json,phone-reminders.json,phone-reminders-control.json,.fruux-actions.lock,.local-reminders.json.*.tmp,.phone-reminders-control.json.*.tmp} rwk,
+  owner @{HOME}/.config/calix/{local-reminder-deliveries.json,.local-reminder-deliveries.json.*.tmp} rwk,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,wayland-[-A-Za-z0-9_]*} rw,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{glib-2.0,gir-1.0,locale}/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zoneinfo/{,**} r,
+  unix,
+  dbus (send) bus=session path=/org/freedesktop/Notifications
+    interface=org.freedesktop.Notifications member=Notify
+    peer=(name=org.freedesktop.Notifications),
+  signal (receive) peer=unconfined,
+  deny network inet,
+  deny network inet6,
+}
+
+profile labwc-local-reminder-worker __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-local-reminder-worker flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/desktop-runtime>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-local-reminder-worker r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_local_reminders.py r,
+  __INSTALLER_PATH_DIR_USR__/bin/{makoctl,notify-send,paplay,timeout} rix,
+  __INSTALLER_PATH_DIR_USR_SHARE__/sounds/{,**} r,
+  owner @{HOME}/ r,
+  owner @{HOME}/.config/ r,
+  owner @{HOME}/.config/calix/ r,
+  owner @{HOME}/.config/calix/{local-reminders.json,.fruux-actions.lock,.local-reminders.json.*.tmp} rwk,
+  owner @{HOME}/.config/calix/{local-reminder-deliveries.json,.local-reminder-deliveries.json.*.tmp} rwk,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,wayland-[-A-Za-z0-9_]*} rw,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{glib-2.0,gir-1.0,locale}/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zoneinfo/{,**} r,
+  unix,
+  dbus (send) bus=session path=/org/freedesktop/Notifications
+    interface=org.freedesktop.Notifications member=Notify
+    peer=(name=org.freedesktop.Notifications),
+  signal (receive) peer=unconfined,
+  deny network inet,
+  deny network inet6,
+}

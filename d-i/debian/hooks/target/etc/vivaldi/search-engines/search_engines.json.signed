@@ -1,0 +1,727 @@
+// MIGHAkFfdlchTSWtJUGTuKEtUKzT0yAwpvmFofNCvcuz6JGjq5WSGURQ/VR2wywd8WUSKYjR6WYVTWgEKXJfypSEdLs0kgJCAKUJ243P+gxAjLnBGnFyTGofUWmNeoRAUjgSmN8qqCUrYYL0z/JuFMVT7MVY4wfEEOZS9P4htSBE1vtfkkmTMLce
+{
+  "int_variables": {
+    "kMaxPrepopulatedEngineID": 1007,
+    "kCurrentDataVersion": 10000176
+  },
+  "elements": {
+    "google": {
+      "name": "Google",
+      "keyword": "g",
+      "favicon_url": "https://www.google.com/images/branding/product/ico/googleg_lodp.ico",
+      "search_url": "{google:baseURL}search?q={searchTerms}&{google:originalQueryForSuggestion}{google:prefetchSource}{google:sourceId}{google:contextualSearchVersion}ie={inputEncoding}",
+      "suggest_url": "https://www.google.com/complete/search?client=chrome&q={searchTerms}",
+      "image_url": "{google:baseSearchByImageURL}upload",
+      "contextual_search_url": "{google:baseURL}_/contextualsearch?{google:contextualSearchVersion}{google:contextualSearchContextData}",
+      "image_url_post_params": "encoded_image={google:imageThumbnail},image_url={google:imageURL},sbisrc={google:imageSearchSource},original_width={google:imageOriginalWidth},original_height={google:imageOriginalHeight},processed_image_dimensions={google:processedImageDimensions}",
+      "alternate_urls": [
+        "https://www.google.com/#q={searchTerms}",
+        "https://www.google.com/search#q={searchTerms}",
+        "https://www.google.com/webhp#q={searchTerms}",
+        "https://www.google.com/s#q={searchTerms}",
+        "https://www.google.com/s?q={searchTerms}"
+      ],
+      "type": "SEARCH_ENGINE_GOOGLE",
+      "id": 1
+    },
+    "bing": {
+      "name": "Bing",
+      "keyword": "b",
+      "favicon_url": "https://www.bing.com/sa/simg/bing_p_rr_teal_min.ico",
+      "search_url": "https://www.bing.com/search?&q={searchTerms}",
+      "suggest_url": "https://www.bing.com/osjson.aspx?query={searchTerms}&language={language}",
+      "image_url": "https://www.bing.com/images/detail/search?iss=sbiupload&#enterInsights",
+      "image_url_post_params": "imageBin={google:imageThumbnailBase64}",
+      "type": "SEARCH_ENGINE_BING",
+      "id": 3
+    },
+    "wikipedia": {
+      "name": "Wikipedia",
+      "keyword": "w",
+      "search_url": "https://en.wikipedia.org/wiki/Special:Search?search={searchTerms}",
+      "suggest_url": "https://en.wikipedia.org/w/api.php?action=opensearch&search={searchTerms}",
+      "favicon_url": "https://en.wikipedia.org/static/favicon/wikipedia.ico",
+      "type": "VIVALDI_SEARCH_ENGINE_WIKIPEDIA",
+      "id": 6
+    },
+    "wikipedia_se": {
+      "name": "Wikipedia",
+      "keyword": "w",
+      "search_url": "https://sv.wikipedia.org/wiki/Special:Search?search={searchTerms}",
+      "suggest_url": "https://sv.wikipedia.org/w/api.php?action=opensearch&search={searchTerms}",
+      "favicon_url": "https://sv.wikipedia.org/static/favicon/wikipedia.ico",
+      "type": "VIVALDI_SEARCH_ENGINE_WIKIPEDIA",
+      "id": 6
+    },
+    "yandex_by": {
+      "name": "Яндекс",
+      "keyword": "y",
+      "favicon_url": "https://yastatic.net/s3/web4static/_/v2/ZcejnfbLE_TlMK13nS41mdC4A88.png",
+      "search_url": "https://yandex.by/{yandex:searchPath}?text={searchTerms}&from=os&clid=2222821",
+      "suggest_url": "https://suggest.yandex.by/suggest-ff.cgi?part={searchTerms}&clid=2222821",
+      "image_url": "https://yandex.by/images/search/?rpt=imageview",
+      "image_url_post_params": "upfile={google:imageThumbnail},original_width={google:imageOriginalWidth},original_height={google:imageOriginalHeight},prg=1",
+      "type": "SEARCH_ENGINE_YANDEX",
+      "id": 8
+    },
+    "yandex_ru": {
+      "name": "Яндекс",
+      "keyword": "y",
+      "favicon_url": "https://yastatic.net/s3/web4static/_/v2/ZcejnfbLE_TlMK13nS41mdC4A88.png",
+      "search_url": "https://yandex.ru/{yandex:searchPath}?text={searchTerms}&from=os&{yandex:vivaldiReferralID}",
+      "suggest_url": "https://suggest.yandex.ru/suggest-ff.cgi?part={searchTerms}&{yandex:vivaldiReferralID}",
+      "image_url": "https://yandex.ru/images/search/?rpt=imageview",
+      "image_url_post_params": "upfile={google:imageThumbnail},original_width={google:imageOriginalWidth},original_height={google:imageOriginalHeight},prg=1",
+      "type": "SEARCH_ENGINE_YANDEX",
+      "id": 8
+    },
+    "yandex_tr": {
+      "name": "Yandex",
+      "keyword": "y",
+      "favicon_url": "https://yastatic.net/s3/web4static/_/v2/v9YNE_BX0evwMHbDyd0NZv8ReK0.png",
+      "search_url": "https://yandex.com.tr/{yandex:searchPath}?text={searchTerms}",
+      "suggest_url": "https://suggest.yandex.com.tr/suggest-ff.cgi?part={searchTerms}",
+      "image_url": "https://yandex.com.tr/gorsel/search?rpt=imageview",
+      "image_url_post_params": "upfile={google:imageThumbnail},original_width={google:imageOriginalWidth},original_height={google:imageOriginalHeight},prg=1",
+      "type": "SEARCH_ENGINE_YANDEX",
+      "id": 8
+    },
+    "wolfram": {
+      "name": "Wolfram|Alpha",
+      "keyword": "wa",
+      "favicon_url": "https://www.wolframalpha.com/_next/static/images/favicon_fzx75d1e.ico",
+      "search_url": "https://www.wolframalpha.com/input/?i={searchTerms}",
+      "type": "VIVALDI_SEARCH_ENGINE_WOLFRAM_ALPHA",
+      "id": 10
+    },
+    "ozon": {
+      "name": "OZON",
+      "keyword": "o",
+      "favicon_url": "https://www.ozon.ru/public/favicon.ico",
+      "search_url": "https://www.ozon.ru/?context=search&text={searchTerms}&partner=vivaldi",
+      "type": "VIVALDI_SEARCH_ENGINE_OZON",
+      "id": 11
+    },
+    "amazon": {
+      "name": "Amazon",
+      "keyword": "z",
+      "favicon_url": "https://www.amazon.com/favicon.ico",
+      "search_url": "https://www.amazon.com/s/192-2405230-1137661?ie=UTF8&index=blended&keywords={searchTerms}",
+      "type": "VIVALDI_SEARCH_ENGINE_AMAZON",
+      "id": 12
+    },
+    "ebay": {
+      "name": "eBay",
+      "keyword": "eb",
+      "favicon_url": "https://www.ebay.com/favicon.ico",
+      "search_url": "https://www.ebay.com/sch/i.html?&_nkw={searchTerms}",
+      "type": "VIVALDI_SEARCH_ENGINE_EBAY",
+      "id": 13
+    },
+    "mail_ru": {
+      "name": "Поиск Mail.ru",
+      "keyword": "m",
+      "favicon_url": "https://go.mail.ru/static/common/img/favicon.ico",
+      "search_url": "https://go.mail.ru/search?fr=ps&q={searchTerms}&gp=495906",
+      "suggest_url": "https://suggests.go.mail.ru/chrome?q={searchTerms}",
+      "alternate_urls": [
+        "https://go.mail.ru/msearch?q={searchTerms}&gp=495906"
+      ],
+      "type": "SEARCH_ENGINE_MAILRU",
+      "id": 14
+    },
+    "you": {
+      "name": "You",
+      "keyword": "u",
+      "favicon_url": "https://you.com/favicon/favicon-32x32.png",
+      "search_url": "https://you.com/search?q={searchTerms}&utm_source=vivaldi_browser",
+      "type": "VIVALDI_SEARCH_ENGINE_YOU",
+      "id": 17
+    },
+    "google_unittests": {
+      "name": "Google",
+      "keyword": "google.com",
+      "favicon_url": "https://www.google.com/images/branding/product/ico/googleg_lodp.ico",
+      "search_url": "{google:baseURL}search?q={searchTerms}&{google:RLZ}{google:originalQueryForSuggestion}{google:assistedQueryStats}{google:searchFieldtrialParameter}{google:iOSSearchLanguage}{google:prefetchSource}{google:searchClient}{google:sourceId}{google:contextualSearchVersion}ie={inputEncoding}",
+      "suggest_url": "{google:baseSuggestURL}search?{google:searchFieldtrialParameter}client={google:suggestClient}&gs_ri={google:suggestRid}&xssi=t&q={searchTerms}&{google:inputType}{google:omniboxFocusType}{google:cursorPosition}{google:currentPageUrl}{google:pageClassification}{google:searchVersion}{google:sessionToken}{google:prefetchQuery}sugkey={google:suggestAPIKeyParameter}",
+      "image_url": "{google:baseSearchByImageURL}upload",
+      "contextual_search_url": "{google:baseURL}_/contextualsearch?{google:contextualSearchVersion}{google:contextualSearchContextData}",
+      "image_url_post_params": "encoded_image={google:imageThumbnail},image_url={google:imageURL},sbisrc={google:imageSearchSource},original_width={google:imageOriginalWidth},original_height={google:imageOriginalHeight}",
+      "alternate_urls": [
+        "{google:baseURL}#q={searchTerms}",
+        "{google:baseURL}search#q={searchTerms}",
+        "{google:baseURL}webhp#q={searchTerms}",
+        "{google:baseURL}s#q={searchTerms}",
+        "{google:baseURL}s?q={searchTerms}"
+      ],
+      "type": "SEARCH_ENGINE_GOOGLE",
+      "preconnect_to_search_url": "ALLOWED",
+      "id": 1
+    },
+    "bing_unittests": {
+      "name": "Bing",
+      "keyword": "bing.com",
+      "favicon_url": "https://www.bing.com/sa/simg/bing_p_rr_teal_min.ico",
+      "search_url": "https://www.bing.com/search?q={searchTerms}&PC=U316&FORM=CHROMN",
+      "suggest_url": "https://www.bing.com/osjson.aspx?query={searchTerms}&language={language}&PC=U316",
+      "image_url": "https://www.bing.com/images/detail/search?iss=sbiupload&FORM=CHROMI#enterInsights",
+      "new_tab_url": "https://www.bing.com/chrome/newtab",
+      "image_url_post_params": "imageBin={google:imageThumbnailBase64}",
+      "type": "SEARCH_ENGINE_BING",
+      "id": 3
+    },
+    "marginalia_search": {
+      "name": "Marginalia Search",
+      "keyword": "marginalia",
+      "search_url": "https://marginalia-search.com/search?query={searchTerms}",
+      "favicon_url": "https://marginalia-search.com/favicon.ico",
+      "type": "SEARCH_ENGINE_OTHER",
+      "id": 1001
+    },
+    "brave_search": {
+      "name": "Brave Search",
+      "keyword": "brave",
+      "search_url": "https://search.brave.com/search?q={searchTerms}",
+      "favicon_url": "https://search.brave.com/favicon.ico",
+      "type": "SEARCH_ENGINE_OTHER",
+      "id": 1002
+    },
+    "nova_rambler": {
+      "name": "Nova Rambler",
+      "keyword": "rambler",
+      "search_url": "https://nova.rambler.ru/search?query={searchTerms}",
+      "favicon_url": "https://nova.rambler.ru/favicon.ico",
+      "type": "SEARCH_ENGINE_OTHER",
+      "id": 1003
+    },
+    "rightdao": {
+      "name": "Right Dao",
+      "keyword": "rightdao",
+      "search_url": "https://rightdao.com/search?q={searchTerms}",
+      "favicon_url": "https://rightdao.com/favicon.ico",
+      "type": "SEARCH_ENGINE_OTHER",
+      "id": 1004
+    },
+    "so_search": {
+      "name": "360 Search",
+      "keyword": "so",
+      "search_url": "https://www.so.com/s?q={searchTerms}",
+      "favicon_url": "https://www.so.com/s?q={searchTerms}/favicon.ico",
+      "type": "SEARCH_ENGINE_OTHER",
+      "id": 1005
+    },
+    "mithal": {
+      "name": "Mithal",
+      "keyword": "mithal",
+      "search_url": "https://mithal.space/search?q={searchTerms}",
+      "favicon_url": "https://mithal.space/favicon.ico",
+      "type": "SEARCH_ENGINE_OTHER",
+      "id": 1006
+    },
+    "mojeek": {
+      "name": "Mojeek",
+      "keyword": "mojeek",
+      "search_url": "https://www.mojeek.com/search?q={searchTerms}",
+      "favicon_url": "https://www.mojeek.com/favicon.ico",
+      "type": "SEARCH_ENGINE_OTHER",
+      "id": 1007
+    }
+  },
+  "engines": {
+    "default": [
+      "bing",
+      "wikipedia",
+      "google",
+      "marginalia_search",
+      "brave_search",
+      "nova_rambler",
+      "rightdao",
+      "so_search",
+      "mithal",
+      "mojeek"
+    ],
+    "be_BY": [
+      "*yandex_by",
+      "google",
+      "ozon",
+      "wikipedia",
+      "ebay",
+      "wolfram"
+    ],
+    "bg_BG": [
+      "*bing",
+      "wikipedia",
+      "google"
+    ],
+    "cs_CZ": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "da_DK": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "de_DE": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "de_AT": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "de_CH": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "el_GR": [
+      "*bing",
+      "wikipedia",
+      "google"
+    ],
+    "en_AU": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "en_CA": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "en_GB": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "en_IE": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "en_IN": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "en_PH": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "en_SG": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "en_US": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "es_ES": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "es_AR": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "es_CL": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "es_CO": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "es_PE": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "es_MX": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "es_VE": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "fi_FI": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "fr_BE": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "fr_FR": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "hr_HR": [
+      "*bing",
+      "wikipedia",
+      "google"
+    ],
+    "hu_HU": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "id_ID": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "it_IT": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "ja_JP": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "ko_KR": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "lt_LT": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "nb_NO": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "nl_BE": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "nl_NL": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "nn_NO": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "pl_PL": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "pt_BR": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "pt_PT": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "ro_RO": [
+      "*bing",
+      "wikipedia",
+      "google"
+    ],
+    "ru_RU": [
+      "*yandex_ru",
+      "google",
+      "wikipedia",
+      "wolfram"
+    ],
+    "sv_SE": [
+      "bing",
+      "wikipedia_se",
+      "google"
+    ],
+    "sk_SK": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "sr_RS": [
+      "*bing",
+      "wikipedia",
+      "google"
+    ],
+    "th_TH": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "tr_TR": [
+      "bing",
+      "yandex_tr",
+      "google",
+      "amazon",
+      "wikipedia",
+      "ebay",
+      "wolfram"
+    ],
+    "uk_UA": [
+      "google",
+      "wikipedia",
+      "ebay",
+      "wolfram"
+    ],
+    "vi_VN": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "zh_CN": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "zh_HK": [
+      "bing",
+      "google",
+      "wikipedia"
+    ],
+    "zh_TW": [
+      "bing",
+      "wikipedia",
+      "google"
+    ],
+    "unittests": [
+      "!*google_unittests",
+      "bing_unittests"
+    ]
+  },
+  "engines_by_country": [
+    [
+      "be",
+      "BY"
+    ],
+    [
+      "bg",
+      "BG"
+    ],
+    [
+      "cs",
+      "CZ"
+    ],
+    [
+      "da",
+      "DK"
+    ],
+    [
+      "de*",
+      "DE"
+    ],
+    [
+      "de",
+      "AT"
+    ],
+    [
+      "de",
+      "CH"
+    ],
+    [
+      "el",
+      "GR"
+    ],
+    [
+      "en",
+      "AU"
+    ],
+    [
+      "en",
+      "CA"
+    ],
+    [
+      "en",
+      "GB"
+    ],
+    [
+      "en",
+      "IE"
+    ],
+    [
+      "en",
+      "IN"
+    ],
+    [
+      "en",
+      "PH"
+    ],
+    [
+      "en",
+      "SG"
+    ],
+    [
+      "en*",
+      "US"
+    ],
+    [
+      "es*",
+      "ES"
+    ],
+    [
+      "es",
+      "AR"
+    ],
+    [
+      "es",
+      "CL"
+    ],
+    [
+      "es",
+      "CO"
+    ],
+    [
+      "es",
+      "PE"
+    ],
+    [
+      "es",
+      "MX"
+    ],
+    [
+      "es",
+      "VE"
+    ],
+    [
+      "fi",
+      "FI"
+    ],
+    [
+      "fr",
+      "BE"
+    ],
+    [
+      "fr*",
+      "FR"
+    ],
+    [
+      "hr",
+      "HR"
+    ],
+    [
+      "hu",
+      "HU"
+    ],
+    [
+      "id",
+      "ID"
+    ],
+    [
+      "it",
+      "IT"
+    ],
+    [
+      "ja",
+      "JP"
+    ],
+    [
+      "ko",
+      "KR"
+    ],
+    [
+      "lt",
+      "LT"
+    ],
+    [
+      "nb",
+      "NO"
+    ],
+    [
+      "nl",
+      "BE"
+    ],
+    [
+      "nl*",
+      "NL"
+    ],
+    [
+      "nn",
+      "NO"
+    ],
+    [
+      "pl",
+      "PL"
+    ],
+    [
+      "pt*",
+      "BR"
+    ],
+    [
+      "pt",
+      "PT"
+    ],
+    [
+      "ro",
+      "RO"
+    ],
+    [
+      "ru",
+      "RU"
+    ],
+    [
+      "sv",
+      "SE"
+    ],
+    [
+      "sk",
+      "SK"
+    ],
+    [
+      "sr",
+      "RS"
+    ],
+    [
+      "th",
+      "TH"
+    ],
+    [
+      "tr",
+      "TR"
+    ],
+    [
+      "uk",
+      "UA"
+    ],
+    [
+      "vi",
+      "VN"
+    ],
+    [
+      "zh*",
+      "CN"
+    ],
+    [
+      "zh",
+      "TW"
+    ],
+    [
+      "zh",
+      "HK"
+    ]
+  ]
+}

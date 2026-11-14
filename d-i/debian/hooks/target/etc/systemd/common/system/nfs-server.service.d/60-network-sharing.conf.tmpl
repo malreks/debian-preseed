@@ -1,0 +1,35 @@
+[Unit]
+# Refuse partially configured boots, including package-preset enablement.
+AssertPathExists=__INSTALLER_PATH_DIR_ETC__/network-sharing/config.json
+AssertPathExists=__INSTALLER_PATH_DIR_ETC__/nfs.conf.d/60-network-sharing.conf
+AssertPathExists=__NETWORK_SHARING_FIREWALL_FILE__
+AssertPathExists=__NETWORK_SHARING_FIREWALL_DROPIN_FILE__
+# Never export the underlying root filesystem if the data mount failed.
+RequiresMountsFor=__NFS_SERVER_PATH__
+BindsTo=nftables.service nfs-idmapd.service
+After=nftables.service systemd-modules-load.service network-sharing-identity.service nfs-idmapd.service
+Requires=nfs-idmapd.service network-sharing-identity.service
+
+[Service]
+# The vendor unit ignores exportfs errors. Refuse failed start/reload instead.
+ExecStartPre=
+ExecStartPre=__INSTALLER_PATH_DIR_USR__/sbin/exportfs -r
+ExecReload=
+ExecReload=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-sharing-identity
+ExecReload=__INSTALLER_PATH_DIR_USR__/sbin/exportfs -r
+# Use the packaged procfs interface for the reported nfsdctl EINVAL failure.
+# Retain the vendor's kernel-backed lifecycle and stop-post cleanup.
+ExecStart=
+ExecStart=__INSTALLER_PATH_DIR_USR__/sbin/rpc.nfsd
+ExecStop=
+ExecStop=__INSTALLER_PATH_DIR_USR__/sbin/rpc.nfsd 0
+# nfsd is kernel-backed: retain host networking and writable nfsd/rpc state.
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+TimeoutStartSec=60s
+TimeoutStopSec=60s
+KillMode=control-group

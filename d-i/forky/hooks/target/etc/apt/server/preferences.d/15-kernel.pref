@@ -1,0 +1,11 @@
+# Managed by the installer apt-setup preferences generator.
+# Keep XanMod kernel packages available at a deterministic priority while
+# leaving unrelated vendor packages at a low recovery priority.
+
+Package: linux-image-*-xanmod* linux-headers-*-xanmod* linux-modules-*-xanmod*
+Pin: release o=xanmod
+Pin-Priority: 1001
+
+Package: *
+Pin: release o=xanmod
+Pin-Priority: 100

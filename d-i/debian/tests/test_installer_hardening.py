@@ -1,0 +1,1383 @@
+"""Failure injection against real helpers; all disk/target paths are fixtures.
+
+Terminal installer tests kill only their own process trees. They never partition,
+mount, chroot the host, signal a real main-menu, or activate target services.
+"""
+
+# Refuse host execution before importing runtime helpers or creating fixtures.
+from pathlib import Path as _IsolationPath
+import sys as _isolation_sys
+_isolation_sys.path.insert(0, str(_IsolationPath(__file__).resolve().parents[3] / 'tools'))
+# Copied checker/GUI fixtures still use the verified private checkout gate.
+_isolation_sys.path.insert(0, '/workspace/repository/tools')
+from isolation import require_test_isolation as _require_test_isolation
+_isolation_sys.path.pop(0)
+_require_test_isolation()
+
+from payload_fixture import copyfile as payload_copyfile, installed_argv as payload_installed_argv, source_exists as payload_source_exists, source_is_file as payload_source_is_file, source_stat as payload_source_stat
+from payload_fixture import installed_script
+from payload_fixture import read_text as payload_read_text
+from pathlib import Path
+import ctypes
+import importlib.util
+import os
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from unittest import mock
+
+from process_fixture import stop_test_tree, wait_file
+from test_environment import (skip_unless_installer_apt_ancestry,
+                              skip_unless_process_tree_visibility)
+
+ROOT = Path(__file__).resolve().parents[1]
+LC = ROOT / 'scripts/common/lifecycle.sh'
+CORE = ROOT / 'scripts/late/core.sh'
+GUARD = ROOT / 'scripts/preseed/guard-hook.sh'
+APT = ROOT / 'scripts/common/apt-sources.sh'
+Q = shlex.quote
+
+
+def shell(text, env=None, shell_path='/bin/sh'):
+    return subprocess.run(payload_installed_argv([shell_path, '-eu', '-c', text]), env={**os.environ, **(env or {})},
+                          capture_output=True, text=True, timeout=15)
+
+
+def module(path, name):
+    from importlib.machinery import SourceFileLoader
+    loader = SourceFileLoader(name, str(installed_script(path)))
+    spec = importlib.util.spec_from_loader(name, loader)
+    result = importlib.util.module_from_spec(spec)
+    sys.modules[name] = result
+    loader.exec_module(result)
+    return result
+
+
+class SharedCopyTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='installer-copy-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.source = self.root / 'source file'
+        self.destination = self.root / 'destination file'
+        self.source.write_bytes(b'new content\n')
+        self.destination.write_bytes(b'old content\n')
+        self.destination.chmod(0o600)
+
+    def copy(self, setup='', *, same_path=False, mode='0644'):
+        source = self.destination if same_path else self.source
+        code = f'''
+. {Q(str(ROOT / 'scripts/common/modules/files-logging.sh'))}
+installer_error() {{ printf '%s\\n' "$*" >&2; }}
+installer_fatal() {{ printf '%s\\n' "$*" >&2; return 1; }}
+{setup}
+if installer_copy_path_with_mode {Q(str(source))} {Q(str(self.destination))} {Q(mode)} fixture; then
+  printf 'copied\\n'
+else
+  status=$?
+  exit "$status"
+fi
+'''
+        result = shell(code, shell_path='/bin/dash')
+        self.assertEqual(list(self.root.glob('.installer-copy.*')), [])
+        return result
+
+    def test_success_sets_permissions_before_publication(self):
+        result = self.copy('''
+mv() {
+  [ "$(stat -c %a "$3")" = 644 ] || return 40
+  [ "$(stat -c %a "$(dirname "$3")")" = 700 ] || return 41
+  command mv "$@"
+}
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.destination.read_bytes(), b'new content\n')
+        self.assertEqual(self.destination.stat().st_mode & 0o777, 0o644)
+
+    def test_rename_failure_is_not_hidden_by_conditional_caller(self):
+        result = self.copy('mv() { return 37; }')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.destination.read_bytes(), b'old content\n')
+        self.assertEqual(self.destination.stat().st_mode & 0o777, 0o600)
+
+    def test_permission_failure_preserves_previous_file(self):
+        result = self.copy('chmod() { return 38; }')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.destination.read_bytes(), b'old content\n')
+
+    def test_same_path_permission_failure_is_returned(self):
+        result = self.copy('chmod() { return 38; }', same_path=True)
+        self.assertEqual(result.returncode, 38)
+        self.assertEqual(self.destination.read_bytes(), b'old content\n')
+
+    def test_partial_copy_failure_cleans_up_and_preserves_destination(self):
+        result = self.copy('cp() { printf partial >"$3"; return 39; }')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.destination.read_bytes(), b'old content\n')
+        self.assertIn('status 39', result.stderr)
+
+    def test_empty_source_preserves_previous_file(self):
+        self.source.write_bytes(b'')
+        result = self.copy()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.destination.read_bytes(), b'old content\n')
+
+    def test_directory_destination_is_rejected_without_chmod(self):
+        self.destination.unlink()
+        self.destination.mkdir(mode=0o700)
+        result = self.copy()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(self.destination.iterdir()), [])
+        self.assertEqual(self.destination.stat().st_mode & 0o777, 0o700)
+
+    def test_invalid_mode_preserves_previous_file(self):
+        result = self.copy(mode='--reference=other')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.destination.read_bytes(), b'old content\n')
+
+    def test_destination_symlink_is_replaced_without_changing_its_target(self):
+        other = self.root / 'other'
+        other.write_bytes(b'other content\n')
+        other.chmod(0o600)
+        self.destination.unlink()
+        self.destination.symlink_to(other)
+        result = self.copy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.destination.is_symlink())
+        self.assertEqual(self.destination.read_bytes(), b'new content\n')
+        self.assertEqual(other.read_bytes(), b'other content\n')
+        self.assertEqual(other.stat().st_mode & 0o777, 0o600)
+
+    def test_same_path_symlink_is_rejected_without_changing_its_target(self):
+        self.destination.unlink()
+        self.destination.symlink_to(self.source)
+        original_mode = self.source.stat().st_mode
+        result = self.copy(same_path=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.source.stat().st_mode, original_mode)
+
+
+class HelperDocumentationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='installer-docs-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / 'etc').mkdir()
+        (self.root / 'etc/passwd').write_text('fixture:x:1000:1001::/home/fixture:/bin/sh\n')
+
+    def stage(self, command, setup=''):
+        # Fetch/publication and chown are recorded, so ownership on the host is
+        # never changed. Owner lookup and target path resolution use real code.
+        code = f'''
+. {Q(str(ROOT / 'scripts/late/target-assets.sh'))}
+INSTALLER_TARGET_DIR={Q(str(self.root))}
+ACCOUNT_USERNAME=fixture
+DIR_DATA_DOCS=/data/docs
+unset TARGET_HELPER_DOC_OWNER_IDS
+installer_fatal() {{ printf '%s\\n' "$*" >&2; return 1; }}
+installer_repo_join_var() {{ printf '%s\\n' "$2"; }}
+stage_target_asset() {{ printf 'stage:%s\\n' "$2"; }}
+chown() {{ printf 'owner:%s:%s\\n' "$1" "$2"; }}
+awk() {{ printf 'lookup\\n' >>{Q(str(self.root / 'lookups'))}; command awk "$@"; }}
+{setup}
+if {command}; then :; else status=$?; exit "$status"; fi
+'''
+        return shell(code, shell_path='/bin/dash')
+
+    def test_batch_stages_index_once_and_caches_owner_in_current_shell(self):
+        result = self.stage('stage_target_helper_docs first.md second.md third.md')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        stages = [line for line in result.stdout.splitlines() if line.startswith('stage:')]
+        self.assertEqual(stages, ['stage:/data/docs/README.md', 'stage:/data/docs/first.md',
+                                  'stage:/data/docs/second.md', 'stage:/data/docs/third.md'])
+        self.assertEqual((self.root / 'lookups').read_text(), 'lookup\n')
+        owners = [line for line in result.stdout.splitlines() if line.startswith('owner:')]
+        self.assertEqual(len(owners), 4)
+        self.assertTrue(all(line.startswith(f'owner:1000:1001:{self.root}/data/docs/') for line in owners))
+
+    def test_single_document_still_stages_index_and_supports_renaming(self):
+        result = self.stage('stage_target_helper_doc original.md renamed.md')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('stage:/data/docs/README.md\n', result.stdout)
+        self.assertIn('stage:/data/docs/renamed.md\n', result.stdout)
+        self.assertEqual((self.root / 'lookups').read_text(), 'lookup\n')
+
+    def test_empty_batch_does_not_stage_or_lookup(self):
+        result = self.stage('stage_target_helper_docs')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '')
+        self.assertFalse((self.root / 'lookups').exists())
+
+    def test_index_failure_stops_before_ownership_and_documents(self):
+        result = self.stage('stage_target_helper_docs first.md second.md',
+                            'stage_target_asset() { printf "stage:%s\\n" "$2"; return 42; }')
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertEqual(result.stdout, 'stage:/data/docs/README.md\n')
+        self.assertFalse((self.root / 'lookups').exists())
+
+    def test_document_failure_stops_before_chown_and_remaining_documents(self):
+        result = self.stage('stage_target_helper_docs first.md second.md', '''
+stage_target_asset() {
+  printf 'stage:%s\\n' "$2"
+  case "$2" in */first.md) return 43 ;; esac
+}
+''')
+        self.assertEqual(result.returncode, 43, result.stderr)
+        self.assertNotIn('owner:1000:1001:' + str(self.root) + '/data/docs/first.md', result.stdout)
+        self.assertNotIn('second.md', result.stdout)
+
+    def test_invalid_cached_owner_never_reaches_chown(self):
+        for owner in ('root', ':1', '1:', '1:2:3', '-1:2'):
+            with self.subTest(owner=owner):
+                result = self.stage('stage_target_docs_index', f'TARGET_HELPER_DOC_OWNER_IDS={Q(owner)}')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('owner:', result.stdout)
+        self.assertFalse((self.root / 'lookups').exists())
+
+    def test_missing_account_never_reaches_chown(self):
+        result = self.stage('stage_target_docs_index', 'ACCOUNT_USERNAME=absent')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('owner:', result.stdout)
+
+    def test_owner_lookup_failure_is_not_hidden_by_conditional_caller(self):
+        result = self.stage('stage_target_docs_index', 'awk() { return 44; }')
+        self.assertEqual(result.returncode, 44, result.stderr)
+        self.assertNotIn('owner:', result.stdout)
+
+
+class LifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='installer-lifecycle-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.runtime = self.root / 'runtime'
+        self.state = self.runtime / 'state'
+        self.env = {**os.environ, 'INSTALLER_RUNTIME_DIR': str(self.runtime),
+                    'INSTALLER_TARGET_DIR': str(self.root / 'not-mounted')}
+        (self.runtime / 'bootstrap').mkdir(parents=True)
+        payload_copyfile(LC, self.runtime / 'bootstrap/source.sh')
+
+    def run_lc(self, code):
+        return shell(f'. {Q(str(LC))}\n{code}', self.env)
+
+    def test_supervised_d_i_components_receive_the_stock_installer_path(self):
+        source = payload_read_text(GUARD)
+        self.assertIn('. "$runtime/bootstrap/di.env"', source)
+        self.assertIn('context="$runtime/state/context.env"', source)
+        self.assertIn('set -a', source)
+        self.assertIn('set +a', source)
+        self.assertLess(source.index('. "$context"'), source.index('installer_run_supervised "$script"'))
+        self.assertIn('case "${INSTALLER_SUITE:-}" in', source)
+        bootstrap = payload_read_text(ROOT / 'scripts/common/bootstrap.sh')
+        require_start = bootstrap.index('bootstrap_require_seed_base()')
+        require_body = bootstrap[require_start:bootstrap.index('\n}', require_start)]
+        self.assertLess(require_body.index('bootstrap_load_persisted_suite'),
+                        require_body.index('if [ -n "${1:-}" ]; then'))
+        self.assertIn('export INSTALLER_SUITE', require_body)
+        source_bootstrap = payload_read_text(ROOT / 'scripts/common/source.sh')
+        source_start = source_bootstrap.index('source_bootstrap() (')
+        source_body = source_bootstrap[source_start:source_bootstrap.index('\n)', source_start)]
+        self.assertIn('requested_suite=${4:-${INSTALLER_SUITE:-}}', source_body)
+        self.assertLess(source_body.index('INSTALLER_SUITE=$requested_suite'),
+                        source_body.index('source_prepare_payload'))
+        self.assertIn('"$requested_suite"', source_body)
+        entry = payload_read_text(ROOT / 'scripts/preseed/bootstrap-entry.sh')
+        self.assertIn('requested_suite=${4:-${INSTALLER_SUITE:-}}', entry)
+        profiles = payload_read_text(ROOT / 'scripts/common/modules/profiles.sh')
+        self.assertIn('compiled data snapshot was rejected by the restricted data parser (status=', profiles)
+        self.assertIn('installer_data_previous_source', profiles)
+        self.assertIn('installer_operation_context "$installer_data_previous_source"', profiles)
+        self.assertIn('invalid compiled profile data for ${host_profile}', profiles)
+        self.assertIn('invalid compiled account policy data', profiles)
+        network_apt = payload_read_text(ROOT / 'scripts/preseed/network-apt.sh')
+        self.assertIn('base-network-apt host profile data was rejected', network_apt)
+        self.assertIn('INSTALLER_APT_RUNTIME_PATHS_READY=1', network_apt)
+        self.assertIn('installer suite context has invalid shell syntax', network_apt)
+        self.assertIn('failed to publish the authenticated Debian APT source', network_apt)
+        self.assertIn('base_network_apt_update', network_apt)
+        self.assertIn('class-selected APT repository answers available before first target update', network_apt)
+        self.assertNotIn('installer_apt_stage_default_release', network_apt)
+        self.assertLess(network_apt.index('apt_bootstrap_source'),
+                        network_apt.index('base_network_apt_update'))
+        apt_sources = payload_read_text(ROOT / 'scripts/common/apt-sources.sh')
+        self.assertNotIn('installer_apt_stage_default_release', apt_sources)
+        self.assertIn('apt_bootstrap_source', apt_sources)
+        self.assertIn('apt_strip_cdrom', apt_sources)
+        repository_apt = payload_read_text(ROOT / 'scripts/common/modules/repository-apt.sh')
+        self.assertIn('LC_ALL=C sort', repository_apt)
+        self.assertIn("selected suite has no APT preference drop-ins", repository_apt)
+        preferences_hook = payload_read_text(ROOT / 'hooks/installer/apt-setup/generators/99-apt-preferences')
+        purge_call = preferences_hook.index('purge_target_cdrom_apt_sources\n')
+        self.assertLess(preferences_hook.index('purge_target_cdrom_apt_sources()'), purge_call)
+        self.assertLess(preferences_hook.index('installer_stage_suite_apt_preferences'),
+                        purge_call)
+        self.assertIn('staged ${apt_preference_count} suite/family APT preference drop-ins before pkgsel',
+                      repository_apt)
+        finish_apt = payload_read_text(ROOT / 'hooks/installer/finish-install.d/95-normalize-apt')
+        self.assertLess(finish_apt.index('remove_cdrom_repo_state'),
+                        finish_apt.index('install_default_release_policy'))
+        path_assignment = source.index('PATH="${DIR_INSTALLER_USR_LOCAL_SBIN}')
+        component_launch = source.index('installer_run_supervised "$script"')
+        self.assertLess(path_assignment, component_launch)
+        for selector in (
+            'DIR_INSTALLER_USR_LOCAL_SBIN', 'DIR_INSTALLER_USR_LOCAL_BIN',
+            'DIR_INSTALLER_USR_SBIN', 'DIR_INSTALLER_USR_BIN',
+            'DIR_INSTALLER_SBIN', 'DIR_INSTALLER_BIN',
+        ):
+            self.assertIn('${' + selector + '}', source)
+
+    def held(self, code, executable='/bin/sh'):
+        p = subprocess.Popen(payload_installed_argv([executable, '-eu', '-c', f'. {Q(str(LC))}\n{code}']),
+                             env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(stop_test_tree, p)
+        return p
+
+    def test_udeb_metadata_needs_no_stat_sets_id_or_timeout_applet(self):
+        bindir=self.root/'bin'; bindir.mkdir()
+        for name in ('stat','setsid','timeout'):
+            p=bindir/name; p.write_text('#!/bin/sh\nexit 127\n'); p.chmod(0o755)
+        self.env['PATH']=str(bindir)+':'+os.environ['PATH']
+        result=self.run_lc('installer_lifecycle_begin late; '
+                           'installer_run_supervised /bin/sh -c "exit 0"; '
+                           'installer_lifecycle_complete')
+        self.assertEqual(result.returncode,0,result.stderr)
+        for mode in (0o600,0o640,0o755,0o1777,0o2750):
+            p=self.root/'metadata'; p.touch(); p.chmod(mode)
+            expected = {
+                'uid': str(os.getuid()),
+                'gid': str(os.getgid()),
+                'links': '1',
+                'mode': format(mode,'o'),
+                'uid_gid_mode': f'{os.getuid()}:{os.getgid()}:{mode:o}',
+                'uid_gid_mode_links': f'{os.getuid()}:{os.getgid()}:{mode:o}:1',
+            }
+            for field, value in expected.items():
+                with self.subTest(mode=oct(mode), field=field):
+                    result=self.run_lc('installer_metadata_value '+Q(str(p))+' '+field)
+                    self.assertEqual(result.returncode,0,result.stderr)
+                    self.assertEqual(result.stdout.strip(),value)
+
+    def test_desktop_managed_app_validation_needs_no_stat_applet(self):
+        busybox = shutil.which('busybox')
+        self.assertIsNotNone(busybox)
+        bindir = self.root/'busybox-bin'; bindir.mkdir()
+        for name in ('awk','ls','sed','sort','uniq'):
+            (bindir/name).symlink_to(busybox)
+        blocked_stat = bindir/'stat'
+        blocked_stat.write_text('#!/bin/sh\nprintf \"%s\\n\" STAT_MUST_NOT_RUN >&2\nexit 127\n')
+        blocked_stat.chmod(0o755)
+
+        package = self.root/'app'; package.mkdir(); package.chmod(0o755)
+        module_path = package/'module.py'; module_path.write_text('VALUE = 1\n'); module_path.chmod(0o644)
+        manifest = self.root/'app.manifest'; manifest.write_text('module.py\n')
+        command = (
+            '. \"$1\"; . \"$2\"; '
+            'desktop_validate_labwc_managed_app_directory \"$3\" \"$5\" \"$6\" 755; '
+            'desktop_validate_labwc_managed_app_package_tree \"$3\" \"$5\" \"$6\" \"$4\"'
+        )
+        arguments = [busybox,'sh','-eu','-c',command,'sh',str(LC),
+                     str(ROOT/'scripts/desktop/components.sh'),str(package),
+                     str(manifest),str(os.getuid()),str(os.getgid())]
+        env = {**os.environ, 'LC_ALL':'C', 'PATH':str(bindir)}
+        result = subprocess.run(payload_installed_argv(arguments),env=env,capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertNotIn('STAT_MUST_NOT_RUN',result.stderr)
+
+        (package/'.unexpected').write_text('unexpected\n')
+        rejected = subprocess.run(payload_installed_argv(arguments),env=env,capture_output=True,text=True,timeout=10)
+        self.assertNotEqual(rejected.returncode,0)
+        self.assertIn('inventory count does not match',rejected.stderr)
+        self.assertNotIn('STAT_MUST_NOT_RUN',rejected.stderr)
+
+    @skip_unless_process_tree_visibility
+    def test_udeb_fetch_budget_enforces_timeout_and_preserves_other_status(self):
+        for command, status in [('exit 37',37), ('sleep 20',124)]:
+            start=time.monotonic()
+            result=self.run_lc('installer_run_bounded 1 /bin/sh -c '+Q(command))
+            self.assertEqual(result.returncode,status,result.stderr)
+            self.assertLess(time.monotonic()-start,5)
+
+    def test_first_failure_is_retained_and_success_invalidated(self):
+        result = self.run_lc('installer_lifecycle_paths; touch "$LC_STATE/installation.success"; '
+                             'installer_record_failure 37 render root-cause; '
+                             'installer_record_failure 99 cleanup secondary')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        record = payload_read_text(self.state / 'first-failure')
+        self.assertIn('status=37', record)
+        self.assertIn('detail=root-cause', record)
+        self.assertNotIn('secondary', record)
+        self.assertFalse(payload_source_exists(self.state / 'installation.success'))
+        self.assertEqual(payload_source_stat(self.state / 'first-failure').st_mode & 0o777, 0o600)
+
+    def test_success_is_explicit_and_repeat_phase_is_noop(self):
+        result = self.run_lc('installer_lifecycle_begin late; installer_lifecycle_complete')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_lc('if installer_lifecycle_begin late; then exit 91; else test "$?" = 10; fi')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(payload_source_is_file(self.state / 'late.done'))
+        self.assertFalse(payload_source_exists(self.state / 'installation.success'))
+
+    @skip_unless_process_tree_visibility
+    def test_zero_exit_without_completion_is_fatal(self):
+        p = self.held('installer_lifecycle_begin late; exit 0')
+        self.assertTrue(wait_file(self.state / 'first-failure'))
+        self.assertIn('status=125', payload_read_text(self.state / 'first-failure'))
+        self.assertIsNone(p.poll())
+
+    @skip_unless_process_tree_visibility
+    def test_already_fatal_cannot_execute_late(self):
+        self.assertEqual(self.run_lc('installer_record_failure 37 render first').returncode, 0)
+        for _ in range(2):
+            p = self.held('installer_lifecycle_begin late; touch "$LC_STATE/UNSAFE"')
+            time.sleep(.12)
+            self.assertIsNone(p.poll())
+        self.assertFalse(payload_source_exists(self.state / 'UNSAFE'))
+        self.assertIn('status=37', payload_read_text(self.state / 'first-failure'))
+
+    @skip_unless_process_tree_visibility
+    def test_interrupted_phase_is_not_resumed(self):
+        self.state.mkdir()
+        (self.state / 'partman.running').mkdir()
+        p = self.held('installer_lifecycle_begin partman; touch "$LC_STATE/UNSAFE"')
+        self.assertTrue(wait_file(self.state / 'first-failure'))
+        self.assertFalse(payload_source_exists(self.state / 'UNSAFE'))
+        self.assertIn('interrupted or concurrent', payload_read_text(self.state / 'first-failure'))
+        self.assertIsNone(p.poll())
+
+    @skip_unless_process_tree_visibility
+    def test_failed_child_and_cleanup_preserve_original_status(self):
+        child = self.root / 'child'
+        child.write_text('#!/bin/sh\ntrap \'s=$?; false || :; exit "$s"\' 0\nexit 41\n')
+        child.chmod(0o755)
+        p = subprocess.Popen(payload_installed_argv(['/bin/sh', str(GUARD), 'hook-finish-07preseed', str(child)]),
+                             env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(stop_test_tree, p)
+        self.assertTrue(wait_file(self.state / 'first-failure'))
+        self.assertIn('status=41', payload_read_text(self.state / 'first-failure'))
+        self.assertFalse(payload_source_exists(self.state / 'hook-finish-07preseed.done'))
+        self.assertIsNone(p.poll())
+
+    @skip_unless_process_tree_visibility
+    def test_finish_install_failure_stops_actual_main_menu_ancestor(self):
+        child = self.root / 'late'
+        child.write_text('#!/bin/sh\necho attempt >>"$INSTALLER_RUNTIME_DIR/attempts"\nexit 47\n')
+        child.chmod(0o755)
+        # Reproduce d-i's dangerous contract: swallowing hook errors then
+        # automatically re-entering finish-install. The real guard must not return.
+        program = '''import ctypes,subprocess,sys,os
+ctypes.CDLL(None).prctl(15,b'main-menu',0,0,0)
+for attempt in range(5):
+ subprocess.run(['/bin/sh',sys.argv[1],'hook-finish-07preseed',sys.argv[2]])
+ open(os.environ['INSTALLER_RUNTIME_DIR']+'/continued','w').write('unsafe')
+'''
+        p = subprocess.Popen(payload_installed_argv([sys.executable, '-c', program, str(GUARD), str(child)]),
+                             env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(stop_test_tree, p)
+        self.assertTrue(wait_file(self.state / 'first-failure'))
+        deadline = time.monotonic() + 3
+        status = ''
+        while time.monotonic() < deadline:
+            status = payload_read_text(Path(f'/proc/{p.pid}/status'))
+            if 'State:\tT' in status:
+                break
+            time.sleep(.025)
+        self.assertIn('State:\tT', status)
+        self.assertEqual(payload_read_text(self.runtime / 'attempts').splitlines(), ['attempt'])
+        self.assertFalse(payload_source_exists(self.runtime / 'continued'))
+        self.assertIn('status=47', payload_read_text(self.state / 'first-failure'))
+
+    @skip_unless_process_tree_visibility
+    def test_reboot_gate_rejects_missing_prior_completion(self):
+        child = self.root / '99reboot'
+        child.write_text('#!/bin/sh\ntouch "$INSTALLER_RUNTIME_DIR/reboot"\nexit 11\n')
+        child.chmod(0o755)
+        p = subprocess.Popen(payload_installed_argv(['/bin/sh', str(GUARD), 'hook-finish-99reboot', str(child)]),
+                             env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(stop_test_tree, p)
+        self.assertTrue(wait_file(self.state / 'first-failure'))
+        self.assertFalse(payload_source_exists(self.runtime / 'reboot'))
+        self.assertFalse(payload_source_exists(self.state / 'installation.success'))
+
+    @skip_unless_process_tree_visibility
+    def test_signal_supervision_is_bounded_and_records_original_signal(self):
+        child = self.root / 'child'
+        child.write_text('#!/bin/sh\necho $$ >"$INSTALLER_RUNTIME_DIR/child-pid"\nsleep 60\n')
+        child.chmod(0o755)
+        p = self.held(f'installer_lifecycle_begin late; installer_run_supervised {Q(str(child))}; installer_lifecycle_complete')
+        self.assertTrue(wait_file(self.runtime / 'child-pid'))
+        pid = int(payload_read_text(self.runtime / 'child-pid'))
+        p.send_signal(signal.SIGTERM)
+        self.assertTrue(wait_file(self.state / 'first-failure'))
+        self.assertIn('status=143', payload_read_text(self.state / 'first-failure'))
+        deadline = time.monotonic() + 7
+        while payload_source_exists(Path(f'/proc/{pid}')) and time.monotonic() < deadline:
+            time.sleep(.05)
+        self.assertFalse(payload_source_exists(Path(f'/proc/{pid}')))
+        self.assertIsNone(p.poll())
+
+    def test_symlink_state_directory_is_rejected_without_writing(self):
+        other = self.root / 'other'; other.mkdir()
+        self.state.symlink_to(other, target_is_directory=True)
+        result = self.run_lc('installer_record_failure 37 render root')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(other.iterdir()), [])
+
+
+class FamilyFailureTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='family-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.policy = self.root / 'policy'
+        self.policy.write_text('INSTALLER_PKGSEL_INCLUDE=fixture\nINSTALLER_SECURE_BOOT_BOOT_CHAIN_PACKAGES=fixture\nINSTALLER_SECURE_BOOT_TARGET_PACKAGES=fixture\n')
+
+    def family(self, family, arch, failure='render'):
+        script = 'btrfs-family.sh' if family in ('btrfs', 'vm') else 'f2fs-family.sh'
+        invoke = f'run_btrfs_family_late_command {family}' if family != 'f2fs' else 'run_f2fs_family_late_command'
+        text = f'''. {Q(str(CORE))}
+. {Q(str(ROOT/'scripts/late'/script))}
+TMP_ENV_DIR={Q(str(self.root))}
+FILE_LOGIND_OVERRIDE_CONF=/etc/systemd/logind.conf.d/override.conf
+INSTALLER_ARCH_CLASS={arch}
+installer_fatal() {{ echo "fatal: $*" >&2; exit 1; }}
+installer_class_policy_env_path() {{ echo {Q(str(self.policy))}; }}
+installer_repo_join_var() {{ echo fixture; }}
+late_command_shared_init() {{ :; }}
+late_command_fetch_common_assets() {{ {'return 71' if failure == 'early' else ':'}; }}
+fetch_hook() {{ :; }}
+late_command_load_runtime_env() {{ :; }}
+late_command_load_host_env() {{ :; }}
+render_target_asset() {{
+ printf '%s|%s|%s\n' "$INSTALLER_GRUB_EFI_TARGET" "$INSTALLER_GRUB_MOK_MANAGER_EFI_PATH" "$INSTALLER_GRUB_REMOVABLE_BOOT_EFI_PATH"
+ return 37
+}}
+# IOCost is now the first shared rendering stage; retain the architecture/failure assertion.
+stage_target_iocost() {{ render_target_asset; }}
+stage_target_asset() {{ echo UNSAFE; return 0; }}
+install_target_wpa_supplicant_runtime_policy() {{ echo UNSAFE; return 0; }}
+{invoke}
+echo UNSAFE
+'''
+        return shell(text)
+
+    def test_arch_policy_precedes_all_family_renderers(self):
+        for family in ('btrfs', 'vm', 'f2fs'):
+            for arch, expected in [('amd64', 'x86_64-efi|/EFI/debian/mmx64.efi|/EFI/BOOT/BOOTX64.EFI'),
+                                   ('arm64', 'arm64-efi|/EFI/debian/mmaa64.efi|/EFI/BOOT/BOOTAA64.EFI')]:
+                with self.subTest(family=family, arch=arch):
+                    result = self.family(family, arch)
+                    self.assertEqual(result.returncode, 37, result.stderr)
+                    self.assertEqual(result.stdout.strip(), expected)
+
+    def test_early_family_failure_cannot_be_masked(self):
+        for family in ('btrfs', 'vm', 'f2fs'):
+            with self.subTest(family=family):
+                result = self.family(family, 'amd64', 'early')
+                self.assertEqual(result.returncode, 71, result.stderr)
+                self.assertNotIn('UNSAFE', result.stdout)
+
+    def test_conditional_host_loader_preserves_failed_profile(self):
+        result = shell(f'. {Q(str(CORE))}\nlate_command_load_profile_env() {{ return 38; }}\n'
+                       'late_command_load_account_env() { echo UNSAFE; }\n'
+                       'if late_command_load_host_env; then exit 91; else exit "$?"; fi')
+        self.assertEqual(result.returncode, 38)
+        self.assertNotIn('UNSAFE', result.stdout)
+
+    def test_conditional_wpa_loader_stops_on_first_failed_asset(self):
+        text = f'. {Q(str(CORE))}\n'
+        for name in ('CONF', 'P2P_DEVICE_CONF', 'DBUS_SERVICE_OVERRIDE', 'DBUS_SERVICE_ALIAS'):
+            text += f'FILE_WPA_SUPPLICANT_{name}=/fixture\n'
+        text += 'FILE_NETWORKMANAGER_LINK_PRIVACY_CONF=/fixture\ninstaller_repo_join_var() { echo fixture; }\n'
+        text += 'stage_target_asset() { echo attempt; return 39; }\n'
+        text += 'if install_target_wpa_supplicant_runtime_policy; then exit 91; else exit "$?"; fi'
+        result = shell(text)
+        self.assertEqual(result.returncode, 39, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['attempt'])
+
+    def test_unsupported_arch_is_rejected(self):
+        result = self.family('vm', 'riscv64')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('unsupported arch', result.stderr)
+
+    def test_final_kernel_repair_precedes_grub_generation(self):
+        for name in ('btrfs-family.sh', 'f2fs-family.sh'):
+            text = payload_read_text(ROOT / 'scripts/late' / name)
+            self.assertLess(text.index('\n  repair_target_installed_kernels\n'), text.index('\n  run_target_grub_config_update\n'))
+
+
+class AptBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='installer-apt-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / 'etc/apt/sources.list.d').mkdir(parents=True)
+
+    def run_mocked_ancestry(self, code):
+        # Simulate accepted ancestry without changing host ownership. Existing
+        # capability-gated cases exercise the production ancestry checks.
+        return shell(f'. {Q(str(LC))}\n. {Q(str(APT))}\n'
+                     'installer_apt_safe_path() { :; }\n' + code)
+
+    def test_conditional_caller_obeys_rejected_path(self):
+        source = self.root / 'etc/apt/sources.list'
+        source.write_text('deb cdrom:[fixture] /\n')
+        result = self.run_mocked_ancestry(
+            'installer_apt_safe_path() { return 44; }\n'
+            f'if installer_apt_strip_cdrom {Q(str(self.root))}; then exit 90; else exit 0; fi\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.read_text(), 'deb cdrom:[fixture] /\n')
+
+    def test_sources_without_cdrom_are_not_rewritten_or_reformatted(self):
+        files = [self.root / 'etc/apt/sources.list', self.root / 'etc/apt/sources.list.d/network.sources']
+        files[0].write_text('deb https://mirror.invalid/debian forky main')
+        files[1].write_text('Types: deb\nURIs: https://mirror.invalid/debian\nSuites: forky\n')
+        before = {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in files}
+        result = self.run_mocked_ancestry(f'installer_apt_strip_cdrom {Q(str(self.root))}\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in files})
+        self.assertEqual(list((self.root / 'etc/apt').rglob('.installer-source.*')), [])
+
+    def test_filter_failure_preserves_source_in_conditional_call(self):
+        source = self.root / 'etc/apt/sources.list'
+        source.write_text('deb cdrom:[fixture] /\ndeb https://mirror.invalid/debian forky main\n')
+        original = source.read_bytes()
+        result = self.run_mocked_ancestry('awk() { printf partial; return 46; }\n'
+            f'if installer_apt_strip_cdrom {Q(str(self.root))}; then exit 90; else exit 0; fi\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.read_bytes(), original)
+        self.assertEqual(list((self.root / 'etc/apt').rglob('.installer-source.*')), [])
+
+    def test_read_failure_is_not_mistaken_for_absent_cdrom(self):
+        source = self.root / 'etc/apt/sources.list'
+        source.write_text('deb cdrom:[fixture] /\n')
+        result = self.run_mocked_ancestry('grep() { return 47; }\n'
+            f'if installer_apt_strip_cdrom {Q(str(self.root))}; then exit 90; else exit 0; fi\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.read_text(), 'deb cdrom:[fixture] /\n')
+
+    @skip_unless_installer_apt_ancestry
+    def test_repeated_bootstrap_preserves_matching_source_inode_and_mode(self):
+        key = self.root / 'usr/share/keyrings/debian-archive-keyring.gpg'
+        key.parent.mkdir(parents=True)
+        key.write_bytes(b'fixture-key-presence-only')
+        code = (f'. {Q(str(LC))}\n. {Q(str(APT))}\n'
+                f'installer_apt_bootstrap_source {Q(str(self.root))} https mirror.invalid /debian forky\n')
+        result = shell(code)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        source = self.root / 'etc/apt/sources.list'
+        before = (source.read_bytes(), source.stat().st_ino, source.stat().st_mtime_ns)
+        result = shell(code)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(before, (source.read_bytes(), source.stat().st_ino, source.stat().st_mtime_ns))
+        self.assertEqual(source.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(list((self.root / 'etc/apt').rglob('.installer-bootstrap.*')), [])
+
+    @skip_unless_installer_apt_ancestry
+    def test_cdrom_list_and_deb822_removed_before_network_source_publication(self):
+        (self.root / 'etc/apt/sources.list').write_text('deb cdrom:[fixture] /\ndeb https://mirror.invalid/debian trixie main\n')
+        src = self.root / 'etc/apt/sources.list.d/media.sources'
+        src.write_text('Types: deb\nURIs: cdrom:fixture\nSuites: trixie\n\nTypes: deb\nURIs: https://safe.invalid/debian\nSuites: trixie\n')
+        result = shell(f'. {Q(str(LC))}\n. {Q(str(APT))}; installer_apt_strip_cdrom {Q(str(self.root))}')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('cdrom:', payload_read_text(src))
+        self.assertIn('https://safe.invalid', payload_read_text(src))
+        self.assertIn('https://mirror.invalid', payload_read_text(self.root / 'etc/apt/sources.list'))
+
+    def test_indirect_source_cannot_overwrite_external_file(self):
+        external = self.root / 'external'; external.write_text('retain')
+        (self.root / 'etc/apt/sources.list').symlink_to(external)
+        result = shell(f'. {Q(str(LC))}\n. {Q(str(APT))}; installer_apt_strip_cdrom {Q(str(self.root))}')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(payload_read_text(external), 'retain')
+
+    def test_bootstrap_adapter_is_idempotent_and_substitutes_apt_boundary(self):
+        helper = self.root / 'helper'; helper.write_text('echo "normalized:$1"\nexit 100\n')
+        script = self.root / 'bootstrap-base.postinst'
+        script.write_text('#!/bin/sh\nset -e\nDISTRIBUTION=trixie\nwaypoint() { "$2"; }\napt_update() { echo UNSAFE; }\nwaypoint 3 apt_update\necho UNSAFE\n')
+        script.chmod(0o755)
+        command = ['/bin/sh', str(ROOT / 'scripts/preseed/base-apt-adapter.sh'), str(script), str(helper)]
+        for _ in range(2):
+            result = subprocess.run(payload_installed_argv(command), capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        result = subprocess.run(payload_installed_argv([str(script)]), capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 100)
+        self.assertEqual(result.stdout.splitlines(), ['normalized:trixie'])
+
+    def test_unknown_bootstrap_version_is_rejected_before_mutation(self):
+        script = self.root / 'bootstrap'; script.write_text('#!/bin/sh\nwaypoint 4 apt_update\n'); script.chmod(0o755)
+        helper = self.root / 'helper'; helper.touch()
+        result = subprocess.run(payload_installed_argv(['/bin/sh', str(ROOT / 'scripts/preseed/base-apt-adapter.sh'), str(script), str(helper)]), capture_output=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(payload_read_text(script), '#!/bin/sh\nwaypoint 4 apt_update\n')
+
+
+class CodexStateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = module(ROOT / 'scripts/late/codex-state.py', 'installer_codex_state_tests')
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='codex-state-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.expected = self.root / 'expected'; self.expected.mkdir(mode=0o750)
+        self.uid, self.gid = os.getuid(), os.getgid()
+        self.branch, self.url = 'mcr/main', 'git@gitlab.com:computes/misc/codex-home.git'
+        for path, content, mode in [('.git/HEAD', 'ref: refs/heads/mcr/main\n', 0o640),
+                ('.git/config', '[core]\n bare = false\n[remote "origin"]\n url = '+self.url+'\n[branch "mcr/main"]\n remote = origin\n merge = refs/heads/mcr/main\n', 0o640),
+                ('home/config.toml', 'policy = "pinned"\n', 0o640),
+                ('home/README', 'versioned home file\n', 0o640),
+                ('home/history.jsonl', '', 0o660)]:
+            p = self.expected / path; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(content); p.chmod(mode)
+        for p in [self.expected, *self.expected.rglob('*')]:
+            if p.is_dir(): p.chmod(0o750)
+        for name in self.mod.MUTABLE_TREES:
+            p = self.expected / name; p.mkdir(exist_ok=True); p.chmod(0o2770)
+        (self.expected / 'home/packages').symlink_to('/data/codex/packages')
+        self.actual = self.root / 'actual'; shutil.copytree(self.expected, self.actual, symlinks=True)
+
+    def compare(self):
+        self.mod.compare_trees(self.expected, self.actual, self.uid, self.gid, self.branch, self.url)
+
+    def test_correct_tracking_branch_succeeds_repeatedly(self):
+        self.compare(); self.compare()
+
+    def test_legitimate_account_runtime_changes_converge(self):
+        auth = self.actual / 'home/auth.json'
+        auth.write_text('{"private":"not-logged"}')
+        auth.chmod(0o600)
+        session = self.actual / 'home/sessions/new.jsonl'; session.write_text('runtime'); session.chmod(0o660)
+        self.compare(); self.compare()
+
+    def daemon_settings(self):
+        for tree in (self.expected, self.actual):
+            state = tree/'home/app-server-daemon'
+            state.mkdir(mode=0o700)
+            settings = state/'settings.json'
+            settings.write_text('{"updater":{"autoUpdateEnabled":false}}\n')
+            settings.chmod(0o600)
+        return self.actual/'home/app-server-daemon'
+
+    def test_private_daemon_settings_and_runtime_records_converge(self):
+        state = self.daemon_settings()
+        settings = state/'settings.json'
+        settings.write_text('{"remoteControlEnabled":false,"shutdownGraceSeconds":25}\n')
+        lock = state/'daemon.lock'
+        lock.write_text('')
+        lock.chmod(0o600)
+        self.compare(); self.compare()
+
+    def test_daemon_state_rejects_shared_permissions_and_symlinks(self):
+        state = self.daemon_settings()
+        settings = state/'settings.json'
+        for mode in (0o640, 0o660, 0o666):
+            settings.chmod(mode)
+            with self.assertRaises(self.mod.StateError): self.compare()
+        settings.chmod(0o600)
+        state.chmod(0o2770)
+        with self.assertRaises(self.mod.StateError): self.compare()
+        state.chmod(0o700)
+        settings.unlink()
+        settings.symlink_to('../config.toml')
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_daemon_settings_cannot_disappear_from_publication(self):
+        state = self.daemon_settings()
+        (state/'settings.json').unlink()
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_memories_do_not_require_a_git_marker_or_discard_a_real_repository(self):
+        self.compare()
+        nested = self.actual / 'home/memories/.git'
+        nested.mkdir(mode=0o2770)
+        nested.chmod(0o2770)
+        head = nested / 'HEAD'
+        head.write_text('ref: refs/heads/main\n')
+        head.chmod(0o660)
+        self.compare()
+
+    def test_codex_configuration_is_mutable_account_state(self):
+        config = self.actual / 'home/config.toml'
+        config.write_text('model = "configured after login"\n')
+        for mode in (0o600, 0o640, 0o660):
+            config.chmod(mode)
+            self.compare()
+        config.unlink()
+        self.compare()
+        config.write_text('model = "created by Codex"\n')
+        config.chmod(0o600)
+        (self.expected / 'home/config.toml').unlink()
+        self.compare()
+
+    def test_unsafe_codex_configuration_remains_rejected(self):
+        config = self.actual / 'home/config.toml'
+        config.chmod(0o666)
+        with self.assertRaises(self.mod.StateError): self.compare()
+        config.unlink()
+        config.symlink_to('/etc/shadow')
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_optional_auth_contents_are_opaque(self):
+        auth = self.actual / 'home/auth.json'
+        auth.write_bytes(b'\xffnot-installer-configuration\x00')
+        auth.chmod(0o600)
+        self.compare()
+        self.assertEqual(self.mod.snapshot(self.actual)['home/auth.json'].digest, '')
+
+    def test_installer_candidate_must_not_stage_auth(self):
+        auth = self.expected / 'home/auth.json'
+        auth.write_text('{}')
+        auth.chmod(0o600)
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_immutable_conflict_fails(self):
+        (self.actual / 'home/README').write_text('tampered')
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_partial_unpublished_tree_fails_without_touching_existing(self):
+        (self.actual / 'home/packages').unlink()
+        with self.assertRaises(self.mod.StateError): self.compare()
+        self.assertTrue(payload_source_is_file(self.actual / 'home/config.toml'))
+        # An operator can restore the *verified* missing publication, not weaken
+        # comparison or take over unrelated state. Correct state then converges.
+        (self.actual / 'home/packages').symlink_to('/data/codex/packages')
+        self.compare()
+
+    def test_malicious_git_config_is_not_executed(self):
+        p = self.actual / '.git/config'
+        p.write_text(payload_read_text(p)+'[include]\n path = /etc/shadow\n')
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_detached_head_remains_fatal(self):
+        (self.actual / '.git/HEAD').write_text('b'*40+'\n')
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_mutable_symlink_escape_is_rejected(self):
+        (self.actual / 'home/sessions/escape').symlink_to('/etc/shadow')
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_hardlinks_and_world_writable_state_are_rejected(self):
+        p = self.actual / 'home/config.toml'
+        os.link(p, self.actual / 'home/extra')
+        with self.assertRaises(self.mod.StateError): self.compare()
+        (self.actual / 'home/extra').unlink()
+        auth = self.actual / 'home/auth.json'
+        auth.write_text('{}')
+        auth.chmod(0o666)
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_optional_auth_symlink_and_hardlink_are_rejected(self):
+        auth = self.actual / 'home/auth.json'
+        auth.symlink_to('config.toml')
+        with self.assertRaises(self.mod.StateError): self.compare()
+        auth.unlink()
+        os.link(self.actual / 'home/config.toml', auth)
+        with self.assertRaises(self.mod.StateError): self.compare()
+
+    def test_installer_does_not_create_prelogin_auth_state(self):
+        tmpfiles = payload_read_text(ROOT / 'hooks/target/etc/tmpfiles.d/desktop/80-codex-storage.conf.tmpl')
+        devops = payload_read_text(ROOT / 'scripts/late/devops.sh')
+        self.assertNotIn('__INSTALLER_DEVOPS_CODEX_HOME__/auth.json', tmpfiles)
+        self.assertNotIn('__INSTALLER_DEVOPS_CODEX_ROOT__/credentials/auth.json', tmpfiles)
+        self.assertNotRegex(devops, r'candidate_home_path[^\n]*auth\.json')
+        self.assertNotIn('$codex_root/credentials/auth.json', devops)
+        self.assertIn(
+            'Codex app-server unit must not require or overmount pre-login auth.json state',
+            devops,
+        )
+        self.assertNotIn('does not bind its auth credential over CODEX_HOME/auth.json', devops)
+
+    def test_installation_does_not_replace_or_require_memories_git_metadata(self):
+        tmpfiles = payload_read_text(ROOT / 'hooks/target/etc/tmpfiles.d/desktop/80-codex-storage.conf.tmpl')
+        release = payload_read_text(ROOT / 'scripts/late/devops/codex-release.sh')
+        layout = payload_read_text(ROOT / 'scripts/late/devops/codex-layout.sh')
+        checks = payload_read_text(ROOT / 'scripts/late/devops/main-orchestration.sh')
+        for text in (tmpfiles, release, layout, checks):
+            self.assertNotIn('memories/.git', text)
+
+    def test_missing_packages_tmpfiles_rule_regression(self):
+        text = payload_read_text(ROOT / 'hooks/target/etc/tmpfiles.d/desktop/80-codex-storage.conf.tmpl')
+        self.assertIn('L __INSTALLER_DEVOPS_CODEX_HOME__/packages ', text)
+        self.assertIn(
+            'd __INSTALLER_DEVOPS_CODEX_ROOT__/mcp 0750 '
+            '__INSTALLER_ACCOUNT_USERNAME__ devops -',
+            text,
+        )
+        self.assertIn(
+            'd __INSTALLER_DEVOPS_CODEX_ROOT__/mcp/ssh 0750 '
+            '__INSTALLER_ACCOUNT_USERNAME__ devops -',
+            text,
+        )
+
+
+class StorageSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='disk-safety-'); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        for p in ('sys', 'dev', 'btrfs'): (self.root / p).mkdir()
+        for p in ('mounts', 'swaps', 'cmdline'): (self.root / p).touch()
+        self.script = payload_read_text(ROOT / 'scripts/partman/detect-disk.sh').rsplit('\ndetect_disk_main "$@"', 1)[0]
+        # Function seams only: production main never accepts substituted /sys.
+        self.prefix = self.script + '\ndisk_is_block() { test -f "$1"; }\n'
+        for key, value in [('disk_sys_root','sys'),('disk_dev_root','dev'),('disk_btrfs_root','btrfs'),('disk_mounts','mounts'),('disk_swaps','swaps'),('disk_cmdline','cmdline')]:
+            self.prefix += f'{key}={Q(str(self.root/value))}\n'
+
+    def disk(self, name='nvme0n1', removable='0', logical='4096'):
+        dev = self.root / 'dev' / name; dev.touch()
+        base = self.root / 'sys' / name; (base / 'queue').mkdir(parents=True)
+        for name, val in [('removable',removable),('ro','0'),('size','100000000'),('dev','259:0'),('diskseq','42'),('queue/logical_block_size',logical)]:
+            (base / name).write_text(val+'\n')
+        return dev
+
+    def run_disk(self, command): return shell(self.prefix+command)
+
+    def test_comma_separated_class_candidates_are_normalized_before_glob_matching(self):
+        source = payload_read_text(ROOT / 'scripts/common/hook.sh')
+        start = source.index('hook_normalize_install_disk_candidates()')
+        end = source.index('\nhook_preload_partition_tooling()', start)
+        result = shell(
+            source[start:end] +
+            "\nhook_normalize_install_disk_candidates '/dev/nvme0n1, /dev/nvme*n*, /dev/sd*'\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '/dev/nvme0n1  /dev/nvme*n*  /dev/sd*\n')
+
+    def test_storage_finish_helpers_do_not_cross_family_namespaces(self):
+        source = payload_read_text(ROOT / 'hooks/installer/partman/finish.d/99-storage-layout.sh')
+        f2fs = source[source.index('run_f2fs_storage_layout() {'):]
+        for helper in (
+            'is_mounted', 'umount_path', 'cleanup_target_mounts', 'prep_dir',
+            'device_fs_type', 'device_fs_label', 'wipe_block_device',
+            'wait_for_signature', 'ensure_f2fs_filesystem',
+            'ensure_ext4_filesystem', 'ensure_vfat_filesystem',
+            'ensure_raw_block_device', 'mount_block_device',
+            'prepare_volatile_dirs', 'device_source', 'fstab_entry',
+            'emit_fstab_entries', 'emit_fstab_entries_without_tmpfs',
+            'write_fstab_file', 'write_target_fstab',
+            'write_partman_fstab_cache',
+        ):
+            self.assertNotRegex(f2fs, rf'(?<![A-Za-z0-9_]){helper}\s*\(')
+        for helper in ('f2fs_cleanup_target_mounts', 'f2fs_mount_block_device',
+                       'f2fs_write_target_fstab', 'f2fs_write_partman_fstab_cache'):
+            self.assertIn(helper, f2fs)
+
+    def test_generated_partman_finish_wrapper_loads_shared_helpers(self):
+        for family in ('btrfs', 'f2fs'):
+            source = payload_read_text(ROOT / 'hooks/installer/partman' / f'{family}-early.sh')
+            self.assertIn('runtime/state/context.env', source)
+            self.assertIn('runtime/bootstrap/common-lib.sh', source)
+            self.assertIn('bootstrap_ensure_di_env "$SEED_BASE"', source)
+            self.assertIn('installer_ensure_context_loaded "$SEED_BASE"', source)
+            self.assertNotIn('exit 127', source)
+            self.assertIn('PATH="${DIR_INSTALLER_USR_LOCAL_SBIN}', source)
+            self.assertLess(source.index('bootstrap_source_common_lib'),
+                            source.index('install_storage_layout_hook'))
+            self.assertLess(source.index('runtime/state/context.env'),
+                            source.index('runtime/bootstrap/common-lib.sh'))
+            self.assertLess(source.index('runtime/bootstrap/common-lib.sh'),
+                            source.index('LAYOUT_COMMON'))
+
+    def test_4kn_capacity_is_not_multiplied_by_eight(self):
+        dev = self.disk(); result = self.run_disk(f'disk_identity {Q(str(dev))}')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(result.stdout.split()[0]), 64)
+        self.assertEqual(payload_read_text(self.root/'sys/nvme0n1/size').strip(), '100000000')
+
+    def test_replaced_disk_is_rejected_even_with_the_same_path_and_geometry(self):
+        dev = self.disk()
+        record = self.root / 'selected.identity'
+        original = self.run_disk(f'disk_identity {Q(str(dev))}')
+        self.assertEqual(original.returncode, 0, original.stderr)
+        record.write_text(original.stdout)
+        (self.root / 'sys/nvme0n1/diskseq').write_text('43\n')
+        result = self.run_disk(f'disk_verify_identity {Q(str(dev))} {Q(str(record))}')
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_owned_mount_does_not_hide_a_matching_generation_recheck(self):
+        dev = self.disk()
+        record = self.root / 'selected.identity'
+        original = self.run_disk(f'disk_identity {Q(str(dev))}')
+        self.assertEqual(original.returncode, 0, original.stderr)
+        record.write_text(original.stdout)
+        (self.root / 'mounts').write_text(f'{dev} /target ext4 rw 0 0\n')
+        self.assertNotEqual(self.run_disk(f'disk_identity {Q(str(dev))}').returncode, 0)
+        result = self.run_disk(f'disk_verify_identity {Q(str(dev))} {Q(str(record))}')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_generation_evidence_is_never_accepted(self):
+        dev = self.disk()
+        (self.root / 'sys/nvme0n1/diskseq').unlink()
+        self.assertNotEqual(self.run_disk(f'disk_identity {Q(str(dev))}').returncode, 0)
+
+    def test_partition_and_mapper_membership_never_accepts_another_disk(self):
+        selected = self.disk('sda')
+        unrelated = self.disk('sdaa')
+        part = self.root / 'sys/sda/sda1'
+        part.mkdir()
+        (part / 'partition').write_text('1\n')
+        (self.root / 'sys/sda1').symlink_to(part, target_is_directory=True)
+        child = self.root / 'dev/sda1'
+        child.touch()
+        mapper = self.root / 'dev/dm-0'
+        mapper.touch()
+        slaves = self.root / 'sys/dm-0/slaves'
+        slaves.mkdir(parents=True)
+        (slaves / 'sda1').symlink_to(part, target_is_directory=True)
+        for member in (child, mapper):
+            result = self.run_disk(f'disk_member_of {Q(str(selected))} {Q(str(member))}')
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(self.run_disk(
+            f'disk_member_of {Q(str(selected))} {Q(str(unrelated))}').returncode, 0)
+
+    def test_removable_installer_is_rejected_even_when_explicit(self):
+        dev = self.disk('sda', '1'); result = self.run_disk(f'disk_canonical {Q(str(dev))}')
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_nonremovable_mounted_installer_partition_is_rejected(self):
+        dev = self.disk('sda')
+        part = self.root/'sys/sda/sda1'; part.mkdir(); (part/'partition').write_text('1\n')
+        (self.root/'sys/sda1').symlink_to(part, target_is_directory=True)
+        (self.root/'dev/sda1').touch()
+        (self.root/'mounts').write_text(f'{self.root}/dev/sda1 /hd-media vfat rw 0 0\n')
+        self.assertNotEqual(self.run_disk(f'disk_canonical {Q(str(dev))}').returncode, 0)
+
+    def test_unmounted_hd_media_cmdline_is_protected(self):
+        dev = self.disk('sda'); (self.root/'cmdline').write_text(f'shared/enter_device={dev}\n')
+        self.assertNotEqual(self.run_disk(f'disk_canonical {Q(str(dev))}').returncode, 0)
+
+    def test_malformed_geometry_fails(self):
+        dev = self.disk(logical='0')
+        self.assertNotEqual(self.run_disk(f'disk_canonical {Q(str(dev))}').returncode, 0)
+
+
+    def test_ambiguous_auto_selection_fails_instead_of_guessing(self):
+        one=self.disk('sda'); two=self.disk('sdb')
+        result=self.run_disk(f'INSTALL_DISK_CANDIDATES={Q(str(one)+" "+str(two))}; detect_disk_select')
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('ambiguous',result.stderr)
+
+    def test_explicit_unsafe_override_never_falls_back(self):
+        bad=self.disk('sda','1'); good=self.disk('sdb')
+        result=self.run_disk(f'DEV_INSTALL_DISK={Q(str(bad))}; INSTALL_DISK_CANDIDATES={Q(str(good))}; detect_disk_select')
+        self.assertNotEqual(result.returncode,0)
+        self.assertNotIn(str(good),result.stdout)
+
+
+class StoragePhaseContractTests(unittest.TestCase):
+    def setUp(self):
+        self.source = payload_read_text(
+            ROOT / 'hooks/installer/partman/finish.d/99-storage-layout.sh')
+
+    def function(self, name, delimiter):
+        head = name + '() ' + delimiter + '\n'
+        close = ')' if delimiter == '(' else '}'
+        return head + self.source.split(head, 1)[1].split('\n' + close + '\n', 1)[0] + '\n' + close + '\n'
+
+    def test_f2fs_rejects_incomplete_duplicate_or_misdirected_phase_state(self):
+        values = {'DEV_INSTALL_DISK': '/dev/nvme0n1', 'DEV_PART_PREFIX': '/dev/nvme0n1p'}
+        roles = ('EFI', 'BOOT', 'ROOT', 'HOME', 'POOL', 'VAR_LIB_SHSIGNED',
+                 'VAR_LOG_JOURNAL', 'RAW_SWAP', 'RAW_ZRAM')
+        for number, role in enumerate(roles, 1):
+            values['RUNTIME_' + role + '_SLOT'] = str(number)
+            values['DEV_PART_' + role] = '/dev/nvme0n1p' + str(number)
+        variants = [values, {key: value for key, value in values.items() if key != 'RUNTIME_EFI_SLOT'},
+                    {**values, 'RUNTIME_ROOT_SLOT': '2', 'DEV_PART_ROOT': '/dev/nvme0n1p2'},
+                    {**values, 'DEV_PART_ROOT': '/dev/sdaa3'}]
+        source = self.function('layout_validate_f2fs_runtime', '(')
+        for index, candidate in enumerate(variants):
+            with self.subTest(index=index):
+                program = 'fatal() { printf "%s\\n" "$*" >&2; exit 1; }\n'
+                program += 'layout_assert_selected_disk() { :; }\n' + source
+                program += '\n'.join(key + '=' + Q(value) for key, value in candidate.items())
+                result = shell(program + '\nlayout_validate_f2fs_runtime\n')
+                self.assertEqual(result.returncode == 0, index == 0, result.stderr)
+
+    def test_reused_luks_requires_the_expected_label_and_bootstrap_key(self):
+        source = self.function('layout_require_luks2', '{')
+        program = r'''
+fatal() { printf '%s\n' "$*" >&2; exit 1; }
+layout_assert_selected_disk() { :; }
+ensure_installer_command() { :; }
+cryptsetup() {
+  case "$1" in
+    isLuks) return 0 ;;
+    luksDump) printf 'Version: 2\nLabel: %s\n' "$FIXTURE_LABEL" ;;
+    open) [ "$2" = --test-passphrase ] || exit 99; return "$FIXTURE_KEY_STATUS" ;;
+    *) exit 98 ;;
+  esac
+}
+'''
+        for label, key_status, valid in (('crypthome', '0', True),
+                                          ('foreign', '0', False), ('crypthome', '7', False)):
+            with self.subTest(label=label, key_status=key_status):
+                invocation = (f'FIXTURE_LABEL={Q(label)}\nFIXTURE_KEY_STATUS={key_status}\n'
+                              'layout_require_luks2 /fixture/raw /fixture/key crypthome\n')
+                result = shell(program + source + invocation)
+                self.assertEqual(result.returncode == 0, valid, result.stderr)
+
+
+class DispatchAndPublicationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='installer-publication-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def test_actual_late_dispatch_returns_child_status_not_later_success(self):
+        runtime = self.root / 'runtime'; (runtime/'bootstrap').mkdir(parents=True)
+        boot = runtime/'bootstrap/bootstrap.sh'
+        boot.write_text(r"""bootstrap_source_common_lib() { :; }
+installer_init_log_file() { :; }
+installer_runtime_log_file() { echo /dev/null; }
+installer_finalize_log() { echo "final=$1"; }
+installer_seed_base() { echo fixture; }
+installer_ensure_context_loaded() { INSTALLER_HOOK_FAMILY=vm; }
+installer_resolve_host_profile() { echo fixture; }
+installer_repo_join_var() { echo "$*"; }
+installer_selected_class_reference_is_selected() { return 1; }
+installer_fetch_file() {
+ case "$3" in
+ */shared-late.sh) printf 'run_btrfs_family_late_command() { exit 43; }\n' >"$3" ;;
+ *) : >"$3" ;;
+ esac
+}
+""")
+        result = subprocess.run(payload_installed_argv(['/bin/sh', str(ROOT/'scripts/late/dispatch.sh')]),
+                                env={**os.environ, 'INSTALLER_RUNTIME_DIR': str(runtime)},
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 43, result.stderr)
+        self.assertIn('final=43', result.stdout)
+        self.assertFalse(payload_source_exists(runtime/'bootstrap/role-late.sh'))
+
+    def test_virtual_and_versioned_pkgsel_status_detection(self):
+        text = payload_read_text(ROOT/'scripts/late/storage-maintenance.sh')
+        start = text.index("/bin/sh -c '\nset -eu\n") + len("/bin/sh -c '")
+        end = text.index("' sh \"${INSTALLER_PKGSEL_INCLUDE}\"", start)
+        child = text[start:end].replace("'\\''", "'")
+        bindir = self.root/'bin'; bindir.mkdir()
+        dpkg = bindir/'dpkg-query'
+        dpkg.write_text('#!/bin/sh\nprintf "install ok installed\\tmesa-utils\\tmesa-utils-extra\\t9.0\\ninstall ok installed\\tpython3\\t\\t3.13\\n"\n')
+        dpkg.chmod(0o755)
+        result = subprocess.run(payload_installed_argv(['/bin/sh','-eu','-c',child,'sh','mesa-utils-extra python3=3.13 python3=3.14 absent/trixie']),
+                                env={**os.environ,'PATH':str(bindir)+':'+os.environ['PATH']}, capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['python3=3.14','absent/trixie'])
+
+    @unittest.skipUnless(os.geteuid() == 0, 'production ownership contract requires root in this private fixture')
+    def test_real_codex_publication_rolls_back_only_current_invocation(self):
+        text = payload_read_text(ROOT/'scripts/late/devops.sh')
+        start = text.index('devops_install_pinned_codex()')
+        a = text.index('publication_committed=0',start)
+        b = text.index('staging_dir=$(mktemp',a)
+        setup = text[a:b].replace("'\"'\"'", "'")
+        a = text.index('publish_binary_directory=0',b)
+        b = text.index('\n[ -x "$binary_path" ]',a)
+        publication = text[a:b]
+        for fail in (0,1,2,3,4,5):
+            with self.subTest(fail_at_rename=fail):
+                root=self.root/str(fail); root.mkdir()
+                codex=root/'codex'; (codex/'share/bin').mkdir(parents=True)
+                (codex/'share/bin').chmod(0o755)
+                unrelated=codex/'retain'; unrelated.write_text('external state')
+                stage=root/'stage'; stage.mkdir()
+                paths={'codex_root':codex, 'staging_dir':stage, 'config_staging':stage/'config',
+                       'schema_path':codex/'schema', 'user_root':codex/'usr',
+                       'system_config_dir':root/'config', 'archive_helper_path':root/'helper1',
+                       'state_helper_path':root/'helper2', 'extracted_binary_dir':stage/'bin',
+                       'extracted_schema_path':stage/'schema', 'repository_staging':stage/'usr',
+                       'candidate_release_marker':stage/'release'}
+                for name in ('config_staging','extracted_binary_dir','repository_staging'):
+                    paths[name].mkdir(); (paths[name]/'payload').write_text('pinned')
+                for name in ('extracted_schema_path','candidate_release_marker'): paths[name].write_text('pinned')
+                env='\n'.join(f'{key}={Q(str(value))}' for key,value in paths.items())+'\n'
+                code=env+setup+f"""
+moves=0
+mv() {{ moves=$((moves+1)); [ "$moves" -ne {fail} ] || return 71; command mv "$@"; }}
+codex_fatal() {{ exit 71; }}
+codex_tree_matches() {{ diff -r "$1" "$2" >/dev/null; }}
+codex_file_matches() {{ cmp -s "$1" "$2"; }}
+"""+publication+'\npublication_committed=1\n'
+                result=shell(code)
+                self.assertEqual(result.returncode,0 if fail==0 else 71,result.stderr)
+                self.assertEqual(payload_read_text(unrelated),'external state')
+                self.assertEqual(payload_source_exists(codex/'.codex-release'),fail==0)
+                if fail:
+                    self.assertFalse(payload_source_exists(paths['user_root']))
+                    self.assertFalse(payload_source_exists(paths['schema_path']))
+                    self.assertTrue((codex/'share/bin').is_dir())
+
+
+class ConfigurationOrderingTests(unittest.TestCase):
+    def test_crowdsec_target_package_checks_preserve_dpkg_status_format(self):
+        source = payload_read_text(ROOT / 'scripts/late/crowdsec.sh')
+        cases = (
+            ('verify CrowdSec engine before bouncer enrollment',
+             'crowdsec', '/etc/crowdsec/config.yaml'),
+            ('validate CrowdSec bouncer package configuration',
+             'crowdsec-firewall-bouncer-nftables',
+             '/etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml'),
+        )
+        with tempfile.TemporaryDirectory(prefix='crowdsec-target-check-') as tmp:
+            root = Path(tmp)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            commands = {
+                'dpkg-query': r'''#!/bin/sh
+[ "$1" = -W ] && [ "$2" = '-f=${Status}' ] && [ "$3" = "$EXPECTED_PACKAGE" ] || exit 81
+printf '%s' 'install ok installed'
+''',
+                'cscli': r'''#!/bin/sh
+[ "$*" = 'config show --key Config.Common.LogMedia -o raw' ] || exit 82
+''',
+                'find': r'''#!/bin/sh
+[ "$#" = 6 ] && [ "$1" = -P ] && [ "$2" = "$EXPECTED_CONFIG" ] && [ "$3" = -maxdepth ] && [ "$4" = 0 ] && [ "$5" = -printf ] && [ "$6" = %n ] || exit 83
+printf '%s\n' 1
+''',
+                'chown': r'''#!/bin/sh
+[ "$1" = root:root ] && [ "$2" = "$EXPECTED_CONFIG" ] || exit 84
+''',
+                'chmod': r'''#!/bin/sh
+[ "$1" = 0600 ] && [ "$2" = "$EXPECTED_CONFIG" ] || exit 85
+''',
+            }
+            for name, command in commands.items():
+                path = bindir / name
+                path.write_text(command)
+                path.chmod(0o755)
+
+            shells = (('/bin/sh',),)
+            if busybox := shutil.which('busybox'):
+                shells += ((busybox, 'sh'),)
+            for index, (label, package, target_config) in enumerate(cases):
+                config = root / f'config-{index}.yaml'
+                config.write_text('fixture: true\n')
+                start = f'run_in_target "{label}" /bin/sh -eu -c \'\n'
+                program = source.split(start, 1)[1].split("\n' sh", 1)[0]
+                program = program.replace(target_config, str(config))
+                env = {**os.environ, 'PATH': f'{bindir}:/usr/bin:/bin',
+                       'EXPECTED_PACKAGE': package, 'EXPECTED_CONFIG': str(config)}
+                for shell_command in shells:
+                    with self.subTest(label=label, shell=shell_command):
+                        result = subprocess.run(payload_installed_argv([*shell_command, '-eu', '-c', program]),
+                                                env=env, capture_output=True,
+                                                text=True, timeout=10)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_crowdsec_engine_config_precedes_bouncer_install(self):
+        cfg = payload_read_text(ROOT/'classes/class-addon/crowdsec.cfg')
+        self.assertNotIn('crowdsec-firewall-bouncer-nftables', '\n'.join(l for l in cfg.splitlines() if l.startswith('d-i pkgsel/include')))
+        text = payload_read_text(ROOT/'scripts/late/crowdsec.sh')
+        self.assertLess(text.index('cscli config show'), text.index('install crowdsec-firewall-bouncer-nftables'))
+        helper = payload_read_text(ROOT/'hooks/target/usr/local/libexec/crowdsec-firstboot')
+        self.assertNotIn('bouncers add', helper)
+        self.assertIn('crowdsec-bouncer-verify', helper)
+        unit = payload_read_text(ROOT/'hooks/target/etc/systemd/system/crowdsec-firstboot.service')
+        self.assertIn('RestartSec=65min', unit)
+        self.assertNotIn('RestartSteps=', unit)
+        self.assertNotIn('RestartMaxDelaySec=', unit)
+        self.assertIn('RestartPreventExitStatus=2', unit)
+        self.assertNotIn('StartLimitIntervalSec=infinity', unit)
+
+    def test_mullvad_offline_validation_and_runtime_activation_are_distinct(self):
+        text = payload_read_text(ROOT/'scripts/late/mullvad.sh')
+        self.assertIn('--skip-kernel-load --skip-cache', text)
+        self.assertIn('cmp ', text)
+        unit = payload_read_text(ROOT/'hooks/target/etc/systemd/desktop/system/mullvad-apparmor.service')
+        self.assertIn('apparmor_parser --replace --skip-read-cache --write-cache', unit)
+        dep = payload_read_text(ROOT/'hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/10-apparmor.conf')
+        self.assertIn('Requires=mullvad-apparmor.service', dep)
+
+    def test_network_fetch_has_wall_clock_bound_and_skips_tls_validation(self):
+        text = payload_read_text(ROOT/'scripts/common/source.sh')
+        self.assertIn('installer_run_bounded "$wall_timeout"', text)
+        self.assertIn('for attempt in 1 2 3', text)
+        self.assertIn('set -- "$@" --no-check-certificate', text)
+        self.assertNotIn('bypass is forbidden', text)
+        self.assertNotIn('--max-redirect=0', text)
+        self.assertNotIn('source_validate_url', text)
+
+    def test_normalization_and_validation_precede_unmount(self):
+        text = payload_read_text(ROOT/'hooks/installer/d-i/early.sh')
+        finish_hook = '99-normalize-finish)" "/usr/lib/finish-install.d/94zz-10-normalize-finish"'
+        apt_hook = '95-normalize-apt)" "/usr/lib/finish-install.d/94zz-20-normalize-apt"'
+        self.assertIn(finish_hook, text)
+        self.assertIn(apt_hook, text)
+        self.assertLess(text.index(finish_hook), text.index(apt_hook))
+        self.assertIn('94zz-99-validate-target', text)
+        self.assertTrue('94zz-99-validate-target' < '95umount')
+
+        apt_normalizer = payload_read_text(ROOT/'hooks/installer/finish-install.d/95-normalize-apt')
+        normalizer_call = 'run_in_target "$FILE_INSTALLER_APT_NORMALIZE_SOURCES"'
+        modernize_call = 'run_in_target env DEBIAN_FRONTEND=noninteractive APT_LISTCHANGES_FRONTEND=none apt -y modernize-sources'
+        self.assertEqual(apt_normalizer.count(normalizer_call), 2)
+        self.assertLess(apt_normalizer.index(normalizer_call), apt_normalizer.index(modernize_call))
+        self.assertLess(apt_normalizer.index(modernize_call), apt_normalizer.rindex(normalizer_call))
+
+
+class FinalBootValidationTests(unittest.TestCase):
+    def test_generated_preseed_forces_unattended_debconf_mode(self):
+        source = payload_read_text(ROOT.parent / 'forky/preseed.cfg')
+        self.assertIn('d-i debconf/frontend select noninteractive\n', source)
+        self.assertIn('d-i debconf/frontend seen true\n', source)
+        self.assertIn('d-i auto-install/enable boolean true\n', source)
+        self.assertIn('d-i auto-install/enable seen true\n', source)
+        self.assertIn('d-i anna/choose_modules multiselect partman-base ', source)
+        self.assertIn('d-i anna/choose_modules seen true\n', source)
+
+    def test_amd64_skipped_installer_kernel_does_not_generate_orphan_initrd(self):
+        for suite in ('forky', 'trixie'):
+            with self.subTest(suite=suite):
+                source = (ROOT.parent / suite / 'classes/class-auto/arch/amd64.cfg').read_text()
+                self.assertIn('d-i base-installer/kernel/skip-install boolean true\n', source)
+                self.assertIn('d-i base-installer/kernel/image select none\n', source)
+                self.assertIn('d-i base-installer/kernel/linux/initrd boolean false\n', source)
+                self.assertNotIn('d-i base-installer/kernel/linux/initrd boolean true\n', source)
+
+    def test_mok_enrollment_is_manual_after_the_single_firmware_handoff(self):
+        source = payload_read_text(ROOT / 'scripts/late/grub.sh')
+        self.assertNotIn('queue_target_grub_mok_enrollment_boot() {', source)
+        self.assertNotIn('next_entry=${mok_entry_id}', source)
+        menu = payload_read_text(ROOT / 'hooks/target/usr/local/share/common/grub-profiles/mokmenu.cfg.in.tmpl')
+        self.assertIn("--id 'installer-mok-enrollment'", menu)
+        self.assertIn('chainloader "($esp)@@MOKMANAGER_PATH@@"', menu)
+        self.assertIn('@@MOK_DER_PATH@@', menu)
+
+    def test_signature_listing_requires_a_signature_not_just_zero_exit(self):
+        source=payload_read_text(ROOT/'hooks/installer/finish-install.d/94zz-99-validate-target')
+        body=source[source.index('require_signature() {'):].split('\n}',1)[0]+'\n}\n'
+        for listing,status in [('No signature table present',1),('signature 1',0)]:
+            result=shell(body+'sbverify() { printf "%s\\n" '+Q(listing)+'; }\nrequire_signature fixture')
+            self.assertEqual(result.returncode,status,result.stderr)
+
+    def test_missing_managed_kernel_initrd_is_rebuilt_even_without_module_changes(self):
+        source=payload_read_text(ROOT/'hooks/target/usr/libexec/install-tools/secure-boot-tool.tmpl')
+        body=source[source.index('repair_kernel() {'):].split('\n}',1)[0]+'\n}\n'
+        with tempfile.TemporaryDirectory(prefix='boot-repair-') as tmp:
+            root=Path(tmp); (root/'boot').mkdir(); (root/'lib/modules/fixture').mkdir(parents=True)
+            (root/'boot/vmlinuz-fixture').write_text('signed fixture')
+            body=body.replace('/boot/',str(root)+'/boot/').replace('/lib/modules/',str(root)+'/lib/modules/')
+            result=shell(body+f"""
+log() {{ :; }}
+fatal() {{ exit 1; }}
+sign_modules_for_kernel() {{ SIGN_MODULES_CHANGED=0; }}
+kernel_image_has_managed_signature() {{ return 0; }}
+sign_initrd_sidecar() {{ :; }}
+refresh_initramfs_for_kernel() {{ printf initrd >{Q(str(root/'boot/initrd.img-fixture'))}; }}
+cleanup_kernel_artifacts() {{ :; }}
+repair_kernel fixture
+""")
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(payload_read_text(root/'boot/initrd.img-fixture'),'initrd')
+
+    def test_actual_arm64_cpu_detection_does_not_require_x86_vendor(self):
+        source=payload_read_text(ROOT/'scripts/preseed/class-auto.sh').rsplit('case "${1:-report}" in',1)[0]
+        result=shell(source+'arch_raw() { printf aarch64; }\ncpu_vendor() { printf 0x41; }\ncpu_class')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout,'generic-arm64')
+
+
+if __name__ == '__main__': unittest.main()

@@ -1,0 +1,14 @@
+[Unit]
+Description=Load verified Mullvad GUI AppArmor policy
+Requires=apparmor.service
+After=apparmor.service
+Before=mullvad-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=__INSTALLER_PATH_DIR_USR__/sbin/apparmor_parser --replace --skip-read-cache --write-cache __INSTALLER_PATH_DIR_APPARMOR__/mullvad
+RemainAfterExit=yes
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

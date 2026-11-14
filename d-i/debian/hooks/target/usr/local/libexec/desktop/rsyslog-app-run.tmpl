@@ -1,0 +1,358 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Capture managed application output only in rsyslog's private file sink.
+
+The user service still owns the complete cgroup. This unprivileged supervisor
+forwards signals, preserves the child's status and bounds inherited-pipe drain.
+It never logs command arguments or environment variables.
+"""
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import re
+import selectors
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import time
+
+SOCKET = '__INSTALLER_LOG_APPS_SOCKET__'
+LINE_LIMIT = 8192
+PACKET_TEXT_LIMIT = 1600
+SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGUSR1, signal.SIGUSR2)
+
+
+class DiagnosticCopy:
+    """Optional private copy; bounded independently of the normal log sink.
+
+    No directories are created here. Only a menu-prepared 0700 session with
+    a matching, unexpired request can admit at most four 256 KiB writers.
+    File descriptors pin every directory; refusal never changes app launch.
+    """
+    def __init__(self):
+        self.fd = None
+        self.remaining = 256 * 1024
+        self.deadline = 0.0
+        session = os.environ.get('LABWC_DEBUG_SESSION', '')
+        if not re.fullmatch(r'[0-9a-f]{24}', session):
+            return
+        descriptors = []
+        try:
+            runtime = f'__INSTALLER_PATH_DIR_RUN_USER__/{os.getuid()}'
+            for part in (runtime, 'labwc-debug', session):
+                fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             dir_fd=descriptors[-1] if descriptors else None)
+                descriptors.append(fd)
+                info = os.fstat(fd)
+                if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                    raise ValueError('unsafe diagnostic directory')
+            request_fd = os.open('request.json', os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                 dir_fd=descriptors[-1])
+            with os.fdopen(request_fd, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1
+                        or stat.S_IMODE(info.st_mode) != 0o600):
+                    raise ValueError('unsafe diagnostic request')
+                request = json.loads(stream.read(4097))
+            remaining_seconds = float(request['expires_at']) - time.time()
+            if request['session'] != session or not 0 < remaining_seconds <= 180:
+                return
+            lock = os.open('capture.lock', os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                           dir_fd=descriptors[-1])
+            with os.fdopen(lock, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1
+                        or stat.S_IMODE(info.st_mode) != 0o600):
+                    return
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with os.scandir(descriptors[-1]) as entries:
+                    names = []
+                    for entry in entries:
+                        names.append(entry.name)
+                        if len(names) > 64:
+                            return
+                if sum(name.startswith('capture-') for name in names) >= 4:
+                    return
+                self.fd = os.open(f'capture-{os.getpid()}.jsonl',
+                                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                  0o600, dir_fd=descriptors[-1])
+                self.deadline = time.monotonic() + remaining_seconds
+        except (OSError, ValueError, KeyError, TypeError):
+            self.close()
+        finally:
+            for fd in reversed(descriptors):
+                os.close(fd)
+
+    def write(self, record):
+        if self.fd is None:
+            return
+        if time.monotonic() >= self.deadline:
+            self.close()
+            return
+        if record.get('event') == 'output':
+            message = re.sub(r'(?i)\b(authorization|cookie|set-cookie)\s*[:=].*',
+                             r'\1=[REDACTED]', record['message'])
+            record['message'] = re.sub(
+                r'(?i)\b((?:access_token|refresh_token|id_token|token|password|passwd|secret|api[_-]?key)\s*[:=]\s*)[^\s&;"\']+',
+                r'\1[REDACTED]', message)
+        raw = (json.dumps(record, ensure_ascii=True) + '\n').encode('ascii')
+        if len(raw) > max(0, self.remaining - 1024):
+            marker = (json.dumps({'event': 'capture-limit', 'reason': 'byte-limit',
+                                  'maximum_bytes': 256 * 1024}) + '\n').encode('ascii')
+            try:
+                if len(marker) <= self.remaining:
+                    os.write(self.fd, marker)
+            except OSError:
+                pass
+            self.close()
+            return
+        try:
+            written = os.write(self.fd, raw)
+            self.remaining -= written
+            if written != len(raw):
+                self.close()
+        except OSError:
+            self.close()
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+
+class CaptureCleanupUnknown(RuntimeError):
+    """The owning service cgroup must finish terminating an unreaped child."""
+
+
+def stop_child(child: subprocess.Popen, *, stopping: bool) -> None:
+    try:
+        if child.poll() is not None:
+            return
+        deadline = time.monotonic() + 4.0
+        if not stopping:
+            child.terminate()
+            try:
+                child.wait(timeout=min(2.0, max(0.0, deadline - time.monotonic())))
+                return
+            except subprocess.TimeoutExpired:
+                pass
+        child.kill()
+        child.wait(timeout=max(0.0, deadline - time.monotonic()))
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CaptureCleanupUnknown("application child termination is unconfirmed") from exc
+
+
+def severity(line: bytes, stream: str) -> int:
+    prefix = re.match(rb'^<([0-7])>', line)
+    if prefix:
+        return int(prefix[1])
+    # Recognize explicit upstream levels before using the stream default.
+    header = line[:160].upper()
+    for level, words in ((3, rb'ERROR|FATAL|CRITICAL'), (4, rb'WARN|WARNING'),
+                         (6, rb'INFO|NOTICE'), (7, rb'DEBUG|TRACE')):
+        if re.search(rb'(?:^|[\s\[:=])(?:' + words + rb')(?:$|[\s\]:])', header):
+            return level
+    return 4 if stream == 'stderr' else 6
+
+
+def escaped(line: bytes) -> str:
+    return re.sub(rb'[^\x20-\x7e]',
+                  lambda match: f'\\x{match[0][0]:02x}'.encode('ascii'), line).decode('ascii')
+
+
+def report_capture_failure(error: BaseException) -> None:
+    """Best-effort private diagnostic; no payload or journald fallback."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as transport:
+            transport.settimeout(0.05)
+            transport.sendto(
+                f'<11>managed-app-capture[{os.getpid()}]: event=capture-failed error={type(error).__name__}'.encode('ascii'),
+                SOCKET,
+            )
+    except (OSError, ValueError):
+        pass
+
+
+def supervise(identifier: str, command: list[str]) -> int:
+    diagnostic = DiagnosticCopy()
+    stopping = None
+    exited = None
+    child = None
+    child_fd = None
+    pending_signals: set[int] = set()
+    retry_at = 0.0
+
+    def forward(number, _frame):
+        nonlocal stopping
+        if number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            stopping = stopping or time.monotonic()
+        if child is None:
+            pending_signals.add(number)
+        elif child.poll() is None:
+            try:
+                child.send_signal(number)
+            except ProcessLookupError:
+                pass
+
+    def deliver(transport: socket.socket, stream: str, line: bytes) -> None:
+        nonlocal retry_at
+        priority = severity(line, stream)
+        text = escaped(line.rstrip(b'\r')) or '(empty line)'
+        diagnostic.write({'event': 'output', 'time': time.time(), 'identifier': identifier,
+                          'stream': stream, 'message': text})
+        clock = time.localtime()
+        month = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')[clock.tm_mon - 1]
+        timestamp = f'{month} {clock.tm_mday:2d} {clock.tm_hour:02d}:{clock.tm_min:02d}:{clock.tm_sec:02d}'
+        header = f'<{8 + priority}>{timestamp} {identifier}[{os.getpid()}]: '
+        # Each escaped chunk is bounded, even for binary/unterminated output.
+        for offset in range(0, len(text), PACKET_TEXT_LIMIT):
+            now = time.monotonic()
+            if ((stopping is not None and now - stopping >= 15)
+                    or (exited is not None and now - exited >= 0.2)):
+                return
+            message = f'stream={stream} message={text[offset:offset + PACKET_TEXT_LIMIT]}'
+            packet = (header + message).encode('ascii')
+            if now >= retry_at:
+                try:
+                    sent = transport.sendto(packet, SOCKET)
+                    if sent != len(packet):
+                        raise OSError('truncated application log datagram')
+                except OSError:
+                    retry_at = time.monotonic() + 1.0
+            # An unavailable collector drops this record. Never copy payloads
+            # to inherited output, __INSTALLER_PATH_DIR_DEV__/log, or a native journal socket.
+
+    previous = {number: signal.signal(number, forward) for number in SIGNALS}
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as transport, selectors.PollSelector() as poll:
+            # Allow the existing collector to drain a short burst. There is no
+            # second userspace queue; a stopped collector gets a bounded wait.
+            transport.settimeout(0.05)
+            child = subprocess.Popen(command, stdin=None, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, close_fds=True, bufsize=0)
+            try:
+                with open('__INSTALLER_PATH_DIR_PROC__/self/stat', encoding='ascii') as source:
+                    start_ticks = source.read(4096).rsplit(')', 1)[1].split()[19]
+                with open('__INSTALLER_PATH_DIR_PROC__/self/cgroup', encoding='ascii') as source:
+                    membership = source.read(4096)
+            except (OSError, IndexError):
+                start_ticks, membership = '', ''
+            diagnostic.write({'event': 'capture-start', 'time': time.time(),
+                              'pid': os.getpid(), 'child_pid': child.pid, 'start_ticks': start_ticks,
+                              'cgroup': membership, 'executable': command[0], 'identifier': identifier})
+            child_fd = os.pidfd_open(child.pid)
+            poll.register(child_fd, selectors.EVENT_READ)
+            for number in pending_signals:
+                forward(number, None)
+            sources = {child.stdout: ('stdout', bytearray()), child.stderr: ('stderr', bytearray())}
+            for source in sources:
+                os.set_blocking(source.fileno(), False)
+                poll.register(source, selectors.EVENT_READ)
+            while True:
+                now = time.monotonic()
+                status = child.poll()
+                if status is not None:
+                    exited = exited or now
+                if status is None and stopping is not None and now - stopping >= 15:
+                    # Cleanup sends KILL and bounds the final reap. Returning
+                    # now also prevents repeated KILL/poll loops for stuck work.
+                    return -signal.SIGKILL
+                if not sources and status is not None:
+                    break
+                if exited is not None and now - exited >= 0.2:
+                    # The application has exited. Do not let descendants or a
+                    # stopped collector keep its service alive indefinitely.
+                    for stream, buffer in sources.values():
+                        if buffer:
+                            deliver(transport, stream, bytes(buffer))
+                    break
+                poll_timeout = 1.0
+                if exited is not None:
+                    poll_timeout = min(poll_timeout, max(0.0, exited + 0.2 - now))
+                if stopping is not None:
+                    poll_timeout = min(poll_timeout, max(0.0, stopping + 15 - now))
+                for key, _ in poll.select(poll_timeout):
+                    if key.fileobj == child_fd:
+                        poll.unregister(child_fd)
+                        continue
+                    source = key.fileobj
+                    stream, buffer = sources[source]
+                    try:
+                        data = os.read(source.fileno(), LINE_LIMIT)
+                    except BlockingIOError:
+                        continue
+                    if not data:
+                        if buffer:
+                            deliver(transport, stream, bytes(buffer))
+                        poll.unregister(source)
+                        del sources[source]
+                        source.close()
+                        continue
+                    buffer.extend(data)
+                    lines = buffer.split(b'\n')
+                    buffer[:] = lines.pop()
+                    for line in lines:
+                        deliver(transport, stream, bytes(line))
+                    if len(buffer) >= LINE_LIMIT:
+                        deliver(transport, stream, bytes(buffer))
+                        buffer.clear()
+            result = child.wait()
+            diagnostic.write({'event': 'capture-exit', 'time': time.time(), 'status': result})
+            return result
+    finally:
+        try:
+            if child is not None:
+                try:
+                    stop_child(child, stopping=stopping is not None)
+                finally:
+                    for source in (child.stdout, child.stderr):
+                        if source is not None:
+                            source.close()
+        finally:
+            diagnostic.close()
+            if child_fd is not None:
+                os.close(child_fd)
+            for number, handler in previous.items():
+                signal.signal(number, handler)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('identifier')
+    parser.add_argument('command', nargs=argparse.REMAINDER)
+    options = parser.parse_args()
+    command = options.command
+    if command[:1] == ['--']:
+        command = command[1:]
+    if (os.getuid() == 0 or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}', options.identifier) is None
+            or not command or not os.path.isabs(command[0])):
+        parser.error('requires a user, a bounded identifier and an absolute executable')
+    return supervise(options.identifier, command)
+
+
+if __name__ == '__main__':
+    # Even parser/interpreter failures must not reach an inherited journal
+    # stream. Application stdout/stderr are separate pipes owned by supervise.
+    with open(os.devnull, 'wb', buffering=0) as sink:
+        os.dup2(sink.fileno(), 1)
+        os.dup2(sink.fileno(), 2)
+    try:
+        result = main()
+        if result < 0:
+            number = -result
+            if number not in (signal.SIGKILL, signal.SIGSTOP):
+                signal.signal(number, signal.SIG_DFL)
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, {number})
+            os.kill(os.getpid(), number)
+            result = 128 + number
+        raise SystemExit(result)
+    except CaptureCleanupUnknown as exc:
+        report_capture_failure(exc)
+        raise SystemExit(3)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        report_capture_failure(exc)
+        raise SystemExit(1)

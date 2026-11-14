@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "execution": "UNEXECUTED behavioral and failure-injection specifications; source inspection only",
+  "cases": [
+    {"id": "all-profiles", "given": "Each desktop host profile", "expect": "Declare LABWC_WORKSPACE_COUNT_INTERNAL and LABWC_WORKSPACE_COUNT_EXTERNAL explicitly, each in 1..12; preserve existing internal counts and default the new external count to four."},
+    {"id": "internal-only", "given": "Only an internal output is enabled with a current mode", "expect": "The existing output watcher selects the internal count under its output-refresh lock and changes only native workspace number and numeric names."},
+    {"id": "external-active", "given": "An external output is enabled, alone or together with the internal panel", "expect": "Select the external count for Labwc global workspace set, shared by all enabled monitors; never claim independent per-monitor workspaces."},
+    {"id": "disabled-external", "given": "An external connector is detected but disabled by the chosen output policy", "expect": "Keep the internal count; connector presence alone is insufficient."},
+    {"id": "dock-undock", "given": "The enabled topology changes between internal-only and external-enabled", "expect": "Use the subscribed existing output watcher; publish only when count differs and issue one bounded native reconfiguration request. Do not restart Waybar or the compositor to change count."},
+    {"id": "dpms", "given": "Outputs are asleep or the snapshot has no enabled output", "expect": "Preserve the pre-idle workspace policy and do not misclassify sleep as undocking."},
+    {"id": "one-workspace-taskbar", "given": "Either topology count exceeds one", "expect": "Keep native ext/workspaces and the current-workspace window switcher; do not expose stock global wlr/taskbar as a workspace-local list."},
+    {"id": "native-types", "given": "Any tier and either output topology", "expect": "Preserve native workspace/status module identities and existing GTK menu owners; no custom workspace broker or extra polling process."},
+    {"id": "invalid-policy", "given": "A missing count, 0, 13, whitespace, leading zero or shell expression", "expect": "Reject profile generation or target policy validation without executing profile content."},
+    {"id": "xml-authority", "given": "A symlink, hardlink, untrusted ancestor, changed inode, oversized XML, DTD/entity declaration or duplicate desktop structure", "expect": "Refuse publication and preserve the previous XML and unrelated configuration."},
+    {"id": "custom-names", "given": "A count change would replace nonnumeric manually configured workspace names", "expect": "Refuse the automatic change with an explicit operator-policy diagnostic."},
+    {"id": "reload-unknown", "given": "The bounded native reconfiguration request fails or times out after publication", "expect": "Retain private previous XML and the published candidate; refuse automatic retry until operator recovery resolves the pending file."},
+    {"id": "durability", "given": "A workspace policy change", "expect": "Synchronize previous and candidate bytes and the parent directory, then retire recovery only after the native request is acknowledged. Do not claim compositor state was observed."},
+    {"id": "multiple-tier-parity", "given": "The same profile selected with base, medium or full", "expect": "Render identical internal/external counts, shortcut capacity and native Waybar behavior."}
+  ]
+}

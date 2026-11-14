@@ -1,0 +1,147 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Private per-launch Waybar state markers.
+
+Markers live below the validated user runtime directory.  The transient unit
+creates one before its fixed action and removes that exact inode in ExecStopPost;
+concurrent buttons therefore cannot clear one another's state.
+"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+import uuid
+
+from labwc_waybar_state import BUTTONS, ID_RE, active as marker_active
+RUNTIME_ROOT = Path("__INSTALLER_PATH_DIR_RUN_USER__")
+STATE_NAME = "labwc-waybar-state"
+NOTIFY_BUTTONS = frozenset({"notifications", "power", "taskview", "tomat", "wayscriber"})
+WAYBAR_SIGNAL = ("__INSTALLER_PATH_DIR_USR__/bin/systemctl", "--user", "--quiet", "kill",
+                 "--kill-whom=main", "--signal=RTMIN+8", "waybar.service")
+
+
+def notify_waybar(button: str) -> None:
+    if button not in NOTIFY_BUTTONS:
+        return
+    try:
+        subprocess.run(WAYBAR_SIGNAL, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       check=False, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return
+
+
+def runtime() -> Path:
+    uid = os.getuid()
+    if uid == 0 or os.geteuid() != uid or os.environ.get("LABWC_SESSION_OWNER") != "desktop":
+        raise ValueError("Waybar state requires the ordinary desktop account")
+    path = RUNTIME_ROOT / str(uid)
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != uid
+            or stat.S_IMODE(info.st_mode) != 0o700):
+        raise ValueError("unsafe desktop runtime")
+    return path
+
+
+def state_dir(create: bool = False) -> Path:
+    path = runtime() / STATE_NAME
+    if create:
+        try:
+            path.mkdir(mode=0o700)
+        except FileExistsError:
+            pass
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o700):
+        raise ValueError("unsafe Waybar state directory")
+    return path
+
+
+def marker(button: str, invocation: str) -> Path:
+    if button not in BUTTONS or not ID_RE.fullmatch(invocation):
+        raise ValueError("invalid Waybar state identity")
+    return state_dir(True) / f"{button}-{invocation}.json"
+
+
+def start(button: str, invocation: str) -> None:
+    path = marker(button, invocation)
+    payload = {"version": 1, "button": button, "id": invocation, "uid": os.getuid(), "pid": os.getpid()}
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="ascii") as stream:
+            descriptor = -1
+            json.dump(payload, stream, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        notify_waybar(button)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def cleanup(button: str, invocation: str) -> None:
+    path = marker(button, invocation)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return
+    try:
+        info = os.fstat(descriptor)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600):
+            raise ValueError("unsafe Waybar state marker")
+        data = json.load(os.fdopen(descriptor, "r", encoding="ascii"))
+        descriptor = -1
+        if (not isinstance(data, dict) or data.get("version") != 1
+                or data.get("button") != button or data.get("id") != invocation
+                or data.get("uid") != os.getuid()):
+            raise ValueError("Waybar state marker identity changed")
+        current = path.stat(follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise ValueError("Waybar state marker was replaced")
+        path.unlink()
+        notify_waybar(button)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def status(button: str) -> None:
+    if button not in BUTTONS:
+        raise ValueError("invalid Waybar state button")
+    is_active = marker_active(button)
+    print(json.dumps({"text": "", "class": "active" if is_active else "idle",
+                      "tooltip": button + (" action is open" if is_active else " action")}), flush=True)
+
+
+def main(argv: list[str]) -> int:
+    if not argv:
+        raise ValueError("usage: labwc-waybar-state start|cleanup|status BUTTON [ID]")
+    if argv[0] == "status" and len(argv) == 2:
+        status(argv[1])
+        return 0
+    if len(argv) != 3 or argv[0] not in {"start", "cleanup"}:
+        raise ValueError("usage: labwc-waybar-state start|cleanup BUTTON ID")
+    if argv[0] == "start":
+        start(argv[1], argv[2])
+    else:
+        cleanup(argv[1], argv[2])
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"labwc-waybar-state: {error}", file=sys.stderr)
+        raise SystemExit(1)

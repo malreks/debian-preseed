@@ -1,0 +1,3268 @@
+{
+  "authority": "Human migration review evidence only; not consumed by installer, builder or static audit.",
+  "format": 1,
+  "moves": {
+    "hooks/target/etc/apparmor.d/Discord": [
+      "hooks/target/etc/apparmor.d/desktop/Discord"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/app-config": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/app-config"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/app-veth-client": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/app-veth-client"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/audio.d/no-raw-audio": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/audio.d/no-raw-audio"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/base.d/process-monitor": [
+      "hooks/target/etc/apparmor.d/common/abstractions/base.d/process-monitor"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/bwrap-common": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/bwrap-common"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/bwrap-compat-preparation": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/bwrap-compat-preparation"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/bwrap-desktop-runtime": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/bwrap-desktop-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/codex-runtime": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/codex-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/crun-runtime": [
+      "hooks/target/etc/apparmor.d/common/abstractions/crun-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/desktop-application": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/desktop-application"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/desktop-graphics": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/desktop-graphics"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/desktop-runtime": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/desktop-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/devops-toolchain-data": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/devops-toolchain-data"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/devops-toolchain-runtime": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/devops-toolchain-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/document-runtime": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/document-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/electron-application": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/electron-application"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/electron-runtime": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/electron-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/fonts.d/labwc-terminal-fonts": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/fonts.d/labwc-terminal-fonts"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/hardware-tuning-desktop-parent": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/hardware-tuning-desktop-parent"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/hardware-tuning-fuzzel-parent": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/hardware-tuning-fuzzel-parent"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/hardware-tuning-intel": [
+      "hooks/target/etc/apparmor.d/common/abstractions/hardware-tuning-intel"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/hardware-tuning-management-parent": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/hardware-tuning-management-parent"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/hardware-tuning-nvidia": [
+      "hooks/target/etc/apparmor.d/common/abstractions/hardware-tuning-nvidia"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/llama-whisper-coordination": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/llama-whisper-coordination"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/native-gpu-selection": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/native-gpu-selection"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/pipewire-audio": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/pipewire-audio"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/qbittorrent-runtime": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/qbittorrent-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/session-client": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/session-client"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/timeshift-runtime": [
+      "hooks/target/etc/apparmor.d/common/abstractions/timeshift-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/tor-browser-runtime": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/tor-browser-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/user-documents": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/user-documents"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/webkit-runtime": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/webkit-runtime"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/workflow-auth": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/workflow-auth"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/wrapper-base": [
+      "hooks/target/etc/apparmor.d/common/abstractions/wrapper-base"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/wrapper-desktop": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/wrapper-desktop"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/wrapper-gui": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/wrapper-gui"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/wrapper-perl": [
+      "hooks/target/etc/apparmor.d/common/abstractions/wrapper-perl"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/wrapper-python": [
+      "hooks/target/etc/apparmor.d/common/abstractions/wrapper-python"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/wrapper-terminal": [
+      "hooks/target/etc/apparmor.d/common/abstractions/wrapper-terminal"
+    ],
+    "hooks/target/etc/apparmor.d/abstractions/wrapper-wayland": [
+      "hooks/target/etc/apparmor.d/desktop/abstractions/wrapper-wayland"
+    ],
+    "hooks/target/etc/apparmor.d/app-veth.tmpl": [
+      "hooks/target/etc/apparmor.d/desktop/app-veth.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/apparmor-modes": [
+      "hooks/target/etc/apparmor.d/common/apparmor-modes"
+    ],
+    "hooks/target/etc/apparmor.d/calendars": [
+      "hooks/target/etc/apparmor.d/desktop/calendars"
+    ],
+    "hooks/target/etc/apparmor.d/chatgpt": [
+      "hooks/target/etc/apparmor.d/desktop/chatgpt"
+    ],
+    "hooks/target/etc/apparmor.d/compz": [
+      "hooks/target/etc/apparmor.d/desktop/compz"
+    ],
+    "hooks/target/etc/apparmor.d/crun": [
+      "hooks/target/etc/apparmor.d/common/crun"
+    ],
+    "hooks/target/etc/apparmor.d/debugsys": [
+      "hooks/target/etc/apparmor.d/common/debugsys"
+    ],
+    "hooks/target/etc/apparmor.d/desktop-system-wrappers.tmpl": [
+      "hooks/target/etc/apparmor.d/desktop/desktop-system-wrappers.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/desktop-utilities": [
+      "hooks/target/etc/apparmor.d/desktop/desktop-utilities"
+    ],
+    "hooks/target/etc/apparmor.d/desktop-wrappers.tmpl": [
+      "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/document-applications": [
+      "hooks/target/etc/apparmor.d/desktop/document-applications"
+    ],
+    "hooks/target/etc/apparmor.d/filen-sync.tmpl": [
+      "hooks/target/etc/apparmor.d/common/filen-sync.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/gitbuild": [
+      "hooks/target/etc/apparmor.d/desktop/gitbuild"
+    ],
+    "hooks/target/etc/apparmor.d/gitbuild-worker": [
+      "hooks/target/etc/apparmor.d/desktop/gitbuild-worker"
+    ],
+    "hooks/target/etc/apparmor.d/hardware-tuning": [
+      "hooks/target/etc/apparmor.d/common/hardware-tuning"
+    ],
+    "hooks/target/etc/apparmor.d/incus-host.tmpl": [
+      "hooks/target/etc/apparmor.d/common/incus-host.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/labwc-appearance": [
+      "hooks/target/etc/apparmor.d/desktop/labwc-appearance"
+    ],
+    "hooks/target/etc/apparmor.d/labwc-network-sharing": [
+      "hooks/target/etc/apparmor.d/desktop/labwc-network-sharing"
+    ],
+    "hooks/target/etc/apparmor.d/labwc-session": [
+      "hooks/target/etc/apparmor.d/desktop/labwc-session"
+    ],
+    "hooks/target/etc/apparmor.d/local/abstractions/codex-user-media.tmpl": [
+      "hooks/target/etc/apparmor.d/desktop/local/abstractions/codex-user-media.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/local/abstractions/desktop-user-media.tmpl": [
+      "hooks/target/etc/apparmor.d/desktop/local/abstractions/desktop-user-media.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/local/chromium": [
+      "hooks/target/etc/apparmor.d/desktop/local/chromium"
+    ],
+    "hooks/target/etc/apparmor.d/local/code": [
+      "hooks/target/etc/apparmor.d/desktop/local/code"
+    ],
+    "hooks/target/etc/apparmor.d/local/desktop-application": [
+      "hooks/target/etc/apparmor.d/desktop/local/desktop-application"
+    ],
+    "hooks/target/etc/apparmor.d/local/desktop-graphics": [
+      "hooks/target/etc/apparmor.d/desktop/local/desktop-graphics"
+    ],
+    "hooks/target/etc/apparmor.d/local/desktop-wrappers-nvidia": [
+      "hooks/target/etc/apparmor.d/desktop/local/desktop-wrappers-nvidia"
+    ],
+    "hooks/target/etc/apparmor.d/local/microsoft-edge-stable": [
+      "hooks/target/etc/apparmor.d/desktop/local/microsoft-edge-stable"
+    ],
+    "hooks/target/etc/apparmor.d/local/mullvad": [
+      "hooks/target/etc/apparmor.d/desktop/local/mullvad"
+    ],
+    "hooks/target/etc/apparmor.d/local/mullvad-browser": [
+      "hooks/target/etc/apparmor.d/desktop/local/mullvad-browser"
+    ],
+    "hooks/target/etc/apparmor.d/local/unix-chkpwd": [
+      "hooks/target/etc/apparmor.d/common/local/unix-chkpwd"
+    ],
+    "hooks/target/etc/apparmor.d/local/usr.bin.freshclam.tmpl": [
+      "hooks/target/etc/apparmor.d/desktop/local/usr.bin.freshclam.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/local/usr.sbin.clamd.tmpl": [
+      "hooks/target/etc/apparmor.d/desktop/local/usr.sbin.clamd.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/local/vivaldi-bin": [
+      "hooks/target/etc/apparmor.d/desktop/local/vivaldi-bin"
+    ],
+    "hooks/target/etc/apparmor.d/local/vivaldi-stable": [
+      "hooks/target/etc/apparmor.d/desktop/local/vivaldi-stable"
+    ],
+    "hooks/target/etc/apparmor.d/local/vscode": [
+      "hooks/target/etc/apparmor.d/desktop/local/vscode"
+    ],
+    "hooks/target/etc/apparmor.d/network-sharing": [
+      "hooks/target/etc/apparmor.d/common/network-sharing"
+    ],
+    "hooks/target/etc/apparmor.d/obsidian": [
+      "hooks/target/etc/apparmor.d/desktop/obsidian"
+    ],
+    "hooks/target/etc/apparmor.d/opt.Bitwarden.bitwarden": [
+      "hooks/target/etc/apparmor.d/desktop/opt.Bitwarden.bitwarden"
+    ],
+    "hooks/target/etc/apparmor.d/opt.Filen.Filen": [
+      "hooks/target/etc/apparmor.d/desktop/opt.Filen.Filen"
+    ],
+    "hooks/target/etc/apparmor.d/opt.ledger-live.AppRun": [
+      "hooks/target/etc/apparmor.d/desktop/opt.ledger-live.AppRun"
+    ],
+    "hooks/target/etc/apparmor.d/opt.postman.app.Postman": [
+      "hooks/target/etc/apparmor.d/desktop/opt.postman.app.Postman"
+    ],
+    "hooks/target/etc/apparmor.d/opt.tuta-mail.AppRun": [
+      "hooks/target/etc/apparmor.d/desktop/opt.tuta-mail.AppRun"
+    ],
+    "hooks/target/etc/apparmor.d/sleek": [
+      "hooks/target/etc/apparmor.d/desktop/sleek"
+    ],
+    "hooks/target/etc/apparmor.d/system-wrappers.tmpl": [
+      "hooks/target/etc/apparmor.d/common/system-wrappers.tmpl"
+    ],
+    "hooks/target/etc/apparmor.d/timeshift": [
+      "hooks/target/etc/apparmor.d/common/timeshift"
+    ],
+    "hooks/target/etc/apparmor.d/tomat": [
+      "hooks/target/etc/apparmor.d/desktop/tomat"
+    ],
+    "hooks/target/etc/apparmor.d/tor-browser": [
+      "hooks/target/etc/apparmor.d/desktop/tor-browser"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.keepassxc": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.keepassxc"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.pwsh": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.pwsh"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.qbittorrent": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.qbittorrent"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.qoredb": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.qoredb"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.retroarch": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.retroarch"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.spotify": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.spotify"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.sqlitebrowser": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.sqlitebrowser"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.telegram-desktop": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.telegram-desktop"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.totem": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.totem"
+    ],
+    "hooks/target/etc/apparmor.d/usr.bin.zoom": [
+      "hooks/target/etc/apparmor.d/desktop/usr.bin.zoom"
+    ],
+    "hooks/target/etc/apparmor.d/usr.local.sbin.tpm2-enroll.sh": [
+      "hooks/target/etc/apparmor.d/common/usr.local.sbin.tpm2-enroll.sh"
+    ],
+    "hooks/target/etc/apparmor.d/usr.sbin.aa-status": [
+      "hooks/target/etc/apparmor.d/common/usr.sbin.aa-status"
+    ],
+    "hooks/target/etc/apparmor.d/usr.sbin.apt-cacher-ng": [
+      "hooks/target/etc/apparmor.d/common/usr.sbin.apt-cacher-ng"
+    ],
+    "hooks/target/etc/apparmor.d/usr.sbin.avahi-daemon": [
+      "hooks/target/etc/apparmor.d/desktop/usr.sbin.avahi-daemon"
+    ],
+    "hooks/target/etc/apparmor.d/usr.sbin.tailscaled": [
+      "hooks/target/etc/apparmor.d/common/usr.sbin.tailscaled"
+    ],
+    "hooks/target/etc/apparmor.d/vivaldi-bin": [
+      "hooks/target/etc/apparmor.d/desktop/vivaldi-bin"
+    ],
+    "hooks/target/etc/apparmor.d/vivaldi-stable": [
+      "hooks/target/etc/apparmor.d/desktop/vivaldi-stable"
+    ],
+    "hooks/target/etc/apparmor.d/waybar-menus": [
+      "hooks/target/etc/apparmor.d/desktop/waybar-menus"
+    ],
+    "hooks/target/etc/apparmor.d/whisper-local-transcription": [
+      "hooks/target/etc/apparmor.d/desktop/whisper-local-transcription"
+    ],
+    "hooks/target/etc/apparmor.d/zoom-discord-compat.tmpl": [
+      "hooks/target/etc/apparmor.d/desktop/zoom-discord-compat.tmpl"
+    ],
+    "hooks/target/etc/apparmor/easyprof.conf": [
+      "hooks/target/etc/apparmor/common/easyprof.conf"
+    ],
+    "hooks/target/etc/apparmor/logprof.conf.tmpl": [
+      "hooks/target/etc/apparmor/common/logprof.conf.tmpl"
+    ],
+    "hooks/target/etc/apparmor/modes-common.conf": [
+      "hooks/target/etc/apparmor/common/modes-common.conf"
+    ],
+    "hooks/target/etc/apparmor/modes.conf.tmpl": [
+      "hooks/target/etc/apparmor/desktop/modes.conf.tmpl"
+    ],
+    "hooks/target/etc/apparmor/parser.conf": [
+      "hooks/target/etc/apparmor/common/parser.conf"
+    ],
+    "hooks/target/etc/crowdsec/acquis-available/25-appsec.yaml": [
+      "hooks/target/etc/crowdsec/common/acquis-available/25-appsec.yaml"
+    ],
+    "hooks/target/etc/crowdsec/acquis.d/20-sshd.yaml.tmpl": [
+      "hooks/target/etc/crowdsec/common/acquis.d/20-sshd.yaml.tmpl"
+    ],
+    "hooks/target/etc/crowdsec/acquis.d/21-auditd.yaml.tmpl": [
+      "hooks/target/etc/crowdsec/common/acquis.d/21-auditd.yaml.tmpl"
+    ],
+    "hooks/target/etc/crowdsec/acquis.d/22-nftables.yaml.tmpl": [
+      "hooks/target/etc/crowdsec/common/acquis.d/22-nftables.yaml.tmpl"
+    ],
+    "hooks/target/etc/crowdsec/acquis.d/23-system-syslog.yaml.tmpl": [
+      "hooks/target/etc/crowdsec/common/acquis.d/23-system-syslog.yaml.tmpl"
+    ],
+    "hooks/target/etc/crowdsec/acquis.d/24-qbittorrent.yaml.tmpl": [
+      "hooks/target/etc/crowdsec/desktop/acquis.d/24-qbittorrent.yaml.tmpl"
+    ],
+    "hooks/target/etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml.local.tmpl": [
+      "hooks/target/etc/crowdsec/common/bouncers/crowdsec-firewall-bouncer.yaml.local.tmpl"
+    ],
+    "hooks/target/etc/crowdsec/config.yaml.local.tmpl": [
+      "hooks/target/etc/crowdsec/common/config.yaml.local.tmpl"
+    ],
+    "hooks/target/etc/crowdsec/parsers/s00-raw/podman-logs.yaml": [
+      "hooks/target/etc/crowdsec/common/parsers/s00-raw/podman-logs.yaml"
+    ],
+    "hooks/target/etc/crowdsec/parsers/s01-parse/00-auditd-daemon.yaml": [
+      "hooks/target/etc/crowdsec/common/parsers/s01-parse/00-auditd-daemon.yaml"
+    ],
+    "hooks/target/etc/crowdsec/parsers/s01-parse/00-nftables-nondrop.yaml": [
+      "hooks/target/etc/crowdsec/common/parsers/s01-parse/00-nftables-nondrop.yaml"
+    ],
+    "hooks/target/etc/crowdsec/parsers/s02-enrich/00-audit-security.yaml": [
+      "hooks/target/etc/crowdsec/common/parsers/s02-enrich/00-audit-security.yaml"
+    ],
+    "hooks/target/etc/crowdsec/scenarios/apparmor-denial-burst.yaml": [
+      "hooks/target/etc/crowdsec/common/scenarios/apparmor-denial-burst.yaml"
+    ],
+    "hooks/target/etc/crowdsec/scenarios/nftables-tcp-scan.yaml": [
+      "hooks/target/etc/crowdsec/common/scenarios/nftables-tcp-scan.yaml"
+    ],
+    "hooks/target/etc/crowdsec/scenarios/nftables-udp-scan.yaml": [
+      "hooks/target/etc/crowdsec/common/scenarios/nftables-udp-scan.yaml"
+    ],
+    "hooks/target/etc/network/host.conf.tmpl": [
+      "hooks/target/etc/network/desktop/host.conf.tmpl"
+    ],
+    "hooks/target/etc/network/if-post-down.d/90-managed-wifi-preference": [
+      "hooks/target/etc/network/desktop/if-post-down.d/90-managed-wifi-preference"
+    ],
+    "hooks/target/etc/network/if-up.d/90-managed-wifi-preference": [
+      "hooks/target/etc/network/desktop/if-up.d/90-managed-wifi-preference"
+    ],
+    "hooks/target/etc/network/interfaces": [
+      "hooks/target/etc/network/desktop/interfaces"
+    ],
+    "hooks/target/etc/network/interfaces.d/50-network.tmpl": [
+      "hooks/target/etc/network/desktop/interfaces.d/50-network.tmpl"
+    ],
+    "hooks/target/etc/nftables/README.md.tmpl": [
+      "hooks/target/etc/nftables/desktop/README.md.tmpl"
+    ],
+    "hooks/target/etc/nftables/firewall-security.rules": [
+      "hooks/target/etc/nftables/desktop/firewall-security.rules"
+    ],
+    "hooks/target/etc/nftables/policy.conf.tmpl": [
+      "hooks/target/etc/nftables/desktop/policy.conf.tmpl"
+    ],
+    "hooks/target/etc/nftables/profiles/baseline.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/profiles/baseline.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/profiles/desktop.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/profiles/desktop.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/backup-restic.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/backup-restic.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/crowdsec.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/crowdsec.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/cups.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/cups.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/dhcp-client.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/dhcp-client.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/dns-client.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/dns-client.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/docker.yml": [
+      "hooks/target/etc/nftables/desktop/services/docker.yml"
+    ],
+    "hooks/target/etc/nftables/services/egress.yml": [
+      "hooks/target/etc/nftables/desktop/services/egress.yml"
+    ],
+    "hooks/target/etc/nftables/services/kdeconnect.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/kdeconnect.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/lan-share.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/lan-share.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/mdns.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/mdns.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/nfs-client.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/nfs-client.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/nfs-server.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/nfs-server.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/ntp-client.yml": [
+      "hooks/target/etc/nftables/desktop/services/ntp-client.yml"
+    ],
+    "hooks/target/etc/nftables/services/ollama.yml": [
+      "hooks/target/etc/nftables/desktop/services/ollama.yml"
+    ],
+    "hooks/target/etc/nftables/services/openvpn.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/openvpn.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/podman.yml": [
+      "hooks/target/etc/nftables/desktop/services/podman.yml"
+    ],
+    "hooks/target/etc/nftables/services/qbittorrent.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/qbittorrent.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/qemu.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/qemu.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/rsync.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/rsync.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/samba.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/samba.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/smtp-client.yml": [
+      "hooks/target/etc/nftables/desktop/services/smtp-client.yml"
+    ],
+    "hooks/target/etc/nftables/services/ssdp.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/ssdp.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/ssh-client.yml": [
+      "hooks/target/etc/nftables/desktop/services/ssh-client.yml"
+    ],
+    "hooks/target/etc/nftables/services/ssh-server.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/ssh-server.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/syncthing.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/syncthing.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/tailscale.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/tailscale.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/wazuh-agent.yml": [
+      "hooks/target/etc/nftables/desktop/services/wazuh-agent.yml"
+    ],
+    "hooks/target/etc/nftables/services/wireguard.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/wireguard.yml.tmpl"
+    ],
+    "hooks/target/etc/nftables/services/zerotier.yml.tmpl": [
+      "hooks/target/etc/nftables/desktop/services/zerotier.yml.tmpl"
+    ],
+    "hooks/target/etc/sysctl.d/10-baseline.conf": [
+      "hooks/target/etc/sysctl.d/common/10-baseline.conf"
+    ],
+    "hooks/target/etc/sysctl.d/20-storage-memory.conf": [
+      "hooks/target/etc/sysctl.d/common/20-storage-memory.conf"
+    ],
+    "hooks/target/etc/sysctl.d/25-storage-static.conf.tmpl": [
+      "hooks/target/etc/sysctl.d/common/25-storage-static.conf.tmpl"
+    ],
+    "hooks/target/etc/sysctl.d/60-network-sharing.conf.tmpl": [
+      "hooks/target/etc/sysctl.d/common/60-network-sharing.conf.tmpl"
+    ],
+    "hooks/target/etc/sysctl.d/90-codex-bwrap.conf.tmpl": [
+      "hooks/target/etc/sysctl.d/desktop/90-codex-bwrap.conf.tmpl"
+    ],
+    "hooks/target/etc/sysctl.d/90-podman-rootless.conf": [
+      "hooks/target/etc/sysctl.d/common/90-podman-rootless.conf"
+    ],
+    "hooks/target/etc/sysctl.d/91-app-veth.conf": [
+      "hooks/target/etc/sysctl.d/desktop/91-app-veth.conf"
+    ],
+    "hooks/target/etc/sysctl.d/92-tailscale-netkit.conf.tmpl": [
+      "hooks/target/etc/sysctl.d/desktop/92-tailscale-netkit.conf.tmpl"
+    ],
+    "hooks/target/etc/sysctl.d/profiles/balanced/40-balanced.conf.tmpl": [
+      "hooks/target/etc/sysctl.d/common/profiles/balanced/40-balanced.conf.tmpl"
+    ],
+    "hooks/target/etc/sysctl.d/profiles/hardened/40-hardened.conf.tmpl": [
+      "hooks/target/etc/sysctl.d/common/profiles/hardened/40-hardened.conf.tmpl"
+    ],
+    "hooks/target/etc/sysctl.d/profiles/performance/40-performance.conf.tmpl": [
+      "hooks/target/etc/sysctl.d/common/profiles/performance/40-performance.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/coredump.conf.d/60-limits.conf.tmpl": [
+      "hooks/target/etc/systemd/common/coredump.conf.d/60-limits.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/desktop/system/apparmor-modes.service": [
+      "hooks/target/etc/systemd/common/system/apparmor-modes.service"
+    ],
+    "hooks/target/etc/systemd/desktop/system/filen-sync@.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/filen-sync@.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/desktop/system/hardware-tuning-autostart.service": [
+      "hooks/target/etc/systemd/common/system/hardware-tuning-autostart.service"
+    ],
+    "hooks/target/etc/systemd/desktop/system/hardware-tuning-sleep.service": [
+      "hooks/target/etc/systemd/common/system/hardware-tuning-sleep.service"
+    ],
+    "hooks/target/etc/systemd/desktop/system/hardware-tuning.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/hardware-tuning.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/desktop/system/hardware-tuning.socket.tmpl": [
+      "hooks/target/etc/systemd/common/system/hardware-tuning.socket.tmpl"
+    ],
+    "hooks/target/etc/systemd/desktop/system/network-sharing-identity.service": [
+      "hooks/target/etc/systemd/common/system/network-sharing-identity.service"
+    ],
+    "hooks/target/etc/systemd/desktop/system/network-sharing-report.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/network-sharing-report.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/desktop/system/nfs-idmapd.service.d/60-network-sharing.conf": [
+      "hooks/target/etc/systemd/common/system/nfs-idmapd.service.d/60-network-sharing.conf"
+    ],
+    "hooks/target/etc/systemd/desktop/system/nfs-mountd.service.d/60-network-sharing.conf": [
+      "hooks/target/etc/systemd/common/system/nfs-mountd.service.d/60-network-sharing.conf"
+    ],
+    "hooks/target/etc/systemd/desktop/system/nfs-server.service.d/60-network-sharing.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/nfs-server.service.d/60-network-sharing.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/desktop/system/power-profiles-daemon.service.d/50-hardware-tuning.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/power-profiles-daemon.service.d/50-hardware-tuning.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/journald.conf.d/10-storage.conf.tmpl": [
+      "hooks/target/etc/systemd/common/journald.conf.d/10-storage.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/journald.conf.d/syslog.conf": [
+      "hooks/target/etc/systemd/common/journald.conf.d/syslog.conf"
+    ],
+    "hooks/target/etc/systemd/logind.conf.d/70-labwc-lock.conf": [
+      "hooks/target/etc/systemd/desktop/logind.conf.d/70-labwc-lock.conf"
+    ],
+    "hooks/target/etc/systemd/logind.conf.d/override.conf": [
+      "hooks/target/etc/systemd/desktop/logind.conf.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/network/10-ethernet.link.tmpl": [
+      "hooks/target/etc/systemd/desktop/network/10-ethernet.link.tmpl"
+    ],
+    "hooks/target/etc/systemd/network/11-wifi.link.tmpl": [
+      "hooks/target/etc/systemd/desktop/network/11-wifi.link.tmpl"
+    ],
+    "hooks/target/etc/systemd/resolved.conf.d/60-app-veth.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/resolved.conf.d/60-app-veth.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system.conf.d/60-resource-accounting.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system.conf.d/60-resource-accounting.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/NetworkManager-dispatcher.service.d/20-persistent.conf": [
+      "hooks/target/etc/systemd/common/system/NetworkManager-dispatcher.service.d/20-persistent.conf"
+    ],
+    "hooks/target/etc/systemd/system/NetworkManager.service.d/20-dispatcher.conf": [
+      "hooks/target/etc/systemd/common/system/NetworkManager.service.d/20-dispatcher.conf"
+    ],
+    "hooks/target/etc/systemd/system/app-veth.service": [
+      "hooks/target/etc/systemd/desktop/system/app-veth.service"
+    ],
+    "hooks/target/etc/systemd/system/apparmor-modes.service": [
+      "hooks/target/etc/systemd/common/system/apparmor-modes.service"
+    ],
+    "hooks/target/etc/systemd/system/apparmor.service.d/20-cache.conf": [
+      "hooks/target/etc/systemd/common/system/apparmor.service.d/20-cache.conf"
+    ],
+    "hooks/target/etc/systemd/system/apt-daily-upgrade.service.d/50-unattended-upgrades-notify.conf": [
+      "hooks/target/etc/systemd/common/system/apt-daily-upgrade.service.d/50-unattended-upgrades-notify.conf"
+    ],
+    "hooks/target/etc/systemd/system/apt-daily-upgrade.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/common/system/apt-daily-upgrade.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/system/apt-daily.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/common/system/apt-daily.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/system/apt-daily.service.d/override.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/apt-daily.service.d/override.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/apt-refresh-lists.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/apt-refresh-lists.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/apt-repo-local-.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/common/system/apt-repo-local-.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/system/apt-repo-local-inbox.path": [
+      "hooks/target/etc/systemd/common/system/apt-repo-local-inbox.path"
+    ],
+    "hooks/target/etc/systemd/system/apt-repo-local-inbox.service": [
+      "hooks/target/etc/systemd/common/system/apt-repo-local-inbox.service"
+    ],
+    "hooks/target/etc/systemd/system/apt-repo-local-refresh.service": [
+      "hooks/target/etc/systemd/common/system/apt-repo-local-refresh.service"
+    ],
+    "hooks/target/etc/systemd/system/apt-repo-local-refresh.timer": [
+      "hooks/target/etc/systemd/common/system/apt-repo-local-refresh.timer"
+    ],
+    "hooks/target/etc/systemd/system/audit-rules.service.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/audit-rules.service.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/auditd.service.d/40-logging.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/auditd.service.d/40-logging.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/bluetooth-controller-init.service": [
+      "hooks/target/etc/systemd/desktop/system/bluetooth-controller-init.service"
+    ],
+    "hooks/target/etc/systemd/system/bluetooth.service.d/override.conf": [
+      "hooks/target/etc/systemd/desktop/system/bluetooth.service.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/boot-log.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/boot-log.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/boot-log.timer.tmpl": [
+      "hooks/target/etc/systemd/common/system/boot-log.timer.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/bootprofile-apply.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/bootprofile-apply.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/ci-github.service.tmpl": [
+      "hooks/target/etc/systemd/server/system/ci-github.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/ci-gitlab.service.tmpl": [
+      "hooks/target/etc/systemd/server/system/ci-gitlab.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/clamav-daemon.service.d/40-logging.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/clamav-daemon.service.d/40-logging.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/clamav-freshclam.service.d/40-logging.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/clamav-freshclam.service.d/40-logging.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/clamav-signature-update.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/common/system/clamav-signature-update.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/system/clamav-signature-update.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/clamav-signature-update.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/clamav-signature-update.timer": [
+      "hooks/target/etc/systemd/common/system/clamav-signature-update.timer"
+    ],
+    "hooks/target/etc/systemd/system/crowdsec-firewall-bouncer.service.d/40-logging.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/crowdsec-firewall-bouncer.service.d/40-logging.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/crowdsec-firewall-bouncer.service.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/crowdsec-firewall-bouncer.service.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/crowdsec.service.d/20-capi-retry.conf": [
+      "hooks/target/etc/systemd/common/system/crowdsec.service.d/20-capi-retry.conf"
+    ],
+    "hooks/target/etc/systemd/system/crowdsec.service.d/40-logging.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/crowdsec.service.d/40-logging.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/data-run.mount.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/data-run.mount.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/dbus-broker.service.d/10-broker-hardening.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/dbus-broker.service.d/10-broker-hardening.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/dbus-broker.service.d/60-stop-timeout.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/dbus-broker.service.d/60-stop-timeout.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/debugsys-boot-report.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/debugsys-boot-report.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/dev-shm.mount.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/dev-shm.mount.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/dnsmasq-app-veth.service": [
+      "hooks/target/etc/systemd/desktop/system/dnsmasq-app-veth.service"
+    ],
+    "hooks/target/etc/systemd/system/fail2ban.service.d/40-runtime.conf": [
+      "hooks/target/etc/systemd/common/system/fail2ban.service.d/40-runtime.conf"
+    ],
+    "hooks/target/etc/systemd/system/filen-sync@.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/filen-sync@.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/fruux-firstboot.service.tmpl": [
+      "hooks/target/etc/systemd/desktop/system/fruux-firstboot.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/fstrim.service.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/fstrim.service.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/fstrim.timer.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/fstrim.timer.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/fwupd.service.d/20-upower-ordering.conf": [
+      "hooks/target/etc/systemd/desktop/system/fwupd.service.d/20-upower-ordering.conf"
+    ],
+    "hooks/target/etc/systemd/system/greetd.service.d/20-labwc-vt.conf": [
+      "hooks/target/etc/systemd/desktop/system/greetd.service.d/20-labwc-vt.conf"
+    ],
+    "hooks/target/etc/systemd/system/greetd.service.d/40-fruux-firstboot.conf": [
+      "hooks/target/etc/systemd/desktop/system/greetd.service.d/40-fruux-firstboot.conf"
+    ],
+    "hooks/target/etc/systemd/system/grub-btrfs-refresh.path": [
+      "hooks/target/etc/systemd/common/system/grub-btrfs-refresh.path"
+    ],
+    "hooks/target/etc/systemd/system/grub-btrfs-refresh.service": [
+      "hooks/target/etc/systemd/common/system/grub-btrfs-refresh.service"
+    ],
+    "hooks/target/etc/systemd/system/grub-btrfs-refresh.timer": [
+      "hooks/target/etc/systemd/common/system/grub-btrfs-refresh.timer"
+    ],
+    "hooks/target/etc/systemd/system/hardware-tuning-autostart.service": [
+      "hooks/target/etc/systemd/common/system/hardware-tuning-autostart.service"
+    ],
+    "hooks/target/etc/systemd/system/hardware-tuning-sleep.service": [
+      "hooks/target/etc/systemd/common/system/hardware-tuning-sleep.service"
+    ],
+    "hooks/target/etc/systemd/system/hardware-tuning.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/hardware-tuning.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/hardware-tuning.socket.tmpl": [
+      "hooks/target/etc/systemd/common/system/hardware-tuning.socket.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/ifup@.service.d/40-device-lifecycle.conf": [
+      "hooks/target/etc/systemd/common/system/ifup@.service.d/40-device-lifecycle.conf"
+    ],
+    "hooks/target/etc/systemd/system/incus-host.service": [
+      "hooks/target/etc/systemd/common/system/incus-host.service"
+    ],
+    "hooks/target/etc/systemd/system/incus-user.service.d/20-bootstrap.conf": [
+      "hooks/target/etc/systemd/common/system/incus-user.service.d/20-bootstrap.conf"
+    ],
+    "hooks/target/etc/systemd/system/journal-sealing.service": [
+      "hooks/target/etc/systemd/common/system/journal-sealing.service"
+    ],
+    "hooks/target/etc/systemd/system/key-manager-acme-renew.service.tmpl": [
+      "hooks/target/etc/systemd/desktop/system/key-manager-acme-renew.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/key-manager-acme-renew.timer": [
+      "hooks/target/etc/systemd/desktop/system/key-manager-acme-renew.timer"
+    ],
+    "hooks/target/etc/systemd/system/labwc-admin-action@.service.tmpl": [
+      "hooks/target/etc/systemd/desktop/system/labwc-admin-action@.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/labwc-apparmor-boot-recover.service": [
+      "hooks/target/etc/systemd/desktop/system/labwc-apparmor-boot-recover.service"
+    ],
+    "hooks/target/etc/systemd/system/labwc-apparmor-policy@.service": [
+      "hooks/target/etc/systemd/desktop/system/labwc-apparmor-policy@.service"
+    ],
+    "hooks/target/etc/systemd/system/labwc-external-drives-shutdown.service": [
+      "hooks/target/etc/systemd/desktop/system/labwc-external-drives-shutdown.service"
+    ],
+    "hooks/target/etc/systemd/system/labwc-package-sleep-guard.service.tmpl": [
+      "hooks/target/etc/systemd/desktop/system/labwc-package-sleep-guard.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/labwc-system-desktop-overrides.path": [
+      "hooks/target/etc/systemd/desktop/system/labwc-system-desktop-overrides.path"
+    ],
+    "hooks/target/etc/systemd/system/labwc-system-desktop-overrides.service": [
+      "hooks/target/etc/systemd/desktop/system/labwc-system-desktop-overrides.service"
+    ],
+    "hooks/target/etc/systemd/system/labwc-thinkpad-hotkeys.service": [
+      "hooks/target/etc/systemd/desktop/system/labwc-thinkpad-hotkeys.service"
+    ],
+    "hooks/target/etc/systemd/system/logrotate.timer.d/override.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/logrotate.timer.d/override.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/lynis.service.d/40-logging.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/lynis.service.d/40-logging.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/mullvad-apparmor.service": [
+      "hooks/target/etc/systemd/desktop/system/mullvad-apparmor.service"
+    ],
+    "hooks/target/etc/systemd/system/mullvad-daemon.service.d/10-apparmor.conf": [
+      "hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/10-apparmor.conf"
+    ],
+    "hooks/target/etc/systemd/system/mullvad-daemon.service.d/20-dns.conf": [
+      "hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/20-dns.conf"
+    ],
+    "hooks/target/etc/systemd/system/mullvad-daemon.service.d/25-lan-sharing.conf": [
+      "hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/25-lan-sharing.conf"
+    ],
+    "hooks/target/etc/systemd/system/mullvad-daemon.service.d/40-logging.conf": [
+      "hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/40-logging.conf"
+    ],
+    "hooks/target/etc/systemd/system/network-sharing-identity.service": [
+      "hooks/target/etc/systemd/common/system/network-sharing-identity.service"
+    ],
+    "hooks/target/etc/systemd/system/network-sharing-report.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/network-sharing-report.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/network-wifi-carrier@.service": [
+      "hooks/target/etc/systemd/common/system/network-wifi-carrier@.service"
+    ],
+    "hooks/target/etc/systemd/system/network-wifi-shutdown.service": [
+      "hooks/target/usr/local/libexec/common/network-wifi-configure"
+    ],
+    "hooks/target/etc/systemd/system/network.service": [
+      "hooks/target/etc/systemd/common/system/network.service"
+    ],
+    "hooks/target/etc/systemd/system/networking.service.d/20-resolved-shutdown-order.conf": [
+      "hooks/target/etc/systemd/common/system/networking.service.d/20-resolved-shutdown-order.conf"
+    ],
+    "hooks/target/etc/systemd/system/nfs-idmapd.service.d/60-network-sharing.conf": [
+      "hooks/target/etc/systemd/common/system/nfs-idmapd.service.d/60-network-sharing.conf"
+    ],
+    "hooks/target/etc/systemd/system/nfs-mountd.service.d/60-network-sharing.conf": [
+      "hooks/target/etc/systemd/common/system/nfs-mountd.service.d/60-network-sharing.conf"
+    ],
+    "hooks/target/etc/systemd/system/nfs-server.service.d/60-network-sharing.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/nfs-server.service.d/60-network-sharing.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/nftables.service.d/override.conf": [
+      "hooks/target/etc/systemd/desktop/system/nftables.service.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/nvidia-char-links.service": [
+      "hooks/target/etc/systemd/desktop/system/nvidia-char-links.service"
+    ],
+    "hooks/target/etc/systemd/system/nvidia-hibernate.service.d/20-vram.conf": [
+      "hooks/target/etc/systemd/desktop/system/nvidia-hibernate.service.d/20-vram.conf"
+    ],
+    "hooks/target/etc/systemd/system/nvidia-powerd.service.d/10-device-guard.conf": [
+      "hooks/target/etc/systemd/desktop/system/nvidia-powerd.service.d/10-device-guard.conf"
+    ],
+    "hooks/target/etc/systemd/system/nvidia-resume.service.d/20-vram.conf": [
+      "hooks/target/etc/systemd/desktop/system/nvidia-resume.service.d/20-vram.conf"
+    ],
+    "hooks/target/etc/systemd/system/nvidia-suspend-then-hibernate.service.d/20-vram.conf": [
+      "hooks/target/etc/systemd/desktop/system/nvidia-suspend-then-hibernate.service.d/20-vram.conf"
+    ],
+    "hooks/target/etc/systemd/system/nvidia-suspend.service.d/20-vram.conf": [
+      "hooks/target/etc/systemd/desktop/system/nvidia-suspend.service.d/20-vram.conf"
+    ],
+    "hooks/target/etc/systemd/system/podman-devops-bootstrap.service": [
+      "hooks/target/etc/systemd/desktop/system/podman-devops-bootstrap.service"
+    ],
+    "hooks/target/etc/systemd/system/power-profiles-daemon.service.d/50-hardware-tuning.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/power-profiles-daemon.service.d/50-hardware-tuning.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/rsyslog-journal-forwarding.service": [
+      "hooks/target/etc/systemd/common/system/rsyslog-journal-forwarding.service"
+    ],
+    "hooks/target/etc/systemd/system/rsyslog.service.d/20-log-layout.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/rsyslog.service.d/20-log-layout.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/rsyslog.service.d/30-security-scanner-socket.conf": [
+      "hooks/target/etc/systemd/common/system/rsyslog.service.d/30-security-scanner-socket.conf"
+    ],
+    "hooks/target/etc/systemd/system/rsyslog.service.d/32-apps-socket.conf": [
+      "hooks/target/etc/systemd/desktop/system/rsyslog.service.d/32-apps-socket.conf"
+    ],
+    "hooks/target/etc/systemd/system/rsyslog.service.d/35-openai-chatgpt-socket.conf": [
+      "hooks/target/etc/systemd/desktop/system/rsyslog.service.d/35-openai-chatgpt-socket.conf"
+    ],
+    "hooks/target/etc/systemd/system/rsyslog.service.d/40-journal-forwarding.conf": [
+      "hooks/target/etc/systemd/common/system/rsyslog.service.d/40-journal-forwarding.conf"
+    ],
+    "hooks/target/etc/systemd/system/scx.service.d/50-sched-ext.conf": [
+      "hooks/target/etc/systemd/common/system/scx.service.d/50-sched-ext.conf"
+    ],
+    "hooks/target/etc/systemd/system/scx_loader.service.d/50-sched-ext.conf": [
+      "hooks/target/etc/systemd/common/system/scx_loader.service.d/50-sched-ext.conf"
+    ],
+    "hooks/target/etc/systemd/system/sleep.target.d/50-package-lock-guard.conf": [
+      "hooks/target/etc/systemd/desktop/system/sleep.target.d/50-package-lock-guard.conf"
+    ],
+    "hooks/target/etc/systemd/system/stubby.service": [
+      "hooks/target/etc/systemd/common/system/stubby.service"
+    ],
+    "hooks/target/etc/systemd/system/stubby.service.d/60-app-veth.conf": [
+      "hooks/target/etc/systemd/desktop/system/stubby.service.d/60-app-veth.conf"
+    ],
+    "hooks/target/etc/systemd/system/swap-fallback.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/swap-fallback.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/syncthing.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/desktop/system/syncthing.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/system/syncthing.service.tmpl": [
+      "hooks/target/etc/systemd/desktop/system/syncthing.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/system-background.slice": [
+      "hooks/target/etc/systemd/common/system/system-background.slice"
+    ],
+    "hooks/target/etc/systemd/system/system-background.slice.d/60-resources.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/system-background.slice.d/60-resources.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/system-maintenance.slice": [
+      "hooks/target/etc/systemd/common/system/system-maintenance.slice"
+    ],
+    "hooks/target/etc/systemd/system/system-maintenance.slice.d/60-resources.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/system-maintenance.slice.d/60-resources.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/systemd-coredump.socket.d/60-poll-limit.conf.tmpl": [
+      "hooks/target/etc/systemd/common/system/systemd-coredump.socket.d/60-poll-limit.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/systemd-creds.socket.d/10-encrypted-only.conf": [
+      "hooks/target/etc/systemd/common/system/systemd-creds.socket.d/10-encrypted-only.conf"
+    ],
+    "hooks/target/etc/systemd/system/systemd-hibernate.service.d/20-nvidia-preserve.conf": [
+      "hooks/target/etc/systemd/desktop/system/systemd-hibernate.service.d/20-nvidia-preserve.conf"
+    ],
+    "hooks/target/etc/systemd/system/systemd-hybrid-sleep.service.d/20-nvidia-preserve.conf": [
+      "hooks/target/etc/systemd/desktop/system/systemd-hybrid-sleep.service.d/20-nvidia-preserve.conf"
+    ],
+    "hooks/target/etc/systemd/system/systemd-resolved.service.d/60-stubby.conf": [
+      "hooks/target/etc/systemd/desktop/system/systemd-resolved.service.d/60-stubby.conf"
+    ],
+    "hooks/target/etc/systemd/system/systemd-suspend-then-hibernate.service.d/20-nvidia-preserve.conf": [
+      "hooks/target/etc/systemd/desktop/system/systemd-suspend-then-hibernate.service.d/20-nvidia-preserve.conf"
+    ],
+    "hooks/target/etc/systemd/system/systemd-suspend.service.d/20-nvidia-preserve.conf": [
+      "hooks/target/etc/systemd/desktop/system/systemd-suspend.service.d/20-nvidia-preserve.conf"
+    ],
+    "hooks/target/etc/systemd/system/tailscaled.service.d/30-mullvad-exclusion.conf": [
+      "hooks/target/etc/systemd/desktop/system/tailscaled.service.d/30-mullvad-exclusion.conf"
+    ],
+    "hooks/target/etc/systemd/system/tailscaled.service.d/override.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/system/tailscaled.service.d/override.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/technitium.service.tmpl": [
+      "hooks/target/etc/systemd/server/system/technitium.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/timeshift-.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/common/system/timeshift-.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/system/timeshift-daily.service": [
+      "hooks/target/etc/systemd/common/system/timeshift-daily.service"
+    ],
+    "hooks/target/etc/systemd/system/timeshift-daily.timer": [
+      "hooks/target/etc/systemd/common/system/timeshift-daily.timer"
+    ],
+    "hooks/target/etc/systemd/system/timeshift-monthly.service": [
+      "hooks/target/etc/systemd/common/system/timeshift-monthly.service"
+    ],
+    "hooks/target/etc/systemd/system/timeshift-monthly.timer": [
+      "hooks/target/etc/systemd/common/system/timeshift-monthly.timer"
+    ],
+    "hooks/target/etc/systemd/system/timeshift-weekly.service": [
+      "hooks/target/etc/systemd/common/system/timeshift-weekly.service"
+    ],
+    "hooks/target/etc/systemd/system/timeshift-weekly.timer": [
+      "hooks/target/etc/systemd/common/system/timeshift-weekly.timer"
+    ],
+    "hooks/target/etc/systemd/system/tmp.mount.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/tmp.mount.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/tmpfs-pre-clean.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/tmpfs-pre-clean.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/unattended-upgrades.service.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/unattended-upgrades.service.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/user-1000.slice.d/50-resource-accounting.conf": [
+      "hooks/target/etc/systemd/desktop/system/user-1000.slice.d/50-resource-accounting.conf"
+    ],
+    "hooks/target/etc/systemd/system/user@.service.d/20-labwc-seatd.conf": [
+      "hooks/target/etc/systemd/desktop/system/user@.service.d/20-labwc-seatd.conf"
+    ],
+    "hooks/target/etc/systemd/system/user@.service.d/50-oom-score.conf": [
+      "hooks/target/etc/systemd/common/system/user@.service.d/50-oom-score.conf"
+    ],
+    "hooks/target/etc/systemd/system/user@.service.d/60-resource-delegation.conf": [
+      "hooks/target/etc/systemd/common/system/user@.service.d/60-resource-delegation.conf"
+    ],
+    "hooks/target/etc/systemd/system/var-cache.mount.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/var-cache.mount.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/var-lib-apt-lists.mount.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/var-lib-apt-lists.mount.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/var-lib-systemd-coredump.mount.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/var-lib-systemd-coredump.mount.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/var-log.mount.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/var-log.mount.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/var-spool-rsyslog.mount.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/var-spool-rsyslog.mount.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/wifi-firstboot.service": [
+      "hooks/target/etc/systemd/common/system/wifi-firstboot.service"
+    ],
+    "hooks/target/etc/systemd/system/wpa_supplicant.service.d/override.conf": [
+      "hooks/target/etc/systemd/common/system/wpa_supplicant.service.d/override.conf"
+    ],
+    "hooks/target/etc/systemd/system/xfs_healer_start.service.d/20-refresh-unit-cache.conf": [
+      "hooks/target/etc/systemd/common/system/xfs_healer_start.service.d/20-refresh-unit-cache.conf"
+    ],
+    "hooks/target/etc/systemd/system/zram-cold-tier.timer.tmpl": [
+      "hooks/target/etc/systemd/common/system/zram-cold-tier.timer.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/zram-idle-writeback.timer.tmpl": [
+      "hooks/target/etc/systemd/common/system/zram-idle-writeback.timer.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/zram-setup.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/zram-setup.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/zram-writeback.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/zram-writeback.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/system/zram-writebackd.service.tmpl": [
+      "hooks/target/etc/systemd/common/system/zram-writebackd.service.tmpl"
+    ],
+    "hooks/target/etc/systemd/user.conf.d/50-resource-defaults.conf": [
+      "hooks/target/etc/systemd/desktop/user.conf.d/50-resource-defaults.conf"
+    ],
+    "hooks/target/etc/systemd/user.conf.d/60-resource-accounting.conf.tmpl": [
+      "hooks/target/etc/systemd/common/user.conf.d/60-resource-accounting.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/dbus-broker.service.d/10-broker-hardening.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/dbus-broker.service.d/10-broker-hardening.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/dbus-broker.service.d/60-stop-timeout.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/dbus-broker.service.d/60-stop-timeout.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/filter-chain.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/filter-chain.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/filter-chain.service.d/60-resources.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/filter-chain.service.d/60-resources.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/foot-server.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/foot-server.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/foot-server.socket.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/foot-server.socket.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/gvfs-daemon.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/gvfs-daemon.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/gvfs-udisks2-volume-monitor.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/gvfs-udisks2-volume-monitor.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/hardware-tuning-intel-balanced.service": [
+      "hooks/target/etc/systemd/desktop/user/hardware-tuning-intel-balanced.service"
+    ],
+    "hooks/target/etc/systemd/user/hardware-tuning-intel-high.service": [
+      "hooks/target/etc/systemd/desktop/user/hardware-tuning-intel-high.service"
+    ],
+    "hooks/target/etc/systemd/user/hardware-tuning-intel-performance.service": [
+      "hooks/target/etc/systemd/desktop/user/hardware-tuning-intel-performance.service"
+    ],
+    "hooks/target/etc/systemd/user/hardware-tuning-intel-silent.service": [
+      "hooks/target/etc/systemd/desktop/user/hardware-tuning-intel-silent.service"
+    ],
+    "hooks/target/etc/systemd/user/hardware-tuning-nvidia-balanced.service": [
+      "hooks/target/etc/systemd/desktop/user/hardware-tuning-nvidia-balanced.service"
+    ],
+    "hooks/target/etc/systemd/user/hardware-tuning-nvidia-high.service": [
+      "hooks/target/etc/systemd/desktop/user/hardware-tuning-nvidia-high.service"
+    ],
+    "hooks/target/etc/systemd/user/hardware-tuning-nvidia-performance.service": [
+      "hooks/target/etc/systemd/desktop/user/hardware-tuning-nvidia-performance.service"
+    ],
+    "hooks/target/etc/systemd/user/hardware-tuning-nvidia-silent.service": [
+      "hooks/target/etc/systemd/desktop/user/hardware-tuning-nvidia-silent.service"
+    ],
+    "hooks/target/etc/systemd/user/hyprpolkitagent.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/hyprpolkitagent.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/hyprpolkitagent.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/desktop/user/hyprpolkitagent.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/user/hyprpolkitagent.service.d/70-no-core.conf": [
+      "hooks/target/etc/systemd/desktop/user/hyprpolkitagent.service.d/70-no-core.conf"
+    ],
+    "hooks/target/etc/systemd/user/intel-balanced.target": [
+      "hooks/target/etc/systemd/desktop/user/intel-balanced.target"
+    ],
+    "hooks/target/etc/systemd/user/intel-high.target": [
+      "hooks/target/etc/systemd/desktop/user/intel-high.target"
+    ],
+    "hooks/target/etc/systemd/user/intel-performance.target": [
+      "hooks/target/etc/systemd/desktop/user/intel-performance.target"
+    ],
+    "hooks/target/etc/systemd/user/intel-silent.target": [
+      "hooks/target/etc/systemd/desktop/user/intel-silent.target"
+    ],
+    "hooks/target/etc/systemd/user/labwc-compat-.service.d/50-app-lifecycle.conf": [
+      "hooks/target/etc/systemd/desktop/user/labwc-compat-.service.d/50-app-lifecycle.conf"
+    ],
+    "hooks/target/etc/systemd/user/labwc-devops-.service.d/60-stop-budget.conf": [
+      "hooks/target/etc/systemd/desktop/user/labwc-devops-.service.d/60-stop-budget.conf"
+    ],
+    "hooks/target/etc/systemd/user/labwc-devops-.service.d/85-hardware-tuning.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/labwc-devops-.service.d/85-hardware-tuning.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/labwc-electron-.service.d/85-hardware-tuning.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/labwc-electron-.service.d/85-hardware-tuning.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/labwc-gvfs-volume-monitor.service": [
+      "hooks/target/etc/systemd/desktop/user/labwc-gvfs-volume-monitor.service"
+    ],
+    "hooks/target/etc/systemd/user/labwc-lock.service": [
+      "hooks/target/etc/systemd/desktop/user/labwc-lock.service"
+    ],
+    "hooks/target/etc/systemd/user/labwc-native-.service.d/50-app-lifecycle.conf": [
+      "hooks/target/etc/systemd/desktop/user/labwc-native-.service.d/50-app-lifecycle.conf"
+    ],
+    "hooks/target/etc/systemd/user/labwc-native-.service.d/85-hardware-tuning.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/labwc-native-.service.d/85-hardware-tuning.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/labwc-wayland-.service.d/85-hardware-tuning.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/labwc-wayland-.service.d/85-hardware-tuning.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/labwc-wayland-foot-.service.d/60-terminal-lifecycle.conf": [
+      "hooks/target/etc/systemd/desktop/user/labwc-wayland-foot-.service.d/60-terminal-lifecycle.conf"
+    ],
+    "hooks/target/etc/systemd/user/llama-server.service.d/85-hardware-tuning.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/llama-server.service.d/85-hardware-tuning.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/llama-whisper-guard.service": [
+      "hooks/target/etc/systemd/desktop/user/llama-whisper-guard.service"
+    ],
+    "hooks/target/etc/systemd/user/mako.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/mako.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/mako.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/desktop/user/mako.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/user/nvidia-balanced.target": [
+      "hooks/target/etc/systemd/desktop/user/nvidia-balanced.target"
+    ],
+    "hooks/target/etc/systemd/user/nvidia-high.target": [
+      "hooks/target/etc/systemd/desktop/user/nvidia-high.target"
+    ],
+    "hooks/target/etc/systemd/user/nvidia-performance.target": [
+      "hooks/target/etc/systemd/desktop/user/nvidia-performance.target"
+    ],
+    "hooks/target/etc/systemd/user/nvidia-silent.target": [
+      "hooks/target/etc/systemd/desktop/user/nvidia-silent.target"
+    ],
+    "hooks/target/etc/systemd/user/pipewire-pulse.service.d/20-no-greeter.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/pipewire-pulse.service.d/20-no-greeter.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/pipewire-pulse.service.d/60-resources.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/pipewire-pulse.service.d/60-resources.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/pipewire-pulse.socket.d/20-no-greeter.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/pipewire-pulse.socket.d/20-no-greeter.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/pipewire.service.d/20-no-greeter.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/pipewire.service.d/20-no-greeter.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/pipewire.service.d/60-resources.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/pipewire.service.d/60-resources.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/pipewire.socket.d/20-no-greeter.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/pipewire.socket.d/20-no-greeter.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/ssh-agent.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/ssh-agent.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/ssh-agent.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/desktop/user/ssh-agent.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/user/ssh-agent.socket.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/ssh-agent.socket.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/thunar.service.d/50-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/thunar.service.d/50-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/wayscriber.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/wayscriber.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/wireplumber.service.d/20-no-root.conf.tmpl": [
+      "hooks/target/etc/systemd/desktop/user/wireplumber.service.d/20-no-root.conf.tmpl"
+    ],
+    "hooks/target/etc/systemd/user/wireplumber.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/desktop/user/wireplumber.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/user/xdg-desktop-portal-.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/desktop/user/xdg-desktop-portal-.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/systemd/user/xdg-desktop-portal-gtk.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/xdg-desktop-portal-gtk.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/xdg-desktop-portal-lxqt.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/xdg-desktop-portal-lxqt.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/xdg-desktop-portal-wlr.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/xdg-desktop-portal-wlr.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/xdg-desktop-portal.service.d/10-labwc-session.conf": [
+      "hooks/target/etc/systemd/desktop/user/xdg-desktop-portal.service.d/10-labwc-session.conf"
+    ],
+    "hooks/target/etc/systemd/user/xdg-desktop-portal.service.d/60-resource-class.conf": [
+      "hooks/target/etc/systemd/desktop/user/xdg-desktop-portal.service.d/60-resource-class.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/10-runtime-storage-roots.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/desktop/10-runtime-storage-roots.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/20-data-run.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/20-data-run.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/25-desktop-media-runtime.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/desktop/25-desktop-media-runtime.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/30-var-log.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/30-var-log.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/40-apt-lists.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/40-apt-lists.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/40-network-profiles.conf": [
+      "hooks/target/etc/tmpfiles.d/common/40-network-profiles.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/50-desktop-var-cache.conf": [
+      "hooks/target/etc/tmpfiles.d/desktop/50-desktop-var-cache.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/50-var-cache.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/50-var-cache.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/51-mullvad-version-cache.conf": [
+      "hooks/target/etc/tmpfiles.d/desktop/51-mullvad-version-cache.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/52-mullvad-tailscale-coordinator.conf": [
+      "hooks/target/etc/tmpfiles.d/desktop/52-mullvad-tailscale-coordinator.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/55-podman-devops.conf": [
+      "hooks/target/etc/tmpfiles.d/desktop/55-podman-devops.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/55-whisper-runtime.conf": [
+      "hooks/target/etc/tmpfiles.d/desktop/55-whisper-runtime.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/57-crowdsec-logs.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/57-crowdsec-logs.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/58-clamav-logs.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/desktop/58-clamav-logs.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/58-native-logs.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/58-native-logs.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/59-log-layout.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/60-security-logs.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/60-security-logs.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/60-zram-writeback.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/60-zram-writeback.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/61-openai-chatgpt.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/61-timeshift.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/61-timeshift.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/62-fail2ban.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/62-fail2ban.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/65-audit-syslog.conf": [
+      "hooks/target/etc/tmpfiles.d/common/65-audit-syslog.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/70-nvidia-vram.conf": [
+      "hooks/target/etc/tmpfiles.d/desktop/70-nvidia-vram.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/70-polkit-runtime.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/70-polkit-runtime.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/75-auditd-storage.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/75-auditd-storage.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/75-desktop-pool-storage.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/desktop/75-desktop-pool-storage.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/80-codex-storage.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/desktop/80-codex-storage.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/85-qemu-incus-storage.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/85-qemu-incus-storage.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/86-firmware-workspace.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/common/86-firmware-workspace.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/man-db.conf": [
+      "hooks/target/etc/tmpfiles.d/common/man-db.conf"
+    ],
+    "hooks/target/etc/tmpfiles.d/server/59-server-logs.conf.tmpl": [
+      "hooks/target/etc/tmpfiles.d/server/59-server-logs.conf.tmpl"
+    ],
+    "hooks/target/etc/tmpfiles.d/tmp.conf": [
+      "hooks/target/etc/tmpfiles.d/common/tmp.conf"
+    ],
+    "hooks/target/server/installer-serverctl.py.tmpl": [
+      "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl"
+    ],
+    "hooks/target/server/technitium-preflight.py.tmpl": [
+      "hooks/target/usr/local/libexec/server/technitium-preflight.py.tmpl"
+    ],
+    "hooks/target/usr/local/bin/apt-repo-init": [
+      "hooks/target/usr/local/bin/common/apt-repo-init"
+    ],
+    "hooks/target/usr/local/bin/browser-devtools": [
+      "hooks/target/usr/local/bin/desktop/browser-devtools"
+    ],
+    "hooks/target/usr/local/bin/chatgpt": [
+      "hooks/target/usr/local/bin/desktop/chatgpt"
+    ],
+    "hooks/target/usr/local/bin/codex-standalone-install": [
+      "hooks/target/usr/local/bin/desktop/codex-standalone-install"
+    ],
+    "hooks/target/usr/local/bin/compz": [
+      "hooks/target/usr/local/bin/desktop/compz"
+    ],
+    "hooks/target/usr/local/bin/debugsys": [
+      "hooks/target/usr/local/bin/common/debugsys"
+    ],
+    "hooks/target/usr/local/bin/discord": [
+      "hooks/target/usr/local/bin/desktop/discord"
+    ],
+    "hooks/target/usr/local/bin/docker": [
+      "hooks/target/usr/local/bin/desktop/docker"
+    ],
+    "hooks/target/usr/local/bin/docker-compose": [
+      "hooks/target/usr/local/bin/desktop/docker-compose"
+    ],
+    "hooks/target/usr/local/bin/filenmnt": [
+      "hooks/target/usr/local/bin/common/filenmnt"
+    ],
+    "hooks/target/usr/local/bin/git-ssh": [
+      "hooks/target/usr/local/bin/common/git-ssh"
+    ],
+    "hooks/target/usr/local/bin/gitbuild": [
+      "hooks/target/usr/local/bin/desktop/gitbuild"
+    ],
+    "hooks/target/usr/local/bin/gitops": [
+      "hooks/target/usr/local/bin/common/gitops"
+    ],
+    "hooks/target/usr/local/bin/key-manager": [
+      "hooks/target/usr/local/bin/common/key-manager"
+    ],
+    "hooks/target/usr/local/bin/labmgmt": [
+      "hooks/target/usr/local/bin/desktop/labmgmt"
+    ],
+    "hooks/target/usr/local/bin/labwc-adb-action": [
+      "hooks/target/usr/local/bin/desktop/labwc-adb-action"
+    ],
+    "hooks/target/usr/local/bin/labwc-adb-menu": [
+      "hooks/target/usr/local/bin/desktop/labwc-adb-menu"
+    ],
+    "hooks/target/usr/local/bin/labwc-admin-action.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-admin-action.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-ai-copilots": [
+      "hooks/target/usr/local/bin/desktop/labwc-ai-copilots"
+    ],
+    "hooks/target/usr/local/bin/labwc-ai-copilots-action": [
+      "hooks/target/usr/local/bin/desktop/labwc-ai-copilots-action"
+    ],
+    "hooks/target/usr/local/bin/labwc-app": [
+      "hooks/target/usr/local/bin/desktop/labwc-app"
+    ],
+    "hooks/target/usr/local/bin/labwc-autostart": [
+      "hooks/target/usr/local/bin/desktop/labwc-autostart"
+    ],
+    "hooks/target/usr/local/bin/labwc-bluetooth.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-bluetooth.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-brightness-control.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-brightness-control.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-capture.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-capture.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-computer-management": [
+      "hooks/target/usr/local/bin/desktop/labwc-computer-management"
+    ],
+    "hooks/target/usr/local/bin/labwc-desktop-appearance": [
+      "hooks/target/usr/local/bin/desktop/labwc-desktop-appearance"
+    ],
+    "hooks/target/usr/local/bin/labwc-digital-assets": [
+      "hooks/target/usr/local/bin/desktop/labwc-digital-assets"
+    ],
+    "hooks/target/usr/local/bin/labwc-digital-assets-action": [
+      "hooks/target/usr/local/bin/desktop/labwc-digital-assets-action"
+    ],
+    "hooks/target/usr/local/bin/labwc-display-configuration": [
+      "hooks/target/usr/local/bin/desktop/labwc-display-configuration"
+    ],
+    "hooks/target/usr/local/bin/labwc-electron-app": [
+      "hooks/target/usr/local/bin/desktop/labwc-electron-app"
+    ],
+    "hooks/target/usr/local/bin/labwc-external-drives.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-external-drives.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-firewall-action": [
+      "hooks/target/usr/local/bin/desktop/labwc-firewall-action"
+    ],
+    "hooks/target/usr/local/bin/labwc-firewall-menu": [
+      "hooks/target/usr/local/bin/desktop/labwc-firewall-menu"
+    ],
+    "hooks/target/usr/local/bin/labwc-focuswriter-import": [
+      "hooks/target/usr/local/bin/desktop/labwc-focuswriter-import"
+    ],
+    "hooks/target/usr/local/bin/labwc-freerdp-askpass": [
+      "hooks/target/usr/local/bin/desktop/labwc-freerdp-askpass"
+    ],
+    "hooks/target/usr/local/bin/labwc-fuzzel-log.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-fuzzel-log.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-fuzzel.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-fuzzel.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-greeter-output": [
+      "hooks/target/usr/local/bin/desktop/labwc-greeter-output"
+    ],
+    "hooks/target/usr/local/bin/labwc-greeter-power": [
+      "hooks/target/usr/local/bin/desktop/labwc-greeter-power"
+    ],
+    "hooks/target/usr/local/bin/labwc-greeter-session.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-greeter-session.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-hardware-tuning": [
+      "hooks/target/usr/local/bin/desktop/labwc-hardware-tuning"
+    ],
+    "hooks/target/usr/local/bin/labwc-health-notify.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-health-notify.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-help": [
+      "hooks/target/usr/local/bin/desktop/labwc-help"
+    ],
+    "hooks/target/usr/local/bin/labwc-idle-toggle": [
+      "hooks/target/usr/local/bin/desktop/labwc-idle-toggle"
+    ],
+    "hooks/target/usr/local/bin/labwc-keyboard-layout.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-keyboard-layout.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-lock.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-lock.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-logout": [
+      "hooks/target/usr/local/bin/desktop/labwc-logout"
+    ],
+    "hooks/target/usr/local/bin/labwc-main-menu.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-main-menu.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-maintenance-menu.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-maintenance-menu.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-network-control-action": [
+      "hooks/target/usr/local/bin/desktop/labwc-network-control-action"
+    ],
+    "hooks/target/usr/local/bin/labwc-network-control-menu": [
+      "hooks/target/usr/local/bin/desktop/labwc-network-control-menu"
+    ],
+    "hooks/target/usr/local/bin/labwc-network-scan-action": [
+      "hooks/target/usr/local/bin/desktop/labwc-network-scan-action"
+    ],
+    "hooks/target/usr/local/bin/labwc-network-scan-menu": [
+      "hooks/target/usr/local/bin/desktop/labwc-network-scan-menu"
+    ],
+    "hooks/target/usr/local/bin/labwc-network-sharing": [
+      "hooks/target/usr/local/bin/desktop/labwc-network-sharing"
+    ],
+    "hooks/target/usr/local/bin/labwc-ocr": [
+      "hooks/target/usr/local/bin/desktop/labwc-ocr"
+    ],
+    "hooks/target/usr/local/bin/labwc-podman-menu": [
+      "hooks/target/usr/local/bin/desktop/labwc-podman-menu"
+    ],
+    "hooks/target/usr/local/bin/labwc-power-menu": [
+      "hooks/target/usr/local/bin/desktop/labwc-power-menu"
+    ],
+    "hooks/target/usr/local/bin/labwc-power-settings": [
+      "hooks/target/usr/local/bin/desktop/labwc-power-settings"
+    ],
+    "hooks/target/usr/local/bin/labwc-qbittorrent": [
+      "hooks/target/usr/local/bin/desktop/labwc-qbittorrent"
+    ],
+    "hooks/target/usr/local/bin/labwc-recovery-action.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-recovery-action.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-remote-desktop.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-remote-desktop.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-run": [
+      "hooks/target/usr/local/bin/desktop/labwc-run"
+    ],
+    "hooks/target/usr/local/bin/labwc-security-action": [
+      "hooks/target/usr/local/bin/desktop/labwc-security-action"
+    ],
+    "hooks/target/usr/local/bin/labwc-session.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-session.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-show-desktop": [
+      "hooks/target/usr/local/bin/desktop/labwc-show-desktop"
+    ],
+    "hooks/target/usr/local/bin/labwc-sync-application-launchers.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-sync-application-launchers.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-system-action.tmpl": [
+      "hooks/target/usr/local/bin/desktop/labwc-system-action.tmpl"
+    ],
+    "hooks/target/usr/local/bin/labwc-system-menu-action": [
+      "hooks/target/usr/local/bin/desktop/labwc-system-menu-action"
+    ],
+    "hooks/target/usr/local/bin/labwc-terminal": [
+      "hooks/target/usr/local/bin/desktop/labwc-terminal"
+    ],
+    "hooks/target/usr/local/bin/labwc-users-groups-menu": [
+      "hooks/target/usr/local/bin/desktop/labwc-users-groups-menu"
+    ],
+    "hooks/target/usr/local/bin/labwc-wallpaper-save": [
+      "hooks/target/usr/local/bin/desktop/labwc-wallpaper-save"
+    ],
+    "hooks/target/usr/local/bin/labwc-wayland-app": [
+      "hooks/target/usr/local/bin/desktop/labwc-wayland-app"
+    ],
+    "hooks/target/usr/local/bin/labwc-wayland-compat-app": [
+      "hooks/target/usr/local/bin/desktop/labwc-wayland-compat-app"
+    ],
+    "hooks/target/usr/local/bin/labwc-wayscriber-config": [
+      "hooks/target/usr/local/bin/desktop/labwc-wayscriber-config"
+    ],
+    "hooks/target/usr/local/bin/labwc-wayscriber-toggle": [
+      "hooks/target/usr/local/bin/desktop/labwc-wayscriber-toggle"
+    ],
+    "hooks/target/usr/local/bin/labwc-window-switcher": [
+      "hooks/target/usr/local/bin/desktop/labwc-window-switcher"
+    ],
+    "hooks/target/usr/local/bin/labwc-wlsunset": [
+      "hooks/target/usr/local/bin/desktop/labwc-wlsunset"
+    ],
+    "hooks/target/usr/local/bin/mullvad-vpn": [
+      "hooks/target/usr/local/bin/desktop/mullvad-vpn"
+    ],
+    "hooks/target/usr/local/bin/network-sharing": [
+      "hooks/target/usr/local/bin/common/network-sharing"
+    ],
+    "hooks/target/usr/local/bin/nfsmnt": [
+      "hooks/target/usr/local/bin/common/nfsmnt"
+    ],
+    "hooks/target/usr/local/bin/nmtui": [
+      "hooks/target/usr/local/bin/desktop/nmtui"
+    ],
+    "hooks/target/usr/local/bin/podman": [
+      "hooks/target/usr/local/bin/desktop/podman"
+    ],
+    "hooks/target/usr/local/bin/satty": [
+      "hooks/target/usr/local/bin/desktop/satty"
+    ],
+    "hooks/target/usr/local/bin/telbot": [
+      "hooks/target/usr/local/bin/common/telbot"
+    ],
+    "hooks/target/usr/local/bin/xssh-retrieve": [
+      "hooks/target/usr/local/bin/common/xssh-retrieve"
+    ],
+    "hooks/target/usr/local/bin/xssh-send": [
+      "hooks/target/usr/local/bin/common/xssh-send"
+    ],
+    "hooks/target/usr/local/bin/youtube-dl": [
+      "hooks/target/usr/local/bin/desktop/youtube-dl"
+    ],
+    "hooks/target/usr/local/bin/yt-dlp": [
+      "hooks/target/usr/local/bin/desktop/yt-dlp"
+    ],
+    "hooks/target/usr/local/bin/zoom": [
+      "hooks/target/usr/local/bin/desktop/zoom"
+    ],
+    "hooks/target/usr/local/lib/hardware_tuning/broker.py": [
+      "hooks/target/usr/local/lib/common/hardware_tuning/broker.py"
+    ],
+    "hooks/target/usr/local/lib/hardware_tuning/client.py": [
+      "hooks/target/usr/local/lib/common/hardware_tuning/client.py"
+    ],
+    "hooks/target/usr/local/lib/hardware_tuning/common.py": [
+      "hooks/target/usr/local/lib/common/hardware_tuning/common.py"
+    ],
+    "hooks/target/usr/local/lib/hardware_tuning/engine.py": [
+      "hooks/target/usr/local/lib/common/hardware_tuning/engine.py"
+    ],
+    "hooks/target/usr/local/lib/hardware_tuning/intel.py": [
+      "hooks/target/usr/local/lib/common/hardware_tuning/intel.py"
+    ],
+    "hooks/target/usr/local/lib/hardware_tuning/nvidia.py": [
+      "hooks/target/usr/local/lib/common/hardware_tuning/nvidia.py"
+    ],
+    "hooks/target/usr/local/lib/hardware_tuning/policy_owner.py": [
+      "hooks/target/usr/local/lib/common/hardware_tuning/policy_owner.py"
+    ],
+    "hooks/target/usr/local/lib/hardware_tuning/power_profiles.py": [
+      "hooks/target/usr/local/lib/common/hardware_tuning/power_profiles.py"
+    ],
+    "hooks/target/usr/local/lib/hardware_tuning/system_state.py": [
+      "hooks/target/usr/local/lib/common/hardware_tuning/system_state.py"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/ai-copilots/AICopilots/CLI.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/ai-copilots/AICopilots/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/ai-copilots/AICopilots/ModelCatalog.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/ai-copilots/AICopilots/ModelCatalog.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/ai-copilots/AICopilots/ModelInstallRoot.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/ai-copilots/AICopilots/ModelInstallRoot.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/ai-copilots/AICopilots/ModelStore.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/ai-copilots/AICopilots/ModelStore.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/ai-copilots/AICopilots/Runtime.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/ai-copilots/AICopilots/Runtime.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/ai-copilots/AICopilots/Session.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/ai-copilots/AICopilots/Session.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/ai-copilots/AICopilots/State.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/ai-copilots/AICopilots/State.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/CLI.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Config.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Config.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/LoadedState.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/LoadedState.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/LocalChildren.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/LocalChildren.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Logger.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Logger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Tool.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Tool.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Transition.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Transition.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/TrustedPath.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/TrustedPath.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Verify.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Verify.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Workspace.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apparmor-modes/AppArmor/ManagedModes/Workspace.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ArtifactLimits.pm.tmpl": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ArtifactLimits.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Atomic.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Atomic.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Bitwarden.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Bitwarden.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/CLI.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Deb.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Deb.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Discord.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Discord.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Event.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Event.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/HTTP.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/HTTP.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Ledger.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Ledger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Logger.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Logger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Notifier.pm.tmpl": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Notifier.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Obsidian.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Obsidian.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Postman.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Postman.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Process.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Process.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Repository.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Repository.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Sleek.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Sleek.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/State.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/State.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Tomat.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Tomat.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Tuta.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Tuta.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Actions.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Actions.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/CLI.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Catalog.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Catalog.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Context.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Context.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Document.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Document.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Image.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Image.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Logger.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Logger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Metadata.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Metadata.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/PDF.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/PDF.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Policy.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Policy.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Runtime.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Runtime.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/digital-assets/DigitalAssets/Session.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/digital-assets/DigitalAssets/Session.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/filen/FilenSync/Config.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/filen/FilenSync/Config.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/filen/FilenSync/Daemon.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/filen/FilenSync/Daemon.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/ADB/Backup.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/ADB/Backup.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/ADB/Device.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/ADB/Device.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/ADB/Package.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/ADB/Package.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/ADB/Permissions.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/ADB/Permissions.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/ADB/Server.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/ADB/Server.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/ADB/Transfer.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/ADB/Transfer.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/CLI.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Command.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Command.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Config.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Config.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Firmware/Archive.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Firmware/Archive.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Firmware/Manifest.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Firmware/Manifest.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Firmware/Storage.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Firmware/Storage.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Firmware/Validation.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Firmware/Validation.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Lock.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Lock.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Logger.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Logger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Notification.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Notification.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Runtime.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Runtime.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Validation.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Validation.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Vendor/GooglePixel.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Vendor/GooglePixel.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-adb/AndroidADB/Vendor/Samsung.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-adb/AndroidADB/Vendor/Samsung.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-compz/CompzArchives/Pipeline.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-compz/CompzArchives/Pipeline.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-network-control-action/LabwcNetworkControlAction/Client.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-network-control-action/LabwcNetworkControlAction/Client.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-network-control-action/LabwcNetworkControlAction/Command.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-network-control-action/LabwcNetworkControlAction/Command.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-network-control-action/LabwcNetworkControlAction/Root.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-network-control-action/LabwcNetworkControlAction/Root.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-network-control-action/LabwcNetworkControlAction/Validation.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-network-control-action/LabwcNetworkControlAction/Validation.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-network-scan-action/LabwcNetworkScanAction/Client.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-network-scan-action/LabwcNetworkScanAction/Client.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-network-scan-action/LabwcNetworkScanAction/Command.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-network-scan-action/LabwcNetworkScanAction/Command.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-network-scan-action/LabwcNetworkScanAction/Root.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-network-scan-action/LabwcNetworkScanAction/Root.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-network-scan-action/LabwcNetworkScanAction/Validation.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-network-scan-action/LabwcNetworkScanAction/Validation.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor/AuditLog.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor/AuditLog.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor/ProfileIndex.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor/ProfileIndex.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor/RuleGenerator.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor/RuleGenerator.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor/RuleRenderer.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor/RuleRenderer.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/Client.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/Client.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/Command.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/Command.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/Logger.pm": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/Logger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/Root.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/Root.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/labwc-security-action/LabwcSecurityAction/ScannerLog.pm.tmpl": [
+      "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/ScannerLog.pm.tmpl"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/network/ManagedNetwork/CLI.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/network/ManagedNetwork/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/network/ManagedNetwork/Config.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/network/ManagedNetwork/Config.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/network/ManagedNetwork/Logger.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/network/ManagedNetwork/Logger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/network/ManagedNetwork/Validator.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/network/ManagedNetwork/Validator.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/runtime/Managed/PolicyLock.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/runtime/Managed/PolicyLock.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/runtime/Managed/Process.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/runtime/Managed/Process.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/timeshift/TimeshiftManaged/CLI.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/timeshift/TimeshiftManaged/Command.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/Command.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/timeshift/TimeshiftManaged/Config.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/Config.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/timeshift/TimeshiftManaged/EventQueue.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/EventQueue.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/timeshift/TimeshiftManaged/GrubRefresh.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/GrubRefresh.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/timeshift/TimeshiftManaged/Lock.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/Lock.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/timeshift/TimeshiftManaged/Logger.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/Logger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/timeshift/TimeshiftManaged/Snapshot.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/Snapshot.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/Artifacts.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/Artifacts.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/Audio.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/Audio.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/CLI.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/Config.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/Config.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/Logger.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/Logger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/Memory.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/Memory.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/Recorder.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/Recorder.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/Runtime.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/Runtime.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/State.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/State.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/Systemd.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/Systemd.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/whisper/WhisperMode/Transcriber.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/whisper/WhisperMode/Transcriber.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/AtomicFile.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/AtomicFile.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/BackingDevice.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/BackingDevice.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Budget.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Budget.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/CLI.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Command.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Command.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Command/Apply.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Command/Apply.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Command/Metrics.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Command/Metrics.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Command/Reset.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Command/Reset.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Command/Status.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Command/Status.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Command/Writeback.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Command/Writeback.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Config.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Config.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Config/Parser.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Config/Parser.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Config/Schema.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Config/Schema.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Config/Validator.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Config/Validator.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Daemon.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Daemon.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Daemon/Controller.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Daemon/Controller.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Debugfs.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Debugfs.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Device.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Device.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Error.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Error.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/IOPressure.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/IOPressure.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Lock.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Lock.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Logger.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Logger.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Metrics.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Metrics.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Path.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Path.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Policy.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Policy.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Pressure.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Pressure.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Pressure/Evaluator.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Pressure/Evaluator.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Procfs.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Procfs.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Procfs/Reader.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Procfs/Reader.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Runtime.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Runtime.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Setup/BackingDevice.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Setup/BackingDevice.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Setup/CLI.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Setup/CLI.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Setup/Config.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Setup/Config.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Setup/Device.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Setup/Device.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Setup/Lifecycle.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Setup/Lifecycle.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Setup/Lock.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Setup/Lock.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Setup/Mapper.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Setup/Mapper.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Setup/Sysfs.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Setup/Sysfs.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Sizing.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Sizing.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Stats.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Stats.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Swap.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Swap.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Sysfs.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Sysfs.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Tuning.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Tuning.pm"
+    ],
+    "hooks/target/usr/local/lib/perl5/site_perl/zram-writeback/Zram/Types.pm": [
+      "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Types.pm"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/app_veth_policy.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/app_veth_policy.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/gitbuild/__init__.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/__init__.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/gitbuild/cli.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/cli.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/gitbuild/core.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/core.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/gitbuild/import_local.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/import_local.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/gitbuild/publish.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/publish.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/gitbuild/safe_rename.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/safe_rename.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/gitbuild/worker.py.tmpl": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/worker.py.tmpl"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/key_manager/__init__.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/key_manager/__init__.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/key_manager/cli.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/key_manager/cli.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/key_manager/core.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/key_manager/core.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/key_manager/gpg.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/key_manager/gpg.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/key_manager/pqc.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/key_manager/pqc.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/key_manager/ssh.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/key_manager/ssh.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/key_manager/tls.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/key_manager/tls.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/key_manager/tls_profiles.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/key_manager/tls_profiles.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_ai_copilots/__init__.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_ai_copilots/__init__.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_ai_copilots/cli.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_ai_copilots/cli.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_ai_copilots/gguf.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_ai_copilots/gguf.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_ai_copilots/resources.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_ai_copilots/resources.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/__init__.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/__init__.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/catalog.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/catalog.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/cli.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/cli.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/defaults.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/defaults.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/editor.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/editor.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/editors.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/editors.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/engine.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/engine.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/fields.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/fields.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/greeter.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/greeter.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/icon_catalog.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/icon_catalog.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/native.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/native.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/service.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/service.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/theme_archive.py": [
+      "scripts/desktop/appearance_setup/theme_archive.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/theme_assets.py": [
+      "scripts/desktop/appearance_setup/theme_assets.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/theme_install.py": [
+      "scripts/desktop/appearance_setup/theme_install.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/theme_resources.py": [
+      "scripts/desktop/appearance_setup/theme_resources.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/themes.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/themes.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/transaction.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/transaction.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_appearance/wallpaper.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_appearance/wallpaper.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_calendar_reminders.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_calendar_reminders.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_calendar_reminders_gtk.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_calendar_reminders_gtk.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_compz/__init__.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_compz/__init__.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_compz/cli.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_compz/cli.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_compz/formats.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_compz/formats.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_compz/isolation.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_compz/isolation.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_compz/safeio.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_compz/safeio.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_compz/volumes.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_compz/volumes.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_compz/worker.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_compz/worker.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_desktop_runtime.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_desktop_runtime.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_firewall/__init__.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_firewall/__init__.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_firewall/cli.py.tmpl": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_firewall/cli.py.tmpl"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_firewall/files.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_firewall/files.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_firewall/nftables.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_firewall/nftables.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_firewall/renderer.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_firewall/renderer.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_firewall/state.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_firewall/state.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_firewall/validation.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_firewall/validation.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_help/__init__.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_help/__init__.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_help/app.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_help/app.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_help/catalog.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_help/catalog.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_help/navigation.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_help/navigation.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_help/render.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_help/render.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_help/search.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_help/search.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_help/state.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_help/state.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_help/theme.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_help/theme.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_help/window.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_help/window.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_local_reminders.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_local_reminders.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/__init__.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/__init__.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/bootstrap.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/bootstrap.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/browsers.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/browsers.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/bubblewrap.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/bubblewrap.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/cli.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/cli.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/commands.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/commands.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/compat_gpu.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/compat_gpu.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/compat_instance.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/compat_instance.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/compat_portal.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/compat_portal.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/compat_protocol.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/compat_protocol.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/dbus_proxy.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/dbus_proxy.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/diagnostics.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/diagnostics.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/electron.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/electron.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/environment.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/environment.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/events.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/events.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/generic.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/generic.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/gpu.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/gpu.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/identity.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/identity.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/integrity.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/integrity.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/mounts.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/mounts.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/network_client.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/network_client.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/network_namespace.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/network_namespace.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/profiles.py.tmpl": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/profiles.py.tmpl"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/project_identity.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/project_identity.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/recovery.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/recovery.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/runtime.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/runtime.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/sandbox.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/sandbox.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/session.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/session.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/user_state.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/user_state.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/wayland_compat.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/wayland_compat.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_managed_app/wayland_compat_runtime.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/wayland_compat_runtime.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/labwc_waybar_state.py": [
+      "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_waybar_state.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/managed_network_sharing.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/managed_network_sharing.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/managed_workflows/__init__.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/managed_workflows/__init__.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/managed_workflows/fs.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/managed_workflows/fs.py"
+    ],
+    "hooks/target/usr/local/lib/python3.14/dist-packages/managed_workflows/process.py": [
+      "hooks/target/usr/local/lib/common/python3/dist-packages/managed_workflows/process.py"
+    ],
+    "hooks/target/usr/local/libexec/app-veth-podman": [
+      "hooks/target/usr/local/libexec/desktop/app-veth-podman"
+    ],
+    "hooks/target/usr/local/libexec/app-veth-run": [
+      "hooks/target/usr/local/libexec/desktop/app-veth-run"
+    ],
+    "hooks/target/usr/local/libexec/apparmor-generate-rules": [
+      "hooks/target/usr/local/libexec/desktop/apparmor-generate-rules"
+    ],
+    "hooks/target/usr/local/libexec/apparmor-modes-run": [
+      "hooks/target/usr/local/libexec/common/apparmor-modes-run"
+    ],
+    "hooks/target/usr/local/libexec/apt-mok-prehook": [
+      "hooks/target/usr/local/libexec/common/apt-mok-prehook"
+    ],
+    "hooks/target/usr/local/libexec/apt-refresh-lists.tmpl": [
+      "hooks/target/usr/local/libexec/common/apt-refresh-lists.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/apt-repo-local-normalize-sources": [
+      "hooks/target/usr/local/libexec/common/apt-repo-local-normalize-sources"
+    ],
+    "hooks/target/usr/local/libexec/apt-repo-local-software-notify": [
+      "hooks/target/usr/local/libexec/desktop/apt-repo-local-software-notify"
+    ],
+    "hooks/target/usr/local/libexec/apt-repo-local-software-update": [
+      "hooks/target/usr/local/libexec/desktop/apt-repo-local-software-update"
+    ],
+    "hooks/target/usr/local/libexec/apt-repo-local-vendor": [
+      "hooks/target/usr/local/libexec/desktop/apt-repo-local-vendor"
+    ],
+    "hooks/target/usr/local/libexec/apt-repo-local.tmpl": [
+      "hooks/target/usr/local/libexec/common/apt-repo-local.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/aptly-publishing": [
+      "hooks/target/usr/local/libexec/common/aptly-publishing"
+    ],
+    "hooks/target/usr/local/libexec/augenrules-quiet": [
+      "hooks/target/usr/local/libexec/common/augenrules-quiet"
+    ],
+    "hooks/target/usr/local/libexec/bluetooth-controller-init": [
+      "hooks/target/usr/local/libexec/desktop/bluetooth-controller-init"
+    ],
+    "hooks/target/usr/local/libexec/calix-fruux-bootstrap": [
+      "hooks/target/usr/local/libexec/desktop/calix-fruux-bootstrap"
+    ],
+    "hooks/target/usr/local/libexec/clamav-fangfrisch": [
+      "hooks/target/usr/local/libexec/desktop/clamav-fangfrisch"
+    ],
+    "hooks/target/usr/local/libexec/clamav-signature-update": [
+      "hooks/target/usr/local/libexec/desktop/clamav-signature-update"
+    ],
+    "hooks/target/usr/local/libexec/codex-app-server-wait-ready": [
+      "hooks/target/usr/local/libexec/desktop/codex-app-server-wait-ready"
+    ],
+    "hooks/target/usr/local/libexec/compz-pipeline": [
+      "hooks/target/usr/local/libexec/desktop/compz-pipeline"
+    ],
+    "hooks/target/usr/local/libexec/compz-sandbox": [
+      "hooks/target/usr/local/libexec/desktop/compz-sandbox"
+    ],
+    "hooks/target/usr/local/libexec/compz-worker": [
+      "hooks/target/usr/local/libexec/desktop/compz-worker"
+    ],
+    "hooks/target/usr/local/libexec/crowdsec-bouncer-verify": [
+      "hooks/target/usr/local/libexec/common/crowdsec-bouncer-verify"
+    ],
+    "hooks/target/usr/local/libexec/dbus-broker-check": [
+      "hooks/target/usr/local/libexec/common/dbus-broker-check"
+    ],
+    "hooks/target/usr/local/libexec/dbus-broker-maintain": [
+      "hooks/target/usr/local/libexec/common/dbus-broker-maintain"
+    ],
+    "hooks/target/usr/local/libexec/debugsys-initramfs": [
+      "hooks/target/usr/local/libexec/common/debugsys-initramfs"
+    ],
+    "hooks/target/usr/local/libexec/debugsys.py.tmpl": [
+      "hooks/target/usr/local/libexec/common/debugsys.py.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/discord-distro": [
+      "hooks/target/usr/local/libexec/desktop/discord-distro"
+    ],
+    "hooks/target/usr/local/libexec/filen-sync": [
+      "hooks/target/usr/local/libexec/common/filen-sync"
+    ],
+    "hooks/target/usr/local/libexec/gitbuild-import-local": [
+      "hooks/target/usr/local/libexec/common/gitbuild-import-local"
+    ],
+    "hooks/target/usr/local/libexec/gitbuild-publish": [
+      "hooks/target/usr/local/libexec/common/gitbuild-publish"
+    ],
+    "hooks/target/usr/local/libexec/gitbuild-worker": [
+      "hooks/target/usr/local/libexec/common/gitbuild-worker"
+    ],
+    "hooks/target/usr/local/libexec/greetd-power-action-root": [
+      "hooks/target/usr/local/libexec/desktop/greetd-power-action-root"
+    ],
+    "hooks/target/usr/local/libexec/grub-btrfs-refresh": [
+      "hooks/target/usr/local/libexec/common/grub-btrfs-refresh"
+    ],
+    "hooks/target/usr/local/libexec/hardware-tuning-policy": [
+      "hooks/target/usr/local/libexec/common/hardware-tuning-policy"
+    ],
+    "hooks/target/usr/local/libexec/hardware-tuning-power-profiles": [
+      "hooks/target/usr/local/libexec/common/hardware-tuning-power-profiles"
+    ],
+    "hooks/target/usr/local/libexec/hardware-tuning-worker": [
+      "hooks/target/usr/local/libexec/common/hardware-tuning-worker"
+    ],
+    "hooks/target/usr/local/libexec/hardware-tuningd": [
+      "hooks/target/usr/local/libexec/common/hardware-tuningd"
+    ],
+    "hooks/target/usr/local/libexec/incus-host": [
+      "hooks/target/usr/local/libexec/common/incus-host"
+    ],
+    "hooks/target/usr/local/libexec/installer-artifact-fetch": [
+      "hooks/target/usr/local/libexec/common/installer-artifact-fetch"
+    ],
+    "hooks/target/usr/local/libexec/journal-check": [
+      "hooks/target/usr/local/libexec/common/journal-check"
+    ],
+    "hooks/target/usr/local/libexec/journal-forwarding": [
+      "hooks/target/usr/local/libexec/common/journal-forwarding"
+    ],
+    "hooks/target/usr/local/libexec/journal-sealing": [
+      "hooks/target/usr/local/libexec/common/journal-sealing"
+    ],
+    "hooks/target/usr/local/libexec/journal-snapshot.tmpl": [
+      "hooks/target/usr/local/libexec/common/journal-snapshot.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-admin-action-root": [
+      "hooks/target/usr/local/libexec/desktop/labwc-admin-action-root"
+    ],
+    "hooks/target/usr/local/libexec/labwc-admin-action-worker": [
+      "hooks/target/usr/local/libexec/desktop/labwc-admin-action-worker"
+    ],
+    "hooks/target/usr/local/libexec/labwc-ai-llama-server": [
+      "hooks/target/usr/local/libexec/desktop/labwc-ai-llama-server"
+    ],
+    "hooks/target/usr/local/libexec/labwc-ai-model-info": [
+      "hooks/target/usr/local/libexec/desktop/labwc-ai-model-info"
+    ],
+    "hooks/target/usr/local/libexec/labwc-ai-model-install-root": [
+      "hooks/target/usr/local/libexec/desktop/labwc-ai-model-install-root"
+    ],
+    "hooks/target/usr/local/libexec/labwc-apparmor-boot-state": [
+      "hooks/target/usr/local/libexec/desktop/labwc-apparmor-boot-state"
+    ],
+    "hooks/target/usr/local/libexec/labwc-apparmor-policy-worker": [
+      "hooks/target/usr/local/libexec/desktop/labwc-apparmor-policy-worker"
+    ],
+    "hooks/target/usr/local/libexec/labwc-appearance-defaults": [
+      "scripts/desktop/appearance-setup.py",
+      "scripts/desktop/appearance_setup/defaults.py"
+    ],
+    "hooks/target/usr/local/libexec/labwc-appearance-greeter": [
+      "hooks/target/usr/local/libexec/desktop/labwc-appearance-greeter"
+    ],
+    "hooks/target/usr/local/libexec/labwc-appearance-themes": [
+      "scripts/desktop/appearance-setup.py",
+      "scripts/desktop/appearance_setup/theme_install.py"
+    ],
+    "hooks/target/usr/local/libexec/labwc-calendar-actions": [
+      "hooks/target/usr/local/libexec/desktop/labwc-calendar-actions"
+    ],
+    "hooks/target/usr/local/libexec/labwc-calendar-reminders-gtk": [
+      "hooks/target/usr/local/libexec/desktop/labwc-calendar-reminders-gtk"
+    ],
+    "hooks/target/usr/local/libexec/labwc-calendar-worker": [
+      "hooks/target/usr/local/libexec/desktop/labwc-calendar-worker"
+    ],
+    "hooks/target/usr/local/libexec/labwc-chatgpt-log-runner.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-chatgpt-log-runner.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-chatgpt-session": [
+      "hooks/target/usr/local/libexec/desktop/labwc-chatgpt-session"
+    ],
+    "hooks/target/usr/local/libexec/labwc-compat-open-uri": [
+      "hooks/target/usr/local/libexec/desktop/labwc-compat-open-uri"
+    ],
+    "hooks/target/usr/local/libexec/labwc-configure-session-repairs": [
+      "hooks/target/usr/local/libexec/desktop/labwc-configure-session-repairs"
+    ],
+    "hooks/target/usr/local/libexec/labwc-debug-session": [
+      "hooks/target/usr/local/libexec/desktop/labwc-debug-session"
+    ],
+    "hooks/target/usr/local/libexec/labwc-firewall-action-root": [
+      "hooks/target/usr/local/libexec/desktop/labwc-firewall-action-root"
+    ],
+    "hooks/target/usr/local/libexec/labwc-greeter-client": [
+      "hooks/target/usr/local/libexec/desktop/labwc-greeter-client"
+    ],
+    "hooks/target/usr/local/libexec/labwc-gvfs-volume-monitor": [
+      "hooks/target/usr/local/libexec/desktop/labwc-gvfs-volume-monitor"
+    ],
+    "hooks/target/usr/local/libexec/labwc-help-gtk": [
+      "hooks/target/usr/local/libexec/desktop/labwc-help-gtk"
+    ],
+    "hooks/target/usr/local/libexec/labwc-hyprpolkit-agent": [
+      "hooks/target/usr/local/libexec/desktop/labwc-hyprpolkit-agent"
+    ],
+    "hooks/target/usr/local/libexec/labwc-kanshi": [
+      "hooks/target/usr/local/libexec/desktop/labwc-kanshi"
+    ],
+    "hooks/target/usr/local/libexec/labwc-local-reminder-worker": [
+      "hooks/target/usr/local/libexec/desktop/labwc-local-reminder-worker"
+    ],
+    "hooks/target/usr/local/libexec/labwc-logout-root": [
+      "hooks/target/usr/local/libexec/desktop/labwc-logout-root"
+    ],
+    "hooks/target/usr/local/libexec/labwc-mute-default-microphone": [
+      "hooks/target/usr/local/libexec/desktop/labwc-mute-default-microphone"
+    ],
+    "hooks/target/usr/local/libexec/labwc-network-control-action-root": [
+      "hooks/target/usr/local/libexec/desktop/labwc-network-control-action-root"
+    ],
+    "hooks/target/usr/local/libexec/labwc-network-scan-action-root.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-network-scan-action-root.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-new-local-reminder": [
+      "hooks/target/usr/local/libexec/desktop/labwc-new-local-reminder"
+    ],
+    "hooks/target/usr/local/libexec/labwc-notification-send.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-notification-send.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-notifications.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-notifications.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-output-watch": [
+      "hooks/target/usr/local/libexec/desktop/labwc-output-watch"
+    ],
+    "hooks/target/usr/local/libexec/labwc-panel-run": [
+      "hooks/target/usr/local/libexec/desktop/labwc-panel-run"
+    ],
+    "hooks/target/usr/local/libexec/labwc-plans.pl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-plans.pl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-primary-gpg": [
+      "hooks/target/usr/local/libexec/desktop/labwc-primary-gpg"
+    ],
+    "hooks/target/usr/local/libexec/labwc-private-xwayland": [
+      "hooks/target/usr/local/libexec/desktop/labwc-private-xwayland"
+    ],
+    "hooks/target/usr/local/libexec/labwc-proxy-session": [
+      "hooks/target/usr/local/libexec/desktop/labwc-proxy-session"
+    ],
+    "hooks/target/usr/local/libexec/labwc-recovery-action-root": [
+      "hooks/target/usr/local/libexec/desktop/labwc-recovery-action-root"
+    ],
+    "hooks/target/usr/local/libexec/labwc-reminder-manager": [
+      "hooks/target/usr/local/libexec/desktop/labwc-reminder-manager"
+    ],
+    "hooks/target/usr/local/libexec/labwc-samsung-firmware-extract": [
+      "hooks/target/usr/local/libexec/desktop/labwc-samsung-firmware-extract"
+    ],
+    "hooks/target/usr/local/libexec/labwc-security-action-root": [
+      "hooks/target/usr/local/libexec/desktop/labwc-security-action-root"
+    ],
+    "hooks/target/usr/local/libexec/labwc-session-check": [
+      "hooks/target/usr/local/libexec/desktop/labwc-session-check"
+    ],
+    "hooks/target/usr/local/libexec/labwc-session-state.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-session-state.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-ssh-gpg-askpass": [
+      "hooks/target/usr/local/libexec/desktop/labwc-ssh-gpg-askpass"
+    ],
+    "hooks/target/usr/local/libexec/labwc-ssh-key-load": [
+      "hooks/target/usr/local/libexec/desktop/labwc-ssh-key-load"
+    ],
+    "hooks/target/usr/local/libexec/labwc-storage-report": [
+      "hooks/target/usr/local/libexec/desktop/labwc-storage-report"
+    ],
+    "hooks/target/usr/local/libexec/labwc-swaybg.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-swaybg.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-swayidle": [
+      "hooks/target/usr/local/libexec/desktop/labwc-swayidle"
+    ],
+    "hooks/target/usr/local/libexec/labwc-swaylock.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-swaylock.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-system-action-root": [
+      "hooks/target/usr/local/libexec/desktop/labwc-system-action-root"
+    ],
+    "hooks/target/usr/local/libexec/labwc-terminal-result": [
+      "hooks/target/usr/local/libexec/desktop/labwc-terminal-result"
+    ],
+    "hooks/target/usr/local/libexec/labwc-thinkpad-hotkeys": [
+      "hooks/target/usr/local/libexec/desktop/labwc-thinkpad-hotkeys"
+    ],
+    "hooks/target/usr/local/libexec/labwc-tomat-hook": [
+      "hooks/target/usr/local/libexec/desktop/labwc-tomat-hook"
+    ],
+    "hooks/target/usr/local/libexec/labwc-tomat-overlay.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-tomat-overlay.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-tomat.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-tomat.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-wallpaper-control": [
+      "hooks/target/usr/local/libexec/desktop/labwc-wallpaper-control"
+    ],
+    "hooks/target/usr/local/libexec/labwc-waybar-battery": [
+      "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery"
+    ],
+    "hooks/target/usr/local/libexec/labwc-waybar-events.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-waybar-exec": [
+      "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec"
+    ],
+    "hooks/target/usr/local/libexec/labwc-waybar-menu": [
+      "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu"
+    ],
+    "hooks/target/usr/local/libexec/labwc-waybar-run": [
+      "hooks/target/usr/local/libexec/desktop/labwc-waybar-run"
+    ],
+    "hooks/target/usr/local/libexec/labwc-waybar-state": [
+      "hooks/target/usr/local/libexec/desktop/labwc-waybar-state"
+    ],
+    "hooks/target/usr/local/libexec/labwc-waycal-control": [
+      "hooks/target/usr/local/libexec/desktop/labwc-waycal-control"
+    ],
+    "hooks/target/usr/local/libexec/labwc-waycal-popup": [
+      "hooks/target/usr/local/libexec/desktop/labwc-waycal-popup"
+    ],
+    "hooks/target/usr/local/libexec/labwc-waypaper.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/labwc-wrap-desktop-files": [
+      "hooks/target/usr/local/libexec/desktop/labwc-wrap-desktop-files"
+    ],
+    "hooks/target/usr/local/libexec/labwc-zoom-discord-compat-runtime": [
+      "hooks/target/usr/local/libexec/desktop/labwc-zoom-discord-compat-runtime"
+    ],
+    "hooks/target/usr/local/libexec/llama-whisper-coordinate": [
+      "hooks/target/usr/local/libexec/desktop/llama-whisper-coordinate"
+    ],
+    "hooks/target/usr/local/libexec/log-layout.tmpl": [
+      "hooks/target/usr/local/libexec/common/log-layout.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/mullvad-daemon-start": [
+      "hooks/target/usr/local/libexec/desktop/mullvad-daemon-start"
+    ],
+    "hooks/target/usr/local/libexec/mullvad-lan-allow": [
+      "hooks/target/usr/local/libexec/desktop/mullvad-lan-allow"
+    ],
+    "hooks/target/usr/local/libexec/mullvad-tailscale-coordinator": [
+      "hooks/target/usr/local/libexec/desktop/mullvad-tailscale-coordinator"
+    ],
+    "hooks/target/usr/local/libexec/native-logging.tmpl": [
+      "hooks/target/usr/local/libexec/common/native-logging.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/network-ifup-hotplug": [
+      "hooks/target/usr/local/libexec/common/network-ifup-hotplug"
+    ],
+    "hooks/target/usr/local/libexec/network-online-check": [
+      "hooks/target/usr/local/libexec/common/network-online-check"
+    ],
+    "hooks/target/usr/local/libexec/network-openvpn-import": [
+      "hooks/target/usr/local/libexec/common/network-openvpn-import"
+    ],
+    "hooks/target/usr/local/libexec/network-profile-stage.py.tmpl": [
+      "scripts/common/network-profile-stage.py.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/network-run": [
+      "hooks/target/usr/local/libexec/common/network-run"
+    ],
+    "hooks/target/usr/local/libexec/network-sharing-identity": [
+      "hooks/target/usr/local/libexec/common/network-sharing-identity"
+    ],
+    "hooks/target/usr/local/libexec/network-sharing-report": [
+      "hooks/target/usr/local/libexec/common/network-sharing-report"
+    ],
+    "hooks/target/usr/local/libexec/network-wifi-configure": [
+      "hooks/target/usr/local/libexec/common/network-wifi-configure"
+    ],
+    "hooks/target/usr/local/libexec/nvidia-char-links": [
+      "hooks/target/usr/local/libexec/common/nvidia-char-links"
+    ],
+    "hooks/target/usr/local/libexec/nvidia-vram-check": [
+      "hooks/target/usr/local/libexec/common/nvidia-vram-check"
+    ],
+    "hooks/target/usr/local/libexec/obs-publishing": [
+      "hooks/target/usr/local/libexec/common/obs-publishing"
+    ],
+    "hooks/target/usr/local/libexec/obsidian-git-sync": [
+      "hooks/target/usr/local/libexec/desktop/obsidian-git-sync"
+    ],
+    "hooks/target/usr/local/libexec/obsidian-git-sync.py": [
+      "hooks/target/usr/local/libexec/desktop/obsidian-git-sync.py"
+    ],
+    "hooks/target/usr/local/libexec/podman-devops-client": [
+      "hooks/target/usr/local/libexec/desktop/podman-devops-client"
+    ],
+    "hooks/target/usr/local/libexec/podman-devops-host": [
+      "hooks/target/usr/local/libexec/desktop/podman-devops-host"
+    ],
+    "hooks/target/usr/local/libexec/rsyslog-app-run.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/rsyslog-app-run.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/rsyslog-app-socket.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/rsyslog-app-socket.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/rsyslog-openai-socket.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/rsyslog-openai-socket.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/rsyslog-security-socket.tmpl": [
+      "hooks/target/usr/local/libexec/desktop/rsyslog-security-socket.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/rsyslog-size-rotate.tmpl": [
+      "hooks/target/usr/local/libexec/common/rsyslog-size-rotate.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/ssh-checks": [
+      "hooks/target/usr/local/libexec/common/ssh-checks"
+    ],
+    "hooks/target/usr/local/libexec/swap-fallback-setup.tmpl": [
+      "hooks/target/usr/local/libexec/common/swap-fallback-setup.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/syncthing-configure": [
+      "hooks/target/usr/local/libexec/desktop/syncthing-configure"
+    ],
+    "hooks/target/usr/local/libexec/tailscale-netkit": [
+      "hooks/target/usr/local/libexec/desktop/tailscale-netkit"
+    ],
+    "hooks/target/usr/local/libexec/tailscale-ssh-host": [
+      "hooks/target/usr/local/libexec/common/tailscale-ssh-host"
+    ],
+    "hooks/target/usr/local/libexec/timeshift-snapshot": [
+      "hooks/target/usr/local/libexec/common/timeshift-snapshot"
+    ],
+    "hooks/target/usr/local/libexec/timeshift/notify-send": [
+      "hooks/target/usr/local/libexec/desktop/timeshift/notify-send"
+    ],
+    "hooks/target/usr/local/libexec/tmpfs-pre-clean.tmpl": [
+      "hooks/target/usr/local/libexec/common/tmpfs-pre-clean.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/tor-browser-install": [
+      "hooks/target/usr/local/libexec/desktop/tor-browser-install"
+    ],
+    "hooks/target/usr/local/libexec/tor-browser-run": [
+      "hooks/target/usr/local/libexec/desktop/tor-browser-run"
+    ],
+    "hooks/target/usr/local/libexec/tpm2-policy-check": [
+      "hooks/target/usr/local/libexec/common/tpm2-policy-check"
+    ],
+    "hooks/target/usr/local/libexec/tuta-extract": [
+      "hooks/target/usr/local/libexec/desktop/tuta-extract"
+    ],
+    "hooks/target/usr/local/libexec/unattended-upgrades-notify": [
+      "hooks/target/usr/local/libexec/desktop/unattended-upgrades-notify"
+    ],
+    "hooks/target/usr/local/libexec/whisper-cli-default-model": [
+      "hooks/target/usr/local/libexec/desktop/whisper-cli-default-model"
+    ],
+    "hooks/target/usr/local/libexec/whisper-record-timed": [
+      "hooks/target/usr/local/libexec/desktop/whisper-record-timed"
+    ],
+    "hooks/target/usr/local/libexec/whisper-record-toggle": [
+      "hooks/target/usr/local/libexec/desktop/whisper-record-toggle"
+    ],
+    "hooks/target/usr/local/libexec/zram-device-setup.tmpl": [
+      "hooks/target/usr/local/libexec/common/zram-device-setup.tmpl"
+    ],
+    "hooks/target/usr/local/libexec/zram-writeback.tmpl": [
+      "hooks/target/usr/local/libexec/common/zram-writeback.tmpl"
+    ],
+    "hooks/target/usr/local/sbin/app-veth": [
+      "hooks/target/usr/local/sbin/desktop/app-veth"
+    ],
+    "hooks/target/usr/local/sbin/fwops-mode": [
+      "hooks/target/usr/local/sbin/common/fwops-mode"
+    ],
+    "hooks/target/usr/local/sbin/greetd-power-action": [
+      "hooks/target/usr/local/sbin/desktop/greetd-power-action"
+    ],
+    "hooks/target/usr/local/sbin/labwc-notify.tmpl": [
+      "hooks/target/usr/local/sbin/desktop/labwc-notify.tmpl"
+    ],
+    "hooks/target/usr/local/sbin/luks-mok-close.tmpl": [
+      "hooks/target/usr/local/sbin/common/luks-mok-close.tmpl"
+    ],
+    "hooks/target/usr/local/sbin/luks-mok-open.tmpl": [
+      "hooks/target/usr/local/sbin/common/luks-mok-open.tmpl"
+    ],
+    "hooks/target/usr/local/sbin/luks-mok-passwd.tmpl": [
+      "hooks/target/usr/local/sbin/common/luks-mok-passwd.tmpl"
+    ],
+    "hooks/target/usr/local/sbin/nft-policy-generate.py": [
+      "hooks/target/usr/local/sbin/desktop/nft-policy-generate.py"
+    ],
+    "hooks/target/usr/local/sbin/nvme-pcie-status": [
+      "hooks/target/usr/local/sbin/common/nvme-pcie-status"
+    ],
+    "hooks/target/usr/local/share/agenda/schemas/90-desktop-agenda.gschema.override": [
+      "hooks/target/usr/local/share/desktop/agenda/schemas/90-desktop-agenda.gschema.override"
+    ],
+    "hooks/target/usr/local/share/applications/chatgpt.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/chatgpt.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/code.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/code.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/com.github.dahenson.agenda.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/com.github.dahenson.agenda.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/com.ianswope.Calix.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/com.ianswope.Calix.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/computer-management.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/computer-management.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/discord.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/discord.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/foot.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/foot.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/hyprpolkitagent.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/hyprpolkitagent.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/labwc-calendar-actions.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/labwc-calendar-actions.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/labwc-focuswriter-import.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/labwc-focuswriter-import.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/labwc-help.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/labwc-help.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/labwc-notifications.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/labwc-notifications.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/labwc-tweaks.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/labwc-tweaks.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/ledger-live.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/ledger-live.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/mullvad-vpn.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/mullvad-vpn.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/org.labwc.DesktopAppearance.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/org.labwc.DesktopAppearance.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/postman.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/postman.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/remote-desktop-management.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/remote-desktop-management.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/show-desktop.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/show-desktop.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/sleek.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/sleek.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/applications/tor-browser.desktop.tmpl": [
+      "hooks/target/usr/local/share/desktop/applications/tor-browser.desktop.tmpl"
+    ],
+    "hooks/target/usr/local/share/debugsys/initramfs/hook": [
+      "hooks/target/usr/local/share/common/debugsys/initramfs/hook"
+    ],
+    "hooks/target/usr/local/share/devops/templates/aptly.conf.tmpl": [
+      "hooks/target/usr/local/share/common/devops/templates/aptly.conf.tmpl"
+    ],
+    "hooks/target/usr/local/share/devops/templates/oscrc.json.tmpl": [
+      "hooks/target/usr/local/share/common/devops/templates/oscrc.json.tmpl"
+    ],
+    "hooks/target/usr/local/share/devops/templates/oscrc.tmpl": [
+      "hooks/target/usr/local/share/common/devops/templates/oscrc.tmpl"
+    ],
+    "hooks/target/usr/local/share/doc/git/README.md.tmpl": [
+      "hooks/target/usr/local/share/common/doc/git/README.md.tmpl"
+    ],
+    "hooks/target/usr/local/share/doc/yt-dlp/CONFIGURATION.md": [
+      "hooks/target/usr/local/share/desktop/doc/yt-dlp/CONFIGURATION.md"
+    ],
+    "hooks/target/usr/local/share/gitbuild/sbuild.conf": [
+      "hooks/target/usr/local/share/common/gitbuild/sbuild.conf"
+    ],
+    "hooks/target/usr/local/share/grub-profiles/display-1.cfg.in.tmpl": [
+      "hooks/target/usr/local/share/common/grub-profiles/display-1.cfg.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/grub-profiles/display-2.cfg.in.tmpl": [
+      "hooks/target/usr/local/share/common/grub-profiles/display-2.cfg.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/grub-profiles/entry.cfg.in.tmpl": [
+      "hooks/target/usr/local/share/common/grub-profiles/entry.cfg.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/grub-profiles/firmware.cfg.in.tmpl": [
+      "hooks/target/usr/local/share/common/grub-profiles/firmware.cfg.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/grub-profiles/header.cfg.in.tmpl": [
+      "hooks/target/usr/local/share/common/grub-profiles/header.cfg.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/grub-profiles/mokmenu.cfg.in.tmpl": [
+      "hooks/target/usr/local/share/common/grub-profiles/mokmenu.cfg.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/grub-profiles/rescue.cfg.in.tmpl": [
+      "hooks/target/usr/local/share/common/grub-profiles/rescue.cfg.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/grub-profiles/snapshots.cfg.in.tmpl": [
+      "hooks/target/usr/local/share/common/grub-profiles/snapshots.cfg.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/grub-profiles/submenu.cfg.in.tmpl": [
+      "hooks/target/usr/local/share/common/grub-profiles/submenu.cfg.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/icons/hicolor/64x64/apps/show-desktop.png": [
+      "hooks/target/usr/local/share/desktop/icons/hicolor/64x64/apps/show-desktop.png"
+    ],
+    "hooks/target/usr/local/share/labwc-ai-copilots/endpoints.json.tmpl": [
+      "hooks/target/usr/local/share/desktop/labwc-ai-copilots/endpoints.json.tmpl"
+    ],
+    "hooks/target/usr/local/share/labwc-ai-copilots/llama-models.tsv": [
+      "hooks/target/usr/local/share/desktop/labwc-ai-copilots/llama-models.tsv"
+    ],
+    "hooks/target/usr/local/share/labwc-ai-copilots/whisper-models.tsv": [
+      "hooks/target/usr/local/share/desktop/labwc-ai-copilots/whisper-models.tsv"
+    ],
+    "hooks/target/usr/local/share/labwc-appearance/fields.json.tmpl": [
+      "hooks/target/usr/local/share/desktop/labwc-appearance/fields.json.tmpl"
+    ],
+    "hooks/target/usr/local/share/labwc-appearance/menu-icons.json.tmpl": [
+      "hooks/target/usr/local/share/desktop/labwc-appearance/menu-icons.json.tmpl"
+    ],
+    "hooks/target/usr/local/share/labwc-greeter/autostart": [
+      "hooks/target/usr/local/share/desktop/labwc-greeter/autostart"
+    ],
+    "hooks/target/usr/local/share/labwc-greeter/rc.xml": [
+      "hooks/target/usr/local/share/desktop/labwc-greeter/rc.xml"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/applications.codex.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/applications.codex.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/applications.development.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/applications.development.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/applications.files.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/applications.files.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/applications.foot.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/applications.foot.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/applications.git.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/applications.git.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/applications.incus.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/applications.incus.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/applications.podman.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/applications.podman.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/applications.wrappers.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/applications.wrappers.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.appearance.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.appearance.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.calendar.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.calendar.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.dock.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.dock.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.fuzzel.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.fuzzel.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.labwc.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.labwc.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.mako.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.mako.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.scx.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.scx.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.tomat.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.tomat.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.waybar.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.waybar.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/desktop.wayscriber.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.wayscriber.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/hardware.gpu.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/hardware.gpu.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/hardware.monitors.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/hardware.monitors.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/hardware.nvidia.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/hardware.nvidia.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/hardware.peripherals.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/hardware.peripherals.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/hardware.power.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/hardware.power.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/maintenance.logs.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/maintenance.logs.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/maintenance.management.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/maintenance.management.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/maintenance.services.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/maintenance.services.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/maintenance.updates.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/maintenance.updates.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/network.connections.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/network.connections.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/network.sharing.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/network.sharing.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/network.ssh.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/network.ssh.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/network.tailscale.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/network.tailscale.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/network.vpn.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/network.vpn.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/security.apparmor.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/security.apparmor.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/security.authentication.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/security.authentication.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/security.firewall.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/security.firewall.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/start.first-login.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/start.first-login.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/start.help.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/start.help.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/start.shortcuts.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/start.shortcuts.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/storage.backups.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/storage.backups.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/storage.btrfs.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/storage.btrfs.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/storage.f2fs.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/storage.f2fs.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/storage.recovery.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/storage.recovery.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/storage.timeshift.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/storage.timeshift.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/troubleshooting.applications.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/troubleshooting.applications.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/troubleshooting.audio.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/troubleshooting.audio.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/troubleshooting.desktop.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/troubleshooting.desktop.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/articles/troubleshooting.network.json": [
+      "hooks/target/usr/local/share/desktop/labwc-help/articles/troubleshooting.network.json"
+    ],
+    "hooks/target/usr/local/share/labwc-help/catalog.json.tmpl": [
+      "hooks/target/usr/local/share/desktop/labwc-help/catalog.json.tmpl"
+    ],
+    "hooks/target/usr/local/share/labwc-help/theme.json.tmpl": [
+      "hooks/target/usr/local/share/desktop/labwc-help/theme.json.tmpl"
+    ],
+    "hooks/target/usr/local/share/nmap/scripts/admin-surface-policy.nse": [
+      "hooks/target/usr/local/share/common/nmap/scripts/admin-surface-policy.nse"
+    ],
+    "hooks/target/usr/local/share/nmap/scripts/approved-services.nse": [
+      "hooks/target/usr/local/share/common/nmap/scripts/approved-services.nse"
+    ],
+    "hooks/target/usr/local/share/nmap/scripts/database-exposure-policy.nse": [
+      "hooks/target/usr/local/share/common/nmap/scripts/database-exposure-policy.nse"
+    ],
+    "hooks/target/usr/local/share/nmap/scripts/http-security-headers.nse": [
+      "hooks/target/usr/local/share/common/nmap/scripts/http-security-headers.nse"
+    ],
+    "hooks/target/usr/local/share/nmap/scripts/name-resolution-policy.nse": [
+      "hooks/target/usr/local/share/common/nmap/scripts/name-resolution-policy.nse"
+    ],
+    "hooks/target/usr/local/share/nmap/scripts/plaintext-service-policy.nse": [
+      "hooks/target/usr/local/share/common/nmap/scripts/plaintext-service-policy.nse"
+    ],
+    "hooks/target/usr/local/share/nmap/scripts/service-inventory.nse": [
+      "hooks/target/usr/local/share/common/nmap/scripts/service-inventory.nse"
+    ],
+    "hooks/target/usr/local/share/nmap/scripts/tls-service-policy.nse": [
+      "hooks/target/usr/local/share/common/nmap/scripts/tls-service-policy.nse"
+    ],
+    "hooks/target/usr/local/share/software/apt-repo-local.sources.in.tmpl": [
+      "hooks/target/usr/local/share/desktop/software/apt-repo-local.sources.in.tmpl"
+    ],
+    "hooks/target/usr/local/share/software/ledger/ledgerlive.pem": [
+      "hooks/target/usr/local/share/desktop/software/ledger/ledgerlive.pem"
+    ],
+    "hooks/target/usr/local/share/software/package-policies.json": [
+      "hooks/target/usr/local/share/desktop/software/package-policies.json"
+    ],
+    "hooks/target/usr/local/share/software/software-release-policy.json.tmpl": [
+      "hooks/target/usr/local/share/desktop/software/software-release-policy.json.tmpl"
+    ],
+    "hooks/target/usr/local/share/software/tor-browser/developers.asc": [
+      "hooks/target/usr/local/share/desktop/software/tor-browser/developers.asc"
+    ],
+    "hooks/target/usr/local/share/software/tuta/tutao-pub.pem": [
+      "hooks/target/usr/local/share/desktop/software/tuta/tutao-pub.pem"
+    ],
+    "hosts/installer/hosting.env": [
+      "hosts/profiles/shared-hosting.env"
+    ],
+    "scripts/desktop/filen-install.py": [
+      "scripts/common/filen-install.py"
+    ],
+    "scripts/desktop/filen.sh": [
+      "scripts/common/filen.sh"
+    ],
+    "scripts/desktop/hardware-tuning-assets.list": [
+      "scripts/common/hardware-tuning-assets.list"
+    ],
+    "scripts/desktop/hardware-tuning-config.py": [
+      "scripts/common/hardware-tuning-config.py"
+    ],
+    "scripts/desktop/hardware-tuning.sh": [
+      "scripts/common/hardware-tuning.sh"
+    ]
+  },
+  "retired_lifecycle": {
+    "network-wifi-shutdown.service": "Native managed connection metrics and route/link state replace shutdown suppression; see common network-wifi-configure."
+  },
+  "source_root": "d-i/debian",
+  "split_ownership": {
+    "hardware-tuning": "common profile-gated broker/CLI/systemd/AppArmor and vendor backends; desktop menus and active-seat integration kept separate",
+    "incus": "common privileged host backend and policy; desktop UI helper, menu, policy and service staged by desktop.virtualization only",
+    "installer-setup": "Network profile staging, SNANDer installation and initial server setup are installer-only source programs run in private temporary target staging and removed. Persistent controllers retain actual maintenance APIs only. SSH key publication uses the existing installer shell directly.",
+    "network-sharing": "common NFS/Filen CLI, backend, system services and policy; desktop picker/bookmarks integration owned by desktop",
+    "server": "new headless runner/DNS/DevOps implementations; retired server tree never imported"
+  }
+}

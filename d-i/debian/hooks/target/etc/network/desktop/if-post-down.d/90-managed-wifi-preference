@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+PATH=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__:__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin
+export PATH
+
+interface=${IFACE:-}
+[ -n "$interface" ] || exit 0
+
+# Run after ifdown has released the Ethernet link. Restoring Wi-Fi is
+# best-effort and must never turn a failed link-down hook into a fatal ifdown.
+__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-wifi-configure --dispatcher "$interface" down || exit 0

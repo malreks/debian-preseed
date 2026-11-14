@@ -1,0 +1,52 @@
+{
+  "format": 1,
+  "execution": "UNEXECUTED behavioral/failure cases; no hardware, package or boot operation performed",
+  "release": "EDGE 7.3.1-xanmod1",
+  "cases": [
+    {
+      "id": "all-processors-v3",
+      "given": "All usable CPU flag sets contain v2/v3 requirements",
+      "expect": "Select kernel/x64v3 with exact image/header pair on either disk family and role family."
+    },
+    {
+      "id": "heterogeneous-v2",
+      "given": "One CPU has only the required v2 set",
+      "expect": "Select fixed x64v2 pair; never infer v3 from NVMe or vendor name."
+    },
+    {
+      "id": "below-v2",
+      "given": "No flags or any CPU lacks v2 requirements",
+      "expect": "Fail automatic detection before partitioning; no stock/floating/LTS fallback."
+    },
+    {
+      "id": "manual-unsupported-v3",
+      "given": "Manual kernel/x64v3 on detected v2 CPU",
+      "expect": "Reject before partitioning."
+    },
+    {
+      "id": "manual-v2",
+      "given": "Explicit kernel/x64v2 on detected v3 CPU",
+      "expect": "Allow deliberate lower ISA with the same fixed EDGE version."
+    },
+    {
+      "id": "huge-cpuinfo",
+      "given": "Oversized line, total bytes or processor count",
+      "expect": "Bound parsing and refuse the CPU classification."
+    },
+    {
+      "id": "missing-pair",
+      "given": "One fixed package, expected vmlinuz/initrd or headers missing",
+      "expect": "Shared installer kernel verification fails; no silent kernel substitution."
+    },
+    {
+      "id": "signing-cleanup",
+      "given": "Server signing or GRUB publication fails after opening profile signing state",
+      "expect": "Close the exact owned state; retain uncertain cleanup evidence and a nonzero result, with no firmware reset."
+    },
+    {
+      "id": "suite-boundaries",
+      "given": "Forky or Trixie target",
+      "expect": "Use that suite in signed XanMod apt-setup source, fixed vendor kernel identities, native Debian package candidates for other native packages."
+    }
+  ]
+}

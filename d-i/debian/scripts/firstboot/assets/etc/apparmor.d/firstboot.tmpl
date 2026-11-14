@@ -1,0 +1,318 @@
+# Temporary firstboot profiles; removed after successful provisioning.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+profile firstboot __INSTALLER_PATH_FILE_FIRSTBOOT_HELPER__ flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+
+  unix,
+  dbus,
+  network create inet dgram,
+  network (create, bind, getattr, getopt, setopt, send, receive) netlink raw,
+  capability audit_write,
+  capability chown,
+  capability dac_read_search,
+  capability fowner,
+  capability net_admin,
+  capability setgid,
+  capability setuid,
+  capability sys_admin,
+  capability syslog,
+  capability sys_ptrace,
+  # systemctl and networkctl inspect PID 1 and unconfined service metadata.
+  ptrace (read) peer=unconfined,
+  ptrace (read) peer=firstboot,
+  ptrace (read) peer=labwc-compositor,
+  ptrace (read) peer=labwc-greeter-session,
+  ptrace (read) peer=zram-writeback,
+  ptrace (read) peer=usr.sbin.tailscaled,
+
+  # Read service-account process metadata during firstboot validation. The
+  # reciprocal rule is on crowdsec-firstboot; no trace/attach is granted.
+  ptrace (read) peer=crowdsec-firstboot,
+
+  __INSTALLER_PATH_FILE_FIRSTBOOT_HELPER__ rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/dbus-broker-check rix,
+  # Read-only package check; never execute an authentication dialog as root.
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-hyprpolkit-agent rix,
+  __INSTALLER_PATH_DIR_USR_LIBEXEC__/ r,
+  __INSTALLER_PATH_DIR_USR_LIBEXEC__/hyprpolkitagent r,
+  # --status is read-only: journal-sealing.service owns generation.
+  # Keep the verification seed readable only at its exact path; no key writes.
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/journal-sealing rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/journal-check rix,
+  # firstboot invokes the read-only --check path; do not grant __INSTALLER_PATH_DIR_DEV__ writes.
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/nvidia-char-links rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/python3{,.[0-9]*} rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/printf rix,
+  __INSTALLER_PATH_DIR_DEV__/char/ r,
+  __INSTALLER_PATH_DIR_DEV__/char/[0-9]*:[0-9]* r,
+  __INSTALLER_PATH_DIR_DEV__/nvidia{[0-9]*,ctl,-modeset,-uvm,-uvm-tools} r,
+  __INSTALLER_PATH_DIR_USR_BIN__/{busctl,id,find} rix,
+  # dpkg --compare-versions validates the installed swaylock/PAM chain.
+  # The package database remains read-only in this profile.
+  __INSTALLER_PATH_DIR_USR_BIN__/dpkg rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/{dpkg-query,passwd,perl,readlink} rix,
+  __INSTALLER_PATH_DIR_USR_SBIN__/runuser rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/{flock,grep,mkdir,mktemp,sleep,timeout,desktop-file-validate} rix,
+  signal (send, receive) set=(hup, int, term, kill, cont) peer=firstboot,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__/ r,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__/logging.sh r,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__/import-initramfs.py r,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__/service-account-processes.py r,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__/{01-early,02-collect,03-network,04-validation,05-cleanup}.sh rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/{cat,chmod,chown,cp,cut,date,dmesg,find,findmnt,getent,hostname,hostnamectl,journalctl,lsblk,mokutil,mv,networkctl,resolvectl,rm,sed,ss,systemctl,systemd-analyze,uname} rix,
+  __INSTALLER_PATH_DIR_USR__/{bin,sbin}/ip rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/{eglinfo,es2_info,wlr-randr} rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/coredumpctl rix,
+  __INSTALLER_PATH_DIR_USR_SBIN__/aa-status rPx -> aa-status-reader,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apparmor-modes-run rPx -> apparmor-modes,
+
+  / r,
+  __INSTALLER_PATH_DIR_BOOT__/ r,
+  __INSTALLER_PATH_DIR_BOOT__/** r,
+  __INSTALLER_PATH_DIR_DEV__/ r,
+  __INSTALLER_PATH_DIR_DEV__/{kmsg,tty,urandom} r,
+  __INSTALLER_PATH_DIR_DEV__/null rw,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_ETC__/** r,
+  __INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf rw,
+  __INSTALLER_PATH_DIR_HOME__/*/.config/qt6ct/qt6ct.conf r,
+  # Root firstboot enumerates the user-owned unit directory; owner would not match.
+  @{HOME}/.config/systemd/user/ r,
+  __INSTALLER_PATH_DIR_RUN__/ r,
+  __INSTALLER_PATH_DIR_RUN__/** r,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/** r,
+  __INSTALLER_PATH_DIR_USR_BIN__/pwd r,
+  __INSTALLER_PATH_DIR_USR_LIB__/ r,
+  __INSTALLER_PATH_DIR_USR_LIB__/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  # The initramfs importer opens every ancestor with O_DIRECTORY/O_NOFOLLOW.
+  __INSTALLER_PATH_DIR_VAR__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/** r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/journal-sealing/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/journal-sealing/lock rk,
+  __INSTALLER_PATH_DIR_VAR_LIB__/journal-sealing/status.json r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/journal-sealing/verification-key r,
+  __INSTALLER_PATH_DIR_FIRSTBOOT__/ r,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/ rw,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/** rwkl,
+  __INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/ rw,
+  __INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/** rwkl,
+  __INSTALLER_PATH_DIR_VAR_LOG__/ r,
+  __INSTALLER_PATH_DIR_VAR_LOG__/** r,
+  __INSTALLER_LOG_INITRAMFS_DIR__/ rw,
+  __INSTALLER_LOG_INITRAMFS_DIR__/** rwk,
+  @{PROC}/ r,
+  @{PROC}/** r,
+  @{sys}/ r,
+  @{sys}/** r,
+
+  include if exists <local/usr.local.libexec.firstboot.sh>
+}
+
+profile installer-initramfs-health __INSTALLER_PATH_DIR_INITRAMFS_SCRIPTS__/{init-top,init-premount,local-top,local-block,local-premount,local-bottom,init-bottom}/90-installer-health flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+
+  __INSTALLER_PATH_DIR_INITRAMFS_SCRIPTS__/{init-top,init-premount,local-top,local-block,local-premount,local-bottom,init-bottom}/90-installer-health rix,
+  __INSTALLER_PATH_FILE_INITRAMFS_HEALTH_COMMON__ r,
+  /{,usr/}bin/{chmod,cp,date,ls,mkdir,mv,rm,sed,uname,wc} rix,
+
+  / r,
+  __INSTALLER_PATH_DIR_BOOT__/ r,
+  __INSTALLER_PATH_DIR_BOOT__/** r,
+  __INSTALLER_PATH_DIR_DEV__/ r,
+  __INSTALLER_PATH_DIR_DEV__/** r,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_ETC__/** r,
+  @{PROC}/ r,
+  @{PROC}/** r,
+  __INSTALLER_PATH_DIR_RUN__/ r,
+  __INSTALLER_PATH_DIR_RUN__/initramfs-health/ rw,
+  __INSTALLER_PATH_DIR_RUN__/initramfs-health/** rwkl,
+  @{sys}/ r,
+  @{sys}/** r,
+  __INSTALLER_PATH_DIR_USR__/ r,
+  __INSTALLER_PATH_DIR_USR__/** r,
+  __INSTALLER_PATH_DIR_ROOT_HOME__/ r,
+
+  include if exists <local/etc.initramfs-tools.scripts.installer-health>
+}
+
+profile crowdsec-firstboot __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/crowdsec-firstboot flags=(attach_disconnected) {
+  # find uses the filesystem root for metadata checks, not a recursive grant.
+  / r,
+  #include <abstractions/wrapper-python>
+  #include <abstractions/nameservice>
+  #include <abstractions/openssl>
+
+  capability chown,
+  capability dac_override,
+  capability dac_read_search,
+  capability fowner,
+  capability net_admin,
+  capability sys_ptrace,
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network netlink raw,
+  unix,
+  dbus,
+  ptrace (read) peer=unconfined,
+  ptrace (readby) peer=firstboot,
+
+  __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/crowdsec-firstboot rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/crowdsec-bouncer-verify rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/ r,
+  __INSTALLER_PATH_DIR_USR_BIN__/{awk,chmod,date,dirname,getent,grep,hostname,install,mawk,mkdir,mktemp,mv,rm,sha256sum,sleep,ss,find,systemctl,timeout} rix,
+  __INSTALLER_PATH_DIR_USR__/{bin,sbin,local/bin,local/sbin}/cscli rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/crowdsec rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/cmp rix,
+
+  __INSTALLER_PATH_DIR_ETC_CROWDSEC__/ rw,
+  __INSTALLER_PATH_DIR_ETC_CROWDSEC__/** rwkl,
+  __INSTALLER_PATH_DIR_ETC__/machine-id r,
+  __INSTALLER_PATH_DIR_ETC__/resolv.conf r,
+  __INSTALLER_PATH_DIR_ETC__/ssl/ r,
+  __INSTALLER_PATH_DIR_ETC__/ssl/** r,
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/ rw,
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/** rwkl,
+  __INSTALLER_PATH_DIR_RUN__/crowdsec/ rw,
+  __INSTALLER_PATH_DIR_RUN__/crowdsec/** rwkl,
+  __INSTALLER_PATH_DIR_RUN_DBUS__/system_bus_socket rw,
+  __INSTALLER_PATH_DIR_RUN_SYSTEMD__/private rw,
+  @{PROC}/[0-9]*/mountinfo r,
+  @{PROC}/[0-9]*/stat r,
+  __INSTALLER_PATH_DIR_SYS__/kernel/mm/hugepages/ r,
+  __INSTALLER_PATH_DIR_CROWDSEC_STATE__/ rw,
+  __INSTALLER_PATH_DIR_CROWDSEC_STATE__/** rwkl,
+  __INSTALLER_PATH_DIR_VAR_LIB_CROWDSEC__/ rw,
+  __INSTALLER_PATH_DIR_VAR_LIB_CROWDSEC__/** rwkl,
+  __INSTALLER_PATH_DIR_SYSTEMD__/ r,
+  __INSTALLER_PATH_DIR_SYSTEMD__/** rwkl,
+  __INSTALLER_LOG_CROWDSEC_DIR__/ rw,
+  __INSTALLER_LOG_CROWDSEC_DIR__/** rwkl,
+  owner __INSTALLER_PATH_DIR_TMP__/crowdsec-*.log rw,
+  owner __INSTALLER_PATH_DIR_TMP__/crowdsec-enroll.*.log rw,
+  # Coraza checks its temporary directory with CreateTemp("checkfsfile")
+  # during crowdsec -t, then closes and removes the owner-only probe file.
+  owner __INSTALLER_PATH_DIR_TMP__/checkfsfile[0-9]* rw,
+
+  include if exists <local/usr.local.libexec.crowdsec-firstboot>
+}
+
+profile secondboot-cleanup __INSTALLER_PATH_FILE_SECONDBOOT_HELPER__ flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tpm2-policy-check rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/python3{,.[0-9]*} rix,
+  __INSTALLER_PATH_DIR_CRYPTO_STATE__/.enrollment-* rwk,
+  __INSTALLER_PATH_FILE_CRYPTO_BOOT_ARTIFACTS_CLEANED__ rwk,
+  __INSTALLER_PATH_FILE_CRYPTO_BOOTSTRAP_TRANSACTION__ r,
+  __INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id r,
+
+
+  capability dac_override,
+  unix,
+  dbus,
+
+  __INSTALLER_PATH_FILE_SECONDBOOT_HELPER__ rix,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/fruux-cleanup rPx -> fruux-cleanup,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apparmor-modes-run rPx -> apparmor-modes,
+  __INSTALLER_PATH_DIR_USR_BIN__/{chmod,dirname,grep,head,id,mktemp,mv,rm,rmdir,sync,wc} rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/lsinitramfs rPx -> update-initramfs,
+  __INSTALLER_PATH_DIR_USR_BIN__/systemctl PUx,
+  __INSTALLER_PATH_DIR_USR_SBIN__/update-initramfs rPx -> update-initramfs,
+  __INSTALLER_PATH_DIR_BOOT__/ r,
+  __INSTALLER_PATH_DIR_BOOT__/** rwkl,
+  __INSTALLER_PATH_DIR_INITRAMFS__/ rw,
+  __INSTALLER_PATH_DIR_INITRAMFS__/** rwkl,
+  __INSTALLER_PATH_DIR_ETC__/profile.d/tpm2-enroll-prompt.sh rw,
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/ rw,
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/** rwkl,
+  __INSTALLER_PATH_DIR_ETC_XDG__/autostart/tpm2-enroll.desktop rw,
+  __INSTALLER_PATH_DIR_RUN_DBUS__/system_bus_socket rw,
+  __INSTALLER_PATH_DIR_RUN__/initramfs-health/ rw,
+  __INSTALLER_PATH_DIR_RUN__/initramfs-health/** rwkl,
+  __INSTALLER_PATH_DIR_RUN__/secondboot-initramfs.* rw,
+  __INSTALLER_PATH_DIR_RUN__/secondboot-initramfs-status.?????? rw,
+  __INSTALLER_PATH_DIR_RUN_LOCK__/tpm2-enroll.lock rw,
+  __INSTALLER_PATH_DIR_RUN_SYSTEMD__/private rw,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/tpm2-enroll-launch rw,
+  __INSTALLER_PATH_DIR_CROWDSEC_STATE__/ rw,
+  __INSTALLER_PATH_DIR_CROWDSEC_STATE__/** rwkl,
+  __INSTALLER_PATH_DIR_CRYPTO_STATE__/ rw,
+  __INSTALLER_PATH_DIR_CRYPTO_STATE__/** rwkl,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__/ rw,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__/** rwkl,
+  __INSTALLER_PATH_DIR_TAILSCALE_STATE__/ rw,
+  __INSTALLER_PATH_DIR_TAILSCALE_STATE__/** rwkl,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/{crowdsec-firstboot,firstboot.sh,secondboot-cleanup,tailscale-up,fruux-cleanup} rw,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/tpm2-enroll.sh rw,
+  __INSTALLER_PATH_DIR_FIRSTBOOT__/ rw,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/ rw,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/ rw,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/** rw,
+  __INSTALLER_PATH_DIR_APPARMOR__/firstboot rw,
+  __INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/** r,
+  __INSTALLER_PATH_DIR_SYSTEMD__/ r,
+  __INSTALLER_PATH_DIR_SYSTEMD__/** rwkl,
+
+  include if exists <local/usr.local.libexec.secondboot-cleanup>
+}
+
+profile tailscale-up __INSTALLER_PATH_FILE_TAILSCALE_MANAGED_HELPER__ flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+  #include <abstractions/wrapper-python>
+  #include <abstractions/nameservice>
+  #include <abstractions/openssl>
+
+  capability dac_override,
+  capability sys_ptrace,
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  unix,
+  dbus,
+  ptrace (read) peer=unconfined,
+
+  __INSTALLER_PATH_FILE_TAILSCALE_MANAGED_HELPER__ rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/{chmod,date,dirname,id,install,mv,python3,rm,sleep,systemctl,timeout,touch} rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/tailscale rPx -> usr.bin.tailscale,
+
+  / r,
+  __INSTALLER_PATH_DIR_ETC__/resolv.conf r,
+  __INSTALLER_PATH_DIR_ETC__/ssl/ r,
+  __INSTALLER_PATH_DIR_ETC__/ssl/** r,
+  __INSTALLER_PATH_DIR_RUN_DBUS__/system_bus_socket rw,
+  __INSTALLER_PATH_DIR_RUN_SYSTEMD__/private rw,
+  __INSTALLER_PATH_DIR_RUN_TAILSCALE__/ r,
+  __INSTALLER_PATH_DIR_RUN_TAILSCALE__/tailscaled.sock rw,
+  @{PROC}/[0-9]*/stat r,
+  __INSTALLER_PATH_DIR_TAILSCALE_STATE__/ rw,
+  __INSTALLER_PATH_DIR_TAILSCALE_STATE__/** rwkl,
+  __INSTALLER_PATH_DIR_VAR__/run/tailscale/ r,
+  __INSTALLER_PATH_DIR_VAR__/run/tailscale/tailscaled.sock rw,
+
+  include if exists <local/usr.local.libexec.tailscale-up>
+}
+
+profile tpm2-enroll-launch __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/tpm2-enroll-launch flags=(attach_disconnected) {
+  #include <abstractions/wrapper-terminal>
+  #include <abstractions/wrapper-base>
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/tpm2-enroll-launch rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/{cat,id} rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/sudo r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal rPx -> labwc-terminal,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/tpm2-enroll.sh r,
+  __INSTALLER_PATH_FILE_CRYPTO_PENDING__ r,
+
+  include if exists <local/usr.local.bin.tpm2-enroll-launch>
+}

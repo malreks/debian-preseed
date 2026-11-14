@@ -1,0 +1,1001 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+import errno
+from contextlib import ExitStack
+import fcntl
+import hashlib
+import os
+import pathlib
+import pwd
+import re
+import shlex
+import shutil
+import stat
+import subprocess
+import signal
+import socket
+import struct
+import sys
+import tempfile
+import time
+import urllib.parse
+import uuid
+
+
+DEFAULTS_PATH = pathlib.Path("__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf")
+MANAGED_POLICY_DROPIN = pathlib.Path(
+    "__INSTALLER_PATH_DIR_ETC__/qbittorrent/qBittorrent.conf.d/10-security.conf"
+)
+MAX_DEFAULTS_BYTES = 65536
+MAX_CONFIG_BYTES = 1024 * 1024
+MAX_LAUNCH_ARGUMENTS = 64
+MAX_LAUNCH_ARGUMENT_BYTES = 8192
+MAX_TORRENT_FILE_BYTES = 16 * 1024 * 1024
+DEFAULT_PORT = 50309
+USERNAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_-]*$")
+DBUS_ADDRESS_PATTERN = re.compile(r"unix:path=([^,]+)(?:,[^=]+=[^,]+)*")
+DEFAULT_KEYS = {
+    "LABWC_MANAGED_APP_DEFAULT_EXEC",
+    "LABWC_INTEL_ACCELERATION_AVAILABLE",
+    "LABWC_NVIDIA_ACCELERATION_AVAILABLE",
+    "LABWC_QBITTORRENT_PORT",
+    "LABWC_QBITTORRENT_ROOT",
+    "LABWC_QBITTORRENT_USER",
+}
+ACCELERATION_OPTION_PREFIX = "--acceleration="
+
+
+def fail(message: str) -> None:
+    print(f"fatal: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def validate_absolute_path(label: str, value: str) -> pathlib.Path:
+    if not value or not value.startswith("/"):
+        fail(f"{label} must be an absolute path: {value or 'unset'}")
+    if any(character in value for character in ("\0", "\n", "\r")):
+        fail(f"{label} contains unsupported control characters")
+    path = pathlib.Path(value)
+    if ".." in path.parts:
+        fail(f"{label} must not contain parent traversal: {value}")
+    return path
+
+
+def load_defaults(path: pathlib.Path) -> dict[str, str]:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        fail(f"managed desktop defaults are unavailable: {path}: {exc}")
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        fail(f"managed desktop defaults must be a regular file: {path}")
+    if metadata.st_uid != 0 or metadata.st_mode & 0o022:
+        fail(f"managed desktop defaults must be root-owned and not writable by group or others: {path}")
+    if metadata.st_size > MAX_DEFAULTS_BYTES:
+        fail(f"managed desktop defaults exceed {MAX_DEFAULTS_BYTES} bytes: {path}")
+
+    values: dict[str, str] = {}
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(descriptor, "rb") as source:
+            opened = os.fstat(source.fileno())
+            if (not stat.S_ISREG(opened.st_mode) or opened.st_uid != 0 or opened.st_mode & 0o022
+                    or (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino)):
+                fail(f"managed desktop defaults changed or are unsafe: {path}")
+            payload = source.read(MAX_DEFAULTS_BYTES + 1)
+        if len(payload) > MAX_DEFAULTS_BYTES:
+            fail(f"managed desktop defaults exceed {MAX_DEFAULTS_BYTES} bytes: {path}")
+        lines = payload.decode("utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        fail(f"failed to read managed desktop defaults: {path}: {exc}")
+    for line_number, raw_line in enumerate(lines, start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        if key not in DEFAULT_KEYS:
+            continue
+        try:
+            parsed = shlex.split(raw_value, comments=False, posix=True)
+        except ValueError as exc:
+            fail(f"invalid {key} assignment on line {line_number}: {exc}")
+        if len(parsed) != 1:
+            fail(f"invalid {key} assignment on line {line_number}")
+        values[key] = parsed[0]
+    return values
+
+
+def select_acceleration_mode(
+    defaults: dict[str, str],
+    raw_arguments: list[str],
+) -> tuple[str, list[str]]:
+    mode = "launch"
+    launch_arguments: list[str] = []
+
+    for raw_argument in raw_arguments:
+        if not raw_argument.startswith(ACCELERATION_OPTION_PREFIX):
+            launch_arguments.append(raw_argument)
+            continue
+        if mode != "launch":
+            fail("qBittorrent accepts at most one managed acceleration selector")
+        mode = raw_argument[len(ACCELERATION_OPTION_PREFIX) :]
+        if mode not in {"intel", "nvidia"}:
+            fail(f"unsupported qBittorrent managed acceleration mode: {mode or 'unset'}")
+
+    if mode == "launch":
+        default_exec = defaults.get("LABWC_MANAGED_APP_DEFAULT_EXEC", "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app launch")
+        default_modes = {f"__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app {value}": value
+                         for value in ("launch", "intel", "nvidia")}
+        if default_exec not in default_modes:
+            fail("invalid managed application default acceleration command")
+        mode = default_modes[default_exec]
+
+    if mode in {"intel", "nvidia"}:
+        key = f"LABWC_{mode.upper()}_ACCELERATION_AVAILABLE"
+        available = defaults.get(key, "")
+        if available not in {"true", "false"}:
+            fail(f"{key} must be true or false in managed desktop defaults")
+        if available != "true":
+            fail(f"{mode} acceleration is unavailable on this target")
+    return mode, launch_arguments
+
+
+def configured_account(defaults: dict[str, str]) -> tuple[pwd.struct_passwd, pathlib.Path]:
+    if os.geteuid() == 0:
+        fail("qBittorrent must run as the configured desktop user, never root")
+    try:
+        account = pwd.getpwuid(os.getuid())
+    except KeyError:
+        fail(f"current uid has no passwd entry: {os.getuid()}")
+
+    configured_user = defaults.get("LABWC_QBITTORRENT_USER", "")
+    if not USERNAME_PATTERN.fullmatch(configured_user):
+        fail(f"LABWC_QBITTORRENT_USER is invalid: {configured_user or 'unset'}")
+    if configured_user != account.pw_name:
+        fail(f"qBittorrent is restricted to {configured_user}, not {account.pw_name}")
+
+    configured_peer_port(defaults)
+
+    expected_root = pathlib.Path(f"__INSTALLER_PATH_DIR_RUN__/media/{configured_user}/bittorrent")
+    configured_root = validate_absolute_path(
+        "LABWC_QBITTORRENT_ROOT",
+        defaults.get("LABWC_QBITTORRENT_ROOT", ""),
+    )
+    if configured_root != expected_root:
+        fail(f"LABWC_QBITTORRENT_ROOT must be {expected_root}: {configured_root}")
+    return account, configured_root
+
+
+def configured_peer_port(defaults: dict[str, str]) -> int:
+    return configured_peer_ports(defaults)[0]
+
+
+def configured_peer_ports(defaults: dict[str, str]) -> tuple[int, ...]:
+    value = defaults.get("LABWC_QBITTORRENT_PORT", "")
+    parts = value.split(",")
+    if (not 1 <= len(parts) <= 2 or len(value) > 11
+            or any(not re.fullmatch(r"[1-9][0-9]{3,4}", part) or not 1024 <= int(part) <= 65535 for part in parts)
+            or len(set(parts)) != len(parts)):
+        fail("LABWC_QBITTORRENT_PORT requires one port or Ethernet,Wi-Fi ports in 1024..65535")
+    return tuple(int(part) for part in parts)
+
+
+def select_storage_root(
+    account: pwd.struct_passwd, configured_root: pathlib.Path,
+) -> pathlib.Path:
+    require_real_directory(configured_root, "qBittorrent storage volume")
+    if configured_root.resolve() != configured_root:
+        fail(f"qBittorrent storage volume must not resolve through symlinks: {configured_root}")
+    # __INSTALLER_PATH_DIR_RUN__/media is transient. Require the configured volume before creating
+    # any profile or download directory; never redirect storage into the home.
+    try:
+        if configured_root.stat().st_dev == pathlib.Path("__INSTALLER_PATH_DIR_RUN__").stat().st_dev:
+            fail(f"qBittorrent storage volume is not mounted: {configured_root}")
+    except OSError as exc:
+        fail(f"cannot verify qBittorrent storage volume: {exc}")
+    return configured_root
+
+
+def require_real_directory(path: pathlib.Path, label: str) -> None:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        fail(f"{label} is unavailable: {path}: {exc}")
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        fail(f"{label} must be a real directory, not a symlink: {path}")
+
+
+def ensure_directory(path: pathlib.Path, mode: int) -> None:
+    if os.path.lexists(path):
+        require_real_directory(path, "managed qBittorrent directory")
+    else:
+        try:
+            path.mkdir(mode=mode)
+        except OSError as exc:
+            fail(f"failed to create managed qBittorrent directory {path}: {exc}")
+    try:
+        os.chmod(path, mode)
+    except OSError as exc:
+        fail(f"failed to set managed qBittorrent directory mode on {path}: {exc}")
+
+
+def prepare_storage(root: pathlib.Path) -> dict[str, pathlib.Path]:
+    require_real_directory(root, "qBittorrent storage root")
+    if root.resolve() != root:
+        fail(f"qBittorrent storage root must not resolve through symlinks: {root}")
+    if not os.access(root, os.R_OK | os.W_OK | os.X_OK):
+        fail(f"qBittorrent storage root is not accessible for reading and writing: {root}")
+
+    paths = {
+        "active": root / "active",
+        "completed": root / "completed",
+        "torrents_active": root / "torrents-active",
+        "torrents_completed": root / "torrents-completed",
+        "profile_home": root / ".qbittorrent-profile",
+        "imports": root / ".qbittorrent-profile" / "imports",
+    }
+    for name, path in paths.items():
+        ensure_directory(path, 0o700 if name in {"profile_home", "imports"} else 0o750)
+    return paths
+
+
+def read_managed_config(source_path: pathlib.Path | None = None) -> bytes:
+    """Read the install-rendered root-owned qBittorrent configuration."""
+    source = source_path or MANAGED_POLICY_DROPIN
+    try:
+        parent_metadata = source.parent.lstat()
+        metadata = source.lstat()
+        if (stat.S_ISLNK(parent_metadata.st_mode) or not stat.S_ISDIR(parent_metadata.st_mode)
+                or parent_metadata.st_uid != 0 or parent_metadata.st_mode & 0o022
+                or stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != 0 or metadata.st_mode & 0o022
+                or metadata.st_nlink != 1 or metadata.st_size > MAX_CONFIG_BYTES):
+            fail(f"managed qBittorrent configuration has unsafe metadata: {source}")
+        descriptor = os.open(
+            source,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+        )
+        with os.fdopen(descriptor, "rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if ((opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino)
+                    or opened.st_uid != 0 or opened.st_nlink != 1
+                    or opened.st_mode & 0o022):
+                fail(f"managed qBittorrent configuration changed while opening: {source}")
+            payload = handle.read(MAX_CONFIG_BYTES + 1)
+        if len(payload) > MAX_CONFIG_BYTES:
+            fail(f"managed qBittorrent configuration exceeds {MAX_CONFIG_BYTES} bytes")
+        payload.decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        fail(f"cannot read managed qBittorrent configuration ({type(exc).__name__})")
+    if not payload.strip() or b"__INSTALLER_" in payload:
+        fail(f"managed qBittorrent configuration is not an install-rendered file: {source}")
+    return payload
+
+
+def copy_managed_config(profile_home: pathlib.Path) -> pathlib.Path:
+    """Copy the install-rendered configuration into the private profile."""
+    config_dir = profile_home / ".config" / "qBittorrent"
+    ensure_directory(profile_home / ".config", 0o700)
+    ensure_directory(config_dir, 0o700)
+    config_path = config_dir / "qBittorrent.conf"
+    if os.path.lexists(config_path):
+        try:
+            metadata = config_path.lstat()
+        except OSError as exc:
+            fail(f"cannot inspect qBittorrent profile configuration: {exc}")
+        if (stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != os.getuid() or metadata.st_nlink != 1):
+            fail(f"qBittorrent profile configuration is unsafe: {config_path}")
+
+    payload = read_managed_config()
+    temporary_path = config_path.with_name(f".{config_path.name}.{os.getpid()}.tmp")
+    try:
+        descriptor = os.open(
+            temporary_path,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, config_path)
+        os.chmod(config_path, 0o600)
+    except OSError as exc:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+        fail(f"failed to copy managed qBittorrent configuration: {exc}")
+    return config_path
+
+
+def local_torrent_path(raw_argument: str) -> pathlib.Path | None:
+    if raw_argument.startswith("file:"):
+        try:
+            parsed = urllib.parse.urlsplit(raw_argument)
+            decoded_path = urllib.parse.unquote(
+                parsed.path,
+                encoding="utf-8",
+                errors="strict",
+            )
+        except (UnicodeError, ValueError) as exc:
+            fail(f"invalid local torrent file URI: {exc}")
+        if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
+            fail("local torrent file URI must use file:// with no remote host")
+        if parsed.query or parsed.fragment:
+            fail("local torrent file URI must not contain a query or fragment")
+        return validate_absolute_path("local torrent file", decoded_path)
+    if raw_argument.startswith("/"):
+        return validate_absolute_path("local torrent file", raw_argument)
+    return None
+
+
+def stage_torrent_file(
+    source_path: pathlib.Path,
+    imports_path: pathlib.Path,
+) -> str:
+    if source_path.suffix.lower() != ".torrent":
+        fail(f"local qBittorrent input must end in .torrent: {source_path}")
+    try:
+        source_metadata = source_path.lstat()
+    except OSError as exc:
+        fail(f"local torrent file is unavailable: {source_path}: {exc}")
+    if stat.S_ISLNK(source_metadata.st_mode) or not stat.S_ISREG(source_metadata.st_mode):
+        fail(f"local torrent file must be a regular file, not a symlink: {source_path}")
+    if source_metadata.st_size <= 0:
+        fail(f"local torrent file is empty: {source_path}")
+    if source_metadata.st_size > MAX_TORRENT_FILE_BYTES:
+        fail(
+            "local torrent file exceeds "
+            f"{MAX_TORRENT_FILE_BYTES} bytes: {source_path}"
+        )
+
+    temporary_path = imports_path / f".import.{os.getpid()}.{source_metadata.st_ino}.tmp"
+    digest = hashlib.sha256()
+    try:
+        source_descriptor = os.open(
+            source_path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        destination_descriptor = os.open(
+            temporary_path,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        with os.fdopen(source_descriptor, "rb") as source_handle, os.fdopen(
+            destination_descriptor,
+            "wb",
+        ) as destination_handle:
+            opened_metadata = os.fstat(source_handle.fileno())
+            if (
+                not stat.S_ISREG(opened_metadata.st_mode)
+                or opened_metadata.st_dev != source_metadata.st_dev
+                or opened_metadata.st_ino != source_metadata.st_ino
+                or opened_metadata.st_size != source_metadata.st_size
+            ):
+                fail(f"local torrent file changed while opening: {source_path}")
+            copied_bytes = 0
+            while True:
+                chunk = source_handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                copied_bytes += len(chunk)
+                if copied_bytes > MAX_TORRENT_FILE_BYTES:
+                    fail(
+                        "local torrent file exceeds "
+                        f"{MAX_TORRENT_FILE_BYTES} bytes while reading: {source_path}"
+                    )
+                digest.update(chunk)
+                destination_handle.write(chunk)
+            if copied_bytes != source_metadata.st_size:
+                fail(f"local torrent file changed while reading: {source_path}")
+            destination_handle.flush()
+            os.fsync(destination_handle.fileno())
+
+        destination_path = imports_path / f"{digest.hexdigest()}.torrent"
+        if os.path.lexists(destination_path):
+            destination_metadata = destination_path.lstat()
+            if stat.S_ISLNK(destination_metadata.st_mode) or not stat.S_ISREG(
+                destination_metadata.st_mode
+            ):
+                fail(
+                    "managed qBittorrent import destination must be a regular file: "
+                    f"{destination_path}"
+                )
+        os.replace(temporary_path, destination_path)
+        os.chmod(destination_path, 0o600)
+        return str(pathlib.Path("__INSTALLER_PATH_DIR_HOME__/user/imports") / destination_path.name)
+    except OSError as exc:
+        fail(f"failed to stage local torrent file {source_path}: {exc}")
+    finally:
+        try:
+            temporary_path.unlink()
+        except OSError:
+            pass
+
+
+def prepare_launch_arguments(
+    paths: dict[str, pathlib.Path],
+    raw_arguments: list[str],
+) -> list[str]:
+    if len(raw_arguments) > MAX_LAUNCH_ARGUMENTS:
+        fail(f"qBittorrent accepts at most {MAX_LAUNCH_ARGUMENTS} launch arguments")
+
+    prepared: list[str] = []
+    for raw_argument in raw_arguments:
+        if (
+            not raw_argument
+            or len(raw_argument.encode("utf-8", errors="surrogateescape"))
+            > MAX_LAUNCH_ARGUMENT_BYTES
+            or any(character in raw_argument for character in ("\0", "\n", "\r"))
+        ):
+            fail("qBittorrent launch argument is empty, oversized, or contains controls")
+
+        local_path = local_torrent_path(raw_argument)
+        if local_path is not None:
+            prepared.append(stage_torrent_file(local_path, paths["imports"]))
+            continue
+
+        try:
+            parsed = urllib.parse.urlsplit(raw_argument)
+        except ValueError as exc:
+            fail(f"invalid qBittorrent launch URI: {exc}")
+        if parsed.scheme == "magnet" and raw_argument.startswith("magnet:?"):
+            prepared.append(raw_argument)
+            continue
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            prepared.append(raw_argument)
+            continue
+        fail(f"unsupported qBittorrent launch argument: {raw_argument}")
+    return prepared
+
+
+def forward_to_existing(profile_home: pathlib.Path, arguments: list[str]) -> bool:
+    """Use qBittorrent's bounded QtLocalPeer IPC before claiming peer ports."""
+    ipc = profile_home / ".config/qBittorrent/ipc-socket"
+    try:
+        metadata = ipc.lstat()
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISSOCK(metadata.st_mode) or metadata.st_uid != os.getuid():
+        fail("unsafe existing qBittorrent IPC socket")
+    if any("|" in value for value in arguments):
+        fail("qBittorrent IPC arguments must not contain its parameter separator")
+    message = "|".join(arguments).encode("utf-8")
+    if len(message) > 65535:
+        fail("qBittorrent IPC request exceeds the application limit")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
+            channel.settimeout(5)
+            try:
+                channel.connect(str(ipc))
+            except OSError as exc:
+                if exc.errno in {errno.ENOENT, errno.ECONNREFUSED}:
+                    return False  # qBittorrent itself recovers its stale endpoint.
+                raise
+            channel.sendall(struct.pack("!I", len(message)) + message)
+            acknowledgement = bytearray()
+            while len(acknowledgement) < 3:
+                chunk = channel.recv(3 - len(acknowledgement))
+                if not chunk:
+                    break
+                acknowledgement.extend(chunk)
+            if acknowledgement != b"ack":
+                fail("existing qBittorrent did not acknowledge the launch request")
+    except OSError as exc:
+        fail(f"cannot send the launch request to existing qBittorrent: {exc}")
+    return True
+
+
+def acquire_launch_lock(profile_home: pathlib.Path, arguments: list[str]) -> int | None:
+    """Serialize first starts; concurrent requests can still reach live IPC."""
+    if forward_to_existing(profile_home, arguments):
+        return None
+    descriptor = os.open(profile_home / ".launcher.lock",
+        os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600)
+    try:
+        metadata = os.fstat(descriptor)
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1):
+            fail("unsafe qBittorrent launcher lock")
+        deadline = time.monotonic() + 30
+        while True:
+            if forward_to_existing(profile_home, arguments):
+                os.close(descriptor)
+                return None
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return descriptor
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    fail("qBittorrent startup is still in progress; retry after it is ready")
+                time.sleep(0.1)
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def optional_ro_bind(command: list[str], source: str) -> None:
+    if os.path.exists(source):
+        command.extend(["--ro-bind", source, source])
+
+
+def add_gpu_device_binds(command: list[str], acceleration_mode: str):
+    # main() verifies the package import chain before this helper is reached.
+    from labwc_managed_app import gpu
+    selected = gpu.select(acceleration_mode)
+    if selected is not None:
+        selected.add_binds(command)
+    return selected
+
+
+def add_qt_theme_binds(command: list[str], account: pwd.struct_passwd, sandbox_home: pathlib.Path) -> None:
+    # main() validates the root-owned package before constructing this payload.
+    from labwc_managed_app.mounts import add_qt_theme_directory_binds
+    add_qt_theme_directory_binds(command, account.pw_dir, str(sandbox_home))
+
+
+def validate_no_host_audio_device_binds(command: list[str]) -> None:
+    bind_options = {
+        "--bind",
+        "--bind-try",
+        "--dev-bind",
+        "--dev-bind-try",
+        "--ro-bind",
+        "--ro-bind-try",
+    }
+    for index, argument in enumerate(command):
+        if argument not in bind_options:
+            continue
+        if index + 2 >= len(command):
+            fail("malformed qBittorrent bubblewrap bind")
+        for raw_path in command[index + 1 : index + 3]:
+            normalized_path = os.path.normpath(raw_path)
+            if normalized_path == "__INSTALLER_PATH_DIR_DEV__/snd" or normalized_path.startswith("__INSTALLER_PATH_DIR_DEV__/snd/"):
+                fail(f"qBittorrent bubblewrap forbids direct ALSA device access: {raw_path}")
+
+
+def validate_no_host_display_control_binds(command: list[str]) -> None:
+    bind_options = {
+        "--bind",
+        "--bind-try",
+        "--dev-bind",
+        "--dev-bind-try",
+        "--ro-bind",
+        "--ro-bind-try",
+    }
+    for index, argument in enumerate(command):
+        if argument not in bind_options:
+            continue
+        if index + 2 >= len(command):
+            fail("malformed qBittorrent bubblewrap bind")
+        for raw_path in command[index + 1 : index + 3]:
+            normalized_path = os.path.normpath(raw_path)
+            if (
+                normalized_path == "__INSTALLER_PATH_DIR_DEV__/dri"
+                or (
+                    normalized_path.startswith("__INSTALLER_PATH_DIR_DEV__/dri/")
+                    and re.fullmatch(
+                        r"__INSTALLER_PATH_DIR_DEV__/dri/renderD(?:0|[1-9][0-9]{0,5})",
+                        normalized_path,
+                    )
+                    is None
+                )
+                or normalized_path == "__INSTALLER_PATH_DIR_DEV__/nvidia-modeset"
+            ):
+                fail(
+                    "qBittorrent bubblewrap forbids host display-control "
+                    f"device access: {raw_path}"
+                )
+
+
+def require_socket(path: pathlib.Path, label: str) -> None:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        fail(f"{label} is unavailable: {path}: {exc}")
+    if not stat.S_ISSOCK(metadata.st_mode):
+        fail(f"{label} is not a socket: {path}")
+    if metadata.st_uid != os.getuid() or metadata.st_nlink != 1:
+        fail(f"{label} must belong to the invoking user and have one link: {path}")
+
+
+def session_bus_path(raw_address: str) -> pathlib.Path | None:
+    address = raw_address.strip()
+    if not address:
+        return None
+    if len(address) > 4096 or any(character in address for character in ("\0", "\n", "\r", ";")):
+        fail("DBUS_SESSION_BUS_ADDRESS is invalid")
+    match = DBUS_ADDRESS_PATTERN.fullmatch(address)
+    if match is None:
+        fail("DBUS_SESSION_BUS_ADDRESS must use one local unix:path transport")
+    path = validate_absolute_path("DBUS session bus path", match.group(1))
+    require_socket(path, "DBUS session bus")
+    return path
+
+
+def build_command(
+    account: pwd.struct_passwd,
+    root: pathlib.Path,
+    profile_home: pathlib.Path,
+    acceleration_mode: str,
+    extra_args: list[str],
+    resolver_path: pathlib.Path,
+) -> list[str]:
+    bwrap = shutil.which("bwrap")
+    executable = shutil.which("qbittorrent")
+    if bwrap is None:
+        fail("bubblewrap is not installed")
+    if executable is None:
+        fail("qBittorrent is not installed")
+
+    host_runtime = validate_absolute_path(
+        "XDG_RUNTIME_DIR",
+        os.environ.get("XDG_RUNTIME_DIR", f"__INSTALLER_PATH_DIR_RUN_USER__/{os.getuid()}"),
+    )
+    wayland_display = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", wayland_display):
+        fail(f"WAYLAND_DISPLAY contains unsupported characters: {wayland_display}")
+    host_wayland = host_runtime / wayland_display
+    require_socket(host_wayland, "Wayland display")
+
+    sandbox_runtime = pathlib.Path(f"__INSTALLER_PATH_DIR_RUN_USER__/{os.getuid()}")
+    sandbox_home = pathlib.Path("__INSTALLER_PATH_DIR_HOME__/user")
+    command = [
+        bwrap,
+        "--unshare-all",
+        "--cap-drop",
+        "ALL",
+        "--new-session",
+        "--die-with-parent",
+        "--clearenv",
+        "--uid",
+        str(os.getuid()),
+        "--gid",
+        str(os.getgid()),
+        "--hostname",
+        f"qbittorrent-{os.getuid()}",
+        "--proc",
+        "__INSTALLER_PATH_DIR_PROC__",
+        "--dev",
+        "__INSTALLER_PATH_DIR_DEV__",
+        "--ro-bind",
+        "__INSTALLER_PATH_DIR_SYS__",
+        "__INSTALLER_PATH_DIR_SYS__",
+        "--dir",
+        "__INSTALLER_PATH_DIR_HOME__",
+        "--bind",
+        str(profile_home),
+        str(sandbox_home),
+        "--dir",
+        "__INSTALLER_PATH_DIR_RUN__",
+        "--dir",
+        "__INSTALLER_PATH_DIR_RUN_USER__",
+        "--dir",
+        str(sandbox_runtime),
+        "--dir",
+        "__INSTALLER_PATH_DIR_RUN__/media",
+        "--dir",
+        f"__INSTALLER_PATH_DIR_RUN__/media/{account.pw_name}",
+        "--bind",
+        str(root),
+        str(root),
+        "--dir",
+        "__INSTALLER_PATH_DIR_ETC__",
+        "--dir",
+        "__INSTALLER_PATH_DIR_VAR__",
+        "--dir",
+        "__INSTALLER_PATH_DIR_VAR_LIB__",
+        "--dir",
+        "__INSTALLER_PATH_DIR_VAR_LIB__/dbus",
+        "--tmpfs",
+        "__INSTALLER_PATH_DIR_TMP__",
+        "--chmod",
+        "01777",
+        "__INSTALLER_PATH_DIR_TMP__",
+        "--tmpfs",
+        "__INSTALLER_PATH_DIR_VAR__/tmp",
+        "--chmod",
+        "01777",
+        "__INSTALLER_PATH_DIR_VAR__/tmp",
+        "--tmpfs",
+        "__INSTALLER_PATH_DIR_DEV__/shm",
+        "--chmod",
+        "01777",
+        "__INSTALLER_PATH_DIR_DEV__/shm",
+        "--bind",
+        str(host_wayland),
+        str(sandbox_runtime / wayland_display),
+        "--chdir",
+        str(sandbox_home),
+    ]
+
+    for source in ("__INSTALLER_PATH_DIR_USR__", "/bin", "/lib"):
+        command.extend(["--ro-bind", source, source])
+    for source in ("/sbin", "/lib64", "/lib32", "__INSTALLER_PATH_DIR_OPT__"):
+        optional_ro_bind(command, source)
+    selected_gpu = add_gpu_device_binds(command, acceleration_mode)
+    for source in (
+        "__INSTALLER_PATH_DIR_ETC__/alternatives",
+        "__INSTALLER_PATH_DIR_ETC__/ca-certificates",
+        "__INSTALLER_PATH_DIR_ETC__/fonts",
+        "__INSTALLER_PATH_DIR_ETC__/group",
+        "__INSTALLER_PATH_DIR_ETC__/hosts",
+        "__INSTALLER_PATH_DIR_ETC__/ld.so.cache",
+        "__INSTALLER_PATH_DIR_ETC__/ld.so.conf",
+        "__INSTALLER_PATH_DIR_ETC__/ld.so.conf.d",
+        "__INSTALLER_PATH_DIR_ETC__/localtime",
+        "__INSTALLER_PATH_DIR_ETC__/machine-id",
+        "__INSTALLER_PATH_DIR_ETC__/mime.types",
+        "__INSTALLER_PATH_DIR_ETC__/nsswitch.conf",
+        "__INSTALLER_PATH_DIR_ETC__/passwd",
+        "__INSTALLER_PATH_DIR_ETC__/pki",
+        "__INSTALLER_PATH_DIR_ETC__/ssl",
+        "__INSTALLER_PATH_DIR_ETC__/timezone",
+        "__INSTALLER_PATH_DIR_ETC__/xdg",
+        "__INSTALLER_PATH_DIR_VAR_LIB__/dbus/machine-id",
+    ):
+        optional_ro_bind(command, source)
+    command.extend(["--ro-bind", str(resolver_path), "__INSTALLER_PATH_DIR_ETC__/resolv.conf"])
+    add_qt_theme_binds(command, account, sandbox_home)
+    command.extend(["--dir", "__INSTALLER_PATH_DIR_ETC__/labwc", "--dir", "__INSTALLER_PATH_DIR_ETC__/labwc/3proxy"])
+    for proxy_policy in ("__INSTALLER_PATH_DIR_ETC__/labwc/3proxy/qbittorrent.conf", "__INSTALLER_PATH_DIR_ETC__/labwc/3proxy/session.json"):
+        # Host-root ownership is meaningful here, before the user namespace
+        # remaps it to the overflow UID. Reuse the bounded opened-file reader.
+        read_managed_config(pathlib.Path(proxy_policy))
+        command.extend(["--ro-bind", proxy_policy, proxy_policy])
+    # The route controller validates its allowed ports and restores exact
+    # install-rendered bytes after a saved, graceful payload restart.
+    for policy in ("__INSTALLER_PATH_DIR_ETC__/app-veth.json", str(MANAGED_POLICY_DROPIN)):
+        read_managed_config(pathlib.Path(policy))
+        command.extend(["--ro-bind", policy, policy])
+
+    environment = {
+        "PATH": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/bin:/bin:__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__:__INSTALLER_PATH_DIR_USR__/sbin:/sbin",
+        "USER": account.pw_name,
+        "LOGNAME": account.pw_name,
+        "HOME": str(sandbox_home),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "LC_ALL": os.environ.get("LC_ALL", ""),
+        "XDG_RUNTIME_DIR": str(sandbox_runtime),
+        "XDG_CONFIG_HOME": str(sandbox_home / ".config"),
+        "XDG_CACHE_HOME": str(sandbox_home / ".cache"),
+        "XDG_DATA_HOME": str(sandbox_home / ".local/share"),
+        "XDG_STATE_HOME": str(sandbox_home / ".local/state"),
+        "WAYLAND_DISPLAY": wayland_display,
+        "XDG_SESSION_TYPE": "wayland",
+        "XDG_CURRENT_DESKTOP": "labwc:wlroots",
+        "QT_QPA_PLATFORM": "wayland",
+        "QT_QPA_PLATFORMTHEME": os.environ.get("QT_QPA_PLATFORMTHEME", "qt6ct"),
+        "QT_STYLE_OVERRIDE": "Fusion",
+        "QSG_RHI_BACKEND": "opengl",
+        "TMPDIR": "__INSTALLER_PATH_DIR_TMP__",
+    }
+    if selected_gpu is not None:
+        selected_gpu.apply_environment(environment)
+    if os.environ.get("LABWC_DEBUG_PROFILE"):
+        network_runtime()
+        from labwc_managed_app import diagnostics
+        diagnostics.apply(environment)
+        diagnostics.record_environment(environment)
+    bus_path = session_bus_path(os.environ.get("DBUS_SESSION_BUS_ADDRESS", ""))
+    if bus_path is not None:
+        sandbox_bus = sandbox_runtime / "bus"
+        command.extend(["--bind", str(bus_path), str(sandbox_bus)])
+        environment["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={sandbox_bus}"
+
+    for key, value in environment.items():
+        if value:
+            command.extend(["--setenv", key, value])
+    command.append(executable)
+    command.extend(extra_args)
+    validate_no_host_audio_device_binds(command)
+    validate_no_host_display_control_binds(command)
+    return command
+
+
+def redirect_to_user_service() -> None:
+    marker = os.environ.get("LABWC_QBITTORRENT_SESSION_UNIT", "")
+    if marker not in {"", "1"}:
+        fail("invalid qBittorrent user-service marker")
+    uid = os.getuid()
+    runtime = pathlib.Path(f"__INSTALLER_PATH_DIR_RUN_USER__/{uid}")
+    if uid == 0 or os.environ.get("XDG_RUNTIME_DIR") != str(runtime):
+        fail("qBittorrent requires the invoking user's desktop runtime")
+    metadata = runtime.lstat()
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != uid or stat.S_IMODE(metadata.st_mode) != 0o700:
+        fail("unsafe qBittorrent desktop runtime")
+    if (runtime / "labwc-session-closing").exists():
+        fail("the desktop is closing; qBittorrent was not started")
+    wayland_display = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", wayland_display):
+        fail("invalid Wayland display name")
+    require_socket(runtime / wayland_display, "Wayland display")
+    bus_path = session_bus_path(os.environ.get("DBUS_SESSION_BUS_ADDRESS", ""))
+    if bus_path != runtime / "bus":
+        fail("qBittorrent requires the desktop user's own session bus")
+    # The application launchers can already own a session-bound transient service. Starting
+    # another user unit from it needlessly depends on an inherited bus address
+    # and can fail after the first launch has succeeded. Keep its isolation and
+    # cgroup lifetime instead of recursively handing off to systemd-run.
+    try:
+        with pathlib.Path("__INSTALLER_PATH_DIR_PROC__/self/cgroup").open(encoding="ascii") as stream:
+            membership = stream.read(65537)
+    except (OSError, UnicodeError) as exc:
+        fail(f"cannot verify qBittorrent service ownership: {exc}")
+    if len(membership) > 65536:
+        fail("oversized qBittorrent cgroup membership")
+    in_service = any(re.fullmatch(
+        r"0::/[^\n]*/labwc-(?:(?:native-)?qbittorrent|wayland-(?:labwc-)?qbittorrent)-[0-9a-f]{32}[.]service",
+        line,
+    ) for line in membership.splitlines())
+    if marker and not in_service:
+        fail("qBittorrent user-service marker is outside its managed cgroup")
+    if in_service:
+        return
+    account = pwd.getpwuid(uid)
+    environment = {
+        "PATH": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/bin:/bin:__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__:__INSTALLER_PATH_DIR_USR__/sbin:/sbin",
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "HOME": account.pw_dir, "USER": account.pw_name, "LOGNAME": account.pw_name,
+        "XDG_RUNTIME_DIR": str(runtime), "WAYLAND_DISPLAY": wayland_display,
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={bus_path}",
+        "XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "labwc:wlroots",
+    }
+    # No loader, shell, Python, or ambient service-loop variables cross the
+    # lowercase AppArmor handoff to the host user manager.
+    unit = "labwc-qbittorrent-" + uuid.uuid4().hex + ".service"
+    if os.environ.get("LABWC_DEBUG_PROFILE"):
+        network_runtime()
+        from labwc_managed_app import diagnostics
+        environment.update(diagnostics.context())
+        diagnostics.register_unit(unit, "__INSTALLER_PATH_DIR_USR__/bin/qbittorrent")
+    argv = ["__INSTALLER_PATH_DIR_USR__/bin/systemd-run", "--user", "--quiet", "--collect",
+            "--service-type=exec", "--expand-environment=no", "--slice=app.slice",
+            "--unit=" + unit,
+            "--property=Requisite=labwc-session.target", "--property=After=labwc-session.target",
+            "--property=PartOf=labwc-session.target", "--property=ExitType=main",
+            f"--property=ConditionPathExists=!__INSTALLER_PATH_DIR_RUN_USER__/{uid}/labwc-session-closing",
+            # qBittorrent owns a StatusNotifierItem when its tray integration
+            # is enabled.  SIGTERM can tear down the bubblewrap cgroup before
+            # Qt unregisters that item, leaving Waybar with a stale
+            # /StatusNotifierItem path and a cancelled relayout.  SIGINT is
+            # qBittorrent's graceful close signal; the cgroup boundary still
+            # guarantees cleanup if the application does not exit in time.
+            "--property=KillSignal=SIGINT", "--property=KillMode=control-group",
+            "--property=TimeoutStopSec=20s",
+            "--property=SendSIGKILL=yes", "--property=Restart=no", "--property=UMask=0077",
+            "--property=StandardInput=null", "--property=StandardOutput=null",
+            "--property=StandardError=null", "--property=SyslogIdentifier=labwc-qbittorrent",
+            "--setenv=LABWC_SESSION_APP=1",
+            "--setenv=LABWC_QBITTORRENT_SESSION_UNIT=1",
+            *("--setenv=" + name for name in sorted(environment)),
+            "--", "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-app-run", "labwc-qbittorrent", "--",
+            "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-qbittorrent", *sys.argv[1:]]
+    os.execve(argv[0], argv, environment)
+
+
+def network_runtime():
+    """Reuse the installed supervisor after verifying its trusted import chain."""
+    package_root = pathlib.Path("__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__")
+    package = package_root / "labwc_managed_app"
+    for directory in (*reversed(package_root.parents[:-1]), package_root, package):
+        metadata = directory.lstat()
+        if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != 0
+                or metadata.st_mode & 0o022):
+            fail(f"unsafe qBittorrent network runtime directory: {directory}")
+    for name in ("__init__.py", "integrity.py"):
+        metadata = (package / name).lstat()
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0
+                or stat.S_IMODE(metadata.st_mode) != 0o644 or metadata.st_nlink != 1):
+            fail(f"unsafe qBittorrent network runtime module: {name}")
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, str(package_root))
+    from labwc_managed_app.integrity import validate_package
+    validate_package("native", owner=(0, 0))
+    from labwc_managed_app import network_namespace
+    return network_namespace
+
+
+def main() -> int:
+    redirect_to_user_service()
+    network_runtime()  # Validate the trusted package before importing the gate.
+    from labwc_managed_app.runtime import require_primary_gpg
+    require_primary_gpg()
+    defaults = load_defaults(DEFAULTS_PATH)
+    account, configured_root = configured_account(defaults)
+    ports = configured_peer_ports(defaults)
+    root = select_storage_root(account, configured_root)
+    paths = prepare_storage(root)
+    acceleration_mode, raw_launch_arguments = select_acceleration_mode(defaults, sys.argv[1:])
+    launch_arguments = prepare_launch_arguments(paths, raw_launch_arguments)
+    launch_lock = acquire_launch_lock(paths["profile_home"], launch_arguments)
+    if launch_lock is None:
+        return 0
+    try:
+        return run_new_instance(account, root, paths, acceleration_mode, launch_arguments, ports)
+    finally:
+        os.close(launch_lock)
+
+
+def run_new_instance(
+    account: pwd.struct_passwd, root: pathlib.Path, paths: dict[str, pathlib.Path],
+    acceleration_mode: str, launch_arguments: list[str], ports: tuple[int, ...] | int,
+) -> int:
+    runtime = network_runtime()
+    from labwc_managed_app.network_client import configured_network_policy
+    try:
+        network_policy = configured_network_policy("qbittorrent")
+    except (OSError, ValueError, RuntimeError) as exc:
+        fail(f"managed qBittorrent network policy failed: {exc}")
+    online = network_policy is not None and network_policy["network"]
+    ports = (ports,) if type(ports) is int else ports
+    if online:
+        if network_policy["peer_port"] is None:
+            fail("online qBittorrent requires a TCP/UDP peer_port in the managed network policy")
+        policy = network_policy["peer_port"]
+        policy_ports = ((policy["ethernet"], policy["wifi"]) if isinstance(policy, dict) else (policy,))
+        if ports != policy_ports:
+            fail("qBittorrent Ethernet/Wi-Fi ports differ between desktop defaults and managed network policy")
+    # Raising on termination lets the supervisor reap both children and
+    # close every setup/exit FD before our private runtime directory is removed.
+    def interrupted(signum, frame):
+        for watched in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+            signal.signal(watched, signal.SIG_IGN)
+        raise SystemExit(128 + signum)
+    for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, interrupted)
+    with tempfile.TemporaryDirectory(
+        prefix="labwc-qbittorrent-sandbox-", dir=f"__INSTALLER_PATH_DIR_RUN_USER__/{os.getuid()}",
+    ) as temporary, ExitStack() as resources:
+        resolver = pathlib.Path(temporary) / "resolv.conf"
+        resolver_configuration = getattr(runtime, "veth_resolv_conf", None)
+        resolver.write_text(
+            (resolver_configuration() if resolver_configuration is not None else (
+                runtime.veth_resolv_conf()
+            )) if online else "# Networking is disabled.\n",
+            encoding="ascii",
+        )
+        resolver.chmod(0o600)
+        command = build_command(
+            account, root, paths["profile_home"], acceleration_mode,
+            launch_arguments, resolver,
+        )
+        payload_count = 1 + len(launch_arguments)
+        controller = receiver = None
+        sent_port = None
+        if online:
+            controller, receiver = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            resources.callback(controller.close)
+            resources.callback(receiver.close)
+            controller.settimeout(2)
+        def port_changed(lease):
+            nonlocal sent_port
+            if lease.peer_port not in ports:
+                fail("qBittorrent peer port differs from managed network policy")
+            if lease.peer_port != sent_port:
+                message = str(lease.peer_port).encode("ascii")
+                if controller.send(message) != len(message):
+                    fail("qBittorrent peer-port controller did not receive a complete update")
+                sent_port = lease.peer_port
+        def configured(lease):
+            if lease.peer_port not in ports:
+                fail("qBittorrent peer port differs from managed network policy")
+            copy_managed_config(paths["profile_home"])
+            port_changed(lease)
+        if not online:
+            copy_managed_config(paths["profile_home"])
+        return runtime.run_veth_sandbox(
+            command[:-payload_count],
+            ["__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-proxy-session", "qbittorrent", *([] if online else ["--offline"]),
+             *([f"--peer-port-fd={receiver.fileno()}"] if online else []),
+             *command[-payload_count:]], temporary, (receiver.fileno(),) if online else (),
+            app="qbittorrent",
+            on_network_ready=configured if online else None,
+            on_network_change=port_changed if online else None, network=online,
+            graceful_shutdown=True,
+        )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

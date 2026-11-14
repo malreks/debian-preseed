@@ -1,0 +1,11 @@
+target FILE_TARGET_NETWORK_INTERFACES etc/network/interfaces
+target FILE_TARGET_NETWORK_INTERFACES_D_50_NETWORK_TMPL etc/network/interfaces.d/50-network.tmpl
+target FILE_TARGET_NETWORK_HOST_TMPL etc/network/host.conf.tmpl
+target FILE_TARGET_SYSTEMD_NETWORK_10_ETHERNET_LINK_TMPL etc/systemd/network/10-ethernet.link.tmpl
+target FILE_TARGET_SYSTEMD_NETWORK_11_WIFI_LINK_TMPL etc/systemd/network/11-wifi.link.tmpl
+target FILE_TARGET_NETWORKMANAGER_CONF_D_90_NETWORK_EXTERNAL_TMPL etc/NetworkManager/conf.d/90-network-external.conf.tmpl
+target FILE_TARGET_NETWORKMANAGER_SYSTEM_CONNECTIONS_WIFI_NMCONNECTION_TMPL etc/NetworkManager/system-connections/wifi.nmconnection.tmpl
+fragments FILE_LATE_TMPL_NETWORK_DNS_SEARCH_TMPL dns-search.tmpl
+fragments FILE_LATE_TMPL_NETWORK_INET4_TMPL inet4.tmpl
+fragments FILE_LATE_TMPL_NETWORK_INET6_TMPL inet6.tmpl
+fragments FILE_LATE_TMPL_NETWORK_PERFORMANCE_TMPL performance.tmpl

@@ -1,0 +1,39 @@
+{
+  "format": 1,
+  "execution": "unexecuted source/failure fixtures; static-only boundary",
+  "cases": [
+    {
+      "name": "cross-database-preflight",
+      "setup": "second selected runner subgid overlaps an existing account",
+      "expect": "fail before creating any selected identity, group or store"
+    },
+    {
+      "name": "existing-native-identity-in-subrange",
+      "expect": "refuse UID/GID authority overlap before any selected role mutation"
+    },
+    {
+      "name": "repeated-service-range",
+      "expect": "reject duplicate selected range even if identical"
+    },
+    {
+      "name": "provider-isolation",
+      "expect": "GitHub UID2101 and GitLab UID2102 retain distinct HOME, pool stores, socket, private enrollment and non-overlapping subordinate IDs"
+    },
+    {
+      "name": "aggregate-resource-charge",
+      "expect": "runner services and selected user@2101/user@2102/user@2104 managers use ci-workloads.slice, including jobs launched through their rootless sockets"
+    },
+    {
+      "name": "normal-operator-session",
+      "expect": "only the selected reserved service instances receive the workload slice override"
+    },
+    {
+      "name": "no-activation",
+      "expect": "generation serializes files and templates; no user manager, container, runner job or native service starts"
+    },
+    {
+      "name": "interrupted-foundation",
+      "expect": "retained per-role state and owned stores prohibit automatic identity/store reset"
+    }
+  ]
+}

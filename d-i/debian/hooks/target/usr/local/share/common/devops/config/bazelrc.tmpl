@@ -1,0 +1,25 @@
+# Managed by unattended-installer for desktop medium/full and server DevOps.
+#
+# This file is rendered per primary account because Bazel rc files do not
+# expand shell environment variables in option values. The same policy is
+# installed at ~/.bazelrc; desktop shell integration also selects the XDG copy.
+#
+# DEVOPS_BAZEL_DISK_CACHE_SIZE is rendered into Bazel's supported disk-cache
+# garbage-collection cap. Bazel does not provide a --disk_cache_size option.
+
+startup --output_user_root=__INSTALLER_DEVOPS_BAZEL_OUTPUT_USER_ROOT__
+startup --max_idle_secs=__INSTALLER_DEVOPS_BAZEL_SERVER_IDLE_SECONDS__
+
+common --disk_cache=__INSTALLER_DEVOPS_BAZEL_DISK_CACHE__
+common --repository_cache=__INSTALLER_DEVOPS_BAZEL_REPOSITORY_CACHE__
+common --experimental_repository_cache_hardlinks
+common --experimental_repository_downloader_retries=__INSTALLER_DEVOPS_BAZEL_REPOSITORY_DOWNLOADER_RETRIES__
+
+common --experimental_disk_cache_gc_max_size=__INSTALLER_DEVOPS_BAZEL_DISK_CACHE_SIZE__
+common --experimental_disk_cache_gc_max_age=__INSTALLER_DEVOPS_BAZEL_DISK_CACHE_MAX_AGE__
+common --experimental_disk_cache_gc_idle_delay=__INSTALLER_DEVOPS_BAZEL_DISK_CACHE_GC_IDLE_DELAY__
+
+common --experimental_action_cache_gc_max_age=__INSTALLER_DEVOPS_BAZEL_ACTION_CACHE_MAX_AGE__
+common --experimental_action_cache_gc_idle_delay=__INSTALLER_DEVOPS_BAZEL_ACTION_CACHE_GC_IDLE_DELAY__
+common --experimental_action_cache_gc_threshold=__INSTALLER_DEVOPS_BAZEL_ACTION_CACHE_GC_THRESHOLD__
+common --experimental_install_base_gc_max_age=__INSTALLER_DEVOPS_BAZEL_INSTALL_BASE_GC_MAX_AGE__

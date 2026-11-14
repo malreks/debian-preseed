@@ -1,0 +1,96 @@
+{
+  "format": 1,
+  "execution": "UNEXECUTED source/failure-injection cases; static inspection only",
+  "cases": [
+    {
+      "id": "private-initrd-enrollment",
+      "given": "Provider token in actual installer /preseed.env",
+      "expect": "Restricted reader and private temporary stdin/file transport; initial registration belongs only to installer setup; no token in argv, logs, receipt, catalog or target controller."
+    },
+    {
+      "id": "public-provider-url",
+      "given": "CI_GITHUB_URL=https://github.com/mjcramerz in shared-srv.env",
+      "expect": "Use the compiled public URL and never read PRESEED_CI_GITHUB_URL."
+    },
+    {
+      "id": "absent-token",
+      "given": "Selected runner has no enrollment token",
+      "expect": "Install verified artifact, identity, isolated rootless store and configuration policy; retain installed-but-pending, no service link or online claim."
+    },
+    {
+      "id": "two-runners",
+      "given": "Both runner roles selected",
+      "expect": "Separate UID/GID, subuid/subgid, home, credentials, build/cache directories, sockets and state; configure once per provider, no shared management socket."
+    },
+    {
+      "id": "untrusted-job",
+      "given": "Public forks or untrusted projects requested for the dedicated private host",
+      "expect": "Refuse the unsupported trust contract; no privileged job, blanket sudo or host management-socket fallback."
+    },
+    {
+      "id": "small-default-image",
+      "given": "No explicit GitLab job image",
+      "expect": "Use the selected suite's pinned Debian slim image, if-not-present pull policy and explicit native version-matched Debian-derived Ubuntu helper; no host CI toolchain install."
+    },
+    {
+      "id": "custom-images",
+      "given": "Job chooses multiple custom container images",
+      "expect": "No host image allowlist forces a single toolchain image; job owns its dependencies and remote-cache credentials."
+    },
+    {
+      "id": "github-native-pull",
+      "given": "GitHub native container job",
+      "expect": "Preserve native image-pull semantics; do not invent a GitLab-like GitHub pull-policy environment option."
+    },
+    {
+      "id": "pool-caches",
+      "given": "Provider runs a container job",
+      "expect": "Bazel, BuildBuddy configuration and Cargo/Go/Node/ccache/tmp state resolve into the selected provider's work/cache tree on /pool; neither provider sees the other store."
+    },
+    {
+      "id": "native-enrollment-uncertain",
+      "given": "Registration command times out or native credential verification fails after registration may have occurred",
+      "expect": "Retain enrollment-uncertain and native evidence; return outcome unknown without automatic retry, deletion or online status."
+    },
+    {
+      "id": "partial-native-config",
+      "given": "Native .runner/.credentials or GitLab config exists without terminal receipt",
+      "expect": "Refuse adoption/re-registration and retain evidence for the operator."
+    },
+    {
+      "id": "private-input-replaced",
+      "given": "Enrollment input is a FIFO, symlink or changes identity during read",
+      "expect": "Reject using bounded nonblocking nofollow capture before native mutation."
+    },
+    {
+      "id": "github-job-hook-file",
+      "given": "GITHUB_ENV is outside the native work/_temp/_runner_file_commands directory or is replaced with a link",
+      "expect": "Refuse cache environment publication; never write outside the provider-owned work tree."
+    },
+    {
+      "id": "native-verify-zero-without-ack",
+      "given": "Native GitLab verify exits zero after a network failure",
+      "expect": "Require authenticated 200 JSON acknowledgement bound to the native manager system ID before activation; retain enrollment-uncertain on failure, no online claim."
+    },
+    {
+      "id": "verification-redirect",
+      "given": "Provider redirects the private runner verification request",
+      "expect": "Do not follow; never send the private token to a new destination; retain uncertain evidence."
+    },
+    {
+      "id": "verification-bounded-input",
+      "given": "Manager ID missing/replaced, response malformed/oversized, duplicate JSON fields or verification timeout",
+      "expect": "Reject with sanitized failure and bounded cleanup; no service activation or automatic native registration retry."
+    },
+    {
+      "id": "native-config-writable",
+      "given": "Root-owned protected runner home with a private runner-owned config directory",
+      "expect": "Use FILE_SERVER_GITLAB_CONFIG for native config and adjacent manager identity/token rotation; keep root-owned receipts outside that writable directory."
+    },
+    {
+      "id": "role-plan-producer-fails",
+      "given": "Frozen role reader fails with status 37 before server foundation/service iteration",
+      "expect": "Propagate status 37 before consuming any role output; do not treat empty here-document output as completed installation."
+    }
+  ]
+}

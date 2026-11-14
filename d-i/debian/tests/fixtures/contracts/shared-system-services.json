@@ -1,0 +1,219 @@
+{
+  "format": 1,
+  "execution": "unexecuted source fixtures; static-only boundary",
+  "cases": [
+    {
+      "name": "early-service-native-target",
+      "unit": "bootprofile-apply.service",
+      "wanted_by": "sysinit.target",
+      "reject": "suffix-based multi-user.target inference"
+    },
+    {
+      "name": "path-native-target",
+      "unit": "grub-btrfs-refresh.path",
+      "wanted_by": "multi-user.target",
+      "reject": "invented paths.target"
+    },
+    {
+      "name": "native-alias",
+      "unit": "NetworkManager.service",
+      "assert": "validate the complete Install vocabulary before creating WantedBy or Alias links"
+    },
+    {
+      "name": "unsafe-activation-name",
+      "install_name": "../multi-user.target",
+      "expect": "reject before publication"
+    },
+    {
+      "name": "competing-activation-link",
+      "assert": "existing links owned by another unit fail without replacement"
+    },
+    {
+      "name": "common-resource-source",
+      "source": "etc/systemd/user.conf.d/60-resource-accounting.conf",
+      "families": [
+        "desktop",
+        "server"
+      ],
+      "expect": "one common physical source"
+    },
+    {
+      "name": "ambiguous-unit-source",
+      "condition": "the same logical member exists in common and selected family",
+      "expect": "reject source ownership ambiguity"
+    },
+    {
+      "name": "server-native-journal",
+      "assert": "profile retention is authoritative; forwarding is owned by rsyslog readiness; sealing creates no replacement generation"
+    },
+    {
+      "name": "volatile-journal",
+      "policy": {
+        "SYSTEMD_JOURNAL_VOLATILE_ENABLE": "true"
+      },
+      "assert": "Storage=volatile and Seal=no; no disk-sealing claim"
+    },
+    {
+      "name": "server-dns-ownership",
+      "assert": "no Stubby or desktop app-veth activation; Technitium remains pending until private resolver handover"
+    },
+    {
+      "name": "base-profile-scx",
+      "role": "desktop/base",
+      "policy": {
+        "HARDWARE_CPU_SCHEDULER_SCX_ENABLE": "true"
+      },
+      "assert": "install pinned scheduler packages independently of desktop tier"
+    },
+    {
+      "name": "server-profile-scx",
+      "roles": [
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "assert": "one profile package transaction, one service policy owner, no role duplication"
+    },
+    {
+      "name": "scx-disabled",
+      "policy": {
+        "HARDWARE_CPU_SCHEDULER_SCX_ENABLE": "false"
+      },
+      "assert": "no scheduler download, generated config or activation"
+    },
+    {
+      "name": "scx-alternative-backends",
+      "assert": "direct and loader backends are mutually exclusive; preserve package manual fallback"
+    },
+    {
+      "name": "scx-package-identity",
+      "condition": "matching digest but unexpected Package or Architecture field",
+      "expect": "fail before APT mutation"
+    },
+    {
+      "name": "nfs-timeout",
+      "condition": "package child times out and a detached descendant cannot be accounted for",
+      "expect": "bounded direct-child wait; outcome unknown; retain service inhibitor, exact backup and private staging"
+    },
+    {
+      "name": "nfs-policy-replacement",
+      "condition": "service inhibitor inode is replaced while the transaction is active",
+      "expect": "do not overwrite competing policy; retain backup and recovery receipt"
+    },
+    {
+      "name": "child-pinning-unavailable",
+      "assert": "no numeric PID fallback; retain private recovery and fail distinctly"
+    },
+    {
+      "name": "filen-pipe-inheritance",
+      "condition": "the leader exits but a descendant keeps stdout open",
+      "expect": "total deadline and bounded cleanup; no unbounded communicate or context-manager wait"
+    },
+    {
+      "name": "redirect-boundary",
+      "condition": "an intermediate redirect leaves the approved artifact host set",
+      "expect": "reject before requesting that destination"
+    },
+    {
+      "name": "transfer-time-budget",
+      "assert": "streaming, retries, redirects and final wait share the operation deadline"
+    },
+    {
+      "name": "profile-package-cancellation",
+      "assert": "retain running journal, archives and service-policy backup; no automatic retry"
+    },
+    {
+      "name": "diagnostic-unarmed",
+      "assert": "staged debugsys CLI and unit do not create an armed marker or collect host data"
+    },
+    {
+      "name": "server-skeleton",
+      "assert": "Bash-only startup; no seatd, Labwc user unit, Zsh, Starship or desktop credential activation"
+    },
+    {
+      "name": "common-security-baseline",
+      "roles": "all desktop and server combinations",
+      "assert": "auditd, audispd-plugins, AppArmor, nftables, Fail2ban and native logging packages come from the suite APT fragment"
+    },
+    {
+      "name": "removed-security-selector",
+      "classes": [
+        "security/standard",
+        "security/enhanced"
+      ],
+      "expect": "unknown class rejected; no hidden fallback or security group"
+    },
+    {
+      "name": "single-audit-policy",
+      "assert": "one common auditd config and expanded native-ABI integrity rule set; no duplicate per-family publication"
+    },
+    {
+      "name": "desktop-audit-notifications",
+      "assert": "apparmor-notify is in each desktop class and absent from headless server package plans"
+    },
+    {
+      "name": "headless-incus",
+      "role": "server/devops",
+      "policy": {
+        "INCUS_WEB_UI_ENABLE": "false"
+      },
+      "assert": "one common virtualization phase; no desktop Web UI dependency or desktop skeleton publication"
+    },
+    {
+      "name": "runner-incus-authority",
+      "assert": "CI accounts never receive devops, kvm, incus or incus-admin groups"
+    },
+    {
+      "name": "incus-active-uplink",
+      "assert": "managed NAT bridge has no physical bridge attachment; forwarding uses the active Ethernet/Wi-Fi host route"
+    },
+    {
+      "name": "incus-storage-identity",
+      "condition": "existing pool root has unexpected owner/group/mode",
+      "expect": "refuse before tmpfiles; no reset or broad ownership repair"
+    },
+    {
+      "name": "incus-worker-timeout",
+      "expect": "pin leader before session validation; bounded group cleanup; retain transaction and return 76"
+    },
+    {
+      "name": "incus-api-uncertainty",
+      "condition": "connection disappears after sending mutation",
+      "expect": "retain intent and configuration digest; no automatic retry"
+    },
+    {
+      "name": "incus-explicit-recovery",
+      "expect": "read-only verification acknowledges only matching complete state and exact journal identity"
+    },
+    {
+      "name": "incus-policy-replacement",
+      "expect": "changed config digest refuses mutation or recovery acknowledgement"
+    },
+    {
+      "name": "incus-common-backend",
+      "assert": "common host bootstrap and its AppArmor profile contain only storage/network/socket backend contracts; no UI package, graphical wrapper, browser or menu dependency"
+    },
+    {
+      "name": "incus-desktop-integration",
+      "classes": [
+        "role/desktop/medium",
+        "role/desktop/full"
+      ],
+      "assert": "desktop.virtualization follows os.virtualization and desktop.storage before desktop.session; Desktop UI package data and 72-incus.sh remain desktop-owned"
+    },
+    {
+      "name": "incus-server-no-ui",
+      "classes": [
+        "role/server/devops"
+      ],
+      "assert": "server keeps native private HOME client configuration; no desktop.virtualization stage, Web UI package, menu or desktop profile"
+    },
+    {
+      "name": "incus-enforced-backend",
+      "assert": "service explicitly requires AppArmorProfile=incus-host; family mode catalogues keep the privileged backend enforced independently of desktop application mode"
+    },
+    {
+      "name": "desktop-incus-ui-probe-owner",
+      "assert": "only the desktop virtualisation stage publishes its separate UI check helper, service, confinement and broker dependency; the common backend never probes /ui/"
+    }
+  ]
+}

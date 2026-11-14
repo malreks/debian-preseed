@@ -1,0 +1,56 @@
+# crowdsec-stable
+Package: crowdsec crowdsec-firewall-bouncer-nftables
+Pin: origin packagecloud.io
+Pin-Priority: 1001
+
+Package: *
+Pin: origin packagecloud.io
+Pin-Priority: -1
+
+# zabbly-incus-stable-debian-trixie
+Package: incus incus-base incus-client incus-ui-canonical
+Pin: origin pkgs.zabbly.com
+Pin-Priority: 1001
+
+Package: *
+Pin: origin pkgs.zabbly.com
+Pin-Priority: -1
+
+Package: incus incus-base incus-client incus-ui-canonical
+Pin: release o=Debian
+Pin-Priority: -1
+
+# microsoft-powershell-debian-13-trixie
+Package: powershell
+Pin: origin packages.microsoft.com
+Pin-Priority: 1001
+
+Package: *
+Pin: origin packages.microsoft.com
+Pin-Priority: -1
+
+
+# Debian owns every LLVM and Clang package selection. Keep apt.llvm.org available only as a disabled operator fallback.
+Package: clang-21 clang-21-* clangd-21 clang-format-21 clang-tidy-21 clang-tools-21 libclang-21-* libclang1-21 libclang-cpp21 llvm-21 llvm-21-* libllvm21 libllvm-21-* lld-21 lldb-21 liblldb-21* python3-lldb-21 libpolly-21-* clang-22 clang-22-* clangd-22 clang-format-22 clang-tidy-22 clang-tools-22 libclang-22-* libclang1-22 libclang-cpp22 llvm-22 llvm-22-* libllvm22 libllvm-22-* lld-22 lldb-22 liblldb-22* python3-lldb-22 libpolly-22-* clang-24 clang-24-* clangd-24 clang-format-24 clang-tidy-24 clang-tools-24 libclang-24-* libclang1-24 libclang-cpp24 llvm-24 llvm-24-* libllvm24 libllvm-24-* lld-24 lldb-24 liblldb-24* python3-lldb-24 libpolly-24-*
+Pin: origin apt.llvm.org
+Pin-Priority: -1
+
+Package: *
+Pin: origin apt.llvm.org
+Pin-Priority: -1
+
+Package: mise
+Pin: origin mise.jdx.dev
+Pin-Priority: 1001
+
+Package: *
+Pin: origin mise.jdx.dev
+Pin-Priority: -1
+
+Package: cloudflared
+Pin: origin pkg.cloudflare.com
+Pin-Priority: 1001
+
+Package: *
+Pin: origin pkg.cloudflare.com
+Pin-Priority: -1

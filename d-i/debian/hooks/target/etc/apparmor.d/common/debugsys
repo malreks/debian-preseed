@@ -1,0 +1,61 @@
+# Managed by unattended-installer. The optional boot collector is read-only
+# outside its root-private report and state directories. Initramfs capture
+# runs before host AppArmor is available and is not governed by this profile.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+profile debugsys-boot-report flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/base>
+  #include <abstractions/python>
+  #include <abstractions/nameservice-strict>
+
+  __INSTALLER_PATH_DIR_USR__/bin/python3{,.[0-9]*} rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/debugsys.py r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/nvme-pcie-status rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{id,uname,uptime,systemd-detect-virt,systemctl,journalctl,ps,dpkg,dpkg-query,dkms,timedatectl,loginctl,systemd-analyze,efibootmgr,mokutil,findmnt,lsmod,udevadm} rix,
+  __INSTALLER_PATH_DIR_USR__/sbin/{dpkg,dkms,efibootmgr,lsmod,udevadm} rix,
+  /{bin,usr/bin}/{sh,dash,bash,perl} rix,
+  __INSTALLER_PATH_DIR_USR__/ r,
+  __INSTALLER_PATH_DIR_USR__/{bin,sbin,lib,libexec,share}/ r,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  /{bin,sbin,lib,lib64}/ r,
+  /{bin,sbin,lib,lib64}/** mr,
+
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_ETC__/** r,
+  deny __INSTALLER_PATH_DIR_ETC__/{shadow,shadow-,gshadow,gshadow-,security/opasswd} r,
+  deny __INSTALLER_PATH_DIR_ETC__/ssh/ssh_host_*_key r,
+  deny __INSTALLER_PATH_DIR_ETC__/{ssl/private/**,wireguard/**,NetworkManager/system-connections/**,apt/auth.conf,apt/auth.conf.d/**} r,
+  __INSTALLER_PATH_DIR_PROC__/ r,
+  __INSTALLER_PATH_DIR_PROC__/** r,
+  deny __INSTALLER_PATH_DIR_PROC__/[0-9]*/{environ,mem,fd/**} r,
+  __INSTALLER_PATH_DIR_SYS__/ r,
+  __INSTALLER_PATH_DIR_SYS__/** r,
+  __INSTALLER_PATH_DIR_RUN__/ r,
+  __INSTALLER_PATH_DIR_RUN__/{systemd,dbus,log,initramfs}/ r,
+  __INSTALLER_PATH_DIR_RUN__/{systemd,log}/** r,
+  deny __INSTALLER_PATH_DIR_RUN__/{credentials/**,systemd/credentials/**} r,
+  __INSTALLER_PATH_DIR_RUN__/initramfs/debugsys/{,**} r,
+  __INSTALLER_PATH_DIR_RUN__/{systemd/private,dbus/system_bus_socket} rw,
+  __INSTALLER_PATH_DIR_VAR__/ r,
+  __INSTALLER_PATH_DIR_VAR__/{lib,log}/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/{dpkg,dkms,apt,journal}/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/{dpkg,dkms,apt}/** r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/journal/boot/{,**} r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/journal-sealing/status.json r,
+  __INSTALLER_PATH_DIR_VAR_LOG__/journal/{,**} r,
+  __INSTALLER_PATH_DIR_VAR_LOG__/managed/ r,
+  __INSTALLER_PATH_DIR_VAR_LOG__/managed/system/ r,
+  __INSTALLER_PATH_DIR_VAR_LOG__/managed/system/{kernel.log*,system.log*} r,
+  __INSTALLER_PATH_DIR_VAR_LOG__/managed/system/debugsys/{,**} rwkl,
+  __INSTALLER_PATH_DIR_VAR_LIB__/debugsys/{,armed,operation.lock,last-captured-boot,.debugsys-*} rwkl,
+
+  unix,
+  dbus (send, receive) bus=system peer=(name=org.freedesktop.systemd1),
+  dbus (send, receive) bus=system peer=(name=org.freedesktop.login1),
+  dbus (send, receive) bus=system peer=(name=org.freedesktop.timedate1),
+  signal (send, receive) peer=@{profile_name},
+  signal (receive) peer=unconfined,
+  # No network sockets, user home, initramfs writes, or package maintenance.
+}

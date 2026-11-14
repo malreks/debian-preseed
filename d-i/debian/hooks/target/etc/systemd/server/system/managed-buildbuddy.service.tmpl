@@ -1,0 +1,41 @@
+[Unit]
+Description=Private local build cache for the headless DevOps role
+After=network.target
+RequiresMountsFor=__INSTALLER_PATH_DIR_SERVER_BUILDBUDDY_STATE__
+ConditionFileNotEmpty=__INSTALLER_PATH_FILE_SERVER_BUILDBUDDY_CONFIG__
+
+[Service]
+Type=simple
+User=srv-devops
+Group=srv-devops
+Slice=ci-workloads.slice
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/buildbuddy --config_file=__INSTALLER_PATH_FILE_SERVER_BUILDBUDDY_CONFIG__ --listen=127.0.0.1 --port=__INSTALLER_DEVOPS_BUILDBUDDY_HTTP_PORT__ --grpc_port=__INSTALLER_DEVOPS_BUILDBUDDY_GRPC_PORT__
+WorkingDirectory=__INSTALLER_PATH_DIR_SERVER_BUILDBUDDY_STATE__
+ReadWritePaths=__INSTALLER_PATH_DIR_SERVER_BUILDBUDDY_STATE__
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0077
+TasksMax=1024
+TimeoutStartSec=60
+TimeoutStopSec=45
+KillMode=control-group
+SendSIGKILL=true
+Restart=no
+
+[Install]
+# Installation stages this unit without enabling or starting it.
+WantedBy=multi-user.target

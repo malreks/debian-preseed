@@ -1,0 +1,247 @@
+#!/bin/sh
+# Sourced installer module; edit this file directly.
+
+desktop_stage_logging_policy() {
+  : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set}"
+
+  # shellcheck disable=SC2016
+  run_in_target "configure Labwc security notification access" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+account_user=$1
+signal_reader_group=logreader
+scanner_writer_group=securitylogger
+
+for command_name in getent groupadd id usermod; do
+  command -v "$command_name" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
+    printf "fatal: required notification access command is missing: %s\n" "$command_name" >&2
+    exit 1
+  }
+done
+
+getent passwd "$account_user" >__INSTALLER_PATH_DIR_DEV__/null
+for access_group in "$signal_reader_group" "$scanner_writer_group"; do
+  getent group "$access_group" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
+    groupadd --system "$access_group"
+  usermod -a -G "$access_group" "$account_user"
+
+  case " $(id -nG "$account_user") " in
+    *" $access_group "*) ;;
+    *)
+      printf "fatal: desktop account was not added to %s: %s\n" "$access_group" "$account_user" >&2
+      exit 1
+      ;;
+  esac
+done
+' sh "$ACCOUNT_USERNAME"
+
+  install -d -m 0755 \
+    ${TARGET_ROOT}${DIR_ETC}/rsyslog.d \
+    ${TARGET_ROOT}${DIR_ETC}/logrotate.d \
+    ${TARGET_ROOT}${DIR_SYSTEMD_SYSTEM_LOGROTATE_TIMER_DROPIN} \
+    ${TARGET_ROOT}${DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN} \
+    ${TARGET_ROOT}${DIR_USR_LOCAL_LIBEXEC}
+
+  # The shared logging foundation already installed rsyslog.conf and its
+  # rotation callback before the selected application helpers ran.
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_15_AUDIT)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/15-audit.conf \
+    0644
+  desktop_stage_role_asset FILE_TARGET_RSYSLOG_D_19_POWER_TMPL __INSTALLER_PATH_DIR_ETC__/rsyslog.d/19-power.conf 0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_21_APPS_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/21-apps.conf 0644
+  desktop_stage_role_asset FILE_TARGET_RSYSLOG_D_22_APPS_SOCKET_TMPL __INSTALLER_PATH_DIR_ETC__/rsyslog.d/22-apps-socket.conf 0644
+  desktop_stage_role_asset FILE_TARGET_LIBEXEC_RSYSLOG_APP_RUN_TMPL __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-app-run 0755
+  desktop_stage_role_asset FILE_TARGET_LIBEXEC_RSYSLOG_APP_SOCKET_TMPL __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-app-socket 0755
+  desktop_stage_role_asset FILE_TARGET_UNIT_RSYSLOG_SERVICE_D_32_APPS_SOCKET __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/32-apps-socket.conf 0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_20_AUTH_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/20-auth.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_25_USB_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/25-usb.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_30_APPARMOR_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/30-apparmor.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_31_APPARMOR_MODES_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/31-apparmor-modes.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_35_STORAGE_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/35-storage.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_37_WHISPER_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/37-whisper.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_39_SECURITY_SCANNERS_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/39-security-scanners.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_40_NFTABLES_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/40-nftables.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_41_FUZZEL_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/41-fuzzel.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_42_ADB)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/42-adb.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_43_DESKTOP_APPS)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/43-desktop-apps.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_99_DISCARD)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/99-discard.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_UNIT_LOGROTATE_TIMER_D_OVERRIDE_TMPL)" \
+    __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LOGROTATE_TIMER_DROPIN__/override.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_RSYSLOG_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/rsyslog \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_AUDIT)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/audit \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_AUTH_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/auth \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_USB_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/usb \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_APPARMOR_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/apparmor \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_APPARMOR_MODES_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/apparmor-modes \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_STORAGE_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/storage \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_WHISPER_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/whisper \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_NFTABLES_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/nftables \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_SECURITY_NOTIFY)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/security-notify \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_SECURITY_SCANNERS_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/security-scanners \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_FUZZEL_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/fuzzel \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_ADB)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/adb \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_DESKTOP_APPS)" \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.d/desktop-apps \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_60_SECURITY_LOGS_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/60-security-logs.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_65_AUDIT_SYSLOG)" \
+    __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/65-audit-syslog.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_RSYSLOG_SECURITY_SOCKET_TMPL)" \
+    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-security-socket \
+    0755
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_UNIT_RSYSLOG_SERVICE_D_30_SECURITY_SCANNER_SOCKET)" \
+    __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/30-security-scanner-socket.conf \
+    0644
+  desktop_stage_role_asset \
+    FILE_TARGET_BIN_LABWC_FUZZEL_LOG_TMPL \
+    __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-fuzzel-log \
+    0755
+
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_44_COMPONENTS_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.d/44-components.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_59_LOG_LAYOUT_TMPL)" \
+    __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/59-log-layout.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_UNIT_RSYSLOG_SERVICE_D_20_LOG_LAYOUT_TMPL)" \
+    __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/20-log-layout.conf \
+    0644
+  stage_target_asset \
+    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_LOG_LAYOUT_TMPL)" \
+    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/log-layout \
+    0755
+
+  if installer_plan_package_selected clamav-freshclam || installer_plan_package_selected clamav-daemon; then
+    stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_58_CLAMAV_LOGS_TMPL)" \
+      __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/58-clamav-logs.conf 0644
+    run_in_target 'create selected ClamAV writer log paths' \
+      __INSTALLER_PATH_DIR_USR_BIN__/systemd-tmpfiles --create \
+      __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/58-clamav-logs.conf
+  fi
+  if installer_plan_package_selected clamav-daemon; then
+    stage_target_asset \
+      "$(installer_repo_file_value FILE_TARGET_AA_LOCAL_USR_SBIN_CLAMD_TMPL)" \
+      __INSTALLER_PATH_DIR_ETC__/apparmor.d/local/usr.sbin.clamd 0644
+  fi
+  run_in_target "preflight protected logging destinations before tmpfiles" \
+    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/log-layout --preflight
+
+  run_in_target "validate effective managed journald policy" \
+    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/journal-check
+  run_in_target "create protected managed logging destinations" \
+    __INSTALLER_PATH_DIR_USR_BIN__/systemd-tmpfiles --create \
+    __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/58-native-logs.conf \
+    __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/59-log-layout.conf \
+    __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/60-security-logs.conf \
+    __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/65-audit-syslog.conf
+  run_in_target "validate managed log layout" \
+    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/log-layout
+
+  run_in_target \
+    "validate managed rsyslog configuration" \
+    __INSTALLER_PATH_DIR_USR_SBIN__/rsyslogd \
+    -N1 \
+    -f \
+    __INSTALLER_PATH_DIR_ETC__/rsyslog.conf
+  run_in_target \
+    "validate managed logrotate configuration" \
+    __INSTALLER_PATH_DIR_USR_SBIN__/logrotate \
+    --debug \
+    __INSTALLER_PATH_DIR_ETC__/logrotate.conf
+
+  desktop_log "staged_logging_policy journal_input=imuxsock apps=__INSTALLER_LOG_APPLICATIONS_FILE__ system=__INSTALLER_LOG_SYSTEM_SERVICES_FILE__ kernel=__INSTALLER_LOG_KERNEL_FILE__ auth=__INSTALLER_LOG_AUTH_FILE__ apparmor=__INSTALLER_LOG_APPARMOR_FILE__ rotation=writer-size threshold_bytes=__INSTALLER_LOG_RSYSLOG_ROTATE_BYTES__ archives=__INSTALLER_LOG_ROTATE_COUNT__ scanner_socket=__INSTALLER_LOG_SCANNER_SOCKET__ log_group=__INSTALLER_LOG_GROUP__"
+}

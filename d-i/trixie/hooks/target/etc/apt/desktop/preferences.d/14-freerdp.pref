@@ -1,0 +1,4 @@
+# Native Trixie backports only; the SDL client and its matching source libraries.
+Package: freerdp-sdl libfreerdp-client3-3 libfreerdp3-3 libwinpr3-3
+Pin: release o=Debian,n=trixie-backports
+Pin-Priority: 910

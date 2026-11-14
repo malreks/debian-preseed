@@ -1,0 +1,82 @@
+#!/bin/sh
+set -eu
+
+requested_seed_base=${1:-}
+requested_host_profile=${2:-}
+runtime_dir=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+shared_late=${SHARED_LATE_COMMAND:-${runtime_dir}/bootstrap/shared-late.sh}
+desktop_late_stage_stamp="${runtime_dir}/state/desktop-late.done"
+
+[ -s "$shared_late" ] || {
+  desktop_role_message=$(printf '%s' "shared late command module is unavailable: ${shared_late}" | tr '\r\n\t' '   ')
+  printf '[late:role:desktop] fatal: %s\n' "$desktop_role_message" >&2
+  if [ -c /dev/tty4 ] && [ -w /dev/tty4 ]; then
+    printf '[late:role:desktop] fatal: %s\n' "$desktop_role_message" >/dev/tty4 || :
+  fi
+  if [ -c /dev/console ] && [ -w /dev/console ]; then
+    printf '[late:role:desktop] fatal: %s\n' "$desktop_role_message" >/dev/console || :
+  fi
+  if command -v logger >/dev/null 2>&1; then
+    logger -t preseed-desktop-role "fatal: $desktop_role_message" 2>/dev/null || :
+  fi
+  exit 1
+}
+
+install -d -m 0700 "$(dirname "$desktop_late_stage_stamp")"
+if [ -f "$desktop_late_stage_stamp" ]; then
+  printf '[late:role:desktop] info: managed Labwc desktop role already completed earlier in this install; skipping duplicate late_command run\n' >&2
+  exit 0
+fi
+
+# shellcheck disable=SC1090
+. "$shared_late"
+
+late_command_shared_init "$requested_seed_base" "$requested_host_profile" desktop
+installer_operation_context_repo FILE_LATE_DESKTOP 35 desktop_late_command
+late_command_load_host_env
+
+desktop_module_dir="${runtime_dir}/bootstrap/desktop-modules"
+install -d -m 0700 "$desktop_module_dir"
+for desktop_module in detect components satty xwayland waypaper android-platform-tools scrcpy samloader digital-assets resctl-bench fonts verify labwc; do
+  fetch_hook "$(installer_repo_asset_path DIR_SCRIPTS_DESKTOP "${desktop_module}.sh")" "${desktop_module_dir}/${desktop_module}.sh"
+done
+fetch_hook "$(installer_repo_file_value FILE_OS_HARDWARE_TUNING)" "${desktop_module_dir}/hardware-tuning.sh"
+fetch_hook "$(installer_repo_file_value FILE_OS_SCX_SCHEDS)" "${desktop_module_dir}/scx-scheds.sh"
+unset desktop_module
+
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/detect.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/components.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/satty.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/xwayland.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/waypaper.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/android-platform-tools.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/scrcpy.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/samloader.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/digital-assets.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/resctl-bench.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/hardware-tuning.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/scx-scheds.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/fonts.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/verify.sh"
+# shellcheck disable=SC1090,SC1091
+. "${desktop_module_dir}/labwc.sh"
+
+run_desktop_late_command "$requested_seed_base" "$requested_host_profile"
+: >"$desktop_late_stage_stamp"
+chmod 0600 "$desktop_late_stage_stamp" 2>/dev/null || true
+installer_info "managed Labwc desktop role completion stamp recorded: ${desktop_late_stage_stamp}"
+installer_archive_logs_to_target copy || true

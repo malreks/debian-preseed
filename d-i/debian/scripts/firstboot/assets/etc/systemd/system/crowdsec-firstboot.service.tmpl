@@ -1,0 +1,33 @@
+[Unit]
+Description=CrowdSec post-boot bootstrap and optional console enrollment
+Documentation=https://docs.crowdsec.net/
+Wants=network-online.target nss-lookup.target time-sync.target auditd.service
+After=network-online.target nss-lookup.target time-sync.target auditd.service
+ConditionPathExists=!__INSTALLER_PATH_FILE_CROWDSEC_COMPLETE__
+# Accepted console requests (pending approval) publish complete and exit 0.
+# Cleanup is gated by the helpers' markers, not propagated trigger status.
+
+[Service]
+Environment="CROWDSEC_HOST_VARIANT=__INSTALLER_CROWDSEC_HOST_VARIANT__"
+Environment="CROWDSEC_ENROLL_TOKEN_FILE=__INSTALLER_CROWDSEC_ENROLL_TOKEN_FILE__"
+Environment="CROWDSEC_COMPLETE_FILE=__INSTALLER_CROWDSEC_COMPLETE_FILE__"
+Environment="CROWDSEC_STATUS_FILE=__INSTALLER_CROWDSEC_STATUS_FILE__"
+Type=oneshot
+Environment=CROWDSEC_ENROLL_ATTEMPTS=1
+Environment=CROWDSEC_ENROLL_RETRY_DELAY_SECONDS=10
+ExecStart=__INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/crowdsec-firstboot
+ExecStopPost=__INSTALLER_PATH_FILE_SECONDBOOT_HELPER__ --queue
+StandardOutput=journal
+StandardError=journal
+Restart=on-failure
+# CAPI login bursts can ban the public IP for one hour. Retry after that
+# interval, with a margin, rather than re-authenticating during the ban.
+RestartSec=65min
+RestartPreventExitStatus=2
+TimeoutStartSec=10min
+User=root
+Group=root
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

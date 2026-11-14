@@ -1,0 +1,13 @@
+[Unit]
+Description=Aggregate headless CI and service DevOps workload budget
+
+[Slice]
+CPUAccounting=yes
+IOAccounting=yes
+MemoryAccounting=yes
+TasksAccounting=yes
+CPUWeight=__INSTALLER_CI_RUNNER_CPU_WEIGHT__
+IOWeight=__INSTALLER_CI_RUNNER_IO_WEIGHT__
+TasksMax=__INSTALLER_CI_RUNNER_TASKS_MAX__
+MemoryHigh=__INSTALLER_CI_RUNNER_MEMORY_HIGH__
+MemoryMax=__INSTALLER_CI_RUNNER_MEMORY_MAX__

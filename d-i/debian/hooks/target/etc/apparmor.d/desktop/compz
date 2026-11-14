@@ -1,0 +1,48 @@
+# Managed by unattended-installer. The interactive frontend does not run codecs.
+# Only the transient service enters this profile; bubblewrap exports selected
+# input objects read-only and a private same-filesystem work directory writable.
+#include <tunables/global>
+
+profile compz-worker flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+  #include <abstractions/bwrap-common>
+
+  # Before the namespace is built, inspect inputs only in supported data trees.
+  # Once mounted, the worker reads /input and /plan and writes only /work.
+  /{home,data,pool}/ r,
+  /{home,data,pool}/** r,
+  owner /{home,data,pool}/**/.compz-*/operation.log rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/compz-plan-*/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/compz-plan-*/operation.json r,
+  /input/ r,
+  /input/** r,
+  /plan/ r,
+  /plan/** r,
+  __INSTALLER_PATH_DIR_ETC__/{ld.so.cache,nsswitch.conf,passwd,group} r,
+  __INSTALLER_PATH_DIR_USR__/** mr,
+  /{,usr/}lib{,32,64}/** mr,
+  __INSTALLER_PATH_DIR_USR__/bin/python3{,.[0-9],.[0-9][0-9]} ix,
+  __INSTALLER_PATH_DIR_USR__/bin/perl{,5.[0-9]*} ix,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap ix,
+  __INSTALLER_PATH_DIR_USR__/bin/{gzip,bzip2,bzip3,xz,zstd,lz4,lzip,lrzip,rzip,kanzi,zpaq,zpaqfranz,rar,unrar,unrar-nonfree} ix,
+  __INSTALLER_PATH_DIR_USR__/bin/{gpg,gpgconf,gpg-agent} ix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIB__/compz/7zz ix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/compz-{worker,sandbox,pipeline} r,
+
+  /work/ rw,
+  /work/** rwk,
+  __INSTALLER_PATH_DIR_TMP__/ rw,
+  __INSTALLER_PATH_DIR_TMP__/** rwk,
+  # memfd arguments contain no secrets. bwrap consumes them before decoder exec.
+  /memfd:compz-args rw,
+  owner @{PROC}/@{pid}/fd/** rw,
+  @{PROC}/@{pid}/attr/current r,
+  owner @{PROC}/[0-9]*/{gid_map,setgroups,uid_map} rw,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/user/max_user_namespaces rw,
+  # GnuPG's private agent uses sockets only inside the private /tmp tmpfs.
+  network unix stream,
+  signal (send, receive) peer=compz-worker,
+  signal (receive) peer=unconfined,
+  ptrace (read, trace) peer=compz-worker,
+  # No inet/inet6, user bus, Wayland, X11, SSH agent or host GPG agent access.
+}

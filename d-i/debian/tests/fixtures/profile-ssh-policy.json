@@ -1,0 +1,119 @@
+{
+  "format": 1,
+  "execution": "unexecuted; static-only repository boundary",
+  "contract": "host-profile SSH policy and installer LAN key publication",
+  "cases": [
+    {
+      "id": "desktop-disabled",
+      "family": "desktop",
+      "ssh_enable": false,
+      "expected": {
+        "package_fragment": false,
+        "service": "masked",
+        "firewall_open": false,
+        "key_mutation": false
+      }
+    },
+    {
+      "id": "desktop-enabled",
+      "family": "desktop",
+      "ssh_enable": true,
+      "expected": {
+        "package_fragment": true,
+        "package": "openssh-server",
+        "authentication": "publickey-only"
+      }
+    },
+    {
+      "id": "server-disabled",
+      "family": "server",
+      "ssh_enable": false,
+      "expected": {
+        "package": "openssh-server",
+        "service": "masked",
+        "firewall_open": false
+      }
+    },
+    {
+      "id": "initrd-precedence",
+      "initrd_key": "valid-A",
+      "payload_key": "valid-B",
+      "expected": {
+        "installed_key": "valid-A",
+        "destination": "primary-home/.ssh/authorized_keys"
+      }
+    },
+    {
+      "id": "payload-fallback",
+      "initrd_key": null,
+      "payload_key": "valid-B",
+      "expected": {
+        "installed_key": "valid-B",
+        "configuration": "complete"
+      }
+    },
+    {
+      "id": "both-missing",
+      "initrd_key": null,
+      "payload_key": null,
+      "expected": {
+        "installation_status": 0,
+        "configuration": "complete",
+        "authorization": "pending",
+        "password_authentication": false
+      }
+    },
+    {
+      "id": "preserve-existing",
+      "existing_keys": [
+        "valid-C"
+      ],
+      "selected_key": "valid-A",
+      "expected": {
+        "keys": [
+          "valid-C",
+          "valid-A"
+        ],
+        "mode": "0600",
+        "directory_mode": "0700",
+        "owner": "primary-user"
+      }
+    },
+    {
+      "id": "repeat-key",
+      "existing_keys": [
+        "valid-A"
+      ],
+      "selected_key": "valid-A",
+      "expected": {
+        "keys": [
+          "valid-A"
+        ],
+        "duplicate_count": 0
+      }
+    },
+    {
+      "id": "unsafe-root-input",
+      "fault": "initrd public-key symlink",
+      "expected": {
+        "key_mutation": false,
+        "warning": true
+      }
+    },
+    {
+      "id": "wire-invalid",
+      "fault": "valid base64 with non-Ed25519 wire identity",
+      "expected": {
+        "key_mutation": false,
+        "success_claim": false
+      }
+    },
+    {
+      "id": "no-permanent-wrapper",
+      "expected": {
+        "implementation": "existing scripts/common/ssh.sh installer functions",
+        "installed_authorizer_program": false
+      }
+    }
+  ]
+}

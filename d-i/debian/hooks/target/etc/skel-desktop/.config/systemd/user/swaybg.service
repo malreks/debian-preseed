@@ -1,0 +1,28 @@
+[Unit]
+# Selections leave this supervisor running for the whole session.
+StartLimitBurst=20
+StartLimitIntervalSec=60s
+After=labwc-compositor.service labwc-session.target labwc-output-watch.service
+Description=Manage the Labwc session wallpaper
+ConditionEnvironment=LABWC_SESSION_OWNER=desktop
+ConditionEnvironment=WAYLAND_DISPLAY
+ConditionEnvironment=XDG_SESSION_TYPE=wayland
+Requisite=labwc-session.target
+PartOf=labwc-session.target
+
+[Service]
+TimeoutStartSec=30s
+KillMode=control-group
+Type=exec
+Environment=PATH=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/bin:/bin
+ExecCondition=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check session-ready
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-swaybg
+# The persistent supervisor coalesces selections and reaps its own children.
+# Restart only the supervisor after an unexpected failure.
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=10s
+#PrivateTmp=yes
+
+[Install]
+WantedBy=labwc-session.target

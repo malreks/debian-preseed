@@ -1,0 +1,44 @@
+[Unit]
+ConditionEnvironment=XDG_SESSION_TYPE=wayland
+ConditionEnvironment=WAYLAND_DISPLAY
+ConditionPathExists=%h/.config/calix/fruux-account.json
+After=labwc-compositor.service labwc-session.target labwc-calendar-credentials.service
+Description=Deliver opted-in Fruux calendar phone reminders
+Requisite=labwc-session.target
+PartOf=labwc-session.target
+ConditionEnvironment=LABWC_SESSION_OWNER=desktop
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+KillMode=control-group
+Type=exec
+# The worker directly reads __INSTALLER_PATH_DIR_ETC__/labwc/plans.conf, root:account-group 0640.
+# Do not export Telegram/ntfy credentials through the service environment.
+UnsetEnvironment=ALL_PROXY HTTPS_PROXY HTTP_PROXY NO_PROXY all_proxy https_proxy http_proxy no_proxy
+Environment=PYTHONNOUSERSITE=1
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-plans.pl
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=20s
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+# Keep root-owned policy visible in the host UID namespace. In a user manager,
+# filesystem/UTS sandboxing implicitly creates a private user namespace whose
+# unmapped root owner fails the policy's UID 0 check. AppArmor and the independent
+# privilege, syscall and address-family restrictions below still apply.
+NoNewPrivileges=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=labwc-session.target

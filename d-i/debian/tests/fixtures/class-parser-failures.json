@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "execution": "unexecuted; static source and literal-data review only",
+  "cases": [
+    {
+      "id": "fatal-20261112-hyphenated-bare-classes",
+      "input": "prod;full;static;btrfs-de-p15s;nvidia-legacy;cuda-legacy",
+      "canonical": ["site/prod", "role/desktop/full", "network/static", "profile/desktop/btrfs-de-p15s", "optional/nvidia-legacy", "optional/cuda-legacy"],
+      "result": "accept-character-grammar-and-unique-registry-resolution; later hardware, suite and profile qualification still applies"
+    },
+    {"id": "canonical-nested-role", "input": "site/prod;role/desktop/full;network/static;profile/desktop/btrfs-de-p15s", "result": "accept-registered-canonical-classes"},
+    {"id": "two-runners", "input": "site/prod;role/server/github-actions;role/server/gitlab-cicd;network/static;profile/server/btrfs-srv-flex", "result": "accept-both-with-one-phase-helper-owner"},
+    {"id": "ambiguous-basename", "input": "arm64", "candidates": ["arch/arm64", "kernel/arm64"], "result": "reject-with-canonical-spelling-diagnostic"},
+    {"id": "duplicate-canonical-basename", "input": "prod;site/prod", "result": "reject-duplicate-after-normalization"},
+    {"id": "traversal", "input": "role/server/../../desktop/full", "result": "reject-before-path-acquisition"},
+    {"id": "encoded-traversal", "input": "role/%2e%2e/full", "result": "reject-before-path-acquisition"},
+    {"id": "shell-metacharacter", "input": "prod;$(id)", "result": "reject-without-executing-or-logging-input"},
+    {"id": "empty-selector", "input": "site/prod;;role/desktop/full", "result": "reject-empty-token"},
+    {"id": "escaped-separators", "input": "prod\\;full\\;static\\;btrfs-de-p15s", "result": "normalize-only-escaped-list-separators-then-registered-basenames"},
+    {"id": "hardware-producer-failure", "mutation": "hardware detector exits 37 after partial output", "result": "propagate-37-without-publishing-selected-records-or-raw-cache"},
+    {"id": "stale-cache-is-revalidated", "mutation": "persisted classes.raw names a removed or ambiguous class and current inputs are empty", "result": "reject-before-plan-or-storage-mutation"},
+    {"id": "too-many-selectors", "mutation": "65 selector tokens", "result": "reject-before-hardware-detection"},
+    {"id": "unknown-basename", "input": "unregistered-desktop", "result": "reject-without-filename-probing"}
+  ]
+}

@@ -1,0 +1,647 @@
+package AICopilots::ModelInstallRoot;
+
+use strict;
+use warnings;
+
+use Cwd qw(abs_path);
+use Digest::SHA;
+use Errno qw(EAGAIN EWOULDBLOCK);
+use Fcntl qw(:DEFAULT :flock O_NOFOLLOW);
+use File::Basename qw(basename dirname);
+use File::Temp qw(tempfile);
+use IO::Handle;
+use JSON::PP qw(decode_json);
+use Moo;
+use MooX::StrictConstructor;
+use MooX::TypeTiny;
+use Types::Standard qw(Object Str);
+use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC sleep);
+
+use AICopilots::ModelCatalog;
+use lib '__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/runtime';
+use Managed::Process qw(capture_command);
+
+has curl => (
+    is      => 'ro',
+    isa     => Str,
+    default => sub { '__INSTALLER_PATH_DIR_USR__/bin/curl' },
+);
+has llama_model_directory => (
+    is      => 'ro',
+    isa     => Str,
+    default => sub { '__INSTALLER_PATH_DIR_POOL__/cache/llama/models' },
+);
+has whisper_model_directory => (
+    is      => 'ro',
+    isa     => Str,
+    default => sub { '__INSTALLER_PATH_DIR_POOL__/cache/whisper/models' },
+);
+has model_catalog => (
+    is      => 'ro',
+    isa     => Object,
+    lazy    => 1,
+    builder => sub { AICopilots::ModelCatalog->new() },
+);
+has admission_directory => (
+    is => 'ro', isa => Str,
+    default => sub { '__INSTALLER_PATH_DIR_VAR_LIB__/ai-model-download' },
+);
+
+use constant ENDPOINTS_PATH => '__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-ai-copilots/endpoints.json';
+
+sub _fatal {
+    my ($message) = @_;
+    die "labwc-ai-model-install-root: $message\n";
+}
+
+sub _devops_gid {
+    my @group = getgrnam('devops');
+    @group && defined($group[2]) && $group[2] =~ /\A[0-9]+\z/
+        or _fatal('managed devops group is unavailable');
+    return int($group[2]);
+}
+
+sub _family_policy {
+    my ($self, $family) = @_;
+    return {
+        directory    => $self->llama_model_directory(),
+        filename     => qr/\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.gguf\z/,
+        magic        => 'GGUF',
+        marker       => '.installer-llama-managed',
+        marker_value => "managed=llama-models\n",
+        minimum      => 1_048_576,
+        maximum      => 107_374_182_400,
+    } if $family eq 'llama';
+    return {
+        directory    => $self->whisper_model_directory(),
+        filename     => qr/\Aggml-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.bin\z/,
+        magic        => pack('H*', '6c6d6767'),
+        marker       => '.installer-whisper-managed',
+        marker_value => "managed=whisper-models\n",
+        minimum      => 1_048_576,
+        maximum      => 21_474_836_480,
+    } if $family eq 'whisper';
+    _fatal('unsupported model family');
+}
+
+sub _validate_install_request {
+    my ($family, $url, $filename, $sha256, $expected_bytes, $web_base) = @_;
+    my $filename_pattern =
+        $family eq 'llama'
+        ? qr/\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.gguf\z/
+        : $family eq 'whisper'
+        ? qr/\Aggml-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.bin\z/
+        : _fatal('unsupported model family');
+    my ($minimum, $maximum) =
+        $family eq 'llama'
+        ? (1_048_576, 107_374_182_400)
+        : (1_048_576, 21_474_836_480);
+
+    defined($url) && !ref($url) && length($url) <= 2048
+        && $url =~ m{\Ahttps://[^\s"\\]+\z}
+        && $url !~ /[\0\r\n\s]/
+        or _fatal('model URL must be a credential-free HTTPS URL');
+    defined($web_base) && !ref($web_base) && $url =~ /\A\Q$web_base\E\//
+        or _fatal('model URL is outside the configured model service');
+    defined($filename) && !ref($filename) && $filename =~ $filename_pattern
+        && $filename !~ /\.\./
+        or _fatal('model filename is invalid');
+    defined($sha256) && !ref($sha256)
+        && $sha256 =~ /\A[0-9a-f]{64}\z/
+        or _fatal('model SHA-256 is invalid');
+    defined($expected_bytes) && !ref($expected_bytes)
+        && $expected_bytes =~ /\A[0-9]{1,12}\z/
+        && $expected_bytes >= $minimum && $expected_bytes <= $maximum
+        or _fatal('expected model byte count is outside the supported bounds');
+    return 1;
+}
+
+sub _endpoint {
+    my ($self, $name) = @_;
+    open my $fh, '<:raw', ENDPOINTS_PATH
+        or _fatal('AI model endpoint policy is unavailable');
+    local $/;
+    my $raw = <$fh>;
+    close $fh or _fatal('AI model endpoint policy could not be read');
+    defined($raw) && length($raw) <= 8192
+        or _fatal('AI model endpoint policy is too large');
+    my $policy = eval { decode_json($raw) };
+    ref($policy) eq 'HASH' && defined($policy->{$name}) && !ref($policy->{$name})
+        && $policy->{$name} =~ /\Ahttps:\/\/[^\s"\\]+\z/
+        or _fatal("AI model endpoint policy is invalid: $name");
+    return $policy->{$name};
+}
+
+sub _metadata_url {
+    my ($self, $entry) = @_;
+    return $self->_endpoint('huggingface_api_base_url') . '/models/'
+        . $entry->{repository}
+        . '/revision/'
+        . $entry->{revision}
+        . '?blobs=true';
+}
+
+sub _fetch_model_metadata {
+    my ($self, $entry) = @_;
+    -x $self->curl() && !-l $self->curl()
+        or _fatal('managed curl executable is unavailable or unsafe');
+    my $maximum_bytes = 4_194_304;
+    my @command = (
+        $self->curl(),
+        '--disable',
+        '--fail',
+        '--silent',
+        '--show-error',
+        # Metadata is accepted only from the fixed API origin. Model bytes
+        # separately allow bounded HTTPS CDN redirects and require a digest.
+        '--max-redirs', '0',
+        '--proto', '=https',
+        '--proto-redir', '=https',
+        '--tlsv1.2',
+        '--retry', '2',
+        '--retry-all-errors',
+        '--retry-delay', '1',
+        '--retry-connrefused',
+        '--retry-max-time', '30',
+        '--connect-timeout', '10',
+        '--max-time', '60',
+        '--max-filesize', "$maximum_bytes",
+        '--header', 'Accept: application/json',
+        '--user-agent', 'labwc-ai-copilots/1',
+        $self->_metadata_url($entry),
+    );
+    my $result = capture_command(argv => \@command, timeout => 95, limit => $maximum_bytes);
+    $result->{status} == 0 or _fatal('Hugging Face metadata request failed');
+    my $content = $result->{stdout};
+    length($content) >= 2
+        or _fatal('Hugging Face metadata response is empty');
+    return $content;
+}
+
+sub _resolve_catalog_download {
+    my ($self, $family, $entry, $content) = @_;
+    defined($content) && !ref($content) && length($content) <= 4_194_304
+        or _fatal('Hugging Face metadata response is invalid');
+    my $metadata = eval { decode_json($content) };
+    ref($metadata) eq 'HASH'
+        or _fatal('Hugging Face metadata is not valid JSON');
+    for my $identity_field (qw(id modelId)) {
+        defined($metadata->{$identity_field})
+            && !ref($metadata->{$identity_field})
+            && $metadata->{$identity_field} eq $entry->{repository}
+            or _fatal('Hugging Face metadata repository identity is invalid');
+    }
+    defined($metadata->{sha}) && !ref($metadata->{sha})
+        && $metadata->{sha} eq $entry->{revision}
+        or _fatal('Hugging Face metadata revision is invalid');
+    exists($metadata->{private}) && !$metadata->{private}
+        or _fatal('private Hugging Face repositories are unsupported');
+    exists($metadata->{gated}) && !$metadata->{gated}
+        or _fatal('gated Hugging Face repositories are unsupported');
+    exists($metadata->{disabled}) && !$metadata->{disabled}
+        or _fatal('disabled Hugging Face repositories are unsupported');
+
+    ref($metadata->{siblings}) eq 'ARRAY'
+        && @{$metadata->{siblings}} <= 10_000
+        or _fatal('Hugging Face metadata file list is invalid');
+    my @matches = grep {
+        ref($_) eq 'HASH'
+            && defined($_->{rfilename})
+            && !ref($_->{rfilename})
+            && $_->{rfilename} eq $entry->{remote_filename}
+    } @{$metadata->{siblings}};
+    @matches == 1
+        or _fatal('catalog model must resolve to exactly one Hugging Face file');
+    my $match = $matches[0];
+    ref($match->{lfs}) eq 'HASH'
+        or _fatal('catalog model is not backed by a Hugging Face LFS object');
+    my $sha256 = $match->{lfs}{sha256};
+    my $expected_bytes = $match->{lfs}{size};
+    defined($sha256) && !ref($sha256)
+        && $sha256 =~ /\A[0-9a-f]{64}\z/
+        or _fatal('catalog model LFS SHA-256 is invalid');
+    defined($expected_bytes) && !ref($expected_bytes)
+        && "$expected_bytes" =~ /\A[0-9]{1,12}\z/
+        or _fatal('catalog model LFS byte count is invalid');
+    if (exists($match->{size})) {
+        defined($match->{size}) && !ref($match->{size})
+            && "$match->{size}" =~ /\A[0-9]{1,12}\z/
+            && $match->{size} == $expected_bytes
+            or _fatal('catalog model file and LFS byte counts disagree');
+    }
+
+    my $url = $self->_endpoint('huggingface_web_base_url') . '/'
+        . $entry->{repository}
+        . '/resolve/'
+        . $entry->{revision}
+        . '/'
+        . $entry->{remote_filename}
+        . '?download=true';
+    _validate_install_request(
+        $family,
+        $url,
+        $entry->{local_filename},
+        $sha256,
+        $expected_bytes,
+        $self->_endpoint('huggingface_web_base_url'),
+    );
+    return ($url, $sha256, int($expected_bytes));
+}
+
+sub _require_privileged_invoker {
+    $< == 0 && $> == 0
+        or _fatal('privileged model installer must run as root');
+    my $uid = $ENV{PKEXEC_UID} // q{};
+    $uid =~ /\A[1-9][0-9]*\z/
+        or _fatal('privileged model installer must be invoked through pkexec');
+    defined(getpwuid($uid))
+        or _fatal("pkexec invoking account does not exist: $uid");
+    return int($uid);
+}
+
+sub _read_bounded_file {
+    my ($path, $maximum) = @_;
+    -f $path && !-l $path
+        or _fatal("managed file is unavailable or unsafe: $path");
+    my @stat = lstat $path;
+    $stat[7] <= $maximum
+        or _fatal("managed file exceeds the size bound: $path");
+    open my $fh, '<:raw', $path
+        or _fatal("cannot read managed file: $path: $!");
+    local $/;
+    my $content = <$fh>;
+    close $fh
+        or _fatal("cannot close managed file: $path: $!");
+    return $content;
+}
+
+sub _assert_directory_contract {
+    my ($self, $family) = @_;
+    my $policy = $self->_family_policy($family);
+    my $directory = $policy->{directory};
+    my $devops_gid = _devops_gid();
+    -d $directory && !-l $directory
+        or _fatal("managed $family model directory is unavailable");
+    my $resolved = abs_path($directory);
+    defined($resolved) && $resolved eq $directory
+        or _fatal("managed $family model directory is not canonical");
+    my @stat = lstat $directory;
+    $stat[4] == 0 && $stat[5] == $devops_gid
+        && ($stat[2] & 07777) == 02750
+        or _fatal("managed $family model directory ownership or mode is unsafe");
+
+    my $marker = "$directory/$policy->{marker}";
+    my @marker_stat = lstat $marker;
+    -f _ && !-l $marker
+        && $marker_stat[4] == 0 && $marker_stat[5] == $devops_gid
+        && ($marker_stat[2] & 07777) == 0600
+        or _fatal("managed $family model marker is unavailable or unsafe");
+    _read_bounded_file($marker, 128) eq $policy->{marker_value}
+        or _fatal("managed $family model marker is invalid");
+    return $policy;
+}
+
+sub _sha256_file {
+    my ($path) = @_;
+    open my $fh, '<:raw', $path
+        or _fatal("cannot read model for SHA-256 verification: $!");
+    my $digest = Digest::SHA->new(256);
+    $digest->addfile($fh);
+    close $fh
+        or _fatal("cannot close model after SHA-256 verification: $!");
+    return $digest->hexdigest();
+}
+
+sub _read_magic {
+    my ($path) = @_;
+    open my $fh, '<:raw', $path
+        or _fatal("cannot inspect model magic: $!");
+    my $magic = q{};
+    read($fh, $magic, 4) == 4
+        or _fatal('model is too small to contain its format magic');
+    close $fh
+        or _fatal("cannot close model after magic inspection: $!");
+    return $magic;
+}
+
+sub _validate_model {
+    my ($self, $family, $path, $sha256, $expected_bytes, $expected_mode, $staging) = @_;
+    my $policy = $self->_family_policy($family);
+    my $devops_gid = _devops_gid();
+    -f $path && !-l $path
+        or _fatal('model path must be a non-symbolic regular file');
+    my $resolved = abs_path($path);
+    defined($resolved) && $resolved eq $path
+        or _fatal('model path must already be canonical');
+    dirname($path) eq $policy->{directory}
+        or _fatal('model path is outside the fixed family directory');
+    my @stat = lstat $path;
+    if (defined($staging)) {
+        $staging->{filename} =~ $policy->{filename}
+            && $path eq $staging->{path}
+            && basename($path) =~ /\A\.\Q$staging->{filename}\E\.partial\.[A-Za-z0-9_]{6}\z/
+            && @stat && $stat[0] == $staging->{device} && $stat[1] == $staging->{inode}
+            or _fatal('model staging identity is invalid');
+    }
+    else {
+        basename($path) =~ $policy->{filename}
+            or _fatal('model filename is invalid');
+    }
+    $stat[4] == 0 && $stat[5] == $devops_gid
+        && ($stat[2] & 07777) == $expected_mode
+        or _fatal('model ownership or mode is unsafe');
+    $stat[7] == $expected_bytes
+        or _fatal('model byte count does not match the requested value');
+    _read_magic($path) eq $policy->{magic}
+        or _fatal("$family model format magic is invalid");
+    _sha256_file($path) eq $sha256
+        or _fatal('model SHA-256 does not match the requested digest');
+    return $path;
+}
+
+sub _open_lock {
+    my ($path, $nonblocking) = @_;
+    sysopen my $fh, $path, O_CREAT | O_RDWR | O_NOFOLLOW | O_NONBLOCK, 0600
+        or _fatal("cannot open model download lock: $!");
+    my @opened = stat $fh;
+    my @named = lstat $path;
+    @opened && -f $fh && $opened[3] == 1 && $opened[4] == 0
+        && @named && $opened[0] == $named[0] && $opened[1] == $named[1]
+        or _fatal('model lock identity is unsafe');
+    chown 0, _devops_gid(), $path
+        or _fatal("cannot set model download lock ownership: $!");
+    chmod 0600, $path
+        or _fatal("cannot secure model download lock: $!");
+    my @stat = lstat $path;
+    -f _ && !-l $path && $stat[4] == 0 && $stat[5] == _devops_gid()
+        && ($stat[2] & 07777) == 0600
+        or _fatal('model download lock ownership or mode is unsafe');
+    my $end = clock_gettime(CLOCK_MONOTONIC) + 5;
+    while (!flock($fh, LOCK_EX | LOCK_NB)) {
+        ($! == EAGAIN || $! == EWOULDBLOCK) or _fatal("cannot lock model download: $!");
+        return undef if $nonblocking;
+        clock_gettime(CLOCK_MONOTONIC) < $end or _fatal('model download is busy; retry after the owning operation finishes');
+        sleep 0.05;
+    }
+    return $fh;
+}
+
+sub _admit_download {
+    my ($self, $directory, $expected_bytes) = @_;
+    my $state = $self->admission_directory();
+    defined($state) && $state =~ m{\A/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\z}
+        && !grep { $_ eq q{.} || $_ eq q{..} } split m{/}, $state
+        or _fatal('invalid model admission directory');
+    for my $parent ($state, dirname($state)) {
+        next if $parent eq $state && !-e $state && !-l $state;
+        my @st = lstat $parent;
+        @st && -d _ && !-l _ && $st[4] == 0 && !($st[2] & 0022)
+            or _fatal('unsafe model admission ancestry');
+    }
+    if (!-e $state) {
+        mkdir $state, 0700 or $!{EEXIST} or _fatal("cannot create model admission state: $!");
+    }
+    my @state = lstat $state;
+    @state && -d _ && !-l _ && $state[4] == 0 && ($state[2] & 0077) == 0
+        or _fatal('model admission state must be root-private');
+    # One admission owner covers both families until publication/cleanup.
+    # Per-model locks remain authoritative for readers, pruning and reset.
+    my $guard = _open_lock("$state/download.lock");
+    !-e "$state/pending" && !-l "$state/pending"
+        or _fatal("model writer outcome unknown; reconcile retained recovery at $state/pending before download or prune");
+    return $guard if !defined($directory);
+    # `stat` is intentionally absent from the target image.  One bounded
+    # `df -Pk` helper provides the available-byte admission check without a
+    # second metadata probe or reliance on a non-Debian applet.
+    my $space = capture_command(argv => ['__INSTALLER_PATH_DIR_USR__/bin/df', '-Pk', '--', $directory],
+                                timeout => 5, limit => 1024);
+    my @space_lines = grep { length } split /\n/, ($space->{stdout} // '');
+    my $space_record = $space_lines[-1] // '';
+    $space->{status} == 0 && $space_record =~ /\A\S+\s+[0-9]+\s+[0-9]+\s+([0-9]+)\s+[0-9]+%\s+.*\z/
+        or _fatal('available model filesystem space is unknown');
+    my $free = $1 * 1024;
+    $free >= $expected_bytes + 1_073_741_824
+        or _fatal('model download requires its full byte count plus 1 GiB of free headroom');
+    return $guard;
+}
+
+sub _download {
+    my ($self, $family, $url, $filename, $sha256, $expected_bytes) = @_;
+    _validate_install_request(
+        $family,
+        $url,
+        $filename,
+        $sha256,
+        $expected_bytes,
+        $self->_endpoint('huggingface_web_base_url'),
+    );
+    my $policy = $self->_assert_directory_contract($family);
+    -x $self->curl() && !-l $self->curl()
+        or _fatal('managed curl executable is unavailable or unsafe');
+
+    my $directory = $policy->{directory};
+    my $target = "$directory/$filename";
+    my $lock = _open_lock("$directory/.$filename.lock");
+    if (-e $target || -l $target) {
+        $self->_validate_model(
+            $family,
+            $target,
+            $sha256,
+            $expected_bytes,
+            0640,
+        );
+        print "$target\n";
+        return 0;
+    }
+    my $admission = $self->_admit_download($directory, $expected_bytes);
+
+    my $partial;
+    my $published = 0;
+    my $writer_pending = 0;
+    my $completed = eval {
+        my ($fh, $temporary) = tempfile(
+            ".$filename.partial.XXXXXX",
+            DIR    => $directory,
+            UNLINK => 0,
+        );
+        $partial = $temporary;
+        my @created = stat $fh;
+        @created or _fatal('cannot inspect model staging identity');
+        my $staging = {
+            path => $partial, filename => $filename,
+            device => $created[0], inode => $created[1],
+        };
+        # Keep the tempfile open until publication is verified. Its inode
+        # cannot be recycled into a replacement while this handle pins it.
+        chown 0, _devops_gid(), $partial
+            or _fatal("cannot set model staging file ownership: $!");
+        chmod 0600, $partial
+            or _fatal("cannot secure model staging file: $!");
+
+        my @command = (
+            $self->curl(),
+            '--disable',
+            '--fail',
+            '--silent',
+            '--show-error',
+            '--location',
+            '--max-redirs', '5',
+            '--proto', '=https',
+            '--proto-redir', '=https',
+            '--tlsv1.2',
+            '--retry', '3',
+            '--retry-all-errors',
+            '--retry-delay', '2',
+            '--retry-connrefused',
+            '--retry-max-time', '600',
+            '--connect-timeout', '20',
+            '--max-time', '14400',
+            '--max-filesize', "$expected_bytes",
+            '--output', $partial,
+            $url,
+        );
+        my $pending = $self->admission_directory() . '/pending';
+        sysopen my $receipt, $pending, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600
+            or _fatal("cannot reserve model writer recovery receipt: $!");
+        print {$receipt} "$partial\n" or _fatal("cannot write model writer receipt: $!");
+        $receipt->flush() && $receipt->sync() or _fatal("cannot synchronize model writer receipt: $!");
+        close $receipt or _fatal("cannot close model writer receipt: $!");
+        sysopen my $state_fh, $self->admission_directory(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW
+            or _fatal("cannot open model admission directory: $!");
+        $state_fh->sync() or _fatal("cannot synchronize model admission directory: $!");
+        $writer_pending = 1;
+        my $result = capture_command(argv => \@command, timeout => 14400, limit => 1_048_576);
+        unlink $pending or _fatal("cannot retire model writer recovery receipt: $!");
+        $state_fh->sync() or _fatal("cannot synchronize completed model writer: $!");
+        $writer_pending = 0;
+        $result->{status} == 0
+            or _fatal('model download failed');
+
+        $self->_validate_model(
+            $family,
+            $partial,
+            $sha256,
+            $expected_bytes,
+            0600,
+            $staging,
+        );
+        chmod 0640, $partial
+            or _fatal("cannot set verified model mode: $!");
+        $fh->sync()
+            or _fatal("cannot synchronize verified model: $!");
+        !-e $target && !-l $target
+            or _fatal('model target appeared during verified download');
+        rename $partial, $target
+            or _fatal("cannot publish verified model: $!");
+        $published = 1;
+        $partial = undef;
+        open my $directory_fh, '<', $directory
+            or _fatal("cannot open model directory for synchronization: $!");
+        $directory_fh->sync()
+            or _fatal("cannot synchronize model directory: $!");
+        close $directory_fh
+            or _fatal("cannot close model directory: $!");
+        $self->_validate_model(
+            $family,
+            $target,
+            $sha256,
+            $expected_bytes,
+            0640,
+        );
+        close $fh or _fatal("cannot close verified model staging handle: $!");
+        1;
+    };
+    if (!$completed) {
+        my $error = $@ || "model installation failed\n";
+        if ($writer_pending) {
+            print STDERR "model writer outcome unknown; partial file and recovery receipt retained; reconcile "
+                . $self->admission_directory() . "/pending before retry or prune\n";
+            return 3;
+        }
+        if ($published) {
+            print STDERR "model publication outcome unknown; verify $target before retrying\n";
+            return 3;
+        }
+        unlink $partial if defined($partial) && (-f $partial || -l $partial);
+        die $error;
+    }
+
+    print "$target\n";
+    return 0;
+}
+
+sub _download_catalog {
+    my ($self, $family, $requested_id) = @_;
+    my $entry = $self->model_catalog()->entry_by_id($family, $requested_id);
+    $self->_assert_directory_contract($family);
+    my $metadata = $self->_fetch_model_metadata($entry);
+    my ($url, $sha256, $expected_bytes) =
+        $self->_resolve_catalog_download($family, $entry, $metadata);
+    return $self->_download(
+        $family,
+        $url,
+        $entry->{local_filename},
+        $sha256,
+        $expected_bytes,
+    );
+}
+
+sub _prune {
+    my ($self, $family) = @_;
+    my $admission = $self->_admit_download(undef, undef);
+    my $policy = $self->_assert_directory_contract($family);
+    my $directory = $policy->{directory};
+    opendir my $dh, $directory
+        or _fatal("cannot inspect model directory: $!");
+    my $removed = 0;
+    while (my $entry = readdir $dh) {
+        last if $removed >= 100;
+        next if $entry !~ /\A\.(.+)\.partial\.[A-Za-z0-9_]{6}\z/;
+        my $filename = $1;
+        next if $filename !~ $policy->{filename} || $filename =~ /\.\./;
+        my $lock = _open_lock("$directory/.$filename.lock", 1);
+        next if !defined($lock);
+        my $path = "$directory/$entry";
+        next if !-f $path || -l $path;
+        my @stat = lstat $path;
+        next if $stat[4] != 0 || $stat[5] != _devops_gid()
+            || ($stat[2] & 07777) != 0600
+            || time() - $stat[9] < 86_400;
+        unlink $path
+            or _fatal("cannot remove partial model download: $!");
+        $removed++;
+    }
+    closedir $dh
+        or _fatal("cannot close model directory: $!");
+    print "$removed\n";
+    return 0;
+}
+
+sub run {
+    my ($self, @argv) = @_;
+    _require_privileged_invoker();
+    @argv
+        or _fatal(
+            'usage: labwc-ai-model-install-root '
+            . '<install|install-catalog|prune> <family> [arguments]'
+        );
+    my $action = shift @argv;
+    if ($action eq 'install') {
+        @argv == 5
+            or _fatal('install requires family, URL, filename, SHA-256, and byte count');
+        return $self->_download(@argv);
+    }
+    if ($action eq 'install-catalog') {
+        @argv == 2
+            or _fatal('install-catalog requires a model family and catalog identifier');
+        return $self->_download_catalog(@argv);
+    }
+    if ($action eq 'prune') {
+        @argv == 1
+            or _fatal('prune requires exactly one model family');
+        return $self->_prune($argv[0]);
+    }
+    _fatal('unsupported privileged model action');
+}
+
+1;

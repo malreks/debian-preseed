@@ -1,93 +1,477 @@
-# debian-preseed
+# Debian Forky and Trixie unattended installation
 
+Preseed sources, shared installer code and target configuration for Labwc
+desktops and headless servers. Forky and Trixie have separate physical classes,
+fragments and desktop/server APT policy; shared implementation lives in `d-i/debian/`.
+Review the selected host profile, disk identifiers and credentials before use;
+installation repartitions the selected disks.
 
+This repository provisions fresh installations. Installer policy and saved runtime
+state use their current formats. New installations use explicit role and host
+profile selections; host-specific identities are never role defaults.
 
-## Getting started
+Every desktop tier, including base, installs Obsidian and clones the vault from the managed GitLab SSH
+repository into `~/Syncthing/obsidian-md`. An account-local Labwc timer
+commits settled edits and forwards the main branch to staging and release
+hourly while the managed SSH key is unlocked. Setup and conflict behavior are
+documented in `d-i/debian/hooks/target/usr/local/share/common/doc/git/README.md.tmpl`.
+Netscape browser exports use the same initrd Git identity and passphrase.
+Neither repository is a server dependency. Server `role/server/devops` installs
+Codex/codex-home and the shared non-GUI tools for the explicit primary account,
+with its `devops` group and rootless Podman configuration. Other server roles
+can enable only Codex with `CODEX_ONLY_ENABLE`; false never disables Codex in
+the DevOps role. Runner identities, homes, credentials and stores remain
+separate. See [host policy and account ownership](d-i/debian/hosts/README.md).
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+The [2026-09-26 firstboot and AppArmor repair](docs/validation/firstboot-audit-20260926/README.md)
+records the reproduced audit delivery failure, focused fixes, validation results,
+and remaining installed-host checks for this snapshot.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+The [2026-09-24 logging repair](docs/validation/history/LOGGING-REPAIR-20260924.md) documents the
+shared tmpfiles prerequisite fix, unified `apps.log`, 2 MiB writer-driven rotation,
+and current validation limits. It supersedes older logging descriptions.
 
-## Add your files
+Authentication records stay under `/var/log/managed/security/auth/`:
+`auth.log` contains records with attested origin and remains the CrowdSec and
+Fail2Ban input. Records without accepted origin metadata (including a missing
+executable identity on a non-root sender) are retained in `unverified.log` with
+an explicit diagnostic marker. They cannot trigger authentication notification
+signals or automated remediation. Both files are root-owned, mode `0640`, and
+use the existing 2 MiB writer-driven rotation. `apps.log` receives only the
+private application-output socket; authentication fallback never writes there.
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+The current [security repair and operating gates](docs/security-hardening.md)
+cover their recorded A01-A09 findings, rsyslog tmpfs, and the installer
+module/loading contract. Current work uses only generation and the
+[required changed-file static audit](docs/test-isolation.md). Tests, managed
+module imports, host operations and disposable execution environments are prohibited.
 
+Optional [URLhaus authentication](docs/clamav-urlhaus.md) uses
+`PRESEED_URLHAUS_AUTHKEY` from the private installer credential input. A missing
+or empty value leaves URLhaus disabled while the other ClamAV feeds continue.
+
+`url=` and `preseed/url=` accept HTTP, HTTPS, and local `file=` sources. The
+installer does not perform HTTP/HTTPS certificate, authority, downgrade, or
+redirect validation; it passes HTTP and HTTPS to the available d-i `wget` and
+uses its no-certificate-check option for HTTPS. That permits LAN hosts,
+GitHub-style endpoints, and shortener URLs such as TinyURL in lightweight d-i
+images. A local `file=` preseed uses its sibling payload products. HTTP and
+HTTPS transport do not weaken the authenticated archive, manifest, release, or
+suite pins. Password/passphrase arguments, including the named d-i Wi-Fi
+passphrase aliases, are accepted during installation and take precedence over
+the protected initrd `/preseed.env` value. Tokens, access keys, bearer secrets,
+private keys, generic PSKs and credential-file arguments remain forbidden.
+
+The installer media may be any d-i image that can run the generated bootstrap.
+`d-i/forky/preseed.cfg` selects the Forky target and `d-i/trixie/preseed.cfg`
+selects the Trixie target. The requested suite is carried by `INSTALLER_SUITE`,
+the authenticated payload qualification, and an early target
+`/etc/apt/apt.conf.d/00suite-default-release` drop-in (`forky` or `trixie`).
+No `/cdrom` media-suite comparison blocks a valid target preseed. Trixie desktop
+policy remains blocked by `suite-policy.tsv`, and every support-matrix tuple
+remains candidate/unverified until the native acceptance matrix is completed.
+
+## Network sharing
+
+Every desktop and server host profile has explicit NFS, Filen and hardware
+tuning switches. Their implementations and common system services are shared;
+only desktop menu/bookmark/Waybar integration stays in the desktop path.
+`nfsmnt` and `filenmnt` use the configured operator's native administrator
+authentication, including terminal authentication on headless hosts. Remote NFS
+mounts start only on request. Review the selected profile and the
+[network-sharing contract](docs/network-sharing.md) and
+[shared storage/Filen contract](docs/sharing-filen.md) before installation.
+The current redesign has static evidence only; historical native results do
+not qualify the current source tree.
+
+The [2026-10-05 supplied-log repair](docs/validation/installed-incidents-20261005.md)
+records the NVMe correctable-log workaround compatible with kernel lockdown,
+Ethernet/Wi-Fi fallback, NFS identity startup, P15s speaker policy, the exact
+`ksecretd` denial, and the remaining hardware/account/vendor incidents.
+
+The [desktop launcher and document repair](docs/validation/desktop-incidents-20261005.md)
+records shared Fuzzel output/geometry selection, Tuta attachment/download and
+USB policy, document app access, native display recovery, Vivaldi driver safety,
+and Zathura defaults. It separates the verified repository fixes from the
+HDMI/translation freeze and remaining installed-host acceptance.
+
+The [2026-10-15 browser media review](docs/validation/browser-media-20261015.md)
+records Vivaldi system codec provisioning and read-only mounts, Forky media
+packages, Tor audio/UPower confinement, current Chromium graphics features,
+and the disposition of all supplied `todo/` evidence. Live browser playback
+and enforcing-policy behavior have not been accepted for the current source.
+
+## Source layout
+
+- `d-i/{forky,trixie}/classes/`: plain preseed answers, packages and repositories, with one desktop role or multiple server roles.
+- `d-i/{forky,trixie}/fragments/apt.cfg`: suite mirror, archive access, exclusions and universal packages.
+- `d-i/{forky,trixie}/hooks/target/etc/apt/{desktop,server}/`: suite/family preferences and update policy.
+- `d-i/debian/repo.env`: repository source selectors, never installed runtime configuration.
+- `d-i/debian/hosts/installer/`: shared target path contract and filesystem/logging inputs.
+- `d-i/debian/hosts/profiles/{desktop,server}/`: editable family defaults and explicit host policies.
+- `d-i/debian/hooks/installer/`: phase hooks, `di.env` and the separate class dispatcher.
+- `d-i/debian/hooks/target/`: target assets, with separate family service, network, firewall and skeleton trees.
+- `d-i/debian/scripts/`: shared installer entrypoints and runtime modules.
+- `d-i/{forky,trixie}/{preseed.cfg,payload.tar.gz,payload.manifest,source.sh,receipt.json,support-matrix.json}`: generated regular files, visible to Git and overwritten by each build.
+- `d-i/debian/tests/`: source fixtures and tests that remain unexecuted; root `tools/` owns pure generation and static inspection.
+- `d-i/debian/hooks/target/etc/{vivaldi,chromium,opt/edge,opt/chrome}/policies/`: authoritative native browser policies, edited directly and staged without generation. Extension exports are cloned over SSH into `~/Workspace/netscape` from `git@gitlab.com:core-assets/helpers/netscape.git` on `mcr/main`. Extension settings remain user-editable; exports are imported manually in each extension. Current Chromium-family browsers use uBlock Origin Lite (Manifest V3).
+
+### Installer implementation
+
+Shared installer sources live in `d-i/debian/`. Classes and fragments remain
+physical authored files in each suite. Comments and shell variables in class
+files never supply installer dispatch. Edit the `.env` policy files where they are.
+Shared paths, filesystem and logging policy remain in `hosts/installer/` and
+`hosts/logging/`; per-host choices remain in `hosts/profiles/{desktop,server}/`.
+Read [class selection and role composition](docs/implementation/class-selection.md)
+before choosing a role or profile.
+
+```text
+scripts/common/bootstrap.sh      shared, snapshot-backed module loader
+scripts/common/lib.sh            ordered common entrypoint
+scripts/common/modules/          paths, logging, profiles and class resolution
+scripts/runtime/common.sh        shared storage-runtime entrypoint
+scripts/runtime/modules/         arithmetic, identity, crypto and recipe helpers
+scripts/desktop/components.sh    ordered desktop component entrypoint
+scripts/desktop/components/      application, session and service definitions
+scripts/late/devops.sh.tmpl       DevOps entrypoint and explicit main invocation
+scripts/late/devops/             validation, toolchain and publication modules
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/computes/system/debian-preseed.git
-git branch -M mcr/main
-git push -uf origin mcr/main
+
+Modules are actual runtime dependencies in the pinned payload, not fragments
+concatenated back into large generated scripts. The explicit entrypoints define
+load order. Missing dependencies fail closed; templates use the existing logging
+renderer. The credential and debconf helpers are shared by the common and storage
+runtimes instead of being embedded into both.
+
+Custom launchers are sourced from
+`hooks/target/usr/local/share/desktop/applications/`. Package-owned launchers remain in
+`/usr/share/applications`; synchronization reads local overrides first. Dynamic
+DevOps configuration templates are under
+`hooks/target/usr/local/share/common/devops/templates/` and are rendered into their
+configured state directories, not installed as unresolved templates.
+
+Application tuning uses systemd dash-prefix drop-ins:
+`labwc-native-.service.d/`, `labwc-wayland-.service.d/`,
+`labwc-electron-.service.d/` and `labwc-devops-.service.d/`.
+These are prefix directories, not literal wildcard names. `labwc-session.target`
+owns the desktop lifecycle and is bound to the compositor. Session clients
+require an already-active target and stop with it rather than starting a new
+compositor themselves. Private Xwayland remains limited to Zoom and Discord.
+Firefox, Blender and Kdenlive are excluded by the pre-pkgsel APT policy.
+
+Zoom and Discord bridge text selections between the host and their private
+Cage session. The host uses `wl-paste --watch`; Cage does not expose the
+data-control protocol, so the reverse direction polls the selection through
+its already-private Xwayland socket with the packaged `xclip` tool. The bridge
+validates both compositor sockets, caps text at 8 MiB, suppresses echoes and
+stops with the managed application service. Native Cage clipboard behavior
+still requires a logged-in desktop acceptance test.
+
+Fail2ban uses Debian's packaged `fail2ban.conf`, `jail.conf`, paths, filters and
+nftables action, with installer-owned `.local` overrides under
+`hooks/target/etc/fail2ban/`. Every role installs `nftables` and
+`fail2ban` through its suite APT baseline. The SSH journal jail runs even before OpenSSH is installed; it uses
+the selected OpenSSH port or port 22 by default. Repeat bans increase up to
+one week using the persistent database. CrowdSec is included in every role, acquires the
+SSH journal independently and owns separate nftables sets. Tailscale SSH uses
+tailnet identity controls and does not produce OpenSSH authentication failures
+for the SSH jail. Installation validates the effective configuration with
+`fail2ban-client -t` in the target.
+
+### Archive menu and Packer plugins
+
+Run `compz` as the desktop user from a directory under `/home`, `/data` or
+`/pool` containing the files or archives. Its menu selects compression,
+extraction, verification or listing;
+extraction creates a folder named for each archive, resolves split volumes and
+can unpack nested archives. It keeps source files and refuses to replace an
+existing destination. Compression uses a tar container, with an optional GPG
+AES-256 envelope. `compz --check` reports missing managed prerequisites, which
+prevent the interactive menu from starting. RAR creation is offered
+only where Debian provides the `rar` archiver; RAR extraction remains available
+on arm64. The archive worker requires its AppArmor profile and an active systemd
+user manager.
+
+The managed qBittorrent desktop entry starts `labwc-qbittorrent` in a session
+service. It requires a mounted `/run/media/<user>/bittorrent` volume before
+creating storage or its private profile; missing media fails the launch.
+The launcher's TCP/UDP listener, both kernel DNAT forwards and the selected desktop role's
+firewall overlay use the profile's `LABWC_QBITTORRENT_PORT`. Ports are canonical
+decimal integers in `1024..65535`; the default is `50309`. The current P15s
+profile selects `50308`. Forward both TCP and UDP from the router to the same
+selected port on the system's LAN address.
+
+qBittorrent runs in a private Bubblewrap network with an install-rendered
+static private address, `10.203.0.194` on `eth0` by default. Its subnet, interface
+names and reserved slot (48 in the default policy) come from `hosts/installer/identity.env`.
+The launcher selects the active IPv4 Internet route, excludes loopback and
+Tailscale, and pins kernel-routed outbound traffic and both host peer listeners
+to that route's source address. Both forwards must succeed before the payload
+starts. An explicit readiness gate prevents payload execution on startup-pipe
+EOF; failed setup also kills the pinned namespace. A bounded startup lock
+serializes concurrent first launches, and later requests use the existing
+application's local IPC socket.
+The installer renders the complete native qBittorrent configuration into the
+root-owned `/etc/qbittorrent/qBittorrent.conf.d/10-security.conf`
+asset, including `Session\BlockPeersOnPrivilegedPorts=true`, the selected peer
+port, storage paths, and the private `eth0` namespace binding. The launcher only
+validates and copies that rendered file into the persistent profile before a new
+instance; it does not render or merge native qBittorrent keys at runtime. A
+ten-second route-loss grace period lets the pinned lease survive a short carrier
+or USB adapter recreation while still revoking it for a route replacement or
+prolonged outage.
+Relaunch after changing the route or VPN. Router forwarding works when the
+Internet route uses the router connection; a VPN route needs forwarding at its
+own public endpoint. This forwarding contract requires IPv4. DNS uses an extra
+dnsmasq loopback listener, which caches queries and sends misses to Stubby
+for authenticated DoT and DNSSEC validation. DHT, PeX, LSD, automatic port mapping and the Web UI remain disabled;
+HTTPS tracker certificates are checked and normal tracker failover is used.
+
+Managed qBittorrent launches use Qt's built-in Fusion style to avoid the supplied
+Adwaita focus-paint crash. Its direct and Bubblewrap AppArmor profiles share the
+same runtime grants for read-only disk classification metadata in sysfs,
+account-owned process metadata and account-owned terminal I/O. Mounted torrent
+storage needs no raw block-device access. Disk devices and writable sysfs are
+not exposed to the torrent payload. The root network service constructs veth
+interfaces through netlink; it does not use a TUN/TAP device.
+
+### Managed private networking
+
+The managed Chromium, Edge, Vivaldi, Mullvad Browser, Code, Postman, Bitwarden,
+Obsidian, QoreDB, Sleek, Spotify, Filen, Ledger Live, Telegram, KeePassXC,
+RetroArch, MPV, Liferea and FreeRDP launchers use private kernel veth networks.
+ChatGPT/Codex, Tuta, Zoom and Discord use the same broker. Ordinary online
+PurePrivacy launches also use veth; the existing offline KeePassXC and
+RetroArch PurePrivacy policies remain offline. Generic desktop wrappers route
+known package executable paths back through these managed launchers.
+
+`app-veth.service` pre-creates the configured 128 separate veth pairs at boot before publishing
+readiness or starting the greeter and Podman API service. Idle host adapters
+are `veth0-app` through `veth127-app`, with matching `vethN-peer` endpoints;
+both ends stay DOWN until assigned. NetworkManager leaves these reserved slots
+to the service. Each authenticated lease moves an existing peer into the
+caller's namespace. Host names stay fixed for the entire pool lifetime; app
+names are recorded in structured lifecycle logs. Each application has reserved
+slots, so launch order cannot change its primary address. Ordinary applications
+reserve two slots; ChatGPT and Codex reserve twelve each; applications with
+route pinning or peer forwarding reserve one slot because those resources are
+singleton state. A host profile may set a
+nonempty `APP_VETH_OVERRIDE` to generate a smaller application policy and pool;
+empty override values use the installer identity defaults. A subnet conflict
+fails without switching address ranges. See [the network policy](docs/app-veth.md).
+Apps never create host adapters.
+
+The service validates each namespace FD and its owning account before
+attaching the existing veth. Firewall changes commit before the payload startup
+gate opens. Source validation rejects spoofed addresses, host services and
+other managed namespaces are blocked, and cleanup removes the packet path
+before its rule elements, then returns the DOWN, address-free peer to the
+pool. A cleanup failure keeps the default-deny guards
+installed until recovery succeeds. Recovery handles tagged service endpoints
+and an interrupted creation of an exact, mutually paired, DOWN, address-free
+idle pair; it preserves other untagged or foreign-tagged interfaces.
+The uplinks are IPv4; route
+interface MTU is preserved and no traffic shaper or userspace packet router is
+introduced. Actual throughput still needs measurement on the installed host.
+
+Private DNS requests at `10.0.2.3:53` are sent to the dedicated dnsmasq
+listener, `127.0.0.1:53053`, over TCP or UDP. Its cache misses go to Stubby at
+`127.0.0.1:53054`; host and VPN split DNS remain separate. Lifecycle records go to
+`/var/log/managed/network/veth.log` through the managed logging/rotation policy.
+Application state and selected document/device paths are retained explicitly;
+each application's private temporary IPC directory supports subsequent launches.
+The capability-free FreeRDP sandbox retains askpass and ordinary clipboard IPC;
+privileged FUSE clipboard mounts are outside that sandbox's permissions.
+
+Podman's internal bridges use Netavark with nftables, behind the kernel veth
+uplink. Its configured helper is `/usr/local/libexec/app-veth-podman`.
+The `default_rootless_network_cmd` compatibility selector in Podman's config
+selects the custom helper ABI; it does not install or execute that selector's
+namesake program. Codex and ChatGPT retain the existing
+`/run/podman-devops/podman.sock` Unix API binding for container/custom MCP work.
+User-installed MCP configuration is independent of this installer networking.
+
+The installer renders the broker's account, network identities and peer port through the validated
+scalar map, then runs `app-veth --check-config` before enabling the service.
+Malformed or non-regular configuration fails during installation. The broker's
+enforced AppArmor profile permits Forky's resolved `ip` executable, its immutable
+iproute2 lookup files, and the adapter's exact root-owned Netavark namespace
+endpoint. Broker and client profiles permit the exact nsfs root read mediated
+as `/` by `attach_disconnected`, with literal namespace-name brackets escaped;
+this read grants no child paths. Supervisors can inspect their caller-owned
+child namespace and send the confined child SIGTERM/SIGKILL, with the existing
+explicit ptrace peer rules and host capability restrictions retained. The Podman helper also supports its
+side-effect-free `--version` probe. The
+[installed startup repair record](docs/validation/installed-startup-20261009/README.md)
+and [LPL-746 firstboot follow-up](docs/validation/installed-startup-20261009/lpl746-namespace-read.md)
+document the supplied failure evidence, regression results and installed-host
+acceptance requirements.
+
+Mako starts after a five-second wait in its session-bound user service. The wait
+also applies to D-Bus activation; notification producers ordered after Mako wait
+for the daemon to acquire its notification bus name. Notification expiry is
+enforced by Mako: low urgency (routine) lasts 5 seconds, normal urgency (the
+middle warning level) lasts 10 seconds, and critical urgency lasts 15 seconds.
+Application expiry requests, including requests to stay indefinitely, do not
+override these durations. Repository-owned senders delegate popup expiry to
+Mako: notification helpers expose no expiry option, new queued events contain
+no expiry field, and the required D-Bus expiry argument is -1 (server default).
+Pending records in the old queue format are still delivered, with their obsolete
+expiry field ignored. Tomat has no managed notification timeout setting; Mako
+also ignores the native package's built-in default.
+Right-clicking Waybar's notification button enables
+Do Not Disturb and then dismisses all active notifications, preserving history
+where the existing notification policy permits it. Repeated right-clicks keep
+Do Not Disturb enabled; middle-click still toggles it, and the left-click menu
+provides the notification center and explicit DND controls.
+The canonical activation file
+selects `SystemdService=mako.service`; the package refresh helper preserves that
+selection. Login and D-Bus activation share the same service owner.
+
+Ctrl+Win+L runs the idle toggle through the desktop user manager so it reads
+the root-owned policy in the host namespace. Policy ownership validation stays
+strict; the override remains session-only and preserves explicit/manual locking.
+
+ChatGPT binds existing standard save directories into its private home and
+activates the document portal before binding `/run/user/<uid>/doc`. Exported
+portal documents have confined write permissions for saving. Missing optional
+save directories are skipped; an unavailable document portal produces an
+actionable launch error. See [the runtime validation record](docs/validation/desktop-runtime-20261007.md)
+for evidence and installed-desktop acceptance requirements.
+
+The DevOps installer authenticates the exact Packer plugin releases, installs
+their binaries into the account's private plugin directory, then checks local
+checksums and the managed HCL constraints. The installation does not invoke
+`packer init`, which would repeat remote plugin discovery.
+
+### Codex installation identity and authentication
+
+When `/run/media/$USER/warehouse` is already mounted and its `extra` directory
+exists and is writable, the Codex wrapper exposes that directory and its nested
+files read/write in the sandbox. It checks the existing mount ID, pins the
+directory, and uses Bubblewrap's `--bind-fd` support (0.11 or newer) to preserve
+its identity. Directory probes use `O_PATH` and reject untriggered automounts
+at every ancestor before traversing further. Missing, unmounted, inaccessible or unsafe media is skipped;
+this optional workspace is never a precondition for launching Codex. The wrapper never
+mounts a host volume or creates host mountpoint directories. The surrounding
+`/run/media` tree remains private; working directories within the exposed tree
+are preserved. AppArmor grants the primary desktop account's exact tree, with
+normal filesystem permissions and read-only volume flags still applying.
+
+Codex installation UUID overrides are opt-in and persistent for the physical
+directory from which the wrapper is launched. `--new-uuid` generates a random
+UUID and atomically saves it for that directory. Later launches reuse that UUID
+until another `--new-uuid` replaces it. Without a saved override, the wrapper
+leaves `$CODEX_HOME/installation_id` native and does not generate a spoofed UUID.
+
+```sh
+cd /home/mcramer/Workspace/debian-preseed-de
+codex --new-uuid --profile default  # Create or rotate this directory's UUID.
+codex --profile default             # Reuse it; otherwise use the native ID.
+codex --new-uuid login              # Rotate it and run an explicit login.
 ```
 
-## Integrate with your tools
+Wrapper switches (`--new-uuid`, `--no-bwrap`, `--isolated-network`) form a prefix
+before native options/subcommands. A literal `--` ends wrapper option handling;
+prompt text and child command arguments are never treated as wrapper switches.
+The project key is the physical launch directory, not a Git-root search or a
+native `--cd` option: symlink aliases share an identity, while subdirectories,
+renamed directories and separate checkouts have separate keys.
 
-* [Set up project integrations](https://gitlab.com/computes/system/debian-preseed/-/settings/integrations)
+State is stored outside the project tree in private mode `0700`
+`/data/codex/runtime/project-identities`, using mode `0600` records keyed by a
+SHA-256 digest of the directory path. Ordinary launches create no mapping.
+Saved UUIDs are copied into anonymous memory; Bubblewrap mounts a disposable,
+writable mode `0644` copy at `$CODEX_HOME/installation_id`. Codex `0.159.0`
+opens this file read/write and normalizes its mode even for a valid UUID, so a
+read-only mount fails at startup with `Read-only file system (os error 30)`.
+Changes to the launch copy do not update the saved project record or native ID;
+the normal sandbox masks the project-state directory. Existing native ID
+contents are preserved. If a spoofed launch needs a mount target before the
+native ID exists, it initializes an independent native default once; other
+projects continue to use that default.
 
-## Collaborate with your team
+Normal launches, including the managed app-server, bind an existing, private
+`$CODEX_HOME/auth.json` read-only after the writable runtime mounts. They require
+login first and cannot persist token refreshes or logout through that file.
+An explicit leading `login` subcommand allows authentication writes inside the
+full sandbox, including `codex --new-uuid login`. `codex --no-bwrap ...` retains
+host access and leaves authentication directly writable. When a saved project
+UUID is selected, that mode still requires Bubblewrap for its disposable ID
+mount. Without a project override, `--no-bwrap` directly executes native Codex.
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+The ChatGPT app wrapper reads the same project mapping for its selected working
+directory and mounts a disposable writable copy after its persistent directory
+mounts. It never rotates or creates project mappings. When none exists, it uses
+the native installation ID without a separate mount, allowing native initialization.
 
-## Test and Deploy
+## Build and source verification
 
-Use the built-in continuous integration in GitLab.
+From the repository root, the permitted commands are:
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+```sh
+make build
+python3 -B tools/post_change_check.py
+```
 
-***
+The reviewed build captures source bytes once and overwrites the same generated
+files directly in `d-i/forky/` and `d-i/trixie/`. It creates no release or
+publication directories. Both suite copies bind the same captured source
+identity, bootstrap, manifest and payload. It does not rewrite classes, fragments, profiles,
+APT settings or target assets, run tests, collect inventories or switch a
+served pointer. Do not hand-edit generated products or preseeds.
 
-# Editing this README
+The required audit parses changed source as data, checks shell syntax and
+ShellCheck errors, renders declared placeholders, and compares the current
+source, archive, manifest, release receipt and both preseeds. Serialization and
+syntax checks do not prove boot, storage preservation, package solving, GUI,
+service, firewall or hardware behavior. Tests, fixtures, managed imports and
+native checks remain unexecuted. Read [the execution boundary](docs/test-isolation.md).
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## Roles and deployment
 
-## Suggestions for a good README
+The suite preseed is `d-i/forky/preseed.cfg` or `d-i/trixie/preseed.cfg`. Boot
+any supported d-i installer image and provide the selected preseed over HTTP,
+HTTPS, or a local file. Select
+exactly one desktop tier, or one or more server roles; pass explicit site,
+network and host-profile classes. For example:
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```text
+classes=site/lab;role/desktop/base;network/dhcp;profile/desktop/btrfs-de
+classes=site/lab;role/server/github-actions;role/server/gitlab-cicd;network/dhcp;profile/server/btrfs-srv-flex
+```
 
-## Name
-Choose a self-explaining name for your project.
+Every server role lists OpenSSH server packages. Every concrete host profile
+declares `SSH_SERVER_ENABLE`; on desktops, `true` also adds the suite-owned
+SSH package fragment before pkgsel. `false` prevents SSH activation.
+Encryption, driver branches and storage policy remain separate. All Btrfs roles
+include CrowdSec. `TIMESHIFT_ENABLE=true` in a Btrfs host profile installs and
+configures snapshots and managed GRUB-Btrfs; `false` installs neither.
+Timeshift has no class selector. F2FS requires the explicit
+`snapshots=none` exception; dualboot preservation is quarantined before partman.
+Server accounts use Bash-only skeleton files. Only server DevOps receives
+`.profile.d/71-devops-srv.sh`.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+The mutable checkout products are not a live serving root. After the static
+audit, an operator can review and activate one complete served tree with
+`tools/release_pointer.py`; preview is the default and `--apply` is explicit.
+The previous complete tree and transaction evidence are retained outside the
+checkout for rollback. Flat suite URLs require active installers to finish
+before switching the served tree; a pin mismatch stops acquisition safely.
+See [rollout and rollback](docs/implementation/operations.md)
+and [the trust boundary](SECURITY.md). No publishing, enrollment or deployment
+is performed by repository generation or static inspection.
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+### Launcher navigation
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Win+S opens Search Applications. Search uses the same visible GIO application
+catalog and reviewed dispatch as the categorized main menu, and includes Back.
+Win+Backspace cancels the focused fuzzel picker and returns to its previous menu
+one step; it also returns from Search Applications to the main menu. Root menus
+close when there is no parent. Win+Alt opens Computer Management, and Win+M opens
+Spotify. Fuzzel owns the Back shortcut while its overlay has keyboard focus.
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+The current clock controls, pinned Waycal/Calix/Agenda releases, private Fruux handoff,
+saved Wi-Fi reconnect and Ethernet preference are documented in
+[Calendar and saved Wi-Fi behavior](docs/calendar-and-wifi.md).

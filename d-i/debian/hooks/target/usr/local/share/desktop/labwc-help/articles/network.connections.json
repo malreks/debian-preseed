@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "blocks": [
+    {
+      "type": "paragraph",
+      "text": "Computer Management → Network & Remote provides Connection Profiles and network status tools. NetworkManager manages the profile-controlled Ethernet/Wi-Fi policy. Prefer these tools to editing routes or restarting networking by hand."
+    },
+    {
+      "type": "paragraph",
+      "text": "The profile chooses the primary physical adapter; a connected fallback stays available at a higher route metric. Wi-Fi uses the Ethernet address plus one for IPv4 and enabled IPv6. A saved AP may reconnect automatically even if it was not preconfigured during installation. Disabling IPv6 in the profile applies to both physical adapters."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Read-only status"
+    },
+    {
+      "type": "code",
+      "text": "nmcli -t -f STATE general\nnmcli -f DEVICE,TYPE,STATE device status"
+    },
+    {
+      "type": "paragraph",
+      "text": "These commands show local state only. Do not publish connection names, MAC addresses, addresses or routes without review. A connected link does not prove DNS or remote-service access."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Configuration and recovery"
+    },
+    {
+      "type": "paragraph",
+      "text": "Managed files live under __INSTALLER_PATH_DIR_ETC__/NetworkManager/. Connection secrets require protected storage and administrator authority. If connectivity fails, follow [Network troubleshooting](help:troubleshooting.network) before changing interfaces or firewall rules."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Connection profiles and passwords"
+    },
+    {
+      "type": "paragraph",
+      "text": "Connection Profiles lists the available NetworkManager profiles. Select the intended saved connection and verify its device before activating or disconnecting it. Wi-Fi credentials belong in the existing protected configuration workflow, never in an article, screenshot, copied command or public report."
+    },
+    {
+      "type": "paragraph",
+      "text": "Changing an active connection can interrupt remote sessions and mounted shares. Save network-dependent work first. If a link is connected but an application fails, compare the VPN, DNS and that application’s network policy using [Network troubleshooting](help:troubleshooting.network). Do not replace routes while another tool owns them."
+    }
+  ]
+}

@@ -1,0 +1,189 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Read the battery sysfs ABI without Waybar's native Plugged polling loop."""
+from __future__ import annotations
+
+import html
+import errno
+import json
+import os
+from pathlib import Path
+import select
+import signal
+import socket
+import sys
+import time
+
+POWER = Path("__INSTALLER_PATH_DIR_SYS__/class/power_supply")
+
+
+def value(device: Path, name: str) -> str | None:
+    try:
+        with (device / name).open("r", encoding="ascii") as stream:
+            return stream.read(64).strip()
+    except (OSError, UnicodeError):
+        return None
+
+
+def number(device: Path, name: str) -> int | None:
+    raw = value(device, name)
+    if raw is None or not raw.isascii() or not raw.isdecimal() or len(raw) > 12:
+        return None
+    return int(raw)
+
+
+def output(root: Path = POWER) -> dict:
+    try:
+        # Apply the entry limit while enumerating, before sorting/allocating.
+        devices = []
+        for device in root.iterdir():
+            if len(devices) >= 64:
+                break
+            devices.append(device)
+        devices.sort()
+    except OSError:
+        devices = []
+    batteries = []
+    ac_online = False
+    for device in devices:
+        kind = value(device, "type")
+        if kind in ("Mains", "USB", "USB_C", "USB_PD") and number(device, "online") == 1:
+            ac_online = True
+        if kind != "Battery" or len(batteries) >= 16:
+            continue
+        capacity = number(device, "capacity")
+        if capacity is None or capacity > 100:
+            continue
+        status = value(device, "status")
+        if status not in ("Charging", "Discharging", "Full", "Not charging", "Unknown"):
+            status = "Unknown"
+        batteries.append((device, capacity, status))
+    if not batteries:
+        return {"text": "—", "alt": "default", "class": "unknown", "tooltip": "No battery detected"}
+
+    # Weighted capacity when every battery exports the same sysfs energy unit.
+    weighted = [(number(d, "energy_now"), number(d, "energy_full")) for d, _, _ in batteries]
+    if all(now is not None and full is not None and full > 0 for now, full in weighted):
+        capacity = min(100, round(100 * sum(now for now, _ in weighted) /
+                                  sum(full for _, full in weighted)))
+    else:
+        capacity = round(sum(cap for _, cap, _ in batteries) / len(batteries))
+    statuses = {status for _, _, status in batteries}
+    if "Charging" in statuses:
+        state = "charging"
+    elif "Discharging" in statuses:
+        state = "discharging"
+    elif statuses == {"Full"}:
+        state = "full"
+    elif ac_online:
+        state = "plugged"
+    elif "Not charging" in statuses:
+        state = "not-charging"
+    else:
+        state = "unknown"
+    level = "critical" if capacity <= 15 else "warning" if capacity <= 30 else ""
+    icon_state = state if state in ("charging", "full", "plugged", "not-charging") else ""
+    alt = "-".join(filter(None, (icon_state, level))) or "default"
+
+    detail = []
+    for device, cap, status in batteries:
+        full = number(device, "energy_full") or number(device, "charge_full")
+        design = number(device, "energy_full_design") or number(device, "charge_full_design")
+        health = f"  Health {min(100, round(100 * full / design))}%" if full and design else ""
+        cycles = number(device, "cycle_count")
+        cycle_text = f"  Cycles {cycles}" if cycles is not None else ""
+        detail.append(f"{html.escape(device.name)}: {cap}% ({status}){health}{cycle_text}")
+    return {"text": f"{capacity}%", "alt": alt,
+            "class": [state, level] if level else [state],
+            "tooltip": "\n".join(detail)}
+
+
+def watch(root: Path = POWER) -> int:
+    """Cache output; kernel power-supply uevents trigger bounded rescans.
+
+    A one-minute read-only reconciliation also covers lost events and drivers
+    without capacity notifications. Neither path launches another process.
+    """
+    stopped = False
+    def stop(_signum, _frame):
+        nonlocal stopped
+        stopped = True
+    # A signal handler alone cannot interrupt select reliably: Python retries
+    # interrupted waits. Wake through a private pipe instead of ticking once a
+    # second solely to notice shutdown. No subprocess or writable state file.
+    wake_read, wake_write = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
+    previous_wakeup = None
+    previous_handlers = {}
+    monitor = None
+    try:
+        previous_wakeup = signal.set_wakeup_fd(wake_write, warn_on_full_buffer=False)
+        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            previous_handlers[signum] = signal.signal(signum, stop)
+        try:
+            monitor = socket.socket(socket.AF_NETLINK, socket.SOCK_DGRAM | socket.SOCK_CLOEXEC, 15)
+            monitor.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 131072)
+            monitor.bind((0, 1))  # NETLINK_KOBJECT_UEVENT, kernel multicast group.
+            monitor.setblocking(False)
+        except OSError:
+            if monitor is not None:
+                monitor.close()
+            monitor = None
+        last = None
+        due = 0.0
+        last_scan = -1.0
+        while not stopped:
+            now = time.monotonic()
+            if now >= due and now - last_scan >= 1:
+                rendered = json.dumps(output(root), ensure_ascii=False)
+                if rendered != last:
+                    print(rendered, flush=True)
+                    last = rendered
+                last_scan, due = now, now + 60
+            timeout = max(0.0, max(due, last_scan + 1) - time.monotonic())
+            readers = [wake_read, monitor] if monitor is not None else [wake_read]
+            readable, _, _ = select.select(readers, [], [], timeout)
+            if stopped:
+                break
+            if wake_read in readable:
+                try:
+                    os.read(wake_read, 4096)
+                except BlockingIOError:
+                    pass
+            if monitor is not None and monitor in readable:
+                # Bound work per pass so an event storm cannot starve signals.
+                for _ in range(32):
+                    try:
+                        packet, _ancillary, flags, sender = monitor.recvmsg(65536)
+                    except BlockingIOError:
+                        break
+                    except OSError as error:
+                        due = 0  # Reconcile after ENOBUFS or another receive loss.
+                        if error.errno != errno.ENOBUFS:
+                            monitor.close()
+                            monitor = None
+                        break
+                    if sender[0] != 0:
+                        continue  # Userspace cannot forge a kernel update.
+                    if flags & socket.MSG_TRUNC or b'SUBSYSTEM=power_supply' in packet.split(b'\0'):
+                        due = 0
+        return 0
+    except BrokenPipeError:
+        return 0
+    finally:
+        if monitor is not None:
+            monitor.close()
+        if previous_wakeup is not None:
+            signal.set_wakeup_fd(previous_wakeup)
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
+        os.close(wake_read)
+        os.close(wake_write)
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--watch"]:
+        if os.getuid() == 0 or os.getuid() != os.geteuid():
+            raise SystemExit("battery status requires the desktop account")
+        raise SystemExit(watch())
+    if sys.argv[1:]:
+        raise SystemExit("usage: labwc-waybar-battery [--watch]")
+    print(json.dumps(output(), ensure_ascii=False))

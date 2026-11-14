@@ -1,0 +1,323 @@
+{
+  "source": "Installed October 9 AppArmor denials; account paths anonymized",
+  "records": 38,
+  "events": [
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "mkdir",
+      "class": "file",
+      "name": "/etc/opt/",
+      "requested_mask": "c",
+      "denied_mask": "c",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "desktop-btop",
+      "operation": "mknod",
+      "class": "file",
+      "name": "/home/fixture/.local/state/btop.log",
+      "requested_mask": "c",
+      "denied_mask": "c",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "desktop-btop",
+      "operation": "create",
+      "class": "net",
+      "requested_mask": "create",
+      "denied_mask": "create",
+      "family": "netlink",
+      "sock_type": "raw"
+    },
+    {
+      "profile": "desktop-launcher",
+      "operation": "signal",
+      "class": "signal",
+      "requested_mask": "send",
+      "denied_mask": "send",
+      "signal": "hup",
+      "peer": "desktop-btop"
+    },
+    {
+      "profile": "desktop-btop",
+      "operation": "signal",
+      "class": "signal",
+      "requested_mask": "receive",
+      "denied_mask": "receive",
+      "signal": "hup",
+      "peer": "desktop-launcher"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "mknod",
+      "class": "file",
+      "name": "/home/fixture/.mozilla/native-messaging-hosts/.bitwarden_desktop_proxy",
+      "requested_mask": "c",
+      "denied_mask": "c",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/usr/share/keepassxc/translations/keepassxc_en.qm",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:0d.0/usb1/speed",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:0d.0/usb2/speed",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:14.0/usb3/speed",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-1/speed",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-10/speed",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-3/speed",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-5/speed",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-8/speed",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:14.0/usb4/speed",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/usr/share/keepassxc/wordlists/eff_large.wordlist",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/usr/share/keepassxc/wordlists/",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "mkdir",
+      "class": "file",
+      "name": "/etc/opt/chrome/",
+      "requested_mask": "c",
+      "denied_mask": "c",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "labwc-qbittorrent//qbittorrent-bwrap",
+      "operation": "mkdir",
+      "class": "file",
+      "name": "/home/fixture/",
+      "requested_mask": "c",
+      "denied_mask": "c",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "session-controls",
+      "operation": "open",
+      "class": "file",
+      "name": "/run/user/1000/labwc-vivaldi-tmp/.com.vivaldi.Vivaldi.scoped_dir.r8I9pb/icon.png",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "exec",
+      "class": "file",
+      "name": "/usr/bin/hostname",
+      "requested_mask": "x",
+      "denied_mask": "x",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "exec",
+      "class": "file",
+      "name": "/bin/hostname",
+      "requested_mask": "x",
+      "denied_mask": "x",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "exec",
+      "class": "file",
+      "name": "/usr/bin/file",
+      "requested_mask": "x",
+      "denied_mask": "x",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "exec",
+      "class": "file",
+      "name": "/usr/bin/expr",
+      "requested_mask": "x",
+      "denied_mask": "x",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "exec",
+      "class": "file",
+      "name": "/bin/expr",
+      "requested_mask": "x",
+      "denied_mask": "x",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/etc/chromium.d/90-performance-flags",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "mkdir",
+      "class": "file",
+      "name": "/home/fixture/Postman/files/",
+      "requested_mask": "c",
+      "denied_mask": "c",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "file_mmap",
+      "class": "file",
+      "name": "/home/fixture/.config/vivaldi/WidevineCdm/4.10.3112.0/_platform_specific/linux_x64/libwidevinecdm.so",
+      "requested_mask": "m",
+      "denied_mask": "m",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "chmod",
+      "class": "file",
+      "name": "/run/user/1000/pulse/",
+      "requested_mask": "w",
+      "denied_mask": "w",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "rmdir",
+      "class": "file",
+      "name": "/run/user/1000/pulse/",
+      "requested_mask": "d",
+      "denied_mask": "d",
+      "fsuid": "1000",
+      "ouid": "1000"
+    },
+    {
+      "profile": "labwc-app//app-bwrap",
+      "operation": "open",
+      "class": "file",
+      "name": "/sys/devices/pci0000:00/0000:00:14.0/usb3/3-5/3-5:1.0/interface",
+      "requested_mask": "r",
+      "denied_mask": "r",
+      "fsuid": "1000",
+      "ouid": "0"
+    }
+  ]
+}

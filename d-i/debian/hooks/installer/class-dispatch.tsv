@@ -1,0 +1,45 @@
+format	1
+class	role/desktop/base,role/desktop/medium,role/desktop/full,role/server/github-actions,role/server/gitlab-cicd,role/server/devops	amd64	-	-
+class	role/server/technitium	amd64	-	role/server/github-actions,role/server/gitlab-cicd,role/server/devops
+class	optional/dualboot	amd64	-	-
+class	optional/cuda	amd64	-	-
+class	optional/cuda-legacy	amd64	-	-
+class	optional/nvidia	amd64	-	optional/nvidia-legacy
+class	optional/nvidia-legacy	amd64	-	optional/nvidia
+class	arch/arm64,cpu/generic-arm64,kernel/arm64	arm64	-	-
+class	kernel/x64v2,kernel/x64v3	amd64	-	-
+stage	fragments/apt.cfg	installer.preseed	preseed	FILE_PRESEED_APPLY	-	-
+stage	fragments/apt.cfg	installer.early	early	FILE_EARLY_DISPATCH	installer.preseed	-
+stage	fragments/apt.cfg	installer.partman	partman	FILE_PARTMAN_DISPATCH	installer.early	-
+stage	fragments/apt.cfg	installer.firmware	pre-pkgsel	FILE_INST_PREPKG_49NVIDIA_OPT_IN_FIRMWARE	installer.partman	-
+stage	fragments/apt.cfg	installer.namespace	pre-pkgsel	FILE_INST_PREPKG_89TEMPORARY_UNSHARE	installer.firmware	-
+stage	fragments/apt.cfg	installer.dkms	pre-pkgsel	FILE_INST_PREPKG_90SECURE_BOOT_DKMS	installer.namespace	-
+stage	fragments/apt.cfg	os.shared	late	FILE_OS_FOUNDATION	installer.dkms	-
+stage	fragments/apt.cfg	os.kernel	late	FILE_OS_KERNEL	os.shared	desktop.storage,server.boot
+stage	role/desktop/base,role/desktop/medium,role/desktop/full,role/server/github-actions,role/server/gitlab-cicd,role/server/technitium,role/server/devops	os.crowdsec	late	FILE_LATE_CROWDSEC	os.shared	desktop.session
+stage	fragments/timeshift.cfg	os.timeshift	late	FILE_OS_TIMESHIFT	os.shared	desktop.session
+stage	role/desktop/base,role/desktop/medium,role/desktop/full	desktop.storage	late	FILE_INST_LATE_COMMAND	os.shared	desktop.software,desktop.session,os.crypto,os.uplinks,os.sharing
+stage	role/desktop/base,role/desktop/medium,role/desktop/full	desktop.software	late	FILE_LATE_SOFTWARE_TMPL	desktop.storage	desktop.session,os.codex
+stage	role/desktop/base,role/desktop/medium,role/desktop/full	desktop.session	late	FILE_LATE_DESKTOP	desktop.software	-
+stage	role/desktop/medium,role/desktop/full	desktop.ch341a	late	FILE_LATE_CH341A	os.firmware,desktop.storage	desktop.session
+stage	role/desktop/medium,role/desktop/full	desktop.devops	late	FILE_LATE_DEVOPS_TMPL	desktop.software	desktop.session
+stage	role/desktop/medium,role/desktop/full,role/server/devops	os.virtualization	late	FILE_OS_VIRTUALIZATION	os.services	desktop.session,server.devops
+stage	role/desktop/medium,role/desktop/full	desktop.tailscale	late	FILE_LATE_TAILSCALE	desktop.software	desktop.session
+stage	role/desktop/medium,role/desktop/full	desktop.whisper	late	FILE_LATE_WHISPER	desktop.software	desktop.session
+stage	role/server/github-actions,role/server/gitlab-cicd,role/server/technitium,role/server/devops	server.foundation	late	FILE_SERVER_FOUNDATION	os.shared	os.crowdsec,os.timeshift,os.crypto,os.uplinks,os.sharing
+stage	fragments/whisper.cfg	server.whisper	late	FILE_LATE_WHISPER	server.foundation	server.services,server.devops
+stage	fragments/llama.cfg	server.llama	late	FILE_LATE_LLAMA	server.foundation	server.services,server.devops
+stage	role/server/github-actions,role/server/gitlab-cicd,role/server/technitium	server.services	late	FILE_SERVER_SERVICES	server.foundation	-
+stage	role/server/devops	server.devops	late	FILE_SERVER_DEVOPS	server.foundation	-
+stage	fragments/apt.cfg	os.crypto	late	FILE_LATE_CRYPTO	os.shared	desktop.session,os.timeshift
+stage	fragments/apt.cfg	os.uplinks	late	FILE_OS_UPLINKS	os.shared	desktop.session,server.services,server.devops
+stage	optional/cuda-legacy	installer.cuda-legacy	pre-pkgsel	FILE_INST_PREPKG_91CUDA_LEGACY_APT	installer.dkms	-
+stage	optional/nvidia-legacy	installer.nvidia-legacy	pre-pkgsel	FILE_INST_PREPKG_92NVIDIA_LEGACY_DKMS	installer.dkms	-
+stage	fragments/apt.cfg	os.sharing	late	FILE_OS_PROFILE_SERVICES	os.uplinks	desktop.session,server.services,server.devops
+stage	role/server/github-actions,role/server/gitlab-cicd,role/server/technitium,role/server/devops	server.hardware	late	FILE_SERVER_HARDWARE	os.sharing	server.services,server.devops
+stage	fragments/apt.cfg	os.services	late	FILE_OS_SYSTEM_SERVICES	os.sharing	os.timeshift,desktop.session,server.hardware,server.services,server.devops
+stage	role/desktop/medium,role/desktop/full	desktop.virtualization	late	FILE_DESKTOP_VIRTUALIZATION	os.virtualization,desktop.storage	desktop.session
+stage	role/desktop/medium,role/desktop/full,role/server/devops	os.firmware	late	FILE_OS_FIRMWARE	os.services	desktop.ch341a,server.devops
+stage	role/server/github-actions,role/server/gitlab-cicd,role/server/technitium,role/server/devops	server.boot	late	FILE_SERVER_BOOT	os.services,server.hardware	os.crypto,os.timeshift,server.services,server.devops
+stage	fragments/codex.cfg	os.codex	late	FILE_OS_CODEX	os.services	desktop.devops,desktop.session,server.devops,server.services
+stage	role/server/devops	server.devops.tools	late	FILE_LATE_DEVOPS_TMPL	server.devops,os.codex	-

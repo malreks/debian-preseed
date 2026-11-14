@@ -1,0 +1,94 @@
+# Managed by unattended-installer.
+#
+# Least-privilege desktop runtime shared by repository-managed applications.
+# Application installation trees, mutable state, user documents, network,
+# audio, camera, input, and removable-media access stay in the individual
+# profiles. This abstraction only supplies common desktop IPC and graphics.
+
+#include <abstractions/base>
+#include <abstractions/app-config>
+ptrace (readby) peer=desktop-launcher,
+ptrace (readby) peer=waypaper//waypaper-ps,
+include if exists <abstractions/dbus-session>
+include if exists <abstractions/dconf>
+include if exists <abstractions/fonts>
+include if exists <abstractions/freedesktop.org>
+include if exists <abstractions/gtk>
+#include <abstractions/desktop-graphics>
+include <abstractions/nameservice-strict>
+include if exists <abstractions/openssl>
+include if exists <abstractions/qt5>
+include if exists <abstractions/qt6>
+include if exists <abstractions/ssl_certs>
+#include <abstractions/wayland>
+include if exists <abstractions/xdg-desktop>
+
+# Desktop applications routinely invoke these package-owned shell helpers
+# while resolving MIME handlers, browser integration, and vendor launch
+# scripts. Keep them inside the calling profile.
+/{,usr/}bin/{bash,dash,sh} rix,
+__INSTALLER_PATH_DIR_USR__/bin/{awk,basename,cat,cut,dbus-send,dirname,gawk,getconf,getopt,grep,head,lsb_release,mawk,mkdir,mv,nawk,readlink,realpath,sed,sort,touch,tr,uname,xdg-mime,xdg-settings,xprop} rix,
+/{,usr/}bin/{hostname,file,expr} rix,
+# MIME detection reads the package magic database, including merged-/usr links.
+__INSTALLER_PATH_DIR_ETC__/magic r,
+__INSTALLER_PATH_DIR_USR_SHARE__/misc/magic{,.mgc} r,
+__INSTALLER_PATH_DIR_USR__/lib/file/magic.mgc r,
+
+# Raw audio hardware is compositor/session-service only. Application profiles
+# opt into PipeWire/Pulse sockets through pipewire-audio instead.
+deny __INSTALLER_PATH_DIR_DEV__/snd/ r,
+deny __INSTALLER_PATH_DIR_DEV__/snd/** rwklm,
+deny __INSTALLER_PATH_DIR_DEV__/sound/ r,
+deny __INSTALLER_PATH_DIR_DEV__/sound/** rwklm,
+
+# The AppArmor package supplies the protocol abstraction; keep the exact
+# per-user Labwc socket explicit so Wayland remains available on every target.
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/wayland-[0-9]* rw,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/dconf/ rw,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/dconf/** rwkl,
+
+# Applications cannot update the root-owned system font cache. Suppress these
+# expected probes so temporary complain/audit sessions stay useful.
+deny __INSTALLER_PATH_DIR_VAR_CACHE__/ w,
+deny __INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/ w,
+deny __INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/** rwkl,
+
+# Common toolkit and desktop-integration data used before an application opens
+# its app-specific configuration tree.
+/ r,
+__INSTALLER_PATH_DIR_HOME__/ r,
+__INSTALLER_PATH_DIR_ETC__/ r,
+__INSTALLER_PATH_DIR_ETC__/debian_version r,
+__INSTALLER_PATH_DIR_ETC__/os-release r,
+__INSTALLER_PATH_DIR_ETC__/xdg/ r,
+__INSTALLER_PATH_DIR_ETC__/xdg/** r,
+__INSTALLER_PATH_DIR_USR__/lib/os-release r,
+__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/fonts/ r,
+__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/fonts/** r,
+__INSTALLER_PATH_DIR_USR_SHARE__/fontconfig/conf.avail/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/fontconfig/conf.avail/** r,
+__INSTALLER_PATH_DIR_USR_SHARE__/xkeyboard-config-*/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/xkeyboard-config-*/** r,
+# Installed GTK providers and Kvantum SVG/config data are read-only toolkit
+# input. Bind whole configuration directories so atomic theme writes remain
+# visible to existing managed applications.
+__INSTALLER_PATH_DIR_USR_SHARE__/{themes,Kvantum}/{,**} r,
+owner @{HOME}/.config/{gtk-3.0,gtk-4.0,qt5ct,qt6ct,Kvantum}/{,**} r,
+# Toolkit directory creation probes need metadata writes on the home itself.
+# Child files and directories still require their own application rules.
+owner @{HOME}/ rw,
+owner @{HOME}/.config/ rw,
+owner @{HOME}/.config/mimeapps.list* rwkl,
+owner @{HOME}/.local/share/ rw,
+owner @{HOME}/.local/share/pki/ rw,
+owner @{HOME}/.local/share/pki/** rwkl,
+owner @{HOME}/.pki/ rw,
+owner @{HOME}/.pki/nssdb/ rw,
+owner @{HOME}/.pki/nssdb/** rwkl,
+
+# Read-only USB interface names used during toolkit/device enumeration.
+@{sys}/devices/**/usb[0-9]*/**/interface r,
+
+# Files selected through xdg-desktop-portal are exposed below this FUSE mount.
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/doc/ r,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/doc/** rw,

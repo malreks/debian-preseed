@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "yt_dlp_version": "__INSTALLER_DEVOPS_YT_DLP_VERSION__",
+  "ejs_version": "__INSTALLER_DEVOPS_YT_DLP_EJS_VERSION__",
+  "plugins": [
+    {
+      "id": "bgutil-pot",
+      "version": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_VERSION__",
+      "purpose": "YouTube proof-of-origin tokens using the prebuilt provider on demand",
+      "files": [
+        {
+          "path": "libexec/yt-dlp-plugins/bgutil-pot.zip",
+          "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_ZIP_URL__",
+          "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_ZIP_SHA256__",
+          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_ZIP_MINIMUM_BYTES__",
+          "kind": "plugin-zip"
+        },
+        {
+          "path": "libexec/bgutil-pot",
+          "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_BINARY_URL__",
+          "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_BINARY_SHA256__",
+          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_BINARY_MINIMUM_BYTES__",
+          "kind": "linux-amd64-executable"
+        }
+      ]
+    },
+    {
+      "id": "rajiko",
+      "version": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RAJIKO_VERSION__",
+      "purpose": "Radiko radio extraction with the upstream bundled protobug dependency",
+      "files": [
+        {
+          "path": "libexec/yt-dlp-plugins/rajiko.zip",
+          "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RAJIKO_ZIP_URL__",
+          "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RAJIKO_ZIP_SHA256__",
+          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RAJIKO_ZIP_MINIMUM_BYTES__",
+          "kind": "plugin-zip"
+        }
+      ]
+    },
+    {
+      "id": "apple-developer",
+      "version": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_APPLE_DEVELOPER_VERSION__",
+      "purpose": "Apple Developer and WWDC videos and session playlists",
+      "files": [
+        {
+          "path": "libexec/yt-dlp-plugins/apple-developer/yt_dlp_plugins/extractor/appledeveloper.py",
+          "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_APPLE_DEVELOPER_MODULE_URL__",
+          "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_APPLE_DEVELOPER_MODULE_SHA256__",
+          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_APPLE_DEVELOPER_MODULE_MINIMUM_BYTES__",
+          "kind": "data"
+        }
+      ]
+    },
+    {
+      "id": "srt-fix",
+      "version": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_SRT_FIX_VERSION__",
+      "purpose": "Optional cleanup of automatic SRT subtitles",
+      "files": [
+        {
+          "path": "libexec/yt-dlp-plugins/srt-fix/yt_dlp_plugins/postprocessor/srt_fix.py",
+          "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_SRT_FIX_MODULE_URL__",
+          "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_SRT_FIX_MODULE_SHA256__",
+          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_SRT_FIX_MODULE_MINIMUM_BYTES__",
+          "kind": "data"
+        }
+      ]
+    },
+    {
+      "id": "return-youtube-dislike",
+      "version": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RETURN_YOUTUBE_DISLIKE_VERSION__",
+      "purpose": "Optional Return YouTube Dislike metadata",
+      "files": [
+        {
+          "path": "libexec/yt-dlp-plugins/return-youtube-dislike/yt_dlp_plugins/postprocessor/ryd.py",
+          "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RETURN_YOUTUBE_DISLIKE_MODULE_URL__",
+          "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RETURN_YOUTUBE_DISLIKE_MODULE_SHA256__",
+          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RETURN_YOUTUBE_DISLIKE_MODULE_MINIMUM_BYTES__",
+          "kind": "data"
+        }
+      ]
+    },
+    {
+      "id": "fixup-mtime",
+      "version": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_FIXUP_MTIME_VERSION__",
+      "purpose": "Optional consistent timestamps for media and sidecar files",
+      "files": [
+        {
+          "path": "libexec/yt-dlp-plugins/fixup-mtime/yt_dlp_plugins/postprocessor/fixup_mtime.py",
+          "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_FIXUP_MTIME_MODULE_URL__",
+          "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_FIXUP_MTIME_MODULE_SHA256__",
+          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_FIXUP_MTIME_MODULE_MINIMUM_BYTES__",
+          "kind": "data"
+        }
+      ]
+    }
+  ]
+}

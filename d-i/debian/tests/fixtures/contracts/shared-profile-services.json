@@ -1,0 +1,175 @@
+{
+  "cases": [
+    {
+      "NFS_SERVER_ENABLE": true,
+      "expected": [
+        "common NFS units",
+        "profile ACL on eth0 and wifi0",
+        "no desktop firewall file guard"
+      ],
+      "family": "server",
+      "id": "nfs-server-ethernet",
+      "primary": "eth0"
+    },
+    {
+      "NFS_SERVER_ENABLE": true,
+      "expected": [
+        "same NFS implementation",
+        "only approved peers on selected physical uplinks"
+      ],
+      "family": "server",
+      "id": "nfs-server-wifi",
+      "primary": "wifi0"
+    },
+    {
+      "NFS_CLIENT_ENABLE": true,
+      "expected": [
+        "nfsmnt shared CLI",
+        "native Polkit terminal authentication",
+        "no fuzzel or desktop agent requirement"
+      ],
+      "family": "server",
+      "id": "nfs-client-server"
+    },
+    {
+      "NFS_CLIENT_ENABLE": false,
+      "NFS_SERVER_ENABLE": false,
+      "expected": [
+        "no NFS native daemon enabled",
+        "shared home view available for Filen",
+        "server NFS ingress closed"
+      ],
+      "families": [
+        "desktop",
+        "server"
+      ],
+      "id": "nfs-disabled"
+    },
+    {
+      "FILEN_CLI_PRIV_ENABLE": true,
+      "expected": [
+        "pinned digest and ELF verified",
+        "private credentials only from initrd",
+        "separate service identity/store",
+        "filenmnt starts only configured account",
+        "no automatic sync activation"
+      ],
+      "family": "server",
+      "id": "filen-enabled-server"
+    },
+    {
+      "expected": [
+        "installation failure with field name only",
+        "no credential value in diagnostics",
+        "no service start"
+      ],
+      "id": "filen-missing-secret"
+    },
+    {
+      "HARDWARE_INTEL_CPU_TUNING_ENABLE": true,
+      "expected": [
+        "matching hardware gate",
+        "shared broker/worker/API units",
+        "no Waybar mutation",
+        "no application user scopes",
+        "no hardware mutation in installer"
+      ],
+      "family": "server",
+      "id": "hardware-server-opt-in"
+    },
+    {
+      "HARDWARE_INTEL_CPU_TUNING_ENABLE": false,
+      "HARDWARE_NVIDIA_GPU_TUNING_ENABLE": false,
+      "expected": [
+        "no broker/socket activation"
+      ],
+      "families": [
+        "desktop",
+        "server"
+      ],
+      "id": "hardware-disabled"
+    },
+    {
+      "HARDWARE_NVIDIA_GPU_TUNING_ENABLE": true,
+      "expected": [
+        "no implicit driver selection",
+        "no NVIDIA control activation"
+      ],
+      "id": "hardware-nvidia-no-class",
+      "optional_nvidia": false
+    },
+    {
+      "NFS_SERVER_PORT": "32049",
+      "expected": [
+        "selected profile overrides shared default",
+        "derived client options use port=32049"
+      ],
+      "id": "profile-precedence"
+    },
+    {
+      "expected": [
+        "refuse mutation",
+        "retain evidence if recovery is uncertain"
+      ],
+      "id": "ownership-replacement",
+      "inject": [
+        "symlink config parent",
+        "changed UID/GID",
+        "replaced sharing destination"
+      ]
+    },
+    {
+      "expected": [
+        "outcome unknown diagnostic",
+        "no automatic retry or forced unmount"
+      ],
+      "id": "manager-timeout",
+      "inject": [
+        "systemctl deadline expires during mount request"
+      ]
+    },
+    {
+      "active_local_seat": false,
+      "broker_config_version": 2,
+      "caller_uid": "configured human UID",
+      "expected": [
+        "fixed manual/automatic tuning requests accepted with explicit policy-owner confirmation",
+        "UID-specific socket and peer credential checks retained",
+        "no GUI session required"
+      ],
+      "id": "server-hardware-ssh-no-seat",
+      "role_family": "server"
+    },
+    {
+      "active_local_seat": false,
+      "broker_config_version": 2,
+      "expected": [
+        "manual/automatic start requests denied",
+        "previous manual state cleared on seat loss"
+      ],
+      "id": "desktop-hardware-no-seat",
+      "role_family": "desktop"
+    },
+    {
+      "caller_uid": "separate runner/service UID",
+      "expected": [
+        "peer rejected before dispatch",
+        "no hardware worker invocation"
+      ],
+      "id": "server-hardware-runner-uid",
+      "role_family": "server"
+    },
+    {
+      "expected": [
+        "unknown request field rejected",
+        "installed root-owned policy remains sole control owner"
+      ],
+      "id": "hardware-request-family-spoof",
+      "request_extra": {
+        "role_family": "server"
+      }
+    }
+  ],
+  "execution": "unexecuted source fixtures; not runtime acceptance",
+  "format": 1
+}

@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "execution": "unexecuted source and failure-injection fixtures; static-only boundary",
+  "cases": [
+    {"name": "base-absent", "expect": "base desktop and non-DevOps server plans do not stage the build cache unit, firmware login fragment or DevOps account activation"},
+    {"name": "wrong-artifact-architecture", "expect": "Bazelisk and BuildBuddy reject wrong-class or wrong-machine ELF before publication"},
+    {"name": "redirect-leaves-allowlist", "expect": "shared transport rejects the destination before requesting its bytes"},
+    {"name": "existing-artifact-replaced", "expect": "member receipt and final identity reject replacement; no reset or unrelated store cleanup"},
+    {"name": "unconfigured-project", "expect": "Bazelisk has an error fallback; it never selects a latest Bazel release because a project version is missing"},
+    {"name": "existing-human-bazelrc", "expect": "preserve differing file bytes and refuse implicit takeover; no arbitrary shell sourcing"},
+    {"name": "build-cache-existing-store", "expect": "exact owner, group, directory mode and no-follow identity are required; no recreation or recursive ownership change"},
+    {"name": "build-cache-service", "expect": "srv-devops identity, workload slice, loopback-only systemd address policy, empty capabilities and explicit operator activation; no host engine socket"},
+    {"name": "build-cache-pending", "expect": "installation never enables or starts the service and never reports online"},
+    {"name": "calendar-malformed-private-data", "expect": "invalid credential input is fatal, not a fallback to a public profile or account-policy default"},
+    {"name": "kernel-spi-hotplug", "expect": "native bind is unavailable before mutation when the kernel cannot bind a held device identity; driver_override and global bind are never written"},
+    {"name": "kernel-spi-already-bound", "expect": "read-only native ownership check does not change drivers or load modules"},
+    {"name": "firmware-unavailable-propagation", "expect": "status 69 survives the desktop fwops adapter and does not activate a nested firmware shell"}
+  ]
+}

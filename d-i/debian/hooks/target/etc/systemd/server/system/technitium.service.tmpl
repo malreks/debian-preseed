@@ -1,0 +1,46 @@
+[Unit]
+Description=Technitium DNS in its private unprivileged Incus container
+Wants=network-online.target
+After=network-online.target nftables.service incus.socket
+Requires=nftables.service incus.socket
+RequiresMountsFor=__INSTALLER_PATH_DIR_SERVER_DNS_WORK__
+ConditionPathExists=__INSTALLER_PATH_DIR_SERVER_DNS__/configured
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The root controller accesses the native local Incus API and reads its owned
+# nftables chain before activation. The DNS workload runs without capabilities
+# as UID 2103 inside its isolated user/network namespace.
+User=root
+Group=root
+ExecStart=__INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B __INSTALLER_PATH_FILE_SERVER_CONTROL__ start-dns server/technitium
+ExecStop=__INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B __INSTALLER_PATH_FILE_SERVER_CONTROL__ stop-dns server/technitium
+Restart=no
+TimeoutStartSec=120
+TimeoutStopSec=45
+UMask=0077
+KillMode=control-group
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=__INSTALLER_PATH_DIR_SERVER_STATE__
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+LockPersonality=true
+MemoryDenyWriteExecute=yes
+TasksMax=256
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

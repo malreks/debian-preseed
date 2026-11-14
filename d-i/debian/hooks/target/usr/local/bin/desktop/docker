@@ -1,0 +1,3 @@
+#!/bin/sh
+# Managed rootless client; never a sudo or login-account bridge.
+exec __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/podman-devops-client docker "$@"

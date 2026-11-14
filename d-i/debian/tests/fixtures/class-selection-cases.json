@@ -1,0 +1,234 @@
+{
+  "format": 1,
+  "execution": "unexecuted source fixtures; no test, installer or managed module may be run",
+  "cases": [
+    {
+      "id": "desktop-one",
+      "classes": [
+        "role/desktop/base"
+      ],
+      "family": "desktop",
+      "result": "accept",
+      "roles": [
+        "desktop/base"
+      ]
+    },
+    {
+      "id": "desktop-two",
+      "classes": [
+        "role/desktop/base",
+        "role/desktop/full"
+      ],
+      "result": "reject-before-partman"
+    },
+    {
+      "id": "mixed-family",
+      "classes": [
+        "role/desktop/full",
+        "role/server/gitlab-cicd"
+      ],
+      "result": "reject-before-partman"
+    },
+    {
+      "id": "both-runners",
+      "classes": [
+        "role/server/github-actions",
+        "role/server/gitlab-cicd"
+      ],
+      "family": "server",
+      "result": "accept",
+      "roles": [
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "once": [
+        "os.shared",
+        "server.foundation",
+        "server.services",
+        "os.crowdsec",
+        "os.timeshift",
+        "os.uplinks",
+        "os.sharing",
+        "os.services",
+        "server.hardware"
+      ],
+      "separate": [
+        "uid",
+        "subuid",
+        "subgid",
+        "home",
+        "socket",
+        "credentials",
+        "artifact",
+        "status"
+      ]
+    },
+    {
+      "id": "all-servers",
+      "classes": [
+        "role/server/devops",
+        "role/server/github-actions",
+        "role/server/gitlab-cicd",
+        "role/server/technitium"
+      ],
+      "result": "reject-before-partman",
+      "reason": "Technitium is currently exclusive of runner and DevOps server classes"
+    },
+    {
+      "id": "duplicate-role",
+      "classes": [
+        "role/server/github-actions",
+        "role/server/github-actions"
+      ],
+      "result": "reject-before-partman"
+    },
+    {
+      "id": "no-role",
+      "classes": [
+        "site/lab"
+      ],
+      "result": "reject-before-partman"
+    },
+    {
+      "id": "profile-desktop-ssh",
+      "classes": [
+        "role/desktop/base"
+      ],
+      "result": "include-suite-ssh-fragment-before-pkgsel",
+      "packages": [
+        "openssh-server"
+      ],
+      "profile": {
+        "CRYPTO_LUKS2_ROOT": "false",
+        "CRYPTO_LUKS2_HOME": "false",
+        "SSH_SERVER_ENABLE": "true"
+      }
+    },
+    {
+      "id": "two-driver-branches",
+      "classes": [
+        "role/desktop/full",
+        "optional/nvidia",
+        "optional/nvidia-legacy"
+      ],
+      "result": "reject-before-partman"
+    },
+    {
+      "id": "codex-follow-on-class-does-not-self-cycle",
+      "classes": [
+        "role/desktop/full",
+        "optional/nvidia-legacy",
+        "optional/cuda-legacy"
+      ],
+      "result": "accept; dynamic fragments/codex.cfg is selected once",
+      "roles": [
+        "desktop/full"
+      ]
+    },
+    {
+      "id": "class-traversal",
+      "classes": [
+        "role/server/../../desktop/base"
+      ],
+      "result": "reject-before-acquisition"
+    },
+    {
+      "id": "class-comment",
+      "mutation": "change an ordinary role class comment",
+      "result": "same packages, answers, constraints and stage order; only source identity changes"
+    },
+    {
+      "id": "class-directive-forbidden",
+      "mutation": "add Installer-Stage comment or shell variable to a class",
+      "result": "static audit rejects; comment never supplies dispatch"
+    },
+    {
+      "id": "shared-stage-conflict",
+      "mutation": "separate installer dispatch table gives one stage ID different helpers or ordering constraints",
+      "result": "reject-generation-and-plan"
+    },
+    {
+      "id": "same-helper-two-stages",
+      "mutation": "different selected stage IDs sharing one phase/provider",
+      "result": "reject-generation-and-plan"
+    },
+    {
+      "id": "same-repository-slots",
+      "classes": [
+        "role/server/devops",
+        "role/server/technitium"
+      ],
+      "result": "retain-each-distinct-repository-and-key-without-slot-overwrite"
+    },
+    {
+      "id": "f2fs-snapshots-omitted",
+      "filesystem": "f2fs",
+      "result": "reject-before-partman"
+    },
+    {
+      "id": "f2fs-explicit-none",
+      "filesystem": "f2fs",
+      "snapshots": "none",
+      "result": "accept-only-with-qualified-profile",
+      "absent": [
+        "timeshift package",
+        "os.timeshift stage"
+      ]
+    },
+    {
+      "id": "phase-interrupted",
+      "mutation": "stage .running exists without .complete",
+      "result": "retain-evidence-and-refuse-automatic-retry"
+    },
+    {
+      "id": "profile-template-token",
+      "input": "NFS_SERVER_PATH=\"__INSTALLER_PATH_DIR_DATA__/sharing/nfs-server\"",
+      "result": "reject-generation"
+    },
+    {
+      "id": "profile-parent",
+      "input": [
+        "NETWORK_SHARING_ROOT_PATH=\"${DIR_DATA}/sharing\"",
+        "NFS_SERVER_PATH=\"${NETWORK_SHARING_ROOT_PATH}/nfs-server\""
+      ],
+      "result": "resolve-ordinary-variables-without-shell-sourcing"
+    },
+    {
+      "id": "second-runner-pending",
+      "mutation": "GitHub enrollment supplied but GitLab enrollment absent",
+      "result": "GitLab-stays-pending-and-never-reports-online"
+    },
+    {
+      "id": "foundation-interrupted",
+      "mutation": "one reserved identity created before later identity fails",
+      "result": "retain-per-role-state-and-phase-owner-no-store-reset"
+    },
+    {
+      "id": "trixie-native-labwc-qualification",
+      "suite": "trixie",
+      "classes": [
+        "role/desktop/base"
+      ],
+      "result": "block-before-partman",
+      "reason": "native Labwc depends on xwayland forbidden by the required X11 pin; no foreign-suite fallback"
+    },
+    {
+      "id": "phase-claim-io-error",
+      "mutation": "cannot write phase ownership state",
+      "result": "fail; never treat the error as an already-complete stage"
+    },
+    {
+      "id": "new-release-during-install",
+      "mutation": "served pointer changes during flat payload acquisition or after complete local capture",
+      "result": "pin mismatch stops incomplete acquisition; complete local snapshot continues without remote fallback"
+    },
+    {
+      "id": "removed-ssh-class",
+      "classes": [
+        "role/desktop/base",
+        "optional/ssh"
+      ],
+      "result": "reject-unknown-public-class-before-partman"
+    }
+  ]
+}

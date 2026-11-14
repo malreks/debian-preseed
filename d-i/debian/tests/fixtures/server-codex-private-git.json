@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "execution": "UNEXECUTED behavioral and failure-injection specifications; inspect as source data only",
+  "codex_selection": [
+    {"roles": ["server/github-actions"], "CODEX_ONLY_ENABLE": "false", "codex": false, "full_devops": false},
+    {"roles": ["server/github-actions"], "CODEX_ONLY_ENABLE": "true", "codex": true, "full_devops": false},
+    {"roles": ["server/gitlab-cicd"], "CODEX_ONLY_ENABLE": "true", "codex": true, "full_devops": false},
+    {"roles": ["server/technitium"], "CODEX_ONLY_ENABLE": "false", "codex": false, "full_devops": false},
+    {"roles": ["server/technitium"], "CODEX_ONLY_ENABLE": "true", "codex": true, "full_devops": false},
+    {"roles": ["server/devops"], "CODEX_ONLY_ENABLE": "false", "codex": true, "full_devops": true},
+    {"roles": ["server/devops"], "CODEX_ONLY_ENABLE": "true", "codex": true, "full_devops": true},
+    {"roles": ["server/devops", "server/github-actions", "server/gitlab-cicd"], "CODEX_ONLY_ENABLE": "false", "codex": true, "full_devops": true}
+  ],
+  "cases": [
+    {"id": "primary-versus-service-homes", "given": "Combined runner/DevOps roles and explicit PRESEED_PRIMARY_USERNAME", "expect": "Resolve the primary account and its passwd home for Codex, codex-home, DevOps tools, devops group membership and operator Podman configuration. Keep ci-github UID 2101 and ci-gitlab UID 2102 locked with nologin, separate private service homes, subordinate IDs, stores and sockets. Never infer the primary account from an inherited HOME or a runner service identity."},
+    {"id": "provider-private-inputs", "given": "Both provider tokens in the actual installer root credential file", "expect": "Read PRESEED_CI_GITHUB_TOKEN only for GitHub and PRESEED_CI_GITLAB_TOKEN only for GitLab. Pass them to each designated service identity through its existing private native channel. Public URLs remain shared server policy; primary passwords, LAN keys and Git-clone passphrases never become runner credentials."},
+    {"id": "unlocked-service-collision", "given": "An existing reserved service account has a usable password or supplementary access", "expect": "Reject before any selected identity mutation; preserve the conflicting account rather than silently resetting it or granting operator groups."},
+    {"id": "combined-helper-once", "given": "GitHub, GitLab and DevOps selected with CODEX_ONLY_ENABLE false", "expect": "Freeze one os.codex stage and one server.devops.tools stage. Install Codex and codex-home for the primary user regardless of the false boolean. Keep both runner toolchains inside selected job images."},
+    {"id": "codex-only-no-toolchain", "given": "A runner role with CODEX_ONLY_ENABLE true and no DevOps role", "expect": "Install verified Codex, codex-home, its non-root headless namespace launcher and 99-codex-srv.sh only. Do not activate the full DevOps, firmware, virtualization or desktop stages."},
+    {"id": "shared-policy-precedence", "given": "Family and host overrides of common DevOps, firmware, NFS or hosting fields", "expect": "Preserve the explicit family/host value. Fill only missing fields from shared.env and resolve canonical runtime references as restricted data; never source profiles as shell."},
+    {"id": "initrd-git-credential", "given": "An encrypted key pair and PRESEED_GIT_SSH_PASSPHRASE in the actual initrd", "expect": "All Codex, Obsidian and Netscape clones use the same private stdin/memfd/temporary-agent boundary and pinned known hosts. No passphrase in argv, diagnostics, receipts or published payloads."},
+    {"id": "missing-git-secret", "given": "A selected private clone lacks the encrypted key, public key or nonempty passphrase", "expect": "Fail the required private clone without publishing an empty checkout, prompting unattended or trying an ambient account/agent credential."},
+    {"id": "desktop-only-sources", "given": "Server Codex with no Obsidian or Netscape variables", "expect": "Validate only the selected Codex source. Reject desktop clone actions for server family. Every desktop tier installs Obsidian and clones both desktop repositories."},
+    {"id": "checkout-replacement", "given": "A concurrent final checkout appears or a source/ancestor identity is substituted", "expect": "No-replace publication preserves the concurrent checkout. Descriptor-relative no-follow copying rejects changed identities, symlinks, hardlinks and special files without privileged traversal."},
+    {"id": "checkout-budget", "given": "A desktop checkout exceeds 100000 members, 64 levels or one GiB during publication copy", "expect": "Stop during bounded discovery/copy, before exceeding the declared aggregate allocation. Preserve the existing final checkout. These copy bounds and the Git command deadline are not a filesystem quota for the initial clone."},
+    {"id": "clone-cleanup-unknown", "given": "Child termination cannot be proved or final directory fsync fails after publication", "expect": "Return status 76, retain private staging and the uncertainty marker, and propagate the same status through desktop and Codex callers. Do not retry or remove recovery evidence automatically."},
+    {"id": "headless-runtime-boundary", "given": "Primary user launches Codex or its private socket backend", "expect": "Require non-root Bubblewrap, private runtime/tmp, cap-drop ALL and pool-owned state; reject an unconfined fallback. Capture only a bounded resolver file so a native resolv.conf symlink works without exposing manager sockets. No desktop session, CI engine socket or SSH agent is imported."},
+    {"id": "bazel-policy-owner", "given": "Server DevOps installation", "expect": "The shared non-GUI stage installs the pinned Bazelisk once and publishes the same complete cache policy to the selected family skeleton and primary account. Keep output, repository, disk and toolchain stores on the pool. Preserve a differing account policy for explicit review."},
+    {"id": "login-has-no-installer", "given": "Primary user logs in with either server profile fragment", "expect": "Set only the rendered runtime environment and PATH. Do not clone, enroll, download, install tools, start a service or reset a container store during login."}
+  ]
+}

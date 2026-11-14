@@ -1,0 +1,735 @@
+"""Categorization/selection unit tests and real unprivileged GIO XDG probes."""
+
+# Refuse host execution before importing runtime helpers or creating fixtures.
+from pathlib import Path as _IsolationPath
+import sys as _isolation_sys
+_isolation_sys.path.insert(0, str(_IsolationPath(__file__).resolve().parents[3] / 'tools'))
+# Copied checker/GUI fixtures still use the verified private checkout gate.
+_isolation_sys.path.insert(0, '/workspace/repository/tools')
+from isolation import require_test_isolation as _require_test_isolation
+_isolation_sys.path.pop(0)
+_require_test_isolation()
+
+from payload_fixture import waybar_config_text
+from payload_fixture import installed_argv as payload_installed_argv, source_exists as payload_source_exists, source_is_file as payload_source_is_file, source_path as payload_source_path, source_stat as payload_source_stat
+from payload_fixture import read_bytes as payload_read_bytes, read_text as payload_read_text
+from theme_fixture import render_theme_defaults, render_theme_bytes
+import ctypes
+import ast
+import configparser
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import types
+import unittest
+from unittest import mock
+import xml.etree.ElementTree as ET
+
+FORKY = Path(__file__).resolve().parents[1]
+TARGET = FORKY / 'hooks/target'
+MENU = TARGET / 'usr/local/bin/labwc-main-menu'
+PROBE = Path(__file__).with_name('gio_desktop_fixture.py')
+
+
+def load(path):
+    module = types.ModuleType('tested_menu'); module.__file__ = str(path)
+    exec(compile(render_theme_bytes(payload_read_bytes(path)), str(path), 'exec'), module.__dict__)
+    return module
+
+
+class MenuUnitTests(unittest.TestCase):
+    def setUp(self): self.menu = load(MENU)
+
+    def test_waypaper_uses_argument_lists_and_keeps_the_session_background_alive(self):
+        config = render_theme_defaults(payload_read_text(
+            TARGET/'etc/skel-desktop/.config/waypaper/config.ini'))
+        self.assertIn('\npost_command =\n', config)
+        adapter = payload_read_text(TARGET/'usr/local/libexec/labwc-waypaper')
+        self.assertIn("[HELPER, '--component', COMPONENTS[backend], '--apply', '--', path]", adapter)
+        self.assertNotIn('shell=True', adapter)
+        launcher = payload_read_text(TARGET/'usr/local/lib/python3/dist-packages/labwc_managed_app/generic.py')
+        self.assertNotIn('ExecStartPre=/usr/bin/systemctl --user stop swaybg.service', launcher)
+        self.assertNotIn('ExecStopPost=/usr/bin/systemctl --user start swaybg.service', launcher)
+
+    def test_every_main_and_additional_category_has_one_destination(self):
+        for label, main, additional in self.menu.CATEGORY_RULES:
+            for token in main | additional:
+                with self.subTest(token=token):
+                    self.assertEqual(self.menu.category_for(token + ';'), label)
+        self.assertEqual(len(self.menu.DISPLAY_CATEGORIES), len(set(self.menu.DISPLAY_CATEGORIES)))
+
+    def test_deterministic_multicategory_precedence_and_specific_refinement(self):
+        cases = {'Settings;System;': 'Settings', 'Development;Utility;': 'Development',
+                 'Network;Utility;': 'Internet', 'Office;Utility;': 'Office & Productivity',
+                 'AudioVideo;Utility;': 'Multimedia', 'System;TerminalEmulator;': 'System',
+                 'Network;Email;': 'Office & Productivity', 'System;FileManager;': 'Utilities',
+                 'Network;Development;': 'Development', 'Graphics;AudioVideo;': 'Graphics',
+                 'Settings;IDE;': 'Settings'}
+        for tokens, label in cases.items():
+            with self.subTest(tokens=tokens):
+                self.assertEqual(self.menu.category_for(tokens), label)
+                self.assertEqual(self.menu.category_for(';'.join(reversed(tokens.split(';')))), label)
+
+    def test_missing_unknown_and_nonstandard_categories_fall_back_to_other(self):
+        for categories in (None, '', 'X-VendorCategory;', 'AI;', 'OfficeAndProductivity;'):
+            with self.subTest(categories=categories):
+                self.assertEqual(self.menu.category_for(categories), 'Other')
+        self.assertEqual(self.menu.category_for('ArtificialIntelligence;'), 'Education')
+
+    def test_name_data_unicode_metacharacters_duplicates_and_stable_tiebreaker(self):
+        names = ['Space Name', 'R\u00e4knare \U0001f680', 'a\tname', 'a\nname',
+                 "quotes ' \" $x `cmd`; & | (x) <xml>", 'Duplicate', 'Duplicate', self.menu.BACK]
+        apps = [{'id': f'app{i};$`|&.desktop', 'name': name, 'category': 'Other'} for i, name in enumerate(names)]
+        choices = self.menu.app_choices(apps, 'Other')
+        self.assertEqual(choices, self.menu.app_choices(list(reversed(apps)), 'Other'))
+        self.assertEqual(set(choices.values()), {(app['id'], '') for app in apps})
+        self.assertEqual(len(choices), len(apps)); self.assertNotIn(self.menu.BACK, choices)
+        self.assertTrue(all('\n' not in label and '\t' not in label for label in choices))
+        self.assertTrue(all('[' in label for label in choices if label.startswith('Duplicate')))
+        self.assertIn('R\u00e4knare \U0001f680', choices)
+
+    def test_suffix_collision_and_back_named_application_remain_distinguishable(self):
+        apps = [{'id': key, 'name': name, 'category': 'Other'} for key, name in
+                [('a.desktop', 'Same'), ('b.desktop', 'Same'), ('c.desktop', 'Same [a.desktop]'),
+                 ('d.desktop', self.menu.BACK)]]
+        choices = self.menu.app_choices(apps, 'Other')
+        self.assertEqual(len(choices), 4); self.assertNotIn(self.menu.BACK, choices)
+
+    def test_fuzzel_is_existing_wrapper_with_exact_allowed_selection(self):
+        result = types.SimpleNamespace(returncode=0, stdout='Allowed\n')
+        with mock.patch.object(self.menu.subprocess, 'run', return_value=result) as run:
+            self.assertEqual(self.menu.choose({'Allowed': 'id'}, 'Main Menu'), 'Allowed')
+        args, kw = run.call_args
+        self.assertEqual(args[0][:3], ['/usr/local/bin/labwc-fuzzel', 'menu', '--dmenu'])
+        self.assertEqual(kw['input'], 'Allowed\0icon\x1fapplication-x-executable\n')
+        self.assertEqual(kw['env']['LABWC_FUZZEL_MANAGED_ICONS'], '0')
+        self.assertNotIn('shell', kw)
+
+    def test_arbitrary_free_text_and_multiple_lines_cannot_execute(self):
+        for text in ('$(touch /tmp/never-run)', '`id`', '; /bin/sh', 'Allowed\nInjected', ' Allowed', 'Allowed '):
+            with self.subTest(text=text), mock.patch.object(self.menu.subprocess, 'run',
+                    return_value=types.SimpleNamespace(returncode=0, stdout=text + '\n')) as run:
+                self.assertIsNone(self.menu.choose({'Allowed': 'id'}, 'Test'))
+                self.assertEqual(run.call_count, 1)
+
+    def test_cancel_is_successful_and_silent(self):
+        with mock.patch.object(self.menu.subprocess, 'run', return_value=types.SimpleNamespace(returncode=1, stdout='')):
+            self.assertIsNone(self.menu.choose({'x': None}, 'Test'))
+        with mock.patch.object(self.menu, 'choose', return_value=None), \
+             mock.patch.object(self.menu.os, 'geteuid', return_value=1000):
+            self.assertEqual(self.menu.main([]), 0)
+
+    def test_search_applications_back_and_cancel_return_to_main(self):
+        apps = [{'id': 'browser.desktop', 'name': 'Browser', 'category': 'Internet'},
+                {'id': 'editor.desktop', 'name': 'Editor', 'category': 'Development'}]
+        for back in (self.menu.BACK, None):
+            with self.subTest(back=back), \
+                    mock.patch.object(self.menu, 'choose', side_effect=['Search Applications', back, None]) as picker, \
+                    mock.patch.object(self.menu.subprocess, 'run', return_value=types.SimpleNamespace(stdout=json.dumps(apps))):
+                self.menu.run_menu()
+            self.assertEqual(list(picker.call_args_list[1].args[0]), ['Browser', 'Editor', self.menu.BACK])
+            self.assertEqual([call.args[1] for call in picker.call_args_list],
+                             ['Main Menu', 'Search Applications', 'Main Menu'])
+
+    def test_direct_search_hotkey_uses_the_same_navigation_stack(self):
+        with mock.patch.object(self.menu, 'choose', side_effect=[self.menu.BACK, None]) as picker, \
+                mock.patch.object(self.menu.subprocess, 'run', return_value=types.SimpleNamespace(stdout='[]')), \
+                mock.patch.object(self.menu.os, 'geteuid', return_value=1000):
+            self.assertEqual(self.menu.main(['--search']), 0)
+        self.assertEqual([call.args[1] for call in picker.call_args_list], ['Search Applications', 'Main Menu'])
+
+    def test_management_cancel_returns_to_its_parent_menu(self):
+        with mock.patch.object(self.menu, 'choose', side_effect=['Computer Management', None]) as picker, \
+                mock.patch.object(self.menu, 'run_action') as action:
+            self.menu.run_menu()
+        action.assert_called_once_with(('/usr/local/bin/labwc-computer-management',))
+        self.assertEqual(picker.call_count, 2)
+
+    def test_requested_hotkeys_and_shared_fuzzel_back_binding(self):
+        root = ET.fromstring(payload_read_text(TARGET/'etc/skel-desktop/.config/labwc/rc.xml.tmpl'))
+        bindings = root.findall('./keyboard/keybind')
+        by_key = {node.get('key'): node.find('action').get('command') for node in bindings}
+        self.assertEqual(len(by_key), len(bindings))
+        self.assertEqual(by_key['W-s'], 'labwc-run')
+        self.assertEqual(by_key['W-m'], '/usr/local/bin/labwc-app auto spotify')
+        for key, unit, executable in (
+                ('Super_L', 'labwc-main-menu', '/usr/local/bin/labwc-main-menu'),
+                ('W-Alt_L', 'labwc-computer-management', '/usr/local/bin/labwc-computer-management'),
+                ('W-Alt_R', 'labwc-computer-management', '/usr/local/bin/labwc-computer-management'),
+                ('A-Super_L', 'labwc-computer-management', '/usr/local/bin/labwc-computer-management'),
+                ('A-Super_R', 'labwc-computer-management', '/usr/local/bin/labwc-computer-management'),
+                ('XF86Launch1', 'labwc-computer-management', '/usr/local/bin/labwc-computer-management'),
+                ('XF86Launch3', 'labwc-main-menu', '/usr/local/bin/labwc-main-menu')):
+            command = shlex.split(by_key[key])
+            boundary = command.index('--')
+            self.assertEqual(command[0], '/usr/bin/systemd-run')
+            self.assertEqual(command[boundary + 1:], [executable])
+            self.assertIn('--unit=' + unit, command[:boundary])
+            for option in ('--user', '--collect', '--no-block', '--service-type=exec',
+                           '--expand-environment=no', '--property=ExitType=cgroup',
+                           '--property=KillMode=control-group', '--property=TimeoutStopSec=20s',
+                           '--property=SuccessExitStatus=3'):
+                self.assertIn(option, command[:boundary])
+        self.assertNotIn('W-BackSpace', by_key)
+        base = payload_read_text(TARGET/'etc/skel-desktop/.config/fuzzel/base.ini.tmpl')
+        menu = payload_read_text(TARGET/'etc/skel-desktop/.config/fuzzel/menu.ini.tmpl')
+        self.assertIn('cancel=Control+g Control+c Control+bracketleft Escape\n', base)
+        self.assertNotIn('Mod4+BackSpace', base)
+        self.assertIn('custom-1=Mod4+BackSpace\n', menu)
+
+    def test_back_returns_to_main_and_reenumerates_on_next_submenu(self):
+        choices = iter(['Development', self.menu.BACK, 'Development', self.menu.BACK, None])
+        with mock.patch.object(self.menu, 'choose', side_effect=lambda *_: next(choices)) as choose, \
+             mock.patch.object(self.menu.subprocess, 'run', return_value=types.SimpleNamespace(stdout='[]')) as run:
+            self.menu.run_menu()
+        self.assertEqual([call.args[1] for call in choose.call_args_list],
+                         ['Main Menu', 'Development', 'Main Menu', 'Development', 'Main Menu'])
+        self.assertEqual(run.call_count, 2)
+        self.assertTrue(all(call.args[0] == [self.menu.SELF, '--list'] for call in run.call_args_list))
+
+    def test_selected_desktop_id_is_data_even_with_leading_dash(self):
+        apps = [{'id': '-$`foo;|.desktop', 'name': 'Selected', 'category': 'Other'}]
+        with mock.patch.object(self.menu, 'choose', side_effect=['Other', 'Selected']), \
+             mock.patch.object(self.menu.subprocess, 'run', return_value=types.SimpleNamespace(stdout=json.dumps(apps))) as run:
+            self.menu.run_menu()
+        self.assertEqual(run.call_args.args[0], [self.menu.SELF, '--launch=-$`foo;|.desktop'])
+        self.assertNotIn('shell', run.call_args.kwargs)
+
+    def test_category_and_search_actions_keep_parent_icons_and_literal_ids(self):
+        action_id = '-Nvidia;$`|'
+        apps = [{'id': 'browser.desktop', 'name': 'Browser', 'category': 'Internet', 'icon': 'browser'},
+                {'id': 'browser.desktop', 'name': 'Browser — NVIDIA', 'category': 'Internet',
+                 'icon': 'browser', 'action': action_id},
+                {'id': 'editor.desktop', 'name': 'Editor', 'category': 'Development', 'icon': 'editor'}]
+        for category in ('Internet', 'Search Applications'):
+            with self.subTest(category=category), \
+                 mock.patch.object(self.menu, 'choose', side_effect=[category, 'Browser — NVIDIA']) as picker, \
+                 mock.patch.object(self.menu.subprocess, 'run', return_value=types.SimpleNamespace(stdout=json.dumps(apps))) as run:
+                self.menu.run_menu()
+            self.assertEqual(picker.call_args.args[0]['Browser — NVIDIA'], ('browser.desktop', action_id))
+            self.assertEqual(picker.call_args.args[2]['Browser — NVIDIA'], 'browser')
+            self.assertEqual('Editor' in picker.call_args.args[0], category == 'Search Applications')
+            self.assertEqual(run.call_args.args[0],
+                             [self.menu.SELF, '--launch=browser.desktop', '--action=' + action_id])
+            self.assertNotIn('shell', run.call_args.kwargs)
+
+    def test_same_named_actions_have_deterministic_distinct_selections(self):
+        apps = [{'id': 'app.desktop', 'name': 'App — Mode', 'category': 'Other', 'action': mode}
+                for mode in ('nvidia', 'intel')]
+        choices = self.menu.app_choices(apps, 'Other')
+        self.assertEqual(choices, self.menu.app_choices(list(reversed(apps)), 'Other'))
+        self.assertEqual(set(choices.values()), {('app.desktop', 'intel'), ('app.desktop', 'nvidia')})
+        self.assertEqual(len(choices), 2)
+
+    def test_action_cli_requires_a_desktop_id(self):
+        with mock.patch.object(self.menu, 'gio_api') as gio, \
+             mock.patch.object(sys, 'stderr'), self.assertRaises(SystemExit) as error:
+            self.menu.main(['--action=IntelAccelerated'])
+        self.assertEqual(error.exception.code, 2)
+        gio.assert_not_called()
+
+    def test_root_is_refused_before_discovery_or_execution(self):
+        for argv in ([], ['--list'], ['--launch=demo.desktop'],
+                     ['--launch=demo.desktop', '--action=IntelAccelerated']):
+            with self.subTest(argv=argv), mock.patch.object(self.menu.os, 'geteuid', return_value=0), \
+                 mock.patch.object(self.menu, 'gio_api') as gio, self.assertRaises(RuntimeError):
+                self.menu.main(argv)
+            gio.assert_not_called()
+
+    def test_xdg_defaults_relative_paths_and_explicit_order(self):
+        with mock.patch.dict(os.environ, {'HOME': '/home/test'}, clear=True):
+            self.menu.prepare_environment()
+            self.assertEqual(os.environ['XDG_DATA_HOME'], '/home/test/.local/share')
+            self.assertEqual(os.environ['XDG_DATA_DIRS'], '/usr/local/share:/usr/share')
+            self.assertEqual(os.environ['XDG_CURRENT_DESKTOP'], 'labwc:wlroots')
+        with mock.patch.dict(os.environ, {'HOME': '/home/test', 'XDG_DATA_HOME': 'relative',
+                                         'XDG_DATA_DIRS': '/second:relative:/first:/second',
+                                         'GIO_LAUNCH_DESKTOP': '/malicious'}, clear=True):
+            self.menu.prepare_environment()
+            self.assertEqual(os.environ['XDG_DATA_HOME'], '/home/test/.local/share')
+            self.assertEqual(os.environ['XDG_DATA_DIRS'], '/second:/first')
+            self.assertNotIn('GIO_LAUNCH_DESKTOP', os.environ)
+
+
+class IntegrationContractTests(unittest.TestCase):
+    def test_labwc_run_executes_search_entrypoint_with_main_menu_back_navigation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); binary = root / 'labwc-main-menu'
+            binary.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n'); binary.chmod(0o755)
+            source = render_theme_defaults(payload_read_text(TARGET / 'usr/local/bin/labwc-run'))
+            source = source.replace('/etc/labwc/desktop.conf', str(root / 'absent-defaults'))
+            result = subprocess.run(payload_installed_argv(['/bin/sh', '-c', source]), env={'PATH': str(root) + ':/usr/bin:/bin'},
+                                    text=True, capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '--search\n')
+            profiles = payload_read_text(TARGET/'etc/apparmor.d/desktop-wrappers')
+            section = profiles.split('profile labwc-run ', 1)[1].split('\n}', 1)[0]
+            self.assertIn('/usr/local/bin/labwc-main-menu rPx -> labwc-main-menu,', section)
+
+    def test_waybar_menu_keeps_transient_service_contract_and_search_keys_stay_search(self):
+        text = render_theme_defaults(waybar_config_text(TARGET / 'etc/skel-desktop/.config/waybar'))
+        clicks = re.findall(r'"on-click-release": "([^"]*labwc-waybar-run[^\"]* -- /usr/local/bin/labwc-main-menu)"', text)
+        self.assertEqual(len(clicks), 2)
+        self.assertIn('--output-class=INTERNAL', clicks[0])
+        self.assertIn('--output-class=EXTERNAL', clicks[1])
+        rc = render_theme_defaults(payload_read_text(TARGET / 'etc/skel-desktop/.config/labwc/rc.xml.tmpl'))
+        self.assertIn('labwc-run', rc)
+        import xml.etree.ElementTree as ET
+        bindings = {item.get('key'): item for item in ET.fromstring(rc).findall('keyboard/keybind')}
+        self.assertEqual(bindings['Super_L'].get('onRelease'), 'yes')
+        command = shlex.split(bindings['Super_L'].find('action').get('command'))
+        self.assertEqual(command[0], '/usr/bin/systemd-run')
+        self.assertEqual(command[command.index('--') + 1:], ['/usr/local/bin/labwc-main-menu'])
+        for key in ('W-d', 'W-space', 'C-A-space'):
+            self.assertEqual(bindings[key].find('action').get('command'), 'labwc-run')
+
+    def test_root_user_watchers_and_shared_thin_dpkg_engine_are_separate(self):
+        root = render_theme_defaults(payload_read_text(TARGET / 'etc/systemd/system/labwc-system-desktop-overrides.path'))
+        self.assertIn('PathChanged=/usr/share/applications', root)
+        self.assertNotIn('/usr/local/share/applications', root); self.assertNotIn('/home', root)
+        service = render_theme_defaults(payload_read_text(TARGET / 'etc/systemd/system/labwc-system-desktop-overrides.service'))
+        self.assertIn('Type=oneshot', service); self.assertIn('ExecStart=/usr/local/libexec/labwc-wrap-desktop-files', service)
+        for directive in ('NoNewPrivileges=yes', 'ProtectHome=yes', 'ProtectSystem=strict', 'CapabilityBoundingSet='):
+            self.assertIn(directive, service)
+        user = render_theme_defaults(payload_read_text(TARGET / 'etc/skel-desktop/.config/systemd/user/labwc-sync-application-launchers.path'))
+        self.assertNotIn('.local/share/applications', user)
+        hook = render_theme_defaults(payload_read_text(TARGET / 'etc/dpkg/dpkg.cfg.d/95-labwc-desktop-apps'))
+        self.assertIn('labwc-wrap-desktop-files --post-invoke', hook)
+        self.assertNotIn('systemctl', hook)
+
+    def test_actual_installation_staging_enablement_initial_run_and_dependency(self):
+        components = render_theme_defaults(payload_read_text(FORKY / 'scripts/desktop/components.sh'))
+        self.assertIn('usr/local/bin/labwc-main-menu /usr/local/bin/labwc-main-menu 0755', components)
+        for name in ('labwc-system-desktop-overrides.service', 'labwc-system-desktop-overrides.path'):
+            self.assertIn(f'etc/systemd/system/{name} /etc/systemd/system/{name} 0644', components)
+            self.assertIn(f'desktop_enable_unit_if_available {name} system', components)
+        late = render_theme_defaults(payload_read_text(FORKY / 'scripts/desktop/labwc.sh'))
+        self.assertIn('run_in_target "wrap installed desktop package launchers" /usr/local/libexec/labwc-wrap-desktop-files', late)
+        self.assertIn('gi.require_version("GioUnix", "2.0")', late)
+        packages = '\n'.join(render_theme_defaults(payload_read_text(path, errors='replace')) for path in (FORKY / 'classes').rglob('*') if payload_source_is_file(path))
+        self.assertIn('python3-gi', packages); self.assertIn('desktop-file-utils', packages)
+
+    def test_waypaper_profile_rendering_isolation_persistence_and_native_xml(self):
+        template = render_theme_defaults(payload_read_text(TARGET / 'etc/skel-desktop/.local/share/applications/waypaper.desktop.tmpl'))
+        self.assertIn('\nExec=__INSTALLER_LABWC_WAYLAND_APP_DEFAULT_EXEC__ -- /usr/local/bin/waypaper\n', template)
+        for mode in ('intel', 'nvidia', 'launch'):
+            rendered = template.replace('__INSTALLER_LABWC_WAYLAND_APP_DEFAULT_EXEC__', '/usr/local/bin/labwc-wayland-app ' + mode)
+            self.assertIn(f'Exec=/usr/local/bin/labwc-wayland-app {mode} -- /usr/local/bin/waypaper', rendered)
+        for source in ('components.sh', 'waypaper.sh'):
+            self.assertIn('LABWC_WAYLAND_APP_DEFAULT_EXEC "$LABWC_WAYLAND_APP_DEFAULT_EXEC"',
+                          render_theme_defaults(payload_read_text(FORKY / 'scripts/desktop' / source)))
+        config = render_theme_defaults(payload_read_text(TARGET / 'etc/skel-desktop/.config/waypaper/config.ini'))
+        self.assertIn('\nbackend = Swaybg\n', config)
+        self.assertIn('\npost_command =\n', config)
+        self.assertNotIn('labwc-wallpaper-save --apply', config)
+        self.assertIn('labwc-wallpaper-control save', render_theme_defaults(payload_read_text(TARGET / 'usr/local/bin/labwc-wallpaper-save')))
+        self.assertIn('swaybg.service', render_theme_defaults(payload_read_text(TARGET / 'usr/local/libexec/labwc-wallpaper-control')))
+        policy = render_theme_defaults(payload_read_text(TARGET / 'etc/apparmor.d/desktop-wrappers'))
+        for profile in ('waypaper', 'waypaper-glycin-loader', 'labwc-swaybg', 'labwc-wallpaper-save'):
+            section = policy.split(f'profile {profile} ', 1)[1].split('\nprofile ', 1)[0]
+            self.assertIn('owner @{HOME}/Pictures/** r,', section, profile)
+        waypaper = policy.split('profile waypaper ', 1)[1].split('\nprofile ', 1)[0]
+        bwrap = waypaper.split('profile waypaper-bwrap ', 1)[1].split('profile waypaper-ps ', 1)[0]
+        self.assertIn('owner @{HOME}/Pictures/** r,', bwrap)
+        self.assertIn('owner @{HOME}/.cache/waypaper/** r,', bwrap)
+        swaybg = policy.split('profile waypaper-swaybg ', 1)[1].split('\nprofile ', 1)[0]
+        self.assertIn('\n  / r,\n', swaybg)
+        tree = ET.parse(payload_source_path(TARGET / 'etc/skel-desktop/.config/labwc/menu.xml'))
+        self.assertEqual(tree.getroot().tag, 'openbox_menu')
+        self.assertTrue(any('labwc-wayland-app auto -- /usr/local/bin/waypaper' in item.attrib.get('command', '')
+                            for item in tree.iter('action')))
+
+    def test_user_sync_uses_xdg_only_as_user_and_keeps_selected_application_scope(self):
+        sync = load(TARGET / 'usr/local/bin/labwc-sync-application-launchers')
+        with mock.patch.dict(os.environ, {'XDG_DATA_HOME': '/custom/data'}):
+            with mock.patch.object(sync.os, 'geteuid', return_value=1000):
+                self.assertEqual(sync.application_data_home('/home/test'), '/custom/data')
+            with mock.patch.object(sync.os, 'geteuid', return_value=0):
+                self.assertEqual(sync.application_data_home('/home/test'), '/home/test/.local/share')
+        self.assertTrue(sync.APP_CONFIG)
+        self.assertEqual(sync.SYSTEM_APPLICATION_DIR, '/usr/share/applications')
+
+    def test_menu_apparmor_is_readonly_for_xdg_data_and_uses_existing_launch_domain(self):
+        profiles = render_theme_defaults(payload_read_text(TARGET / 'etc/apparmor.d/desktop-wrappers'))
+        menu = profiles.split('profile labwc-main-menu ', 1)[1]
+        self.assertIn('gio-launch-desktop rPx -> desktop-launcher', menu)
+        self.assertIn('labwc-fuzzel', menu)
+        self.assertNotIn(' Ux', menu); self.assertNotIn(' ux', menu)
+        for line in menu.splitlines():
+            if 'applications/' in line: self.assertTrue(line.rstrip().endswith(' r,'), line)
+
+    @unittest.skipUnless(shutil.which('desktop-file-validate'), 'desktop-file-utils not installed on test host')
+    def test_all_project_desktop_entries_validate_after_template_rendering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for index, source in enumerate(sorted(TARGET.rglob('*.desktop')) + sorted(TARGET.rglob('*.desktop.tmpl'))):
+                text = render_theme_defaults(payload_read_text(source))
+                text = text.replace('__INSTALLER_LABWC_WAYLAND_APP_DEFAULT_EXEC__', '/usr/local/bin/labwc-wayland-app intel')
+                text = text.replace('__INSTALLER_LABWC_MANAGED_APP_DEFAULT_EXEC__', '/usr/local/bin/labwc-app intel')
+                if '__INSTALLER_' in text: continue  # non-application session templates are checked by the installer
+                target = Path(directory) / f'{index}.desktop'; target.write_text(text)
+                result = subprocess.run(payload_installed_argv(['desktop-file-validate', str(target)]), text=True, capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 0, f'{source}: {result.stdout} {result.stderr}')
+
+
+class UserSyncXdgTests(unittest.TestCase):
+    """Exercise only managed directory setup, as an actual unprivileged account."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='labwc-sync-xdg-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name); self.root.chmod(0o755)
+        self.uid = 65534 if os.geteuid() == 0 else os.getuid()
+        self.gid = 65534 if os.geteuid() == 0 else os.getgid()
+        self.home = self.root / 'home'; self.home.mkdir(mode=0o755)
+        if os.geteuid() == 0: os.chown(self.home, self.uid, self.gid)
+        self.source = self.root / 'sync'
+        self.source.write_bytes(render_theme_bytes(payload_read_bytes(TARGET / 'usr/local/bin/labwc-sync-application-launchers')))
+        self.source.chmod(0o644)
+
+    def invoke(self, data_home):
+        code = """import json, os, pathlib, sys, types
+module = types.ModuleType('fixture')
+source = pathlib.Path(sys.argv[1])
+exec(compile(source.read_bytes(), str(source), 'exec'), module.__dict__)
+path = module.ensure_application_directory(sys.argv[2], os.getuid(), os.getgid())
+print(json.dumps({'path': path, 'uid': os.geteuid(), 'mode': os.stat(path).st_mode & 0o777}))
+"""
+        options = {'user': self.uid, 'group': self.gid, 'extra_groups': []} if os.geteuid() == 0 else {}
+        return subprocess.run(payload_installed_argv(['/usr/bin/python3', '-I', '-c', code, str(self.source), str(self.home)]),
+            env=dict(os.environ, HOME=str(self.home), XDG_DATA_HOME=data_home),
+            capture_output=True, text=True, timeout=5, **options)
+
+    def test_custom_root_creates_private_selected_application_directory(self):
+        data = self.home / 'custom/nested/data'
+        result = self.invoke(str(data)); self.assertEqual(result.returncode, 0, result.stderr)
+        actual = json.loads(result.stdout)
+        self.assertEqual(actual, {'path': str(data / 'applications'), 'uid': self.uid, 'mode': 0o700})
+        self.assertFalse(payload_source_exists(self.home / '.local/share/applications'))
+        self.assertEqual(self.invoke(str(data)).returncode, 0)
+
+    def test_existing_custom_parent_permissions_are_not_relaxed_or_rewritten(self):
+        data = self.home / 'data'; data.mkdir(mode=0o750)
+        if os.geteuid() == 0: os.chown(data, self.uid, self.gid)
+        before = (payload_source_stat(data).st_mode, payload_source_stat(self.home).st_mode)
+        result = self.invoke(str(data)); self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((payload_source_stat(data).st_mode, payload_source_stat(self.home).st_mode), before)
+
+    def test_symlink_and_shared_writable_data_roots_are_rejected(self):
+        data = self.home / 'data'; data.mkdir(mode=0o755)
+        if os.geteuid() == 0: os.chown(data, self.uid, self.gid)
+        link = self.home / 'link'; link.symlink_to(data, target_is_directory=True)
+        self.assertNotEqual(self.invoke(str(link)).returncode, 0)
+        self.assertFalse(payload_source_exists(data / 'applications'))
+        data.chmod(0o777)
+        self.assertNotEqual(self.invoke(str(data)).returncode, 0)
+        self.assertFalse(payload_source_exists(data / 'applications'))
+
+    def test_relative_data_home_uses_standard_default(self):
+        result = self.invoke('relative/path'); self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['path'], str(self.home / '.local/share/applications'))
+
+
+class RealGioSemanticTests(unittest.TestCase):
+    """The production discovery/launch functions run against real libgio via C ABI."""
+    def setUp(self):
+        try: ctypes.CDLL('libgio-2.0.so.0')
+        except OSError as exc: self.skipTest(str(exc))
+        self.temp = tempfile.TemporaryDirectory(prefix='labwc-xdg-tests-'); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name); self.root.chmod(0o755)
+        # The checkout itself may deliberately be root-private. Copy only the
+        # tested sources into this readable fixture, not chmod the repository.
+        self.menu_source = self.root / 'labwc-main-menu'
+        self.probe_source = self.root / 'gio_desktop_fixture.py'
+        for source, destination in ((MENU, self.menu_source), (PROBE, self.probe_source)):
+            destination.write_bytes(render_theme_bytes(payload_read_bytes(source))); destination.chmod(0o644)
+        (self.root / 'desktop-policy').write_bytes(payload_read_bytes(TARGET / 'usr/local/libexec/labwc-wrap-desktop-files'))
+        wrapper = self.root / 'profile-wrapper'
+        wrapper.write_text('#!/bin/sh\n[ "$1" = intel ] && [ "$2" = -- ] || exit 2\nshift 2\nexec "$@"\n')
+        wrapper.chmod(0o755)
+        self.home = self.root / 'home'; self.home.mkdir(mode=0o755)
+        self.data = self.root / 'user-data'; self.local = self.root / 'system-local'; self.vendor = self.root / 'system-vendor'
+        for directory in (self.data, self.local, self.vendor): (directory / 'applications').mkdir(parents=True)
+        self.env = dict(os.environ, HOME=str(self.home), XDG_DATA_HOME=str(self.data),
+                        XDG_DATA_DIRS=f'{self.local}:{self.vendor}', XDG_CURRENT_DESKTOP='labwc:wlroots',
+                        LC_ALL='C.UTF-8', LANGUAGE='en', PATH='/usr/bin:/bin',
+                        DBUS_SESSION_BUS_ADDRESS='unix:path=/nonexistent')
+        self.identity = dict(user=65534, group=65534, extra_groups=[]) if os.geteuid() == 0 else {}
+        try:
+            result = subprocess.run(payload_installed_argv(['/usr/bin/id', '-u']), capture_output=True, text=True, timeout=5, **self.identity)
+        except OSError as exc: self.skipTest(f'unprivileged fixture unavailable: {exc}')
+        self.uid = int(result.stdout)
+        self.assertNotEqual(self.uid, 0)
+
+    def write(self, root=None, name='app.desktop', title='Fixture', categories='Utility;', extra='', exec_value='/usr/bin/true'):
+        path = (root or self.vendor) / 'applications' / name; path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'[Desktop Entry]\nType=Application\nName={title}\nExec={exec_value}\nCategories={categories}\n{extra}', encoding='utf-8')
+        path.chmod(0o644)
+        return path
+
+    def probe(self, command='--list', pygi=False, expected_status=0):
+        arguments = [command] if isinstance(command, str) else command
+        result = subprocess.run(payload_installed_argv(['/usr/bin/python3', '-B', str(self.probe_source), str(self.menu_source), *arguments] + ([] if pygi else ['--ctypes'])),
+                                text=True, capture_output=True, env=self.env, timeout=10, **self.identity)
+        self.assertEqual(result.returncode, expected_status, result.stderr)
+        return json.loads(result.stdout) if command == '--list' and expected_status == 0 else result
+
+    def test_synchronized_gpu_availability_and_privacy_actions_reach_the_menu(self):
+        sync = load(TARGET / 'usr/local/bin/labwc-sync-application-launchers')
+        menu = load(MENU)
+        for intel, nvidia in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(intel=intel, nvidia=nvidia):
+                parser = configparser.ConfigParser(interpolation=None)
+                parser.optionxform = str
+                parser.read_string('[Desktop Entry]\nType=Application\nName=Chromium\nExec=/usr/bin/true\nCategories=Network;\nIcon=chromium\n')
+                sync.add_actions(parser, 'chromium', '%U', sync.available_actions(
+                    tuple(sync.ACTION_SPECS), {'intel': intel, 'nvidia': nvidia}))
+                path = self.data / 'applications/chromium.desktop'
+                with path.open('w', encoding='utf-8') as stream:
+                    parser.write(stream)
+                path.chmod(0o644)
+                apps = self.probe()
+                expected = {'PurePrivacy'}
+                if intel: expected.add('IntelAccelerated')
+                if nvidia: expected.add('NvidiaAccelerated')
+                self.assertEqual({app['action'] for app in apps if app['action']}, expected)
+                choices = menu.app_choices(apps, 'Internet')
+                self.assertEqual(set(choices.values()), {('chromium.desktop', action) for action in expected | {''}})
+                self.assertTrue(all(app['icon'] == 'chromium' for app in apps))
+
+    def test_pure_privacy_action_table_matches_runtime_support(self):
+        sync = load(TARGET / 'usr/local/bin/labwc-sync-application-launchers')
+        tree = ast.parse(payload_read_text(TARGET / 'usr/local/lib/python3/dist-packages/labwc_managed_app/profiles.py'))
+        table = next(node.value for node in tree.body if isinstance(node, ast.Assign)
+                     and any(isinstance(name, ast.Name) and name.id == 'APPS' for name in node.targets))
+        support = {name.value: next(value.value for key, value in zip(profile.keys, profile.values)
+                                  if isinstance(key, ast.Constant) and key.value == 'pure_privacy')
+                   for name, profile in zip(table.keys, table.values)}
+        for config in sync.APP_CONFIG:
+            with self.subTest(app=config['action_app']):
+                self.assertEqual('PurePrivacy' in config.get('actions', tuple(sync.ACTION_SPECS)),
+                                 support[config['action_app']])
+
+    def test_xdg_home_over_local_over_vendor_duplicate_ids(self):
+        self.write(self.vendor, title='Vendor'); self.write(self.local, title='Local'); self.write(self.data, title='User')
+        result = self.probe(); self.assertEqual(len(result), 1); self.assertEqual(result[0]['name'], 'User')
+        (self.data / 'applications/app.desktop').unlink()
+        self.assertEqual(self.probe()[0]['name'], 'Local')
+        (self.local / 'applications/app.desktop').unlink()
+        self.assertEqual(self.probe()[0]['name'], 'Vendor')
+
+    def test_xdg_data_dirs_order_is_not_hardcoded(self):
+        self.write(self.local, title='Local'); self.write(self.vendor, title='Vendor')
+        self.env['XDG_DATA_DIRS'] = f'{self.vendor}:{self.local}'
+        self.assertEqual(self.probe()[0]['name'], 'Vendor')
+
+    def test_high_precedence_hidden_masks_lower_including_minimal_tombstone(self):
+        self.write(self.vendor); self.write(self.local, extra='Hidden=true\n')
+        self.assertEqual(self.probe(), [])
+        self.write(self.data, extra='Hidden=false\n', title='Visible user')
+        self.assertEqual(self.probe()[0]['name'], 'Visible user')
+        (self.data / 'applications/app.desktop').write_text('[Desktop Entry]\nHidden=true\n')
+        self.assertEqual(self.probe(), [])
+
+    def test_nodisplay_true_false_and_absent(self):
+        self.write(name='hidden.desktop', extra='NoDisplay=true\n')
+        self.write(name='visible.desktop', extra='NoDisplay=false\n')
+        self.write(name='absent.desktop')
+        self.assertEqual({app['id'] for app in self.probe()}, {'visible.desktop', 'absent.desktop'})
+
+    def test_onlyshowin_and_notshowin_effective_desktop(self):
+        self.write(name='labwc.desktop', extra='OnlyShowIn=labwc;\n')
+        self.write(name='wlroots.desktop', extra='OnlyShowIn=wlroots;\n')
+        self.write(name='other.desktop', extra='OnlyShowIn=GNOME;\n')
+        self.write(name='excluded.desktop', extra='NotShowIn=labwc;\n')
+        self.write(name='allowed.desktop', extra='NotShowIn=GNOME;\n')
+        self.assertEqual({app['id'] for app in self.probe()}, {'labwc.desktop', 'wlroots.desktop', 'allowed.desktop'})
+
+    def test_tryexec_missing_available_and_not_executable(self):
+        unavailable = self.root / 'not-executable'; unavailable.write_text('data'); unavailable.chmod(0o644)
+        self.write(name='missing.desktop', extra='TryExec=/not/installed\n')
+        self.write(name='available.desktop', extra='TryExec=true\n')
+        self.write(name='permission.desktop', extra=f'TryExec={unavailable}\n')
+        self.assertEqual({app['id'] for app in self.probe()}, {'available.desktop'})
+
+    def test_localized_name(self):
+        self.write(title='Calculator', extra='Name[sv]=R\u00e4knare\n')
+        self.env['LANGUAGE'] = 'sv'
+        self.assertEqual(self.probe()[0]['name'], 'R\u00e4knare')
+
+    def test_actions_use_localized_names_and_effective_xdg_precedence(self):
+        self.write(extra='Actions=IntelAccelerated;\n'
+                   '[Desktop Action IntelAccelerated]\nName=Intel\nExec=/usr/bin/true\n'
+                   '[Desktop Action Undeclared]\nName=Not offered\nExec=/usr/bin/false\n')
+        self.write(self.data, title='User Browser', categories='Network;', extra='Actions=PurePrivacy;\n'
+                   '[Desktop Action PurePrivacy]\nName=Privacy\nName[sv]=Privat\nExec=/usr/bin/true\n')
+        self.env['LANGUAGE'] = 'sv'
+        apps = self.probe()
+        self.assertEqual({app['action']: app['name'] for app in apps},
+                         {'': 'User Browser', 'PurePrivacy': 'User Browser — Privat'})
+        self.assertEqual({app['category'] for app in apps}, {'Internet'})
+        self.write(self.data, extra='Hidden=true\n')
+        self.assertEqual(self.probe(), [])
+
+    def test_malformed_nonapplication_and_missing_type_are_not_shown(self):
+        bad = self.write(name='bad.desktop'); bad.write_text('not a keyfile\n')
+        link = self.write(name='link.desktop'); link.write_text('[Desktop Entry]\nType=Link\nName=Link\nURL=https://example.invalid\n')
+        missing = self.write(name='missing-type.desktop'); missing.write_text('[Desktop Entry]\nName=Missing\nExec=/usr/bin/true\n')
+        self.assertEqual(self.probe(), [])
+
+    def test_nested_desktop_ids_are_flattened_by_gio(self):
+        self.write(name='vendor/sub/app.desktop')
+        result = self.probe(); self.assertEqual(result[0]['id'], 'vendor-sub-app.desktop')
+        self.write(self.data, name='vendor-sub-app.desktop', title='User override')
+        self.assertEqual(self.probe()[0]['name'], 'User override'); self.assertEqual(len(self.probe()), 1)
+
+    def test_missing_categories_and_unknown_categories_are_other(self):
+        self.write(name='unknown.desktop', categories='X-Something;')
+        path = self.write(name='absent.desktop'); path.write_text(render_theme_defaults(payload_read_text(path)).replace('Categories=Utility;\n', ''))
+        self.assertEqual({app['category'] for app in self.probe()}, {'Other'})
+
+    def test_all_display_categories_and_single_assignment_using_fixture_applications(self):
+        fixtures = [('code.desktop', 'Code', 'Development;IDE;', 'Development'),
+                    ('postman.desktop', 'Postman', 'Development;', 'Development'),
+                    ('vivaldi.desktop', 'Vivaldi', 'Network;WebBrowser;', 'Internet'),
+                    ('discord.desktop', 'Discord', 'Network;InstantMessaging;', 'Internet'),
+                    ('chromium.desktop', 'Chromium', 'Network;WebBrowser;', 'Internet'),
+                    ('tuta.desktop', 'Tuta', 'Network;Email;', 'Office & Productivity'),
+                    ('focuswriter.desktop', 'FocusWriter', 'Office;WordProcessor;', 'Office & Productivity'),
+                    ('gnumeric.desktop', 'Gnumeric', 'Office;Spreadsheet;', 'Office & Productivity'),
+                    ('graphics.desktop', 'Graphics fixture', 'Graphics;', 'Graphics'),
+                    ('media.desktop', 'Media fixture', 'AudioVideo;', 'Multimedia'),
+                    ('game.desktop', 'Game fixture', 'Game;', 'Games'),
+                    ('education.desktop', 'Education fixture', 'Science;ArtificialIntelligence;', 'Education'),
+                    ('utility.desktop', 'Utility fixture', 'Utility;', 'Utilities'),
+                    ('terminal.desktop', 'Terminal fixture', 'System;TerminalEmulator;', 'System'),
+                    ('settings.desktop', 'Settings fixture', 'Settings;System;', 'Settings'),
+                    ('other.desktop', 'Other fixture', '', 'Other')]
+        for desktop_id, title, categories, expected in fixtures:
+            self.write(name=desktop_id, title=title, categories=categories)
+        result = self.probe()
+        self.assertEqual({app['id']: app['category'] for app in result}, {row[0]: row[3] for row in fixtures})
+        self.assertEqual(len(result), len(fixtures))
+
+    def test_unicode_and_shell_metacharacters_in_names_and_ids_are_plain_data(self):
+        desktop_id = 'name $`;&|().desktop'; title = 'Spaced R\u00e4knare \U0001f680 $`;&|() <xml> "quoted"'
+        self.write(name=desktop_id, title=title)
+        result = self.probe(); self.assertEqual(result[0]['id'], desktop_id); self.assertEqual(result[0]['name'], title)
+
+    def test_new_entry_and_removal_are_visible_without_daemon_restart(self):
+        self.assertEqual(self.probe(), [])
+        path = self.write(); self.assertEqual(len(self.probe()), 1)
+        path.unlink(); self.assertEqual(self.probe(), [])
+
+    def test_effective_wrapper_and_field_codes_launch_unprivileged_without_shell_interpolation(self):
+        output = self.root / 'result'; output.mkdir()
+        if os.geteuid() == 0: os.chown(output, self.uid, self.uid)
+        executable = self.root / 'managed wrapper'
+        executable.write_text('#!/usr/bin/python3\nimport json,os,sys\nfrom pathlib import Path\n'
+                              'Path(os.environ["MENU_FIXTURE_OUTPUT"]).write_text(json.dumps({"uid":os.getuid(),"args":sys.argv[1:]}))\n')
+        executable.chmod(0o755)
+        result_path = output / 'argv.json'; self.env['MENU_FIXTURE_OUTPUT'] = str(result_path)
+        marker = output / 'should-not-exist'
+        title = f"Fixture $(touch {marker}) `id`; & | \U0001f680"
+        self.write(self.vendor, title='Wrong lower entry', exec_value='/usr/bin/false')
+        selected = self.write(self.data, title=title, exec_value=f'"{executable}" %c %% %k %F %u')
+        self.probe('--launch=app.desktop')
+        deadline = time.monotonic() + 3
+        while not payload_source_exists(result_path) and time.monotonic() < deadline: time.sleep(0.01)
+        self.assertTrue(payload_source_exists(result_path))
+        launched = json.loads(render_theme_defaults(payload_read_text(result_path)))
+        self.assertEqual(launched['uid'], self.uid); self.assertEqual(launched['args'], [title, '%', str(selected)])
+        self.assertFalse(payload_source_exists(marker))
+
+    def test_real_gio_launches_each_selected_action_and_preserves_field_codes(self):
+        self.check_selected_action_launches()
+
+    def check_selected_action_launches(self, *, pygi=False):
+        output = self.root / 'action-output'; output.mkdir()
+        if os.geteuid() == 0: os.chown(output, self.uid, self.uid)
+        recorder = self.root / 'action recorder'
+        recorder.write_text('#!/usr/bin/python3\nimport json,os,sys\nfrom pathlib import Path\n'
+                            'Path(os.environ["MENU_FIXTURE_OUTPUT"]).write_text(json.dumps({"uid":os.getuid(),"args":sys.argv[1:]}))\n',
+                            encoding='utf-8')
+        recorder.chmod(0o755)
+        result_path = output / 'argv.json'; self.env['MENU_FIXTURE_OUTPUT'] = str(result_path)
+        marker = output / 'must-not-exist'
+        title = f'Browser $(touch {marker}) `id`; & |'
+        modes = {'IntelAccelerated': 'intel', 'NvidiaAccelerated': 'nvidia', 'PurePrivacy': 'pure-privacy'}
+        actions = 'Actions=' + ';'.join(modes) + ';\n' + ''.join(
+            f'[Desktop Action {action}]\nName={action}\nExec="{recorder}" {mode} %c %% %k %F %u\n'
+            for action, mode in modes.items())
+        selected = self.write(self.data, title=title, extra=actions, exec_value='/usr/bin/false')
+        for action, mode in modes.items():
+            with self.subTest(action=action):
+                result_path.unlink(missing_ok=True)
+                self.probe(['--launch=app.desktop', '--action=' + action], pygi=pygi)
+                deadline = time.monotonic() + 3
+                while not result_path.exists() and time.monotonic() < deadline: time.sleep(0.01)
+                self.assertTrue(result_path.is_file(), 'GIO did not execute the selected action')
+                record = json.loads(result_path.read_text(encoding='utf-8'))
+                self.assertEqual(record, {'uid': self.uid, 'args': [mode, title, '%', str(selected)]})
+                self.assertFalse(marker.exists())
+
+    def test_removed_or_undeclared_action_is_rejected_without_default_fallback(self):
+        self.write(extra='Actions=PurePrivacy;\n[Desktop Action PurePrivacy]\nName=PurePrivacy\nExec=/usr/bin/true\n'
+                   '[Desktop Action IntelAccelerated]\nName=Intel\nExec=/usr/bin/true\n', exec_value='/usr/bin/false')
+        self.assertEqual({app['action'] for app in self.probe()}, {'', 'PurePrivacy'})
+        for action in ('IntelAccelerated', 'NvidiaAccelerated', ''):
+            with self.subTest(action=action):
+                result = self.probe(['--launch=app.desktop', '--action=' + action], expected_status=1)
+                self.assertIn('desktop action is no longer available', result.stderr)
+
+    def test_desktop_actions_share_the_application_catalog_bound(self):
+        text = self.menu_source.read_text(encoding='utf-8').replace('MAX_APPS = 4096', 'MAX_APPS = 1')
+        self.menu_source.write_text(text, encoding='utf-8')
+        self.write(extra='Actions=IntelAccelerated;\n[Desktop Action IntelAccelerated]\nName=Intel\nExec=/usr/bin/true\n')
+        result = self.probe(expected_status=1)
+        self.assertIn('application catalog exceeds the managed bounds', result.stderr)
+
+    def test_advertised_actions_need_a_named_section_and_nonempty_command(self):
+        self.write(extra='Actions=Missing;NoCommand;EmptyCommand;NoName;Valid;\n'
+                   '[Desktop Action NoCommand]\nName=No command\n'
+                   '[Desktop Action EmptyCommand]\nName=Empty command\nExec=\n'
+                   '[Desktop Action NoName]\nExec=/usr/bin/true\n'
+                   '[Desktop Action Valid]\nName=Valid\nExec=/usr/bin/true\n')
+        self.assertEqual({app['action'] for app in self.probe()}, {'', 'Valid'})
+        for action in ('Missing', 'NoCommand', 'EmptyCommand', 'NoName'):
+            with self.subTest(action=action):
+                result = self.probe(['--launch=app.desktop', '--action=' + action], expected_status=1)
+                self.assertIn('desktop action is unavailable', result.stderr)
+
+    def test_normalization_preserves_managed_action_modes(self):
+        policy = load(TARGET / 'usr/local/libexec/labwc-wrap-desktop-files')
+        sync = load(TARGET / 'usr/local/bin/labwc-sync-application-launchers')
+        for app in ('chromium', 'qbittorrent', 'zoom', 'discord', 'chatgpt'):
+            config = next(config for config in sync.APP_CONFIG if config['action_app'] == app)
+            for action in config.get('actions', tuple(sync.ACTION_SPECS)):
+                with self.subTest(app=app, action=action):
+                    mode = sync.ACTION_SPECS[action][0]
+                    command = sync.managed_exec(mode, app, config['field_code'])
+                    source = ('[Desktop Entry]\nType=Application\nName=Fixture\nExec=/usr/bin/true\n'
+                              f'Actions={action};\n[Desktop Action {action}]\nName={action}\nExec={command}\n')
+                    rendered = policy.rewrite_desktop(source, '/usr/local/bin/labwc-wayland-app launch')
+                    parser = configparser.ConfigParser(interpolation=None)
+                    parser.optionxform = str
+                    parser.read_string(rendered)
+                    self.assertEqual(parser[f'Desktop Action {action}']['Exec'], command)
+
+    def test_pygi_binding_runs_the_same_production_discovery_when_available(self):
+        check = subprocess.run(payload_installed_argv(['/usr/bin/python3', '-I', '-c',
+                                'import gi; gi.require_version("GioUnix", "2.0"); from gi.repository import GioUnix']),
+                               capture_output=True, text=True, timeout=5)
+        if check.returncode: self.skipTest('python3-gi/GioUnix typelib unavailable on test host')
+        self.write(extra='Actions=IntelAccelerated;\n[Desktop Action IntelAccelerated]\nName=Intel\nExec=/usr/bin/true\n')
+        self.assertEqual(self.probe(pygi=True), self.probe())
+        self.check_selected_action_launches(pygi=True)
+
+
+if __name__ == '__main__':
+    unittest.main()

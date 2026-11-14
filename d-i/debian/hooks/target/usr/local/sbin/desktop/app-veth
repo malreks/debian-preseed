@@ -1,0 +1,890 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Attach kernel veth routing to caller-owned netns FDs; never execute client code."""
+
+from __future__ import annotations
+
+import array
+import fcntl
+import ipaddress
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import selectors
+import signal
+import socket
+import stat
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+sys.dont_write_bytecode = True
+from app_veth_policy import read_configuration
+
+SOCKET_PATH = "__INSTALLER_PATH_DIR_RUN__/app-veth/control.sock"
+CONFIG = "__INSTALLER_PATH_DIR_ETC__/app-veth.json"
+ENV = {"PATH": "__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin", "LC_ALL": "C"}
+# Up to 128 precreated pairs produce more than 64 KiB of detailed ip JSON.
+MAX_COMMAND_OUTPUT_BYTES = 524288
+NS_GET_USERNS = 0xB701
+NS_GET_OWNER_UID = 0xB704
+NS_GET_NSTYPE = 0xB703
+CLONE_NEWNET = 0x40000000
+NETWORK_SETTINGS = {}
+ACTIVE_NETWORK_SETTINGS = None
+# Route changes update a live lease. Failed administrative updates leave its
+# host link down and retry; lack of Internet never ends the application.
+ROUTE_RETRY_SECONDS = 5
+# Fixed host names are created once at boot and retained for every lease.
+
+
+def read_ruleset_template() -> str:
+    fd = os.open("__INSTALLER_PATH_DIR_ETC__/app-veth.nft", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, "rb") as handle:
+        metadata = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0
+                or metadata.st_nlink != 1 or metadata.st_mode & 0o022):
+            raise ValueError("unsafe managed network ruleset")
+        payload = handle.read(65537)
+    if not payload.strip() or len(payload) > 65536 or b"__INSTALLER_" in payload:
+        raise ValueError("invalid managed network ruleset")
+    return payload.decode("ascii")
+
+
+def interface_name(slot: int, *, peer: bool = False) -> str:
+    suffix = "peer_interface_suffix" if peer else "host_interface_suffix"
+    return NETWORK_SETTINGS["host_interface_prefix"] + str(slot) + NETWORK_SETTINGS[suffix]
+
+
+def apply_network_identity(settings: dict) -> None:
+    global NETWORK_SETTINGS, MAX_LEASES, INTERFACE_PATTERN, INTERFACE_MATCH, RULESET
+    NETWORK_SETTINGS = dict(settings)
+    MAX_LEASES = settings["max_leases"]
+    names = [interface_name(slot) for slot in range(MAX_LEASES)]
+    INTERFACE_PATTERN = "(?:" + "|".join(re.escape(name) for name in names) + ")"
+    INTERFACE_MATCH = "{ " + ", ".join(f'"{name}"' for name in names) + " }"
+    RULESET = read_ruleset_template().replace("__APP_INTERFACES__", INTERFACE_MATCH)
+    for key in ("dns_address", "dns_host_address", "dns_host_port"):
+        RULESET = RULESET.replace("__" + key.upper() + "__", str(settings[key]))
+    if re.search(r"__[A-Z][A-Z0-9_]*__", RULESET):
+        raise ValueError("unresolved managed network ruleset placeholder")
+
+
+def application_slot(policy: dict, leases: dict, address: str | None = None) -> int:
+    occupied = {network.slot for network in leases.values()}
+    if address is not None:
+        if not isinstance(address, str) or address not in policy["addresses"]:
+            raise ValueError("requested address is not reserved to this application")
+        slot = policy["slots"][policy["addresses"].index(address)]
+        if slot in occupied:
+            raise ValueError("requested application network slot is in use")
+        return slot
+    for slot in policy["slots"]:
+        if slot not in occupied:
+            return slot
+    raise ValueError("all reserved network slots for this application are in use")
+
+
+
+def event(name: str, correlation: str, **fields) -> None:
+    print(json.dumps({"event": name, "correlation_id": correlation, **fields},
+                     separators=(",", ":")), flush=True)
+
+
+class NetworkCleanupError(RuntimeError):
+    """Keep the firewall guards installed when kernel cleanup did not finish."""
+
+
+class SnapshotInterrupted(RuntimeError):
+    """iproute2 returned an incomplete dump while links/routes were changing."""
+
+
+def run(argv: list[str], *, data: str | None = None, fds: tuple[int, ...] = (),
+        empty_conntrack_delete: bool = False, snapshot: bool = False,
+        timeout: float = 5) -> str:
+    # Fixed administrative executables and validated scalar arguments only.
+    # Never mix stderr warnings into iproute2's JSON on stdout. In particular,
+    # an interrupted netlink dump can still exit zero during boot/link churn.
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        result = subprocess.run(argv, input=data.encode("ascii") if data is not None else None,
+                                stdin=subprocess.DEVNULL if data is None else None,
+                                # Deletion prints every retired flow on stdout;
+                                # keep only its small stderr result/diagnostic.
+                                stdout=subprocess.DEVNULL if empty_conntrack_delete else output,
+                                stderr=errors, timeout=timeout, env=ENV,
+                                pass_fds=fds, check=False)
+        output.seek(0)
+        text = output.read(MAX_COMMAND_OUTPUT_BYTES + 1)
+        errors.seek(0)
+        error_text = errors.read(MAX_COMMAND_OUTPUT_BYTES + 1)
+    # conntrack -D reports status 1 for an empty selection as well as errors.
+    # Accept only its exact empty-result summary, never arbitrary status 1.
+    empty_delete = (empty_conntrack_delete and argv[:2] == ["__INSTALLER_PATH_DIR_USR__/sbin/conntrack", "-D"]
+                    and result.returncode == 1 and re.fullmatch(
+                        rb"conntrack v[0-9][0-9A-Za-z.+:~_-]* \(conntrack-tools\): "
+                        rb"0 flow entries have been deleted\.\n?", error_text) is not None)
+    if ((result.returncode and not empty_delete)
+            or len(text) + len(error_text) > MAX_COMMAND_OUTPUT_BYTES):
+        # No raw command output: it can contain network identities or hostile
+        # interface aliases. The fixed executable/status retain useful context.
+        raise RuntimeError(f"{Path(argv[0]).name} failed (status {result.returncode}, "
+                           f"output_limit={len(text) + len(error_text) > MAX_COMMAND_OUTPUT_BYTES})")
+    if snapshot and b"Dump was interrupted and may be inconsistent." in error_text.splitlines():
+        raise SnapshotInterrupted("iproute2 snapshot interrupted by a network change")
+    return (error_text if empty_conntrack_delete else text).decode("ascii")
+
+
+def ip_snapshot(argv: list[str], *, fds: tuple[int, ...] = ()) -> list[dict]:
+    # Retry only this explicit read operation, never link/firewall mutations.
+    # A single deadline covers all attempts and the final subprocess wait.
+    deadline = time.monotonic() + 5
+    for attempt in range(3):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("iproute2 snapshot deadline expired")
+        try:
+            text = run(argv, fds=fds, snapshot=True, timeout=remaining)
+        except SnapshotInterrupted:
+            if attempt == 2:
+                raise
+            continue
+        try:
+            rows = json.loads(text)
+        except (ValueError, UnicodeError) as exc:
+            raise ValueError("iproute2 snapshot did not return valid JSON") from exc
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("iproute2 snapshot must contain a list of objects")
+        return rows
+    raise RuntimeError("iproute2 snapshot attempts exhausted")
+
+
+def nft(data: str) -> None:
+    run(["__INSTALLER_PATH_DIR_USR__/sbin/nft", "-f", "-"], data=data)
+
+
+def configuration(*, activate: bool = False) -> tuple[int, dict]:
+    conf = read_configuration(CONFIG)
+    if ACTIVE_NETWORK_SETTINGS is not None and conf["network"] != ACTIVE_NETWORK_SETTINGS:
+        raise ValueError("network identity changed; restart app-veth before acquiring new leases")
+    uid = pwd.getpwnam(conf["desktop_user"]).pw_uid
+    if uid == 0:
+        raise ValueError("invalid managed network configuration")
+    if activate:
+        apply_network_identity(conf["network"])
+    return uid, conf["apps"]
+
+
+def lan_networks() -> tuple[str, ...]:
+    # Block private, carrier-grade NAT, local, benchmark and multicast ranges,
+    # plus connected LANs even when they use public IPv4 addresses. DNS is
+    # handled separately by the exact host listener and never enters forward.
+    networks = [ipaddress.IPv4Network(value) for value in (
+        "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
+        "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16",
+        "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4")]
+    rows = ip_snapshot(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "-4", "route", "show", "scope", "link"])
+    if not isinstance(rows, list):
+        raise ValueError("invalid connected LAN routes")
+    links = ip_snapshot(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "-d", "link", "show"])
+    tunnels = {row["ifname"] for row in links
+               if row.get("linkinfo", {}).get("info_kind") in {"wireguard", "tun", "ipip", "sit", "gre", "ip6gre"}}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("invalid connected LAN route")
+        if row.get("dev") not in tunnels and row.get("dst") not in (None, "default", "0.0.0.0/0"):
+            networks.append(ipaddress.IPv4Network(row["dst"], strict=False))
+    return tuple(str(network) for network in ipaddress.collapse_addresses(networks))
+
+
+def refresh_lan_networks(previous: tuple[str, ...] | None) -> tuple[str, ...]:
+    current = lan_networks()
+    if current != previous:
+        nft("flush set inet app_veth lan_ipv4\n"
+            "add element inet app_veth lan_ipv4 { " + ", ".join(current) + " }\n")
+    return current
+
+
+def namespace_owner(fd: int, uid: int) -> None:
+    if fcntl.ioctl(fd, NS_GET_NSTYPE) != CLONE_NEWNET:
+        raise ValueError("a network namespace FD is required")
+    if os.fstat(fd).st_ino == os.stat("__INSTALLER_PATH_DIR_PROC__/self/ns/net").st_ino:
+        raise ValueError("host namespace is forbidden")
+    userns = fcntl.ioctl(fd, NS_GET_USERNS)
+    try:
+        owner = array.array("I", [0])
+        fcntl.ioctl(userns, NS_GET_OWNER_UID, owner, True)
+        if owner[0] != uid:
+            raise ValueError("namespace must belong to the caller")
+    finally:
+        os.close(userns)
+
+
+def route_interface(item) -> tuple[str, str, int, bool]:
+    if (not isinstance(item, dict) or not isinstance(item.get("dev"), str)
+            or not isinstance(item.get("prefsrc", item.get("src")), str)):
+        raise ValueError("invalid IPv4 route interface or source")
+    iface = item["dev"]
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", iface) or iface == "lo" or re.fullmatch(INTERFACE_PATTERN, iface):
+        raise ValueError("invalid Internet interface")
+    address = ipaddress.IPv4Address(item.get("prefsrc", item.get("src", "")))
+    if address.is_loopback or address.is_unspecified or address.is_multicast or address.is_link_local:
+        raise ValueError("invalid Internet source")
+    links = ip_snapshot(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "link", "show", "dev", iface])
+    if (not isinstance(links, list) or len(links) != 1 or not isinstance(links[0], dict)
+            or not isinstance(links[0].get("flags"), list)
+            or any(not isinstance(flag, str) for flag in links[0]["flags"])):
+        raise ValueError("invalid Internet link response")
+    mtu = links[0].get("mtu")
+    if type(mtu) is not int or not 576 <= mtu <= 65535:
+        raise ValueError("invalid Internet MTU")
+    route_flags = item.get("flags", [])
+    if not isinstance(route_flags, list) or any(not isinstance(flag, str) for flag in route_flags):
+        raise ValueError("invalid IPv4 route flags")
+    flags = links[0]["flags"]
+    operstate = links[0].get("operstate")
+    if operstate is not None and not isinstance(operstate, str):
+        raise ValueError("invalid Internet operational state")
+    active = ("UP" in flags and "NO-CARRIER" not in flags and "linkdown" not in route_flags
+              and operstate not in {"DOWN", "LOWERLAYERDOWN", "NOTPRESENT"})
+    return iface, str(address), mtu, active
+
+
+def route(*, allow_lan: bool = False) -> tuple[str, str, int]:
+    # The host FIB owns Ethernet/Wi-Fi metrics and VPN policy. Both physical
+    # links use this same lease/NAT path; never override the kernel's choice.
+    try:
+        routes = ip_snapshot(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "-4", "route", "get", "1.1.1.1"])
+    except RuntimeError:
+        if not allow_lan:
+            raise
+        # An online client can still reach a routed LAN without an Internet
+        # default route. This selects the MTU only: host routing/masquerade
+        # continue to choose the actual LAN, VPN or WAN egress per packet.
+        routes = ip_snapshot(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "-4", "route", "show", "scope", "link"])
+        if (not isinstance(routes, list) or any(not isinstance(item, dict)
+                or not isinstance(item.get("dev", ""), str) for item in routes)):
+            raise ValueError("invalid connected IPv4 route response")
+        candidates = [item for item in routes if item.get("dev") != "lo"
+                      and not re.fullmatch(INTERFACE_PATTERN, item.get("dev", ""))
+                      and item.get("type", "unicast") == "unicast"
+                      and "linkdown" not in item.get("flags", [])]
+        active = []
+        for item in sorted(candidates, key=lambda row: (row.get("dev", ""), row.get("dst", ""))):
+            selected = route_interface(item)
+            if selected[3]:
+                active.append(selected[:3])
+        if not active:
+            raise ValueError("no active IPv4 Internet or LAN route")
+        return active[0][0], active[0][1], min(item[2] for item in active)
+    if not isinstance(routes, list) or len(routes) != 1:
+        raise ValueError("invalid Internet route response")
+    selected = route_interface(routes[0])
+    if not selected[3]:
+        raise ValueError("Internet interface is down")
+    return selected[:3]
+
+
+def select_pool() -> ipaddress.IPv4Network:
+    pool = ipaddress.IPv4Network(NETWORK_SETTINGS["ipv4_cidr"])
+    routes = ip_snapshot(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "-4", "route", "show", "table", "all"])
+    if not isinstance(routes, list) or any(not isinstance(row, dict) for row in routes):
+        raise ValueError("invalid host IPv4 route snapshot")
+    # Full-tunnel VPNs may express the default route as two /1 routes. These
+    # catch-all routes do not allocate a connected application subnet.
+    catch_all_routes = {None, "default", "0.0.0.0/0", "0.0.0.0/1", "128.0.0.0/1"}
+    networks = [ipaddress.IPv4Network(row["dst"], strict=False) for row in routes
+                if row.get("dst") not in catch_all_routes]
+    if any(pool.overlaps(network) for network in networks):
+        raise ValueError("configured app-veth subnet overlaps existing host routes; adjust identity.env")
+    return pool
+
+
+class EndpointPool:
+    """Root service owns all link creation, before publishing readiness."""
+
+    def __init__(self, pool):
+        self.ids = {slot: uuid.uuid4().hex for slot in range(MAX_LEASES)}
+        self.host_fd = os.open("__INSTALLER_PATH_DIR_PROC__/self/ns/net", os.O_RDONLY | os.O_CLOEXEC)
+        rows = []
+        settings = []
+        for slot, identity in self.ids.items():
+            name = interface_name(slot)
+            gateway = str(ipaddress.IPv4Address(int(pool.network_address) + slot * 4 + 1))
+            # iproute2's veth create path does not retain an inline alias.
+            # Tag explicitly while both ends are still DOWN, before addresses.
+            rows.extend((f"link add name {name} type veth peer name {interface_name(slot, peer=True)}",
+                         f"link set dev {name} alias app-veth:{identity}",
+                         f"addr add {gateway}/30 dev {name}"))
+            settings.extend((f"net.ipv4.conf.{name}.route_localnet=1", f"net.ipv4.conf.{name}.rp_filter=2"))
+        try:
+            # Every endpoint remains DOWN and guarded until a validated lease
+            # attaches its existing peer. No client path creates a link.
+            run(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-batch", "-"], data="\n".join(rows) + "\n")
+            run(["__INSTALLER_PATH_DIR_USR__/sbin/sysctl", "-q", "-w", *settings])
+        except BaseException:
+            os.close(self.host_fd)
+            self.host_fd = None
+            # Partial, tagged DOWN links are recovered on the next start.
+            raise
+        event("network_pool_ready", uuid.uuid4().hex, interfaces=MAX_LEASES)
+
+    def close(self):
+        try:
+            run(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-batch", "-"],
+                data="".join(f"link del dev {interface_name(slot)}\n" for slot in self.ids))
+        finally:
+            if self.host_fd is not None:
+                os.close(self.host_fd)
+                self.host_fd = None
+
+
+def wireless_interface(interface: str) -> bool:
+    # Interface names come from the validated route response, never a request.
+    for name in ("wireless", "phy80211"):
+        try:
+            info = (Path("__INSTALLER_PATH_DIR_SYS__/class/net") / interface / name).stat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise RuntimeError("cannot classify Internet interface for peer-port selection") from exc
+        if not stat.S_ISDIR(info.st_mode):
+            raise ValueError("invalid wireless interface metadata")
+        return True
+    return False
+
+
+class Network:
+    def __init__(self, slot: int, nsfd: int, app: str, uid: int, policy: dict, pool, endpoints: EndpointPool):
+        self.slot, self.nsfd, self.app, self.uid = slot, nsfd, app, uid
+        self.endpoints = endpoints
+        if slot not in endpoints.ids or endpoints.host_fd is None:
+            raise ValueError("managed network endpoint pool is unavailable")
+        self.id = uuid.uuid4().hex
+        self.name = interface_name(slot)
+        self.peer_name = interface_name(slot, peer=True)
+        self.interface = NETWORK_SETTINGS["namespace_interface"]
+        base = int(pool.network_address) + slot * 4
+        self.gateway = str(ipaddress.IPv4Address(base + 1))
+        self.address = str(ipaddress.IPv4Address(base + 2))
+        self.remove = []
+        self.reservations = []
+        self.route_remove = []
+        self.route_reservations = []
+        self.attached = False
+        self.installed = False
+        self.uplink = None
+        self.route_retry_at = None
+        self.route_initialized = False
+        try:
+            if policy.get("network") is not True:
+                raise ValueError("application has no network authorization")
+            self.peer_port_policy = policy["peer_port"]
+            self.peer_port = (self.peer_port_policy["ethernet"] if isinstance(self.peer_port_policy, dict)
+                              else self.peer_port_policy)
+            self.channel = None
+            self.pinned = policy["pin_route"]
+            try:
+                current = route(allow_lan=not self.pinned)
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+                current = None
+            # The private interface and address also exist while offline.
+            # A pinned client has no egress authorization until a route exists.
+            mtu = current[2] if current is not None else 1500
+            path = f"__INSTALLER_PATH_DIR_PROC__/self/fd/{nsfd}"
+            enter = ["__INSTALLER_PATH_DIR_USR__/bin/nsenter", f"--net={path}", "--"]
+            links = ip_snapshot([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "link", "show"], fds=(nsfd,))
+            if any(link["ifname"] == self.interface or (app != "podman" and link["ifname"] != "lo") for link in links):
+                raise ValueError("namespace already has network interfaces")
+            run(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.peer_name, "netns", path], fds=(nsfd,))
+            self.attached = True
+            run([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.peer_name, "name", self.interface], fds=(nsfd,))
+            self.peer_name = self.interface
+            run([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/sysctl", "-q", "-w", "net.ipv6.conf.all.disable_ipv6=1"], fds=(nsfd,))
+            # ip -batch stops at the first error. The guest must be UP before
+            # adding its gateway route; the host peer stays DOWN until the
+            # firewall commits, so setup cannot release application packets.
+            guest_mac = ""
+            if app == "tor-browser":
+                # The precreated pool can reuse a pair. Replace its guest MAC
+                # on every Tor lease with a local, unicast random address.
+                octets = bytearray(os.urandom(6))
+                octets[0] = (octets[0] & 0xfe) | 0x02
+                guest_mac = f"link set {self.interface} address {':'.join(f'{byte:02x}' for byte in octets)}\n"
+            guest_setup = (
+                "link set lo up\n"
+                + guest_mac +
+                f"link set {self.interface} mtu {mtu}\n"
+                f"addr add {self.address}/30 dev {self.interface}\n"
+                f"link set {self.interface} up\n"
+                f"route add default via {self.gateway} dev {self.interface}\n"
+            )
+            run([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/ip", "-batch", "-"], data=guest_setup, fds=(nsfd,))
+            rows = []
+            def element(name, value):
+                rows.append(f"add element inet app_veth {name} {{ {value} }}")
+                self.remove.append(f"delete element inet app_veth {name} {{ {value.split(' : ')[0]} }}")
+            element("links", f'"{self.name}"')
+            element("sources", f'"{self.name}" . {self.address}')
+            if app == "tor-browser":
+                element("tor_transport", f'"{self.name}"')
+            if app in {"chromium", "microsoft-edge", "vivaldi", "mullvad-browser"}:
+                element("web_tls_only", f'"{self.name}"')
+            if app in {"qbittorrent", "qbittorrent-privacy"}:
+                element("no_http", f'"{self.name}"')
+            element("gateways", f'"{self.name}" : {self.gateway}')
+            if policy["block_lan"]:
+                element("lan_blocked", f'"{self.name}"')
+            if not self.pinned:
+                element("outbound", f'"{self.name}"')
+            if app == "discord":
+                for port in range(6463, 6473):
+                    self.reserve("127.0.0.1", port, socket.SOCK_STREAM)
+                    element("rpc", f'{port} : {self.address} . {port + 10000}')
+                    # The DNATed host-loopback flow enters the forwarded path
+                    # with the relay's fixed guest port.  Authorize only that
+                    # exact destination tuple; the final reserved-link drop remains the
+                    # default for every other host-to-namespace flow.
+                    element("incoming", f'"{self.name}" . {self.address} . tcp . {port + 10000}')
+            nft("\n".join(rows) + "\n")
+            self.installed = True
+            self.refresh_route(current)
+            event("network_ready", self.id, app=app, uid=uid, interface=self.name, mtu=mtu)
+        except BaseException:
+            self.close()
+            raise
+
+    def reserve(self, address, port, socket_type, *, route_owned=False):
+        channel = socket.socket(socket.AF_INET, socket_type | socket.SOCK_CLOEXEC)
+        (self.route_reservations if route_owned else self.reservations).append(channel)
+        channel.bind((address, port))
+        if socket_type == socket.SOCK_STREAM:
+            channel.listen(1)
+
+    def update_route(self, current):
+        """Replace this lease's exact egress/NAT mapping with its link quiesced."""
+        if self.route_initialized and current == self.uplink and self.route_retry_at is None:
+            return
+        enter = ["__INSTALLER_PATH_DIR_USR__/bin/nsenter", f"--net=__INSTALLER_PATH_DIR_PROC__/self/fd/{self.nsfd}", "--"]
+        if (self.route_initialized and self.route_retry_at is None
+                and current is not None and self.uplink is not None
+                and current[:2] == self.uplink[:2]):
+            # An MTU-only notification need not drop live connections or rebind
+            # peer ports. The egress identity and firewall elements are unchanged.
+            run([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.interface, "mtu", str(current[2])],
+                fds=(self.nsfd,))
+            run(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.name, "mtu", str(current[2])])
+            self.uplink = current
+            event("network_mtu_updated", self.id, app=self.app, uid=self.uid, mtu=current[2])
+            return
+        run(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.name, "down"])
+        rows = list(self.route_remove)
+        remove = []
+        def element(name, value):
+            rows.append(f"add element inet app_veth {name} {{ {value} }}")
+            remove.append(f"delete element inet app_veth {name} {{ {value.split(' : ')[0]} }}")
+        for channel in self.route_reservations:
+            channel.close()
+        self.route_reservations.clear()
+        peer_port = self.peer_port
+        if current is not None and isinstance(self.peer_port_policy, dict):
+            peer_port = self.peer_port_policy["wifi" if wireless_interface(current[0]) else "ethernet"]
+        if current is not None and self.pinned:
+            iface, source, _mtu = current
+            element("pinned", f'"{self.name}" . "{iface}"')
+            element("snat_map", f'"{self.name}" : {source}')
+            if peer_port is not None:
+                for protocol, kind in (("tcp", socket.SOCK_STREAM), ("udp", socket.SOCK_DGRAM)):
+                    self.reserve(source, peer_port, kind, route_owned=True)
+                    # Peer ingress has the same active-route lifetime as its
+                    # DNAT/SNAT maps. Commit all three with the veth still DOWN.
+                    element("incoming", f'"{self.name}" . {self.address} . {protocol} . {peer_port}')
+                    element("peer_snat", f'"{self.name}" . {protocol} . {peer_port} : {source} . {peer_port}')
+                    element("forwards", f'{source} . {protocol} . {peer_port} : {self.address} . {peer_port}')
+        if rows:
+            # Deletes and replacements commit together, including DHCP changes
+            # on the same device. No partially updated forwarding policy leaks.
+            nft("\n".join(rows) + "\n")
+        self.route_remove = remove
+        # Old SNAT/DNAT bindings survive map changes and slot reuse. Remove
+        # only flows belonging to this guest, including inbound peer flows,
+        # before first use or any egress replacement.
+        for direction in ("--orig-src", "--reply-src"):
+            run(["__INSTALLER_PATH_DIR_USR__/sbin/conntrack", "-D", "-f", "ipv4", direction, self.address],
+                empty_conntrack_delete=True)
+        mtu = current[2] if current is not None else 1500
+        run([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.interface, "mtu", str(mtu)],
+            fds=(self.nsfd,))
+        changed_port = peer_port != self.peer_port
+        if changed_port and self.channel is not None:
+            # Notify only the owning supervisor while the host link is down.
+            # A stalled receiver keeps the packet path blocked until retry.
+            message = json.dumps({"peer_port": peer_port}).encode("ascii")
+            if self.channel.send(message) != len(message):
+                raise RuntimeError("incomplete peer port notification")
+        # Ordinary leases can still reach permitted LAN destinations without a
+        # WAN route. Pinned leases remain down until validated egress returns.
+        if current is not None or not self.pinned:
+            run(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.name, "mtu", str(mtu), "up"])
+        self.uplink = current
+        self.route_initialized = True
+        self.route_retry_at = None
+        self.peer_port = peer_port
+        event("network_route_updated" if current is not None else "network_route_offline",
+              self.id, app=self.app, uid=self.uid, interface=self.name,
+              egress=current[0] if current is not None else None, mtu=mtu)
+
+    def refresh_route(self, current):
+        # Self-generated netlink notifications must not turn a failed update
+        # into a busy retry loop. A new physical route gets an immediate try.
+        if (self.route_retry_at is not None and current == self.uplink
+                and time.monotonic() < self.route_retry_at):
+            return
+        try:
+            self.update_route(current)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            # update_route lowers the link before any mapping mutation. A
+            # failed update retains the namespace/GUI and retries while blocked.
+            self.uplink = current
+            self.route_retry_at = time.monotonic() + ROUTE_RETRY_SECONDS
+            event("network_route_update_failed", self.id, app=self.app, uid=self.uid,
+                  retry_seconds=ROUTE_RETRY_SECONDS, cause=type(exc).__name__,
+                  detail=" ".join(str(exc).split())[:512])
+
+    def close(self):
+        # Quiesce the packet path first; keep the boot-created endpoint for
+        # reuse. Every recycled peer is DOWN and stripped of guest addresses.
+        errors = []
+        try:
+            if self.attached:
+                run(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.name, "down"])
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            errors.append(exc)
+        try:
+            if self.attached:
+                enter = ["__INSTALLER_PATH_DIR_USR__/bin/nsenter", f"--net=__INSTALLER_PATH_DIR_PROC__/self/fd/{self.nsfd}", "--"]
+                fds = (self.nsfd, self.endpoints.host_fd)
+                run([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.peer_name, "down"], fds=fds)
+                run([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/ip", "addr", "flush", "dev", self.peer_name], fds=fds)
+                idle_name = interface_name(self.slot, peer=True)
+                if self.peer_name != idle_name:
+                    run([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.peer_name, "name", idle_name], fds=fds)
+                    self.peer_name = idle_name
+                run([*enter, "__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "set", "dev", self.peer_name,
+                     "netns", f"__INSTALLER_PATH_DIR_PROC__/self/fd/{self.endpoints.host_fd}"], fds=fds)
+                self.attached = False
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            errors.append(exc)
+        try:
+            if self.installed:
+                nft("\n".join((*self.route_remove, *self.remove)) + "\n")
+                self.installed = False
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            errors.append(exc)
+        finally:
+            if not self.installed:
+                self.remove.clear()
+                self.route_remove.clear()
+            for channel in (*self.route_reservations, *self.reservations):
+                channel.close()
+            self.reservations.clear()
+            self.route_reservations.clear()
+        event("network_cleanup_failed" if errors else "network_removed", self.id, app=self.app, uid=self.uid)
+        if errors:
+            raise NetworkCleanupError("managed network cleanup failed") from errors[0]
+
+
+def release_lease(selector, leases, channel):
+    network = leases[channel]
+    selector.unregister(channel)
+    leases.pop(channel)
+    try:
+        network.close()
+    finally:
+        try:
+            os.close(network.nsfd)
+        finally:
+            channel.close()
+
+
+def route_retry_timeout(leases) -> float | None:
+    deadlines = [network.route_retry_at for network in leases.values()
+                 if network.route_retry_at is not None]
+    if not deadlines:
+        return None  # Healthy/ordinary leases need no periodic wakeups.
+    return max(0.0, min(deadlines) - time.monotonic())
+
+
+def refresh_routes(leases):
+    if not leases:
+        return
+    try:
+        current = route()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        current = None
+    lan = current
+    if current is None and any(not network.pinned for network in leases.values()):
+        try:
+            lan = route(allow_lan=True)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+            lan = None
+    for network in leases.values():
+        network.refresh_route(current if network.pinned else lan)
+
+
+def receive(channel, desktop_uid, policies):
+    pid, uid, _gid = struct.unpack("3i", channel.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+    try:
+        podman_uid = pwd.getpwnam("devops").pw_uid
+    except KeyError:
+        podman_uid = None
+    if uid not in (desktop_uid, podman_uid) or uid == 0:
+        raise ValueError("caller is not authorized for managed networking")
+    channel.settimeout(2)
+    packet, ancillary, flags, _ = channel.recvmsg(512, socket.CMSG_SPACE(4 * 16), socket.MSG_CMSG_CLOEXEC)
+    descriptors = []
+    try:
+        for level, kind, value in ancillary:
+            if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+                values = array.array("i")
+                values.frombytes(value[:len(value) - len(value) % values.itemsize])
+                descriptors.extend(values)
+        if flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC) or len(descriptors) != 1:
+            raise ValueError("exactly one bounded namespace FD is required")
+        request = json.loads(packet)
+        if (not isinstance(request, dict) or set(request) not in ({"app"}, {"app", "address"})
+                or not isinstance(request["app"], str)
+                or request["app"] not in policies
+                or policies[request["app"]]["network"] is not True):
+            raise ValueError("invalid network policy")
+        app = request["app"]
+        expected = podman_uid if app == "podman" else desktop_uid
+        if uid != expected or uid == 0:
+            raise ValueError("caller is not authorized for this network policy")
+        address = request.get("address")
+        if "address" in request and (not isinstance(address, str) or address not in policies[app]["addresses"]):
+            raise ValueError("requested address is not reserved to this application")
+        namespace_owner(descriptors[0], uid)
+        fd = descriptors.pop()
+        return pid, uid, app, fd, address
+    finally:
+        for fd in descriptors:
+            os.close(fd)
+
+
+def recover_endpoints():
+    """Recover tagged links or an interrupted create of an exact idle pair."""
+    links = {link["ifname"]: link for link in ip_snapshot(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "-d", "link", "show"])}
+    for name, link in links.items():
+        if (not re.fullmatch(INTERFACE_PATTERN, name)
+                or link.get("linkinfo", {}).get("info_kind") != "veth"):
+            continue
+        alias = link.get("ifalias", "")
+        tagged = re.fullmatch(r"app-veth:[0-9a-f]{32}", alias)
+        if not tagged:
+            # These exact configured slot pairs are reserved to this service. A kill
+            # between create and tag can leave both idle ends untagged. Only
+            # that mutually paired, DOWN, address-free state is recoverable;
+            # any other untagged or foreign-tagged interface is left alone.
+            peer_name = name.removesuffix(NETWORK_SETTINGS["host_interface_suffix"]) + NETWORK_SETTINGS["peer_interface_suffix"]
+            peer = links.get(peer_name, {})
+            if (alias or not name.endswith(NETWORK_SETTINGS["host_interface_suffix"]) or "UP" in link.get("flags", [])
+                    or link.get("link") != peer_name or peer.get("link") != name
+                    or peer.get("ifalias") or "UP" in peer.get("flags", [])
+                    or peer.get("linkinfo", {}).get("info_kind") != "veth"):
+                continue
+            addresses = ip_snapshot(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "addr", "show", "dev", name])
+            peer_addresses = ip_snapshot(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "-j", "addr", "show", "dev", peer_name])
+            if any(row.get("addr_info") for row in (*addresses, *peer_addresses)):
+                continue
+        run(["__INSTALLER_PATH_DIR_USR__/sbin/ip", "link", "del", "dev", name])
+
+
+def wait_dns_frontend() -> None:
+    # Executing dnsmasq does not mean it has bound its listener yet. Wait only
+    # for local readiness; an unavailable public upstream must not block boot.
+    deadline = time.monotonic() + 5
+    while True:
+        remaining = deadline - time.monotonic()
+        try:
+            with socket.create_connection((NETWORK_SETTINGS["dns_host_address"], NETWORK_SETTINGS["dns_host_port"]), timeout=min(.25, max(.001, remaining))):
+                return
+        except (ConnectionRefusedError, TimeoutError) as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("managed DNS frontend did not become ready within 5 seconds") from exc
+            time.sleep(min(.05, remaining))
+
+
+def main():
+    global ACTIVE_NETWORK_SETTINGS
+    if os.geteuid() != 0:
+        raise ValueError("network service requires root")
+    desktop_uid, policies = configuration(activate=True)
+    ACTIVE_NETWORK_SETTINGS = dict(NETWORK_SETTINGS)
+    # Recover before route allocation so stale leases cannot consume a pool.
+    recover_endpoints()
+    pool = select_pool()
+    if Path("__INSTALLER_PATH_DIR_PROC__/sys/net/ipv4/ip_forward").read_text().strip() != "1":
+        raise ValueError("managed IPv4 forwarding is disabled")
+    # The dedicated dnsmasq listener owns the veth cache and forwards directly
+    # to Stubby's strict DoT/DNSSEC endpoint. VPN link DNS is not in this path.
+    wait_dns_frontend()
+    nft(RULESET)
+    endpoints = None
+    selector = None
+    route_watch = None
+    listener = None
+    leases = {}
+    socket_path = Path(SOCKET_PATH)
+    socket_bound = False
+    errors = []
+    try:
+        endpoints = EndpointPool(pool)
+        selector = selectors.DefaultSelector()
+        # Kernel notifications keep public-addressed connected LAN policy current
+        # after DHCP, VPN and interface changes. A lost/failed snapshot terminates
+        # leases through the same fail-closed teardown as any service failure.
+        route_watch = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW | socket.SOCK_CLOEXEC,
+                                    socket.NETLINK_ROUTE)
+        route_watch.bind((0, 0x1 | 0x10 | 0x40))  # RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV4_ROUTE
+        route_watch.setblocking(False)
+        selector.register(route_watch, selectors.EVENT_READ)
+        lan_snapshot = refresh_lan_networks(None)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
+        if socket_path.exists() or socket_path.is_symlink():
+            metadata = socket_path.lstat()
+            if (not stat.S_ISSOCK(metadata.st_mode) or metadata.st_uid != 0
+                    or stat.S_IMODE(metadata.st_mode) != 0o666):
+                raise ValueError("stale managed network socket is unsafe")
+            socket_path.unlink()
+        listener.bind(SOCKET_PATH)
+        socket_bound = True
+        os.chmod(SOCKET_PATH, 0o666)  # Credentials + namespace ownership authorize every request.
+        listener.listen(16)
+        selector.register(listener, selectors.EVENT_READ)
+        notify_path = os.environ.get("NOTIFY_SOCKET")
+        if notify_path:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as notification:
+                notification.connect("\0" + notify_path[1:] if notify_path.startswith("@") else notify_path)
+                notification.sendall(b"READY=1")
+        while True:
+            for key, _ in selector.select(route_retry_timeout(leases)):
+                if key.fileobj is route_watch:
+                    # Coalesce a bounded burst before taking the two route/link
+                    # snapshots; endpoint setup generates several notifications.
+                    for _ in range(64):
+                        try:
+                            route_watch.recv(65536)
+                        except BlockingIOError:
+                            break
+                    lan_snapshot = refresh_lan_networks(lan_snapshot)
+                    refresh_routes(leases)
+                elif key.fileobj is listener:
+                    channel, _ = listener.accept()
+                    channel.settimeout(2)
+                    network = None
+                    nsfd = None
+                    try:
+                        # Re-read the complete trusted file for each request:
+                        # adding/removing an app takes effect on its next run.
+                        desktop_uid, policies = configuration()
+                        _pid, uid, app, nsfd, address = receive(channel, desktop_uid, policies)
+                        if len(leases) >= MAX_LEASES:
+                            raise ValueError("network lease limit reached")
+                        if any(os.fstat(n.nsfd).st_ino == os.fstat(nsfd).st_ino for n in leases.values()):
+                            raise ValueError("namespace already has a lease")
+                        slot = application_slot(policies[app], leases, address)
+                        network = Network(slot, nsfd, app, uid, policies[app], pool, endpoints)
+                        response = {"ready": True, "address": network.address,
+                                    "gateway": network.gateway, "interface": network.interface}
+                        if network.peer_port is not None:
+                            response["peer_port"] = network.peer_port
+                        channel.send(json.dumps(response).encode("ascii"))
+                        channel.setblocking(False)
+                        network.channel = channel
+                        leases[channel] = network
+                        selector.register(channel, selectors.EVENT_READ)
+                    except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as exc:
+                        correlation = uuid.uuid4().hex
+                        detail = " ".join(str(exc).split())[:512]
+                        event("network_rejected", correlation, cause=type(exc).__name__, detail=detail)
+                        try:
+                            channel.send(json.dumps({"ready": False, "error": detail,
+                                                     "correlation_id": correlation}).encode("ascii"))
+                        except OSError:
+                            pass  # An unauthorized/disconnected caller need not read the error.
+                        try:
+                            if isinstance(exc, NetworkCleanupError):
+                                errors.append(exc)
+                                raise
+                            if network is not None:
+                                network.close()
+                        except NetworkCleanupError as cleanup_error:
+                            if cleanup_error not in errors:
+                                errors.append(cleanup_error)
+                            raise
+                        finally:
+                            leases.pop(channel, None)
+                            if nsfd is not None:
+                                os.close(nsfd)
+                            channel.close()
+                else:
+                    channel = key.fileobj
+                    # Only supervisor exit releases a lease; uplink changes
+                    # update its packet path without ending the application.
+                    if channel not in leases:
+                        continue
+                    try:
+                        release_lease(selector, leases, channel)
+                    except NetworkCleanupError as exc:
+                        errors.append(exc)
+                        raise
+            if route_retry_timeout(leases) == 0:
+                refresh_routes(leases)
+    finally:
+        ACTIVE_NETWORK_SETTINGS = None
+        # Signals cannot interrupt cleanup and strand a later lease.
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, signal.SIG_IGN)
+        for channel, network in leases.items():
+            try:
+                network.close()
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                errors.append(exc)
+            finally:
+                os.close(network.nsfd)
+                channel.close()
+        for resource in (selector, route_watch, listener):
+            if resource is not None:
+                resource.close()
+        if socket_bound:
+            socket_path.unlink(missing_ok=True)
+        if errors:
+            # A failed deletion must never expose a stale veth by removing the
+            # reserved-link default-deny guards. Restart recovery removes tagged links
+            # before replacing this table; clients fail closed meanwhile.
+            raise NetworkCleanupError("network service cleanup failed") from errors[0]
+        if endpoints is not None:
+            endpoints.close()
+            nft("destroy table inet app_veth\n")
+
+
+if __name__ == "__main__":
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda number, _frame: sys.exit(128 + number))
+    try:
+        if sys.argv[1:] == ["--check-config"]:
+            desktop_uid, policies = configuration(activate=True)
+            event("network_configuration_validated", uuid.uuid4().hex,
+                  uid=desktop_uid, network_apps=sum(row["network"] for row in policies.values()))
+        elif sys.argv[1:]:
+            raise ValueError("unsupported managed network service arguments")
+        else:
+            main()
+    except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as exc:
+        event("network_service_failed", uuid.uuid4().hex, cause=type(exc).__name__, detail=str(exc)[:512])
+        sys.exit(1)

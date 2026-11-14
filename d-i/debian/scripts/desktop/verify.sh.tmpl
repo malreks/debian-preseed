@@ -1,0 +1,2199 @@
+#!/bin/sh
+# Offline-target installation verification entry points. Command presence,
+# ownership, permissions and declared data are checked before activation.
+
+desktop_verify_required_commands() {
+  # shellcheck disable=SC2016
+  run_in_target "verify Labwc desktop commands" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+required_checked=0
+optional_checked=0
+optional_missing=
+
+check_required() {
+  cmd=$1
+  command -v "$cmd" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
+    printf "fatal: required desktop command is missing: %s\n" "$cmd" >&2
+    exit 1
+  }
+  required_checked=$((required_checked + 1))
+}
+
+check_optional() {
+  cmd=$1
+  if command -v "$cmd" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    optional_checked=$((optional_checked + 1))
+    return 0
+  fi
+  optional_missing="${optional_missing:+$optional_missing }$cmd"
+}
+
+check_optional_alternative() {
+  primary_cmd=$1
+  shift
+  for cmd in "$primary_cmd" "$@"; do
+    if command -v "$cmd" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+      optional_checked=$((optional_checked + 1))
+      return 0
+    fi
+  done
+  optional_missing="${optional_missing:+$optional_missing }$primary_cmd"
+}
+
+for cmd in \
+  browser-devtools \
+  labwc \
+  cage \
+  app-veth \
+  app-veth-podman \
+  conntrack \
+  3proxy \
+  gtkgreet \
+  greetd-power-action \
+  labwc-greeter-output \
+  labwc-greeter-power \
+  labwc-greeter-session \
+  labwc-session \
+  labwc-autostart \
+  labwc-wlsunset \
+  wlsunset \
+  labwc-admin-action \
+  labwc-calendar \
+  labwc-agenda \
+  labwc-ocr \
+  labwc-logout \
+  labwc-fuzzel \
+  labwc-computer-management \
+  labwc-network-sharing \
+  nfsmnt \
+  filenmnt \
+  labwc-desktop-appearance \
+  labwc-ai-copilots \
+  labwc-ai-copilots-action \
+  labwc-digital-assets \
+  labwc-digital-assets-action \
+  labwc-users-groups-menu \
+  labwc-adb-menu \
+  labwc-adb-action \
+  labwc-maintenance-menu \
+  labwc-podman-menu \
+  labwc-external-drives \
+  labwc-security-action \
+  labwc-system-action \
+  labwc-recovery-action \
+  labwc-network-control-menu \
+  labwc-network-control-action \
+  compz \
+  labwc-firewall-menu \
+  labwc-firewall-action \
+  labwc-network-scan-menu \
+  labwc-network-scan-action \
+  labwc-remote-desktop \
+  labwc-freerdp-askpass \
+  labwc-run \
+  labwc-main-menu \
+  labwc-window-switcher \
+  wtype \
+  labwc-terminal \
+  labwc-bluetooth \
+  labwc-brightness-control \
+  labwc-power-settings \
+  labwc-power-menu \
+  wayland-info \
+  labwc-app \
+  labwc-help \
+  labwc-electron-app \
+  labwc-wayland-app \
+  labwc-qbittorrent \
+  labwc-sync-application-launchers \
+  labwc-keyboard-layout \
+  labwc-capture \
+  labwc-wayscriber-toggle \
+  playerctl \
+  makoctl \
+  satty \
+  wayscriber \
+  systemctl \
+  systemd-run \
+  dbus-update-activation-environment \
+  desktop-file-validate \
+  grim \
+  slurp \
+  wf-recorder \
+  wl-copy \
+  xclip \
+  keepassxc \
+  recoll \
+  recollindex \
+  fido2-token \
+  mail \
+  pkexec \
+  eject \
+  findmnt \
+  lsblk \
+  sync \
+  udisksctl \
+  lynis \
+  rkhunter \
+  chkrootkit \
+  systemd-analyze \
+  fwupdmgr \
+  spectre-meltdown-checker \
+  debsecan \
+  debsums \
+  ss \
+  nmap \
+  lua5.5 \
+  luac5.5 \
+  dumpcap \
+  tshark \
+  tcpdump \
+  wireshark \
+  clamscan \
+  freshclam \
+  fangfrisch \
+  visudo \
+  aa-easyprof \
+  aa-enabled \
+  aa-features-abi \
+  aa-audit \
+  aa-autodep \
+  aa-genprof \
+  aa-logprof \
+  aa-remove-unknown \
+  aa-unconfined \
+  logrotate \
+  rsyslogd \
+  ip \
+  ifup \
+  ifdown \
+  ifquery \
+  nmcli \
+  perl \
+  python3 \
+  flock \
+  task \
+  taskwarrior-tui \
+  tesseract \
+  notify-send \
+  sendmail
+do
+  check_required "$cmd"
+done
+
+for cmd in \
+  crystal-dock \
+  zsh \
+  starship \
+  btop \
+  brightnessctl \
+  bluetoothctl \
+  btmgmt \
+  rfkill \
+  ncdu \
+  nmtui \
+  fzf \
+  wlr-randr \
+  wlopm \
+  wdisplays \
+  waybar \
+  bwrap \
+  eglinfo \
+  es2_info \
+  vainfo \
+  xdg-dbus-proxy \
+  foot \
+  footclient \
+  kitty \
+  fuzzel \
+  labwc-health-notify \
+  mako \
+  makoctl \
+  swaylock \
+  swaybg \
+  swayidle \
+  wpctl \
+  thunar \
+  nnn \
+  l3afpad \
+  focuswriter \
+  gnote \
+  liferea \
+  gnumeric \
+  kdiff3 \
+  micro \
+  nvim \
+  labwc-tweaks \
+  qalculate-qt \
+  retroarch \
+  qt6ct \
+  vim \
+  xournalpp \
+  qimgv \
+  zathura \
+  xarchiver \
+  nwg-look \
+  pavucontrol \
+  pwsh \
+  powerprofilesctl \
+  xdg-terminal-exec \
+  pipewire \
+  wireplumber \
+  wsdd
+do
+  check_optional "$cmd"
+done
+check_optional_alternative sdl-freerdp sdl-freerdp3
+
+printf "desktop_command_verification required_checked=%s optional_checked=%s optional_missing=%s\n" \
+  "$required_checked" \
+  "$optional_checked" \
+  "${optional_missing:-none}"
+' sh
+}
+
+desktop_verify_staged_files() {
+  # shellcheck disable=SC2016
+  run_in_target "verify Labwc desktop staged file metadata" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+fatal() {
+  printf "fatal: %s\n" "$*" >&2
+  exit 1
+}
+
+require_readable() {
+  path=$1
+  [ -r "$path" ] || fatal "staged desktop path is missing or unreadable: $path"
+}
+
+require_executable() {
+  path=$1
+  [ -x "$path" ] || fatal "staged desktop executable is missing: $path"
+}
+
+require_mode() {
+  path=$1
+  expected_mode=$2
+  actual_mode=$(find -P "$path" -maxdepth 0 -printf "%m")
+  [ "$actual_mode" = "$expected_mode" ] ||
+    fatal "staged desktop path mode mismatch: $path expected=$expected_mode actual=$actual_mode"
+}
+
+require_absent() {
+  path=$1
+  [ ! -e "$path" ] && [ ! -L "$path" ] ||
+    fatal "retired desktop path is still present: $path"
+}
+
+# These public, non-secret assets must be readable by namespace launchers.
+for path in __INSTALLER_PATH_DIR_ETC__/labwc __INSTALLER_PATH_DIR_ETC__/labwc/3proxy; do
+  [ -d "$path" ] && [ ! -L "$path" ] || fatal "unsafe managed proxy directory: $path"
+  [ "$(find -P "$path" -maxdepth 0 -printf "%U:%G:%m")" = "0:0:755" ] ||
+    fatal "managed proxy directory must be root:root mode 0755: $path"
+done
+for proxy3_asset in session.json chromium.conf microsoft-edge.conf vivaldi.conf mullvad-browser.conf qbittorrent.conf; do
+  if [ "$proxy3_asset" = qbittorrent.conf ] && [ ! -f __INSTALLER_PATH_DIR_ETC__/qbittorrent/qBittorrent.conf.d/10-security.conf ]; then
+    continue
+  fi
+  path=__INSTALLER_PATH_DIR_ETC__/labwc/3proxy/$proxy3_asset
+  [ -f "$path" ] && [ ! -L "$path" ] || fatal "unsafe managed proxy file: $path"
+  [ "$(find -P "$path" -maxdepth 0 -printf "%U:%G:%m:%n")" = "0:0:644:1" ] ||
+    fatal "managed proxy file must be root:root mode 0644 with one link: $path"
+done
+require_executable __INSTALLER_PATH_DIR_USR_BIN__/3proxy
+if [ -e __INSTALLER_PATH_DIR_OPT__/tor-browser/Browser/firefox.real ]; then
+  require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/tor-browser-run
+  require_executable __INSTALLER_PATH_DIR_OPT__/tor-browser/Browser/firefox.real
+  require_executable __INSTALLER_PATH_DIR_OPT__/tor-browser/Browser/TorBrowser/Tor/tor
+  require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/tor-browser.desktop
+  require_readable __INSTALLER_PATH_DIR_OPT__/tor-browser/Browser/distribution/policies.json
+fi
+
+# No benchmarks during validation; the installer already performed --version
+# with dropped privileges after validating both archive and member checksums.
+for resctl_binary in resctl-bench rd-agent rd-hashd; do
+  require_executable "__INSTALLER_PATH_DIR_USR_LOCAL__/bin/$resctl_binary"
+  require_mode "__INSTALLER_PATH_DIR_USR_LOCAL__/bin/$resctl_binary" 755
+done
+require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/share/doc/resctl-bench/INSTALLATION.json
+require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/share/doc/resctl-bench/release/SHA256SUMS
+
+# Pinned fonts are already SHA-verified and atomically published by fonts.sh.
+require_readable __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fontconfig/conf.d/60-labwc-terminal-fonts.conf
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fontconfig/conf.d/60-labwc-terminal-fonts.conf 644
+require_readable __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/icons/terminal-fonts/current/release-manifest.json
+[ -L __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/icons/terminal-fonts/current ] ||
+  fatal "skeleton font generation is not activated"
+require_readable __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fontconfig/conf.d/61-microsoft-fonts.conf
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fontconfig/conf.d/61-microsoft-fonts.conf 644
+require_readable __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/fonts/microsoft-fonts/current/release-manifest.json
+[ -L __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/fonts/microsoft-fonts/current ] ||
+  fatal "skeleton Microsoft font generation is not activated"
+require_absent __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/installer-desktop-fonts
+
+# Managed Git and diagnostics assets: no credential decryption during verification.
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/bin/gitops
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/bin/gitops 755
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labmgmt
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labmgmt 755
+require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/share/doc/git/README.md
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/share/doc/git/README.md 644
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/bin/git-ssh
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/bin/git-ssh 755
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/bin/debugsys
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/bin/debugsys 755
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/debugsys.py
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/debugsys.py 755
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/debugsys-initramfs
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/debugsys-initramfs 755
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/share/debugsys/initramfs/hook
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/share/debugsys/initramfs/hook 755
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-ssh-key-load
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-ssh-key-load 755
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-ssh-gpg-askpass
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-ssh-gpg-askpass 755
+require_readable __INSTALLER_PATH_DIR_ETC__/gitops/aliases.gitconfig
+require_mode __INSTALLER_PATH_DIR_ETC__/gitops/aliases.gitconfig 644
+require_readable __INSTALLER_PATH_DIR_ETC__/ssh/git_known_hosts
+require_mode __INSTALLER_PATH_DIR_ETC__/ssh/git_known_hosts 644
+require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/ssh-checks
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/ssh-checks 644
+require_readable __INSTALLER_PATH_DIR_ETC__/systemd/system/debugsys-boot-report.service
+require_mode __INSTALLER_PATH_DIR_ETC__/systemd/system/debugsys-boot-report.service 644
+require_readable __INSTALLER_PATH_DIR_ETC__/apparmor.d/debugsys
+require_mode __INSTALLER_PATH_DIR_ETC__/apparmor.d/debugsys 644
+require_readable __INSTALLER_PATH_DIR_SYSTEMD_USER_SSH_AGENT_SOCKET_DROPIN__/10-labwc-session.conf
+require_mode __INSTALLER_PATH_DIR_SYSTEMD_USER_SSH_AGENT_SOCKET_DROPIN__/10-labwc-session.conf 644
+require_readable __INSTALLER_PATH_DIR_SYSTEMD_USER_SSH_AGENT_DROPIN__/10-labwc-session.conf
+require_mode __INSTALLER_PATH_DIR_SYSTEMD_USER_SSH_AGENT_DROPIN__/10-labwc-session.conf 644
+require_readable __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/gitops/gitops.env
+require_readable __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/git/config
+require_readable __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-ssh-key-load.service
+
+desktop_skeleton=__INSTALLER_PATH_DIR_ETC__/skel-desktop
+[ -d "$desktop_skeleton" ] && [ ! -L "$desktop_skeleton" ] ||
+  fatal "desktop skeleton root is missing or unsafe: $desktop_skeleton"
+[ "$(find -P "$desktop_skeleton" -maxdepth 0 -printf "%U:%G")" = 0:0 ] ||
+  fatal "desktop skeleton root must be owned by root:root: $desktop_skeleton"
+require_mode "$desktop_skeleton" 755
+unset desktop_skeleton
+
+require_symlink_target() {
+  path=$1
+  expected_target=$2
+  [ -L "$path" ] || fatal "managed desktop symlink is missing: $path"
+  actual_target=$(readlink "$path")
+  [ "$actual_target" = "$expected_target" ] ||
+    fatal "managed desktop symlink target mismatch: $path expected=$expected_target actual=$actual_target"
+}
+
+readable_count=0
+executable_count=0
+for path in \
+  __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf \
+  __INSTALLER_PATH_DIR_ETC__/labwc/wlsunset.conf \
+  __INSTALLER_PATH_DIR_ETC__/pam.d/polkit-1 \
+  __INSTALLER_PATH_DIR_ETC__/pam.d/systemd-user \
+  __INSTALLER_PATH_DIR_ETC__/pam.d/greetd \
+  __INSTALLER_PATH_DIR_ETC__/pam.d/greetd-greeter \
+  __INSTALLER_PATH_DIR_ETC__/security/greetd-greeter.conf \
+  __INSTALLER_PATH_DIR_ETC__/pam.d/swaylock \
+  __INSTALLER_PATH_DIR_ETC__/systemd/user/labwc-lock.service \
+  __INSTALLER_PATH_DIR_ETC__/systemd/logind.conf.d/70-labwc-lock.conf \
+  __INSTALLER_PATH_DIR_USR_SHARE__/pam-configs/wtmpdb \
+  __INSTALLER_PATH_DIR_ETC__/greetd/config.toml \
+  __INSTALLER_PATH_DIR_ETC__/greetd/gtkgreet.css \
+  __INSTALLER_PATH_DIR_ETC__/greetd/gtkgreet-power.css \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/00-admin-identities.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/03-labwc-power.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/05-active-local-gate.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/10-greetd-power.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/10-pkexec.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/20-login1-power.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/40-networkmanager.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/50-usb-policy.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/55-software-management.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/60-system-services-identity.rules \
+  __INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/70-hardware-peripherals.rules \
+  __INSTALLER_PATH_DIR_ETC__/fangfrisch.conf \
+  __INSTALLER_PATH_DIR_ETC__/apparmor/easyprof.conf \
+  __INSTALLER_PATH_DIR_ETC__/apparmor/logprof.conf \
+  __INSTALLER_PATH_DIR_ETC__/audit/plugins.d/syslog.conf \
+  __INSTALLER_PATH_DIR_ETC__/systemd/journald.conf.d/10-storage.conf \
+  __INSTALLER_PATH_DIR_ETC__/systemd/journald.conf.d/syslog.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/15-audit.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/18-app-veth.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/20-auth.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/21-apps.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/22-apps-socket.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/25-usb.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/30-apparmor.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/31-apparmor-modes.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/35-storage.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/37-whisper.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/39-security-scanners.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/40-nftables.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/41-fuzzel.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/42-adb.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/43-desktop-apps.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/44-components.conf \
+  __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/59-log-layout.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/20-log-layout.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/40-journal-forwarding.conf \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/rsyslog-journal-forwarding.service \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/32-apps-socket.conf \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-app-run \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-app-socket \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/journal-check \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/journal-forwarding \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/log-layout \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-size-rotate \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/native-logging \
+  __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/58-native-logs.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LYNIS_DROPIN__/40-logging.conf \
+  __INSTALLER_PATH_DIR_ETC__/rkhunter.d/99-logging.conf \
+  __INSTALLER_PATH_DIR_ETC__/rsyslog.d/99-discard.conf \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LOGROTATE_TIMER_DROPIN__/override.conf \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/rsyslog \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/audit \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/auth \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/usb \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/apparmor \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/apparmor-modes \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/storage \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/whisper \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/nftables \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/security-notify \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/security-scanners \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/fuzzel \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/adb \
+  __INSTALLER_PATH_DIR_ETC__/logrotate.d/desktop-apps \
+  __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/60-security-logs.conf \
+  __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/65-audit-syslog.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/30-security-scanner-socket.conf \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-security-socket \
+  __INSTALLER_PATH_DIR_ETC__/udev/rules.d/53-ledger-wallet.rules \
+  __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/25-desktop-media-runtime.conf \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/clamav-signature-update.service \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/clamav-signature-update.timer \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-admin-action@.service \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-package-sleep-guard.service \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_SLEEP_TARGET_DROPIN__/50-package-lock-guard.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_WIREPLUMBER_DROPIN__/60-resource-class.conf \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/nmap/scripts/admin-surface-policy.nse \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/nmap/scripts/approved-services.nse \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/nmap/scripts/database-exposure-policy.nse \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/nmap/scripts/http-security-headers.nse \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/nmap/scripts/name-resolution-policy.nse \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/nmap/scripts/plaintext-service-policy.nse \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/nmap/scripts/service-inventory.nse \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/nmap/scripts/tls-service-policy.nse \
+  __INSTALLER_PATH_DIR_ETC__/xdg/mimeapps.list \
+  __INSTALLER_PATH_DIR_USR_SHARE__/glib-2.0/schemas/90-desktop-wsdd.gschema.override \
+  __INSTALLER_PATH_DIR_ETC__/mailname \
+  __INSTALLER_PATH_DIR_ETC__/aliases \
+  __INSTALLER_PATH_DIR_ETC__/apt/listchanges.conf \
+  __INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/60desktop-local-mail.conf \
+  __INSTALLER_PATH_DIR_ETC__/opt/chrome/policies/managed/telemetry.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/chrome/policies/managed/security.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/chrome/policies/managed/extensions.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/chrome/policies/managed/performance.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/chrome/policies/recommended/defaults.json \
+  __INSTALLER_PATH_DIR_ETC__/chromium/policies/managed/telemetry.json \
+  __INSTALLER_PATH_DIR_ETC__/chromium/policies/managed/security.json \
+  __INSTALLER_PATH_DIR_ETC__/chromium/policies/managed/extensions.json \
+  __INSTALLER_PATH_DIR_ETC__/chromium/policies/managed/performance.json \
+  __INSTALLER_PATH_DIR_ETC__/chromium/policies/recommended/defaults.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/edge/policies/managed/telemetry.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/edge/policies/managed/security.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/edge/policies/managed/extensions.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/edge/policies/managed/performance.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/edge/policies/recommended/defaults.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/managed/telemetry.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/managed/extensions.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/managed/security.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/managed/performance.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/recommended/defaults.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/search-engines/search_engines.json.signed \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/search-engines/search_engines_prompt.json.signed \
+  __INSTALLER_PATH_DIR_OPT__/glibc/2.44-1/satty/.release \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_DBUS_BROKER_DROPIN__/10-broker-hardening.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_DBUS_BROKER_DROPIN__/60-stop-timeout.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_DBUS_BROKER_DROPIN__/60-stop-timeout.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_FOOT_SERVER_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_FOOT_SERVER_SOCKET_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_MAKO_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/dbus-1/services/org.freedesktop.Notifications.service \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_HYPRPOLKITAGENT_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_FILTER_CHAIN_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_WAYSCRIBER_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_XDG_DESKTOP_PORTAL_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_XDG_DESKTOP_PORTAL_GTK_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_XDG_DESKTOP_PORTAL_WLR_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_XDG_DESKTOP_PORTAL_LXQT_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.gnupg/gpg-agent.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/waybar.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/waybar.service.d/20-tray-compat.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/waybar.service.d/60-resource-class.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/crystal-dock.service.d/60-resource-class.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/app-.scope.d/60-resource-class.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-adb-server.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/llama-server.service \
+  __INSTALLER_PATH_DIR_ETC__/systemd/user/llama-whisper-guard.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-output-watch.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-mute-default-microphone.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/swaybg.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/swayidle.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/crystal-dock.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-plans.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-sync-application-launchers.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-sync-application-launchers.path \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-system-desktop-overrides.service \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-system-desktop-overrides.path \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/multi-user.target.wants/labwc-system-desktop-overrides.service \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/multi-user.target.wants/labwc-system-desktop-overrides.path \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile.d \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_GREETD_DROPIN__/20-labwc-vt.conf \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/bluetooth-controller-init.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-kwallet-portal.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-calendar-credentials.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service \
+  __INSTALLER_PATH_DIR_ETC__/fonts/fonts.conf \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-greeter/rc.xml \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-greeter/autostart \
+  __INSTALLER_PATH_DIR_USR_SHARE__/wayland-sessions/labwc.desktop \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/computer-management.desktop \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/labwc-help.desktop \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/remote-desktop-management.desktop \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/foot.desktop \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/code.desktop \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/rc.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/autostart \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/shutdown \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/environment \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/environment.d/10-wayland.env \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waypaper/config.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waypaper/keybindings.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waypaper/style.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/wayscriber-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/lxqt/filedialog.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/btop/btop.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/btop/btop-cpu.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/btop/btop-memory.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fzf/default-opts \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/satty/config.toml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/wayscriber/config.toml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/satty/overrides.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/themerc-override \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/Code/User/settings.json \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/chromium/Default/Preferences \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/keepassxc/keepassxc.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/microsoft-edge/Default/Preferences \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/obsidian/obsidian.json \
+  "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/vivaldi/Local State" \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/Recoll.org/recoll.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.recoll/recoll.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/vivaldi/Default/Preferences \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-session.target \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-health-notify.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-health-notify.path \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-health-notify.timer
+do
+  require_readable "$path"
+  readable_count=$((readable_count + 1))
+done
+
+require_mode __INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-admin-action@.service 644
+require_mode __INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-external-drives-shutdown.service 644
+require_mode __INSTALLER_PATH_DIR_ETC__/systemd/user/labwc-gvfs-volume-monitor.service 644
+for mount_backend in gvfs-daemon.service gvfs-udisks2-volume-monitor.service; do
+  case "$mount_backend" in
+    gvfs-daemon.service) backend_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_GVFS_DAEMON_DROPIN__ ;;
+    gvfs-udisks2-volume-monitor.service) backend_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_GVFS_UDISKS2_VOLUME_MONITOR_DROPIN__ ;;
+  esac
+  backend_policy="${backend_dropin}/10-labwc-session.conf"
+  require_mode "$backend_policy" 644
+done
+require_mode __INSTALLER_PATH_DIR_ETC__/systemd/user/llama-whisper-guard.service 644
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/llama-whisper-coordinate 755
+require_mode __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_ai_copilots/resources.py 644
+require_mode __INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/llama-whisper-coordination 644
+require_mode __INSTALLER_PATH_DIR_SYSTEMD_USER_THUNAR_DROPIN__/50-labwc-session.conf 644
+for application_family in wayland electron native devops bitwarden qbittorrent compat; do
+  case "$application_family" in
+    wayland) lifecycle_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_WAYLAND_FAMILY_DROPIN__ ;;
+    electron) lifecycle_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_ELECTRON_FAMILY_DROPIN__ ;;
+    native) lifecycle_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_NATIVE_FAMILY_DROPIN__ ;;
+    devops) lifecycle_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_DEVOPS_FAMILY_DROPIN__ ;;
+    bitwarden) lifecycle_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_BITWARDEN_FAMILY_DROPIN__ ;;
+    qbittorrent) lifecycle_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_QBITTORRENT_FAMILY_DROPIN__ ;;
+    compat) lifecycle_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_COMPAT_FAMILY_DROPIN__ ;;
+  esac
+  lifecycle_policy="${lifecycle_dropin}/50-app-lifecycle.conf"
+  require_mode "$lifecycle_policy" 644
+done
+require_mode __INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_WAYLAND_FOOT_FAMILY_DROPIN__/60-terminal-lifecycle.conf 644
+require_mode __INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_DEVOPS_FAMILY_DROPIN__/60-stop-budget.conf 644
+require_mode __INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/base.d/process-monitor 644
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-gvfs-volume-monitor 755
+require_mode __INSTALLER_PATH_DIR_USR_SHARE__/dbus-1/services/org.gtk.vfs.LabwcVolumeMonitor.service 644
+require_mode __INSTALLER_PATH_DIR_USR_SHARE__/gvfs/remote-volume-monitors/labwc.monitor 644
+require_mode __INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-package-sleep-guard.service 644
+require_mode __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_SLEEP_TARGET_DROPIN__/50-package-lock-guard.conf 644
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/greetd-power-action-root 755
+require_mode __INSTALLER_PATH_DIR_SYSTEMD_USER_WIREPLUMBER_DROPIN__/60-resource-class.conf 644
+for background_directory in \
+  __INSTALLER_PATH_DIR_USR_SHARE__/backgrounds \
+  __INSTALLER_PATH_DIR_USR_SHARE__/backgrounds/desktop \
+  __INSTALLER_PATH_DIR_USR_SHARE__/backgrounds/login
+do
+  [ -d "$background_directory" ] && [ ! -L "$background_directory" ] ||
+    fatal "managed background directory is missing or unsafe: $background_directory"
+  require_mode "$background_directory" 755
+  [ "$(find -P "$background_directory" -maxdepth 0 -printf "%U:%G")" = 0:0 ] ||
+    fatal "managed background directory is not root-owned: $background_directory"
+done
+unset background_directory
+for background_file in \
+  __THEME_TARGET_PATH_LABWC_WALLPAPER_DESKTOP_SWAYBG__ \
+  __THEME_TARGET_PATH_LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK__ \
+  __THEME_TARGET_PATH_LABWC_WALLPAPER_LOGIN_GTKGREET__
+do
+  [ -f "$background_file" ] && [ ! -L "$background_file" ] ||
+    fatal "managed background file is missing or unsafe: $background_file"
+  require_mode "$background_file" 644
+done
+unset background_file
+shadow_group_entry=$(getent group shadow) ||
+  fatal "required shadow group is missing"
+shadow_gid=$(printf "%s\n" "$shadow_group_entry" | cut -d: -f3)
+case "$shadow_gid" in
+  ""|*[!0-9]*) fatal "shadow group gid is invalid: $shadow_gid" ;;
+esac
+for authentication_path in __INSTALLER_PATH_DIR_ETC__/shadow __INSTALLER_PATH_DIR_USR_SBIN__/unix_chkpwd; do
+  [ -f "$authentication_path" ] && [ ! -L "$authentication_path" ] ||
+    fatal "authentication path is missing or unsafe: $authentication_path"
+done
+[ "$(find -P __INSTALLER_PATH_DIR_ETC__/shadow -maxdepth 0 -printf "%U:%G:%m")" = "0:$shadow_gid:640" ] ||
+  fatal "__INSTALLER_PATH_DIR_ETC__/shadow must be root:shadow mode 0640"
+[ "$(find -P __INSTALLER_PATH_DIR_USR_SBIN__/unix_chkpwd -maxdepth 0 -printf "%U:%G:%m")" = "0:$shadow_gid:2755" ] ||
+  fatal "__INSTALLER_PATH_DIR_USR_SBIN__/unix_chkpwd must be root:shadow mode 2755"
+unset authentication_path shadow_gid shadow_group_entry
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd 700
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user 700
+require_mode __INSTALLER_PATH_DIR_SYSTEMD_USER_DBUS_BROKER_DROPIN__/10-broker-hardening.conf 644
+for path in __INSTALLER_PATH_DIR_ETC__/systemd/user/*.d; do
+  [ -d "$path" ] || continue
+  require_mode "$path" 755
+  for dropin_path in "$path"/*.conf; do
+    [ -f "$dropin_path" ] || continue
+    require_mode "$dropin_path" 644
+  done
+done
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.gnupg 700
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.gnupg/gpg-agent.conf 600
+for path in __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/*.d; do
+  [ -d "$path" ] || continue
+  require_mode "$path" 700
+done
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/dbus-1 755
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/dbus-1/services 755
+for path in __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/dbus-1/services/*.service; do
+  require_mode "$path" 644
+done
+
+for path in \
+  __INSTALLER_PATH_DIR_ETC__/opt/chrome/policies/managed/telemetry.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/chrome/policies/managed/security.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/chrome/policies/managed/performance.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/chrome/policies/recommended/defaults.json \
+  __INSTALLER_PATH_DIR_ETC__/chromium/policies/managed/telemetry.json \
+  __INSTALLER_PATH_DIR_ETC__/chromium/policies/managed/security.json \
+  __INSTALLER_PATH_DIR_ETC__/chromium/policies/managed/performance.json \
+  __INSTALLER_PATH_DIR_ETC__/chromium/policies/recommended/defaults.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/edge/policies/managed/telemetry.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/edge/policies/managed/security.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/edge/policies/managed/performance.json \
+  __INSTALLER_PATH_DIR_ETC__/opt/edge/policies/recommended/defaults.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/managed/telemetry.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/managed/extensions.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/managed/security.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/managed/performance.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/policies/recommended/defaults.json \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/search-engines/search_engines.json.signed \
+  __INSTALLER_PATH_DIR_ETC__/vivaldi/search-engines/search_engines_prompt.json.signed
+do
+  require_mode "$path" 644
+done
+
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/bin/browser-devtools 755
+
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/keepassxc 700
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/keepassxc/keepassxc.ini 600
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/Code/User/settings.json 600
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/chromium/Default/Preferences 600
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/microsoft-edge/Default/Preferences 600
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/obsidian 700
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/obsidian/obsidian.json 600
+require_mode "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/vivaldi/Local State" 600
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/vivaldi/Default/Preferences 600
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/Recoll.org 700
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/Recoll.org/recoll.ini 600
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.recoll 700
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.cache 700
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.cache/recoll 700
+require_readable __INSTALLER_PATH_DIR_ETC__/skel-desktop/Syncthing/.stignore
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/Syncthing/.stignore 600
+readable_count=$((readable_count + 1))
+
+# The checkout is cloned from GitLab at install time. Its contents belong to
+# that remote and must not be inferred from the old bundled skeleton.
+require_absent __INSTALLER_PATH_DIR_ETC__/skel-desktop/Syncthing/obsidian-md
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/Syncthing 700
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/obsidian-git-sync 755
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/obsidian-git-sync.py 755
+require_mode __INSTALLER_PATH_DIR_ETC__/obsidian-git-sync.conf 644
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/obsidian-git-sync.service 644
+require_mode __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/obsidian-git-sync.timer 644
+
+for path in \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-greeter-session \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-greeter-output \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-greeter-power \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-greeter-client \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/sbin/greetd-power-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-session \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-autostart \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wlsunset \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wallpaper-save \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-admin-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-admin-action-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-admin-action-worker \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/greetd-power-action-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-logout-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-session-state \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-tomat-overlay \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-calendar \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-agenda \
+    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/calix-fruux-bootstrap \
+    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waycal-control \
+    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waycal-popup \
+  __INSTALLER_PATH_DIR_USR_BIN__/timeout \
+  __INSTALLER_PATH_DIR_USR_BIN__/printenv \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-ocr \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-logout \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-fuzzel \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-fuzzel-log \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-computer-management \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-network-sharing \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/nfsmnt \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/filenmnt \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-proxy-session \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-desktop-appearance \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-appearance-greeter \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-window-switcher \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-ai-copilots \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-ai-copilots-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-ai-llama-server \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/llama-whisper-coordinate \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-ai-model-install-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-ai-model-info \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-display-configuration \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-digital-assets \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-digital-assets-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-users-groups-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-adb-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-adb-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-maintenance-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-podman-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-external-drives \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-security-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-system-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-recovery-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-network-control-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-network-control-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/compz \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/compz-worker \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/compz-sandbox \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/compz-pipeline \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/lib/compz/7zz \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-firewall-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-firewall-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-network-scan-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-network-scan-action \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-remote-desktop \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-freerdp-askpass \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/telbot \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-terminal \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-bluetooth \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-brightness-control \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/bluetooth-controller-init \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-power-settings \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-output-watch \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-swaybg \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-swayidle \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-swaylock \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-idle-toggle \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-health-notify \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-app \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-electron-app \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wayland-app \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-wrap-desktop-files \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-qbittorrent \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-sync-application-launchers \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-run \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-main-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-debug-session \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-lock \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-power-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-keyboard-layout \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-capture \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wayscriber-toggle \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/satty \
+  __INSTALLER_PATH_DIR_USR_BIN__/wayscriber \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/apparmor-generate-rules \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-security-action-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-apparmor-policy-worker \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-apparmor-boot-state \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-system-action-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-storage-report \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-recovery-action-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-network-control-action-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/network-wifi-configure \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/nmtui \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-firewall-action-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-network-scan-action-root \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-samsung-firmware-extract \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/clamav-signature-update \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/clamav-fangfrisch \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/satty/satty
+do
+  require_executable "$path"
+  executable_count=$((executable_count + 1))
+done
+
+for path in \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-session-state@.service
+do
+  require_readable "$path"
+  require_mode "$path" 644
+done
+
+require_absent /tmp/installer-desktop-wallpapers.tar.gz
+require_absent __INSTALLER_PATH_DIR_USR_BIN__/Xwayland
+require_absent __INSTALLER_PATH_DIR_ETC__/environment.d/90-labwc-session.conf
+require_absent __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/dbus-broker.service.d/10-broker-hardening.conf
+require_absent __INSTALLER_PATH_DIR_ETC__/systemd/user/default.target.wants/mpris-proxy.service
+require_absent __INSTALLER_PATH_DIR_ETC__/systemd/user/graphical-session.target.wants/foot-server.service
+require_absent __INSTALLER_PATH_DIR_ETC__/systemd/user/labwc-session.target.wants/waybar.service
+require_absent __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-session.target.wants/foot-server.service
+require_absent __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/xdg-desktop-portal-xapp.service.d/10-labwc-session.conf
+for account_local_package_dropin in \
+  filter-chain.service \
+  foot-server.service \
+  foot-server.socket \
+  hyprpolkitagent.service \
+  mako.service \
+  pipewire.service \
+  pipewire-pulse.service \
+  pipewire.socket \
+  pipewire-pulse.socket \
+  wayscriber.service \
+  wireplumber.service \
+  xdg-desktop-portal.service \
+  xdg-desktop-portal-gtk.service \
+  xdg-desktop-portal-wlr.service \
+  xdg-desktop-portal-lxqt.service
+do
+  require_absent "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/${account_local_package_dropin}.d/10-labwc-session.conf"
+done
+require_executable __INSTALLER_PATH_DIR_USR_LIBEXEC__/hyprpolkitagent
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-hyprpolkit-agent
+
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/lib/android-sdk/platform-tools/adb
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/lib/android-sdk/platform-tools/fastboot
+require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/lib/android-sdk/platform-tools/source.properties
+require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/lib/android-sdk/platform-tools/.release
+require_symlink_target __INSTALLER_PATH_DIR_USR_LOCAL__/bin/adb ..__INSTALLER_PATH_DIR_LIB__/android-sdk/platform-tools/adb
+require_symlink_target __INSTALLER_PATH_DIR_USR_LOCAL__/bin/fastboot ..__INSTALLER_PATH_DIR_LIB__/android-sdk/platform-tools/fastboot
+
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/bin/scrcpy
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/bin/scrcpy 755
+require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/bin/scrcpy-server
+require_mode __INSTALLER_PATH_DIR_USR_LOCAL__/bin/scrcpy-server 644
+require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/share/doc/scrcpy/INSTALLATION.json
+
+require_executable __INSTALLER_PATH_DIR_USR_LOCAL__/lib/samloader/samloader
+require_readable __INSTALLER_PATH_DIR_USR_LOCAL__/lib/samloader/.release
+require_symlink_target __INSTALLER_PATH_DIR_USR_LOCAL__/bin/samloader ..__INSTALLER_PATH_DIR_LIB__/samloader/samloader
+
+require_readable __INSTALLER_PATH_DIR_ETC__/udev/rules.d/51-android-debug-bridge.rules
+require_readable __INSTALLER_PATH_DIR_ETC__/udev/rules.d/52-samsung-download-mode.rules
+require_readable __INSTALLER_PATH_DIR_ETC__/udev/rules.d/53-ledger-wallet.rules
+require_readable __INSTALLER_PATH_DIR_ETC__/apparmor.d/local/abstractions/codex-user-media
+
+if [ -r __INSTALLER_PATH_DIR_USR_SHARE__/dbus-1/system-services/org.freedesktop.nm_dispatcher.service ]; then
+  nm_dispatcher_alias=__INSTALLER_PATH_DIR_ETC__/systemd/system/dbus-org.freedesktop.nm-dispatcher.service
+  nm_dispatcher_unit=
+  require_readable __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_NETWORKMANAGER_DROPIN__/20-dispatcher.conf
+  require_readable __INSTALLER_PATH_DIR_ETC__/systemd/system/wifi-firstboot.service
+  require_readable __INSTALLER_PATH_FILE_NETWORK_UPLINK_POLICY__
+  require_executable __INSTALLER_PATH_DIR_ETC__/NetworkManager/dispatcher.d/90-managed-wifi-preference
+  require_readable __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_NETWORKMANAGER_DISPATCHER_DROPIN__/20-persistent.conf
+  if [ -r __INSTALLER_PATH_DIR_USR_LIB__/systemd/system/NetworkManager-dispatcher.service ]; then
+    nm_dispatcher_unit=__INSTALLER_PATH_DIR_USR_LIB__/systemd/system/NetworkManager-dispatcher.service
+  elif [ -r __INSTALLER_PATH_DIR_LIB__/systemd/system/NetworkManager-dispatcher.service ]; then
+    nm_dispatcher_unit=__INSTALLER_PATH_DIR_LIB__/systemd/system/NetworkManager-dispatcher.service
+  fi
+  [ -n "$nm_dispatcher_unit" ] || fatal "NetworkManager dispatcher unit is missing"
+  [ -L "$nm_dispatcher_alias" ] || fatal "NetworkManager dispatcher D-Bus alias is missing"
+  [ "$(readlink -f "$nm_dispatcher_alias" 2>__INSTALLER_PATH_DIR_DEV__/null || true)" = "$(readlink -f "$nm_dispatcher_unit" 2>__INSTALLER_PATH_DIR_DEV__/null || true)" ] ||
+    fatal "NetworkManager dispatcher D-Bus alias does not point to the vendor unit"
+fi
+
+printf "desktop_staged_file_metadata_verification readable=%s executable=%s\n" "$readable_count" "$executable_count"
+' sh
+}
+
+desktop_verify_optional_staged_files() {
+  # shellcheck disable=SC2016
+  run_in_target "verify optional Labwc desktop staged files" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+checked=0
+missing=
+
+check_optional_path() {
+  path=$1
+  if [ -e "$path" ]; then
+    checked=$((checked + 1))
+    return 0
+  fi
+  missing="${missing:+$missing }$path"
+}
+
+for path in \
+  __THEME_TARGET_PATH_LABWC_WALLPAPER_DESKTOP_SWAYBG__ \
+  __THEME_TARGET_PATH_LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK__ \
+  __THEME_TARGET_PATH_LABWC_WALLPAPER_LOGIN_GTKGREET__ \
+  __INSTALLER_PATH_DIR_USR_SHARE__/backgrounds/other/regreet-000-greeter-purple.jpg \
+  __INSTALLER_PATH_DIR_USR_SHARE__/backgrounds/other/wp2653774-black-and-blue-wallpaper-hd.png \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/config \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style-common.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/app-files \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/app-notes \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/app-sleek \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/app-terminal \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/app-tuta \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/apps \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/backlight \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/battery \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/bluetooth \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/clock \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/cpu \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/disk \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/external-apps-drawer \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/external-launcher \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/external-quick-controls \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/external-taskbar \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/external-tray \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/internal-apps-drawer \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/internal-launcher \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/internal-quick-controls \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/internal-taskbar \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/internal-tray \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/keyboard \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/lock \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/memory \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/network \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/notifications \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/power \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/pulseaudio \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/screenshot \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/system \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/tomat \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/wayscriber \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/window-switcher \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/modules/workspaces \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/gtk.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/audio-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/battery-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/bluetooth-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/brightness-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/calendar-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/launcher-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/notifications-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/power-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/screenshot-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/system-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/gtk/tomat-menu.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/menu.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/workspaces.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/tomat.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/wayscriber.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/taskview.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/apps.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/clock.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/audio.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/brightness.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/battery.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/storage.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/cpu.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/memory.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/tray.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/system.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/notifications.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/lock.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waybar/style/power.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/waycal/style.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/swaylock/config \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/gtk-3.0/gtk.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/l3afpad/style.css \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/l3afpad/l3afpadrc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/foot/foot.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/gnote/addins/global.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/GottCode/FocusWriter.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/GottCode/FocusWriter/Themes/word.theme \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/kitty/kitty.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/kdiff3rc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/micro/settings.json \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/nano/nanorc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/xdg-terminals.list \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/nvim/init.lua \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/qalculate/qalc.cfg \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/qalculate/qalculate-qt.cfg \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/task/taskrc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/retroarch/retroarch.cfg \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/tesseract/ocr-defaults.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/tesseract/user-words/default.user-words \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/tesseract/user-patterns/default.user-patterns \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/vim/vimrc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.vimrc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/xfce4/helpers.rc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml \
+  __INSTALLER_PATH_DIR_USR_SHARE__/xfce4/helpers/foot.desktop \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bash_profile \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bashrc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bash_aliases \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.zshenv \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.zprofile \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.zshrc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.zlogout \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.zsh_aliases \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.dircolors \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/starship.toml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fuzzel/base.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fuzzel/fuzzel.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fuzzel/menu.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fuzzel/computer-management.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/Thunar/uca.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/crystal-dock/labwc/appearance.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/crystal-dock/labwc/panel_1.conf \
+  __INSTALLER_PATH_DIR_ETC__/xdg/crystal-dock/labwc/appearance.conf \
+  __INSTALLER_PATH_DIR_ETC__/xdg/crystal-dock/labwc/panel_1.conf \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-show-desktop \
+  __INSTALLER_PATH_DIR_USR_SHARE__/applications/l3afpad.desktop \
+  __INSTALLER_PATH_DIR_USR_SHARE__/applications/labwc-tweaks.desktop \
+  __INSTALLER_PATH_DIR_USR_SHARE__/applications/qt6ct.desktop \
+  __INSTALLER_PATH_DIR_USR_SHARE__/applications/retroarch.desktop \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/show-desktop.desktop \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-health-notify \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/mako/config \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_MAKO_DROPIN__/10-labwc-session.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-health-notify.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-health-notify.path \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-health-notify.timer \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/gtk-3.0/settings.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/gtk-4.0/settings.ini \
+  __INSTALLER_PATH_DIR_ETC__/xdg/gtk-3.0/settings.ini \
+  __INSTALLER_PATH_DIR_ETC__/xdg/gtk-4.0/settings.ini \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/qt6ct/qt6ct.conf \
+  __INSTALLER_PATH_DIR_ETC__/xdg/qt6ct/qt6ct.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/kwalletrc \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/user-dirs.dirs \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/xournalpp/settings.xml \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/xdg-desktop-portal/portals.conf \
+  __INSTALLER_PATH_DIR_ETC__/xdg/xdg-desktop-portal/labwc-portals.conf \
+  __INSTALLER_PATH_DIR_ETC__/bluetooth/main.conf \
+  __INSTALLER_PATH_DIR_ETC__/chromium.d/90-performance-flags \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/obsidian-git-sync.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/obsidian-git-sync.timer \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/obsidian-git-sync \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/obsidian-git-sync.py \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/apt-repo-local-software-notify.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/apt-repo-local-software-notify.path \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/whisper-record.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/whisper-transcribe.service \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/whisper-server.service \
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_BLUETOOTH_DROPIN__/override.conf \
+  __INSTALLER_PATH_DIR_ETC__/systemd/system/bluetooth-controller-init.service \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/bluetooth-controller-init \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-bluetooth \
+  __INSTALLER_PATH_DIR_USR_SHARE__/applications/com.github.xournalpp.xournalpp.desktop \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-app \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-electron-app \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wayland-app \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-wrap-desktop-files \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-qbittorrent \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-sync-application-launchers \
+  __INSTALLER_PATH_DIR_USR_SHARE__/applications/org.gnome.Gnote.desktop \
+  __INSTALLER_PATH_DIR_USR_SHARE__/glib-2.0/schemas/90-desktop-gnote.gschema.override \
+  __INSTALLER_PATH_DIR_USR_SHARE__/glib-2.0/schemas/90-desktop-appearance.gschema.override \
+  __INSTALLER_PATH_DIR_USR_SHARE__/applications/net.sourceforge.liferea.desktop \
+  __INSTALLER_PATH_DIR_USR_SHARE__/glib-2.0/schemas/90-desktop-liferea.gschema.override \
+  __INSTALLER_PATH_DIR_USR_SHARE__/mime/packages/90-desktop-filetypes.xml \
+  __INSTALLER_PATH_DIR_ETC__/wireplumber/wireplumber.conf.d/10-disable-bluez-midi.conf \
+  __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/wireplumber/wireplumber.conf.d/10-disable-bluez-midi.conf
+do
+  check_optional_path "$path"
+done
+printf "desktop_optional_staged_file_verification checked=%s missing=%s\n" "$checked" "${missing:-none}"
+' sh
+}
+
+desktop_verify_primary_user_files() {
+  : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set}"
+  : "${ACCOUNT_HOME:?ACCOUNT_HOME must be set}"
+
+  # shellcheck disable=SC2016
+  run_in_target "verify Labwc primary account config" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+fatal() {
+  printf "fatal: %s\n" "$*" >&2
+  exit 1
+}
+
+account_user=$1
+account_home=$2
+icon_theme=$3
+obsidian_git_auto_enable=$4
+require_absent() {
+  [ ! -e "$1" ] && [ ! -L "$1" ] ||
+    fatal "retired desktop path is still present: $1"
+}
+uid=$(id -u "$account_user")
+gid=$(id -g "$account_user")
+required_checked=0
+optional_checked=0
+optional_missing=
+
+check_required_owned() {
+  path=$1
+  [ -r "$path" ] || {
+    printf "fatal: missing account desktop file: %s\n" "$path" >&2
+    exit 1
+  }
+  owner=$(find -P "$path" -maxdepth 0 -printf "%U:%G")
+  [ "$owner" = "$uid:$gid" ] || {
+    printf "fatal: account desktop file owner mismatch for %s: %s\n" "$path" "$owner" >&2
+    exit 1
+  }
+  required_checked=$((required_checked + 1))
+}
+
+check_required_owned_dir() {
+  path=$1
+  [ -d "$path" ] || {
+    printf "fatal: missing account desktop directory: %s\n" "$path" >&2
+    exit 1
+  }
+  owner=$(find -P "$path" -maxdepth 0 -printf "%U:%G")
+  [ "$owner" = "$uid:$gid" ] || {
+    printf "fatal: account desktop directory owner mismatch for %s: %s\n" "$path" "$owner" >&2
+    exit 1
+  }
+  required_checked=$((required_checked + 1))
+}
+
+case "$icon_theme" in
+  ""|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+-]*)
+    fatal "managed icon theme contains unsupported characters: ${icon_theme:-unset}"
+    ;;
+esac
+[ -r "__INSTALLER_PATH_DIR_USR_SHARE__/icons/${icon_theme}/index.theme" ] ||
+  fatal "managed icon theme is unavailable: ${icon_theme}"
+check_optional_owned() {
+  path=$1
+  [ -r "$path" ] || {
+    optional_missing="${optional_missing:+$optional_missing }$path"
+    return 0
+  }
+  optional_checked=$((optional_checked + 1))
+}
+
+verify_skeleton_session_link() {
+  unit=$1
+  link="__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-session.target.wants/${unit}"
+  [ -L "$link" ] || fatal "skeleton user session enablement link is missing: ${unit}"
+  link_target=$(readlink "$link")
+  case "$link_target" in
+    "../${unit}"|__INSTALLER_PATH_DIR_USR_LIB__/systemd/user/*|__INSTALLER_PATH_DIR_LIB__/systemd/user/*) ;;
+    *) fatal "skeleton user session enablement link is unsafe for ${unit}: ${link_target}" ;;
+  esac
+  owner=$(find -P "$link" -maxdepth 0 -printf "%U:%G")
+  [ "$owner" = 0:0 ] ||
+    fatal "skeleton user session enablement link owner mismatch for ${unit}: ${owner}"
+  required_checked=$((required_checked + 1))
+}
+
+verify_account_session_link() {
+  unit=$1
+  link="$account_home/.config/systemd/user/labwc-session.target.wants/${unit}"
+  [ -L "$link" ] || fatal "primary account user session enablement link is missing: ${unit}"
+  link_target=$(readlink "$link")
+  case "$link_target" in
+    "../${unit}"|__INSTALLER_PATH_DIR_USR_LIB__/systemd/user/*|__INSTALLER_PATH_DIR_LIB__/systemd/user/*) ;;
+    *) fatal "primary account user session enablement link is unsafe for ${unit}: ${link_target}" ;;
+  esac
+  owner=$(find -P "$link" -maxdepth 0 -printf "%U:%G")
+  [ "$owner" = "$uid:$gid" ] ||
+    fatal "primary account user session enablement link owner mismatch for ${unit}: ${owner}"
+  required_checked=$((required_checked + 1))
+}
+
+# Browser exports are account-owned Git data, never bundled seed imports.
+for browser_directory in \
+  "$account_home/Workspace" \
+  "$account_home/Workspace/netscape" \
+  "$account_home/Workspace/netscape/.git"
+do
+  check_required_owned_dir "$browser_directory"
+  [ ! -L "$browser_directory" ] || fatal "symlinked browser checkout directory"
+  [ "$(find -P "$browser_directory" -maxdepth 0 -printf "%m")" = 700 ] ||
+    fatal "browser checkout directory must be private mode 0700"
+done
+browser_checkout="$account_home/Workspace/netscape"
+unsafe_browser_entry=$(find -P "$browser_checkout" -xdev \
+  \( ! -uid "$uid" -o ! -gid "$gid" -o \( ! -type d ! -type f \) \
+     -o \( -type d ! -perm 0700 \) \
+     -o \( -type f \( ! -links 1 -o \( ! -perm 0600 ! -perm 0700 \) \) \) \) \
+  -print -quit)
+[ -z "$unsafe_browser_entry" ] || fatal "unsafe browser checkout ownership, type or permissions"
+check_required_owned "$browser_checkout/.git/HEAD"
+unset browser_directory browser_checkout unsafe_browser_entry
+
+# The encrypted identity and sealed passphrase are both private account files.
+check_required_owned "$account_home/.local/share/ssh/private/id_git_ed25519"
+[ ! -L "$account_home/.local/share/ssh/private/id_git_ed25519" ] || fatal "symlinked managed Git file"
+[ "$(find -P "$account_home/.local/share/ssh/private/id_git_ed25519" -maxdepth 0 -printf "%m:%n")" = 600:1 ] || fatal "unsafe managed Git file metadata"
+check_required_owned "$account_home/.local/share/ssh/git-key-passphrase.gpg"
+[ ! -L "$account_home/.local/share/ssh/git-key-passphrase.gpg" ] || fatal "symlinked managed Git file"
+[ "$(find -P "$account_home/.local/share/ssh/git-key-passphrase.gpg" -maxdepth 0 -printf "%m:%n")" = 600:1 ] || fatal "unsafe managed Git file metadata"
+check_required_owned "$account_home/.ssh/id_git_ed25519.pub"
+[ ! -L "$account_home/.ssh/id_git_ed25519.pub" ] || fatal "symlinked managed Git file"
+[ "$(find -P "$account_home/.ssh/id_git_ed25519.pub" -maxdepth 0 -printf "%m:%n")" = 600:1 ] || fatal "unsafe managed Git file metadata"
+check_required_owned "$account_home/.config/gitops/gitops.env"
+[ ! -L "$account_home/.config/gitops/gitops.env" ] || fatal "symlinked managed Git file"
+[ "$(find -P "$account_home/.config/gitops/gitops.env" -maxdepth 0 -printf "%m:%n")" = 600:1 ] || fatal "unsafe managed Git file metadata"
+check_required_owned "$account_home/.config/git/config"
+[ ! -L "$account_home/.config/git/config" ] || fatal "symlinked managed Git file"
+[ "$(find -P "$account_home/.config/git/config" -maxdepth 0 -printf "%m:%n")" = 600:1 ] || fatal "unsafe managed Git file metadata"
+check_required_owned "$account_home/.config/systemd/user/labwc-ssh-key-load.service"
+[ ! -L "$account_home/.config/systemd/user/labwc-ssh-key-load.service" ] || fatal "symlinked managed Git file"
+[ "$(find -P "$account_home/.config/systemd/user/labwc-ssh-key-load.service" -maxdepth 0 -printf "%m:%n")" = 600:1 ] || fatal "unsafe managed Git file metadata"
+check_required_owned_dir "$account_home/.local/share/ssh"
+[ ! -L "$account_home/.local/share/ssh" ] || fatal "symlinked managed Git directory"
+[ "$(find -P "$account_home/.local/share/ssh" -maxdepth 0 -printf "%m")" = 700 ] || fatal "unsafe managed Git directory"
+check_required_owned_dir "$account_home/.local/share/ssh/private"
+[ ! -L "$account_home/.local/share/ssh/private" ] || fatal "symlinked managed Git directory"
+[ "$(find -P "$account_home/.local/share/ssh/private" -maxdepth 0 -printf "%m")" = 700 ] || fatal "unsafe managed Git directory"
+check_required_owned_dir "$account_home/.ssh"
+[ ! -L "$account_home/.ssh" ] || fatal "symlinked managed Git directory"
+[ "$(find -P "$account_home/.ssh" -maxdepth 0 -printf "%m")" = 700 ] || fatal "unsafe managed Git directory"
+check_required_owned_dir "$account_home/.config/gitops"
+[ ! -L "$account_home/.config/gitops" ] || fatal "symlinked managed Git directory"
+[ "$(find -P "$account_home/.config/gitops" -maxdepth 0 -printf "%m")" = 700 ] || fatal "unsafe managed Git directory"
+verify_skeleton_session_link ssh-agent.socket
+verify_account_session_link ssh-agent.socket
+[ ! -L __INSTALLER_PATH_DIR_ETC__/obsidian-git-sync.conf ] &&
+  [ "$(find -P __INSTALLER_PATH_DIR_ETC__/obsidian-git-sync.conf -maxdepth 0 -printf "%U:%G:%m:%n")" = 0:0:644:1 ] ||
+  fatal "unsafe automatic Obsidian Git policy file"
+case "$obsidian_git_auto_enable" in
+  true)
+    verify_skeleton_session_link obsidian-git-sync.timer
+    verify_account_session_link obsidian-git-sync.timer
+    ;;
+  false)
+    for obsidian_home in __INSTALLER_PATH_DIR_ETC__/skel-desktop "$account_home"; do
+      obsidian_link="$obsidian_home/.config/systemd/user/labwc-session.target.wants/obsidian-git-sync.timer"
+      [ ! -e "$obsidian_link" ] && [ ! -L "$obsidian_link" ] || fatal "automatic Obsidian Git timer must be disabled"
+    done
+    ;;
+  *) fatal "invalid OBSIDIAN_GIT_AUTO_ENABLE" ;;
+esac
+# Interactive decryption is on demand; do not race wallet/login prompts.
+for ssh_home in __INSTALLER_PATH_DIR_ETC__/skel-desktop "$account_home"; do
+  ssh_link="$ssh_home/.config/systemd/user/labwc-session.target.wants/labwc-ssh-key-load.service"
+  [ ! -e "$ssh_link" ] && [ ! -L "$ssh_link" ] || fatal "SSH unlock must not run at login"
+done
+
+for path in \
+  "$account_home/.config/labwc/rc.xml" \
+  "$account_home/.config/labwc/menu.xml" \
+  "$account_home/.config/labwc/autostart" \
+  "$account_home/.config/labwc/shutdown" \
+  "$account_home/.config/labwc/environment" \
+  "$account_home/.config/labwc/themerc-override" \
+  "$account_home/.config/waypaper/config.ini" \
+  "$account_home/.config/waypaper/keybindings.ini" \
+  "$account_home/.config/waypaper/style.css" \
+  "$account_home/.config/btop/btop.conf" \
+  "$account_home/.config/btop/btop-cpu.conf" \
+  "$account_home/.config/btop/btop-memory.conf" \
+  "$account_home/.config/wayscriber/config.toml" \
+  "$account_home/.config/fzf/default-opts" \
+  "$account_home/.config/Code/User/settings.json" \
+  "$account_home/.config/chromium/Default/Preferences" \
+  "$account_home/.config/keepassxc/keepassxc.ini" \
+  "$account_home/.config/microsoft-edge/Default/Preferences" \
+  "$account_home/.config/obsidian/obsidian.json" \
+  "$account_home/.config/vivaldi/Local State" \
+  "$account_home/Syncthing/.stignore" \
+  "$account_home/.config/Recoll.org/recoll.ini" \
+  "$account_home/.recoll/recoll.conf" \
+  "$account_home/.config/vivaldi/Default/Preferences" \
+  "$account_home/.gnupg/gpg-agent.conf" \
+  "$account_home/.config/systemd/user/labwc-session.target" \
+  "$account_home/.config/systemd/user/labwc-health-notify.service" \
+  "$account_home/.config/systemd/user/labwc-health-notify.path" \
+  "$account_home/.config/systemd/user/labwc-health-notify.timer" \
+  "$account_home/.config/systemd/user/labwc-plans.service" \
+  "$account_home/.config/systemd/user/labwc-adb-server.service" \
+  "$account_home/.config/systemd/user/llama-server.service" \
+  "$account_home/.config/systemd/user/obsidian-git-sync.service" \
+  "$account_home/.config/systemd/user/obsidian-git-sync.timer" \
+  "$account_home/.config/systemd/user/labwc-sync-application-launchers.service" \
+  "$account_home/.config/systemd/user/labwc-sync-application-launchers.path" \
+  "$account_home/.config/systemd/user/labwc-kwallet-portal.service" \
+  "$account_home/.config/systemd/user/labwc-calendar-credentials.service" \
+  "$account_home/.config/systemd/user/labwc-mute-default-microphone.service" \
+  "$account_home/.config/systemd/user/labwc-output-watch.service" \
+  "$account_home/.config/systemd/user/swaybg.service" \
+  "$account_home/.config/systemd/user/swayidle.service" \
+  "$account_home/.config/systemd/user/crystal-dock.service" \
+  "$account_home/.config/systemd/user/waybar.service" \
+  "$account_home/.config/systemd/user/waybar.service.d/20-tray-compat.conf" \
+  "$account_home/.config/systemd/user/waybar.service.d/60-resource-class.conf" \
+  "$account_home/.config/systemd/user/crystal-dock.service.d/60-resource-class.conf" \
+  "$account_home/.config/systemd/user/app-.scope.d/60-resource-class.conf" \
+  "$account_home/.local/share/dbus-1/services/org.freedesktop.secrets.service" \
+  "$account_home/.local/share/applications/org.keepassxc.KeePassXC.desktop" \
+  "$account_home/.local/share/applications/waypaper.desktop" \
+  "$account_home/.config/fontconfig/conf.d/60-labwc-terminal-fonts.conf" \
+  "$account_home/.local/share/icons/terminal-fonts/current/release-manifest.json" \
+  "$account_home/.local/share/icons/terminal-fonts/.cache-ready" \
+  "$account_home/.config/fontconfig/conf.d/61-microsoft-fonts.conf" \
+  "$account_home/.local/share/fonts/microsoft-fonts/current/release-manifest.json" \
+  "$account_home/.local/share/fonts/microsoft-fonts/.cache-ready"
+do
+  check_required_owned "$path"
+done
+
+[ ! -e "$account_home/.config/systemd/user/xdg-desktop-portal-xapp.service.d/10-labwc-session.conf" ] ||
+  fatal "retired XApp portal user drop-in is still present"
+[ ! -e "$account_home/.config/systemd/user/dbus-broker.service.d/10-broker-hardening.conf" ] ||
+  fatal "system-wide D-Bus broker hardening was copied into the desktop account"
+
+for account_local_package_dropin in \
+  filter-chain.service \
+  foot-server.service \
+  foot-server.socket \
+  mako.service \
+  hyprpolkitagent.service \
+  pipewire.service \
+  pipewire-pulse.service \
+  pipewire.socket \
+  pipewire-pulse.socket \
+  wireplumber.service \
+  filter-chain.service \
+  wayscriber.service \
+  xdg-desktop-portal.service \
+  xdg-desktop-portal-gtk.service \
+  xdg-desktop-portal-wlr.service \
+  xdg-desktop-portal-lxqt.service
+do
+  account_dropin="$account_home/.config/systemd/user/${account_local_package_dropin}.d/10-labwc-session.conf"
+  [ ! -e "$account_dropin" ] && [ ! -L "$account_dropin" ] ||
+    fatal "primary account package-unit drop-in is still present: ${account_dropin}"
+done
+
+for optional_user_unit in \
+  apt-repo-local-software-notify.service \
+  apt-repo-local-software-notify.path \
+  whisper-record.service \
+  whisper-transcribe.service \
+  whisper-server.service
+do
+  [ -r "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/${optional_user_unit}" ] || continue
+  check_required_owned "$account_home/.config/systemd/user/${optional_user_unit}"
+done
+
+for session_unit in \
+  labwc-output-watch.service \
+  swaybg.service \
+  swayidle.service \
+  crystal-dock.service \
+  labwc-mute-default-microphone.service \
+  labwc-kwallet-portal.service \
+  labwc-calendar-credentials.service \
+  labwc-plans.service \
+  labwc-sync-application-launchers.service \
+  labwc-sync-application-launchers.path \
+  foot-server.socket \
+  mako.service \
+  filter-chain.service \
+  wayscriber.service \
+  hyprpolkitagent.service \
+  xdg-desktop-portal.service \
+  xdg-desktop-portal-gtk.service \
+  xdg-desktop-portal-wlr.service \
+  xdg-desktop-portal-lxqt.service
+do
+  verify_skeleton_session_link "$session_unit"
+  verify_account_session_link "$session_unit"
+done
+require_absent "$account_home/.config/systemd/user/labwc-session.target.wants/foot-server.service"
+require_absent "$account_home/.config/systemd/user/labwc-session.target.wants/llama-server.service"
+for independent_audio_unit in \
+  pipewire.service \
+  pipewire-pulse.service \
+  pipewire.socket \
+  pipewire-pulse.socket \
+  wireplumber.service
+do
+  require_absent "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-session.target.wants/${independent_audio_unit}"
+  require_absent "$account_home/.config/systemd/user/labwc-session.target.wants/${independent_audio_unit}"
+done
+unset independent_audio_unit
+for independent_audio_dropin in \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_PIPEWIRE_DROPIN__ \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_PIPEWIRE_PULSE_DROPIN__ \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_PIPEWIRE_SOCKET_DROPIN__ \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_PIPEWIRE_PULSE_SOCKET_DROPIN__ \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_WIREPLUMBER_DROPIN__
+do
+  require_absent "${independent_audio_dropin}/10-labwc-session.conf"
+done
+unset independent_audio_dropin
+if [ -r __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/whisper-server.service ]; then
+  verify_skeleton_session_link whisper-server.service
+  verify_account_session_link whisper-server.service
+fi
+if [ -r __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/apt-repo-local-software-notify.path ]; then
+  verify_skeleton_session_link apt-repo-local-software-notify.path
+  verify_account_session_link apt-repo-local-software-notify.path
+fi
+
+for on_demand_or_triggered_unit in \
+  codex-app-server.service \
+  codex-app-server-proxy.service \
+  codex-app-server.socket \
+  labwc-adb-server.service \
+  labwc-compositor.service \
+  labwc-health-notify.path \
+  labwc-health-notify.service \
+  labwc-health-notify.timer \
+  llama-server.service \
+  apt-repo-local-software-notify.service \
+  waybar.service \
+  whisper-record.service \
+  whisper-transcribe.service
+do
+  require_absent "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-session.target.wants/${on_demand_or_triggered_unit}"
+  require_absent "$account_home/.config/systemd/user/labwc-session.target.wants/${on_demand_or_triggered_unit}"
+done
+unset on_demand_or_triggered_unit
+
+for path in \
+  "$account_home/Desktop" \
+  "$account_home/Documents" \
+  "$account_home/Downloads" \
+  "$account_home/Music" \
+  "$account_home/Pictures" \
+  "$account_home/Public" \
+  "$account_home/Templates" \
+  "$account_home/Videos" \
+  "$account_home/Workspace" \
+  "$account_home/.cache" \
+  "$account_home/.cache/recoll" \
+  "$account_home/.config/Code" \
+  "$account_home/.config/chromium" \
+  "$account_home/.config/microsoft-edge" \
+  "$account_home/.config/obsidian" \
+  "$account_home/.config/vivaldi" \
+  "$account_home/.gnupg" \
+  "$account_home/.config/systemd" \
+  "$account_home/.config/systemd/user" \
+  "$account_home/.config/systemd/user/labwc-session.target.wants" \
+  "$account_home/.local" \
+  "$account_home/.local/share" \
+  "$account_home/.local/share/applications" \
+  "$account_home/.local/share/GottCode" \
+  "$account_home/.local/share/GottCode/FocusWriter" \
+  "$account_home/.local/share/GottCode/FocusWriter/Themes" \
+  "$account_home/.local/share/dbus-1" \
+  "$account_home/.local/share/dbus-1/services" \
+  "$account_home/.recoll" \
+  "$account_home/.local/share/task" \
+  "$account_home/.local/share/task/hooks" \
+  "$account_home/Syncthing" \
+  "$account_home/Syncthing/keepassxc" \
+  "$account_home/Syncthing/keepassxc/backups" \
+  "$account_home/Syncthing/obsidian-md"
+
+do
+  check_required_owned_dir "$path"
+done
+
+if command -v vivaldi-stable >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+  for path in \
+    "$account_home/.cache" \
+    "$account_home/.cache/vivaldi" \
+    "$account_home/.config/vivaldi"
+  do
+    check_required_owned_dir "$path"
+  done
+fi
+
+[ "$(find -P "$account_home/.config/keepassxc" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: KeePassXC config directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.config/keepassxc/keepassxc.ini" -maxdepth 0 -printf "%m")" = 600 ] || {
+  printf "fatal: KeePassXC config file mode is not 0600\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.config/Recoll.org" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: Recoll GUI configuration directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.config/Recoll.org/recoll.ini" -maxdepth 0 -printf "%m")" = 600 ] || {
+  printf "fatal: Recoll GUI configuration file mode is not 0600\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.recoll" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: Recoll index configuration directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.cache" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: XDG cache directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.config/systemd" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: systemd user configuration directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.config/systemd/user" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: systemd user unit directory mode is not 0700\n" >&2
+  exit 1
+}
+for user_dropin_dir in "$account_home/.config/systemd/user"/*.d; do
+  [ -d "$user_dropin_dir" ] || continue
+  [ "$(find -P "$user_dropin_dir" -maxdepth 0 -printf "%m")" = 700 ] || {
+    printf "fatal: systemd user drop-in directory mode is not 0700: %s\n" "$user_dropin_dir" >&2
+    exit 1
+  }
+done
+[ "$(find -P "$account_home/.gnupg" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: GnuPG directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.gnupg/gpg-agent.conf" -maxdepth 0 -printf "%m")" = 600 ] || {
+  printf "fatal: GnuPG agent configuration mode is not 0600\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.local/share/dbus-1" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: D-Bus user data directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.local/share/dbus-1/services" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: D-Bus user activation directory mode is not 0700\n" >&2
+  exit 1
+}
+for service_file in "$account_home/.local/share/dbus-1/services"/*.service; do
+  [ -f "$service_file" ] || continue
+  [ "$(find -P "$service_file" -maxdepth 0 -printf "%m")" = 600 ] || {
+    printf "fatal: D-Bus user activation file mode is not 0600: %s\n" "$service_file" >&2
+    exit 1
+  }
+done
+[ "$(find -P "$account_home/.config/systemd/user/labwc-session.target.wants" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: Labwc session user-unit enablement directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.cache/recoll" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: Recoll cache directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.local/share/task" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: Taskwarrior data directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/.local/share/task/hooks" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: Taskwarrior hooks directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/Syncthing/keepassxc" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: KeePassXC database directory mode is not 0700\n" >&2
+  exit 1
+}
+[ "$(find -P "$account_home/Syncthing/obsidian-md" -maxdepth 0 -printf "%m")" = 700 ] || {
+  printf "fatal: Obsidian vault directory mode is not 0700\n" >&2
+  exit 1
+}
+# Only Git metadata is guaranteed by the remote repository. Notes and
+# .obsidian settings may be created and edited freely by the account.
+check_required_owned_dir "$account_home/Syncthing/obsidian-md/.git"
+[ ! -L "$account_home/Syncthing/obsidian-md/.git" ] || fatal "symlinked Obsidian repository metadata"
+[ "$(find -P "$account_home/Syncthing/obsidian-md/.git" -maxdepth 0 -printf "%m")" = 700 ] ||
+  fatal "Obsidian Git directory is not private"
+for git_file in HEAD config; do
+  check_required_owned "$account_home/Syncthing/obsidian-md/.git/$git_file"
+done
+for private_file in \
+  "$account_home/.config/obsidian/obsidian.json" \
+  "$account_home/Syncthing/.stignore"
+do
+  [ "$(find -P "$private_file" -maxdepth 0 -printf "%m")" = 600 ] || {
+    printf "fatal: managed Obsidian file mode is not 0600: %s\n" "$private_file" >&2
+    exit 1
+  }
+done
+for path in \
+  "$account_home/.config/waybar/config" \
+  "$account_home/.config/waybar/style.css" \
+  "$account_home/.config/waybar/style-common.css" \
+  "$account_home/.config/waybar/modules/app-files" \
+  "$account_home/.config/waybar/modules/app-notes" \
+  "$account_home/.config/waybar/modules/app-sleek" \
+  "$account_home/.config/waybar/modules/app-terminal" \
+  "$account_home/.config/waybar/modules/app-tuta" \
+  "$account_home/.config/waybar/modules/apps" \
+  "$account_home/.config/waybar/modules/backlight" \
+  "$account_home/.config/waybar/modules/battery" \
+  "$account_home/.config/waybar/modules/bluetooth" \
+  "$account_home/.config/waybar/modules/clock" \
+  "$account_home/.config/waybar/modules/cpu" \
+  "$account_home/.config/waybar/modules/disk" \
+  "$account_home/.config/waybar/modules/external-apps-drawer" \
+  "$account_home/.config/waybar/modules/external-launcher" \
+  "$account_home/.config/waybar/modules/external-quick-controls" \
+  "$account_home/.config/waybar/modules/external-taskbar" \
+  "$account_home/.config/waybar/modules/external-tray" \
+  "$account_home/.config/waybar/modules/internal-apps-drawer" \
+  "$account_home/.config/waybar/modules/internal-launcher" \
+  "$account_home/.config/waybar/modules/internal-quick-controls" \
+  "$account_home/.config/waybar/modules/internal-taskbar" \
+  "$account_home/.config/waybar/modules/internal-tray" \
+  "$account_home/.config/waybar/modules/keyboard" \
+  "$account_home/.config/waybar/modules/lock" \
+  "$account_home/.config/waybar/modules/memory" \
+  "$account_home/.config/waybar/modules/network" \
+  "$account_home/.config/waybar/modules/notifications" \
+  "$account_home/.config/waybar/modules/power" \
+  "$account_home/.config/waybar/modules/pulseaudio" \
+  "$account_home/.config/waybar/modules/screenshot" \
+  "$account_home/.config/waybar/modules/system" \
+  "$account_home/.config/waybar/modules/tomat" \
+  "$account_home/.config/waybar/modules/wayscriber" \
+  "$account_home/.config/waybar/modules/window-switcher" \
+  "$account_home/.config/waybar/modules/workspaces" \
+  "$account_home/.config/waybar/style/gtk.css" \
+  "$account_home/.config/waybar/gtk/audio-menu.xml" \
+  "$account_home/.config/waybar/gtk/battery-menu.xml" \
+  "$account_home/.config/waybar/gtk/bluetooth-menu.xml" \
+  "$account_home/.config/waybar/gtk/brightness-menu.xml" \
+  "$account_home/.config/waybar/gtk/calendar-menu.xml" \
+  "$account_home/.config/waybar/gtk/launcher-menu.xml" \
+  "$account_home/.config/waybar/gtk/notifications-menu.xml" \
+  "$account_home/.config/waybar/gtk/power-menu.xml" \
+  "$account_home/.config/waybar/gtk/screenshot-menu.xml" \
+  "$account_home/.config/waybar/gtk/system-menu.xml" \
+  "$account_home/.config/waybar/gtk/tomat-menu.xml" \
+  "$account_home/.config/waybar/style/menu.css" \
+  "$account_home/.config/waybar/style/workspaces.css" \
+  "$account_home/.config/waybar/style/tomat.css" \
+  "$account_home/.config/waybar/style/wayscriber.css" \
+  "$account_home/.config/waybar/style/taskview.css" \
+  "$account_home/.config/waybar/style/apps.css" \
+  "$account_home/.config/waybar/style/clock.css" \
+  "$account_home/.config/waybar/style/audio.css" \
+  "$account_home/.config/waybar/style/brightness.css" \
+  "$account_home/.config/waybar/style/battery.css" \
+  "$account_home/.config/waybar/style/storage.css" \
+  "$account_home/.config/waybar/style/cpu.css" \
+  "$account_home/.config/waybar/style/memory.css" \
+  "$account_home/.config/waybar/style/tray.css" \
+  "$account_home/.config/waybar/style/system.css" \
+  "$account_home/.config/waybar/style/notifications.css" \
+  "$account_home/.config/waybar/style/lock.css" \
+  "$account_home/.config/waybar/style/power.css" \
+  "$account_home/.config/waycal/style.css" \
+  "$account_home/.config/swaylock/config" \
+  "$account_home/.config/gtk-3.0/gtk.css" \
+  "$account_home/.config/l3afpad/style.css" \
+  "$account_home/.config/l3afpad/l3afpadrc" \
+  "$account_home/.config/foot/foot.ini" \
+  "$account_home/.config/gnote/addins/global.ini" \
+  "$account_home/.config/GottCode/FocusWriter.conf" \
+  "$account_home/.local/share/GottCode/FocusWriter/Themes/word.theme" \
+  "$account_home/.config/kitty/kitty.conf" \
+  "$account_home/.config/kdiff3rc" \
+  "$account_home/.config/mimeapps.list" \
+  "$account_home/.config/micro/settings.json" \
+  "$account_home/.config/nano/nanorc" \
+  "$account_home/.config/xdg-terminals.list" \
+  "$account_home/.config/nvim/init.lua" \
+  "$account_home/.config/qalculate/qalc.cfg" \
+  "$account_home/.config/qalculate/qalculate-qt.cfg" \
+  "$account_home/.config/task/taskrc" \
+  "$account_home/.config/retroarch/retroarch.cfg" \
+  "$account_home/.config/tesseract/ocr-defaults.conf" \
+  "$account_home/.config/tesseract/user-words/default.user-words" \
+  "$account_home/.config/tesseract/user-patterns/default.user-patterns" \
+  "$account_home/.config/vim/vimrc" \
+  "$account_home/.vimrc" \
+  "$account_home/.config/xfce4/helpers.rc" \
+  "$account_home/.config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml" \
+  "$account_home/.config/fuzzel/base.ini" \
+  "$account_home/.config/fuzzel/fuzzel.ini" \
+  "$account_home/.config/fuzzel/menu.ini" \
+  "$account_home/.config/fuzzel/computer-management.ini" \
+  "$account_home/.config/Thunar/uca.xml" \
+  "$account_home/.config/crystal-dock/labwc/appearance.conf" \
+  "$account_home/.config/crystal-dock/labwc/panel_1.conf" \
+  "$account_home/.config/mako/config" \
+  "$account_home/.profile" \
+  "$account_home/.profile.d" \
+  "$account_home/.bash_profile" \
+  "$account_home/.bashrc" \
+  "$account_home/.bash_aliases" \
+  "$account_home/.zshenv" \
+  "$account_home/.zprofile" \
+  "$account_home/.zshrc" \
+  "$account_home/.zlogout" \
+  "$account_home/.zsh_aliases" \
+  "$account_home/.dircolors" \
+  "$account_home/.config/starship.toml" \
+  "$account_home/.config/gtk-3.0/settings.ini" \
+  "$account_home/.config/gtk-4.0/settings.ini" \
+  "$account_home/.local/share/applications/chromium.desktop" \
+  "$account_home/.local/share/applications/com.microsoft.Edge.desktop" \
+  "$account_home/.local/share/applications/vivaldi-stable.desktop" \
+  "$account_home/.local/share/applications/code.desktop" \
+  "$account_home/.local/share/applications/bitwarden.desktop" \
+  "$account_home/.local/share/applications/md.obsidian.Obsidian.desktop" \
+  "$account_home/.local/share/applications/obsidian.desktop" \
+  "$account_home/.local/share/applications/postman.desktop" \
+  "$account_home/.local/share/applications/sleek.desktop" \
+  "$account_home/.local/share/applications/tutanota-desktop.desktop" \
+  "$account_home/.local/share/applications/Zoom.desktop" \
+  "$account_home/.local/share/applications/Filen.desktop" \
+  "$account_home/.local/share/applications/discord.desktop" \
+  "$account_home/.local/share/applications/ledger-live.desktop" \
+  "$account_home/.local/share/applications/org.telegram.desktop.desktop" \
+  "$account_home/.local/share/applications/mullvad-browser.desktop" \
+  "$account_home/.config/qt6ct/qt6ct.conf" \
+  "$account_home/.config/user-dirs.dirs" \
+  "$account_home/.config/xournalpp/settings.xml" \
+  "$account_home/.config/xdg-desktop-portal/portals.conf" \
+  "$account_home/.config/kwalletrc"
+do
+  check_optional_owned "$path"
+done
+
+printf "desktop_primary_account_verification user=%s home=%s required_files=%s optional_files=%s optional_missing=%s\n" \
+  "$account_user" \
+  "$account_home" \
+  "$required_checked" \
+  "$optional_checked" \
+  "${optional_missing:-none}"
+' sh "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" "${LABWC_DESKTOP_GTK_ICON_THEME}" "$OBSIDIAN_GIT_AUTO_ENABLE"
+}
+
+desktop_verify_greeter_access() {
+  : "${LABWC_GREETER_USER:?LABWC_GREETER_USER must be set}"
+
+  # shellcheck disable=SC2016
+  run_in_target "verify Labwc greeter seat and DRM access" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+greeter_user=$1
+checked=0
+present=
+missing=
+greeter_groups=$(id -nG "$greeter_user")
+wireplumber_dropin=__INSTALLER_PATH_DIR_SYSTEMD_USER_WIREPLUMBER_DROPIN__/20-no-root.conf
+[ -f "$wireplumber_dropin" ] && [ ! -L "$wireplumber_dropin" ] || {
+  printf "fatal: WirePlumber user-condition drop-in is missing or unsafe: %s\n" "$wireplumber_dropin" >&2
+  exit 1
+}
+
+for dropin_dir in \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_PIPEWIRE_SOCKET_DROPIN__ \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_PIPEWIRE_DROPIN__ \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_PIPEWIRE_PULSE_SOCKET_DROPIN__ \
+  __INSTALLER_PATH_DIR_SYSTEMD_USER_PIPEWIRE_PULSE_DROPIN__
+do
+  dropin="${dropin_dir}/20-no-greeter.conf"
+  [ -f "$dropin" ] && [ ! -L "$dropin" ] || {
+    printf "fatal: PipeWire greeter exclusion is missing or unsafe: %s\n" "$dropin" >&2
+    exit 1
+  }
+done
+
+for group_name in seat render video; do
+  if ! getent group "$group_name" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    missing="${missing:+$missing }$group_name"
+    continue
+  fi
+  case " $greeter_groups " in
+    *" $group_name "*) ;;
+    *)
+      printf "fatal: greeter user %s is missing required group %s\n" "$greeter_user" "$group_name" >&2
+      exit 1
+      ;;
+  esac
+  checked=$((checked + 1))
+  present="${present:+$present }$group_name"
+done
+
+printf "desktop_greeter_access_verification user=%s checked=%s present=%s missing=%s\n" \
+  "$greeter_user" \
+  "$checked" \
+  "${present:-none}" \
+  "${missing:-none}"
+' sh "$LABWC_GREETER_USER"
+}
+
+desktop_verify_user_resource_policy() {
+  # shellcheck disable=SC2016
+  run_in_target "verify Labwc user resource policy files" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+
+for policy_file in "$@"; do
+  [ -f "$policy_file" ] && [ ! -L "$policy_file" ] &&
+    [ "$(find -P "$policy_file" -maxdepth 0 -printf "%U:%G:%m:%n")" = "0:0:644:1" ] || {
+    printf "fatal: missing or unsafe desktop user resource policy file: %s\n" "$policy_file" >&2
+    exit 1
+  }
+done
+
+printf "desktop_user_resource_policy_verification files=%s\n" "$#"
+' sh \
+    __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_USER_1000_SLICE_DROPIN__/50-resource-accounting.conf \
+    __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_USER_MANAGER_DROPIN__/50-oom-score.conf \
+    __INSTALLER_PATH_DIR_SYSTEMD_USER__/build.slice \
+    __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_USER_SLICE_DROPIN__/60-desktop-memory.conf \
+    __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_USER_FAMILY_SLICE_DROPIN__/60-desktop-memory.conf \
+    __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_USER_MANAGER_DROPIN__/60-desktop-memory.conf \
+    __INSTALLER_PATH_DIR_ETC__/systemd/user.conf.d/50-resource-defaults.conf
+}
+
+desktop_verify_kanshi_policy() {
+  run_in_target "verify conditional Kanshi path metadata" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+metadata() {
+  path=$1
+  [ -e "$path" ] || return 0
+  [ ! -L "$path" ] || { printf "fatal: optional Kanshi path is a symbolic link: %s\\n" "$path" >&2; exit 1; }
+  mode=$(find -P "$path" -maxdepth 0 -printf "%m")
+  case "$path" in *.service|*.conf) [ "$mode" = 644 ] || { printf "fatal: Kanshi file mode mismatch: %s\\n" "$path" >&2; exit 1; } ;; *) [ -d "$path" ] || [ -f "$path" ] || { printf "fatal: invalid Kanshi path: %s\\n" "$path" >&2; exit 1; } ;; esac
+}
+for path in __INSTALLER_PATH_DIR_USR_BIN__/kanshi __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-kanshi __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/kanshi/config __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/kanshi.service __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/kanshi.service.d/60-resource-class.conf; do metadata "$path"; done
+printf "desktop_kanshi_metadata_verification complete\\n"
+' sh
+}
+
+desktop_verify_runtime_contracts() {
+  : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set}"
+  : "${LABWC_GREETER_USER:?LABWC_GREETER_USER must be set}"
+  stage=${1:-code-only}
+  case "$stage" in code-only|with-account|account-only) ;; *)
+    printf 'fatal: invalid runtime verification stage: %s\n' "$stage" >&2; return 1 ;;
+  esac
+  for runtime_identifier in "$ACCOUNT_USERNAME" "$LABWC_GREETER_USER"; do
+    case "$runtime_identifier" in
+      ""|*[!a-z0-9_-]*|[!a-z_]*)
+        printf 'fatal: invalid configured desktop identifier\n' >&2; return 1 ;;
+    esac
+    [ "${#runtime_identifier}" -le 32 ] || {
+      printf 'fatal: configured desktop identifier is too long\n' >&2; return 1;
+    }
+  done
+  run_in_target "verify rendered desktop runtime metadata" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+stage=$1
+for directory in \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin __INSTALLER_PATH_DIR_USR_LOCAL__/libexec \
+  __INSTALLER_PATH_DIR_PYTHON3_LOCAL__ __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__ \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/managed_workflows \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_appearance \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-help __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-help/articles
+do
+  [ -d "$directory" ] && [ ! -L "$directory" ] || {
+    printf "fatal: unsafe runtime directory: %s\n" "$directory" >&2; exit 1;
+  }
+  [ "$(find -P "$directory" -maxdepth 0 -printf "%U:%G:%m")" = 0:0:755 ] || {
+    printf "fatal: runtime directory must be root:root mode 0755: %s\n" "$directory" >&2; exit 1;
+  }
+done
+metadata() {
+  path=$1; mode=$2
+  [ -f "$path" ] && [ ! -L "$path" ] || { printf "fatal: required runtime file is missing or unsafe: %s\\n" "$path" >&2; exit 1; }
+  actual=$(find -P "$path" -maxdepth 0 -printf "%U:%G:%m:%n")
+  [ "$actual" = "0:0:$mode:1" ] || { printf "fatal: runtime metadata mismatch: %s expected=0:0:%s:1 actual=%s\\n" "$path" "$mode" "$actual" >&2; exit 1; }
+}
+executable() { metadata "$1" 755; [ -x "$1" ] || { printf "fatal: runtime delegate is not executable: %s\\n" "$1" >&2; exit 1; }; }
+for path in \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-app __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-fuzzel \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-help __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-help-gtk \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wayscriber-config __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wayscriber-toggle \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wallpaper-save __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waypaper \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-run __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-exec \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-menu \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-state \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-swaybg __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-swaylock \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-wallpaper-control; do executable "$path"; done
+for path in \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/managed_workflows/__init__.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/managed_workflows/fs.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_waybar_state.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_appearance/wallpaper.py \
+  __INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/native-gpu-selection; do metadata "$path" 644; done
+metadata __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-appearance/menu-icons.json 644
+for path in \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-help/catalog.json \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-help/theme.json \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-help/articles/start.help.json \
+  __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/labwc-help.desktop \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help/__init__.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help/catalog.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help/navigation.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help/render.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help/search.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help/state.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help/theme.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help/window.py \
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_help/app.py; do metadata "$path" 644; done
+for path in __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-help/articles/*.json; do metadata "$path" 644; done
+for path in __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-agenda __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-calendar; do
+  [ -L "$path" ] || { printf "fatal: managed calendar link is missing: %s\\n" "$path" >&2; exit 1; }
+  target=$(readlink "$path")
+  [ "$target" = labwc-app ] || { printf "fatal: managed calendar link target mismatch: %s\\n" "$path" >&2; exit 1; }
+done
+printf "desktop_runtime_metadata_verification stage=%s\\n" "$stage"
+' sh "$stage"
+}
+
+desktop_verify_target_staging() {
+  desktop_verify_runtime_contracts with-account
+  run_in_target "verify managed wlsunset path metadata" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+[ -x __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wlsunset ] || { printf "fatal: managed wlsunset delegate is missing\n" >&2; exit 1; }
+printf "desktop_wlsunset_metadata_verification complete\n"
+' sh
+  desktop_verify_kanshi_policy
+  desktop_verify_greeter_access
+  desktop_verify_user_resource_policy
+  # The broad command/file inventory belongs to the complete full class.
+  # Medium/base use the explicit role presence and exclusion contract below.
+  if installer_class_selected role/desktop/full; then
+    desktop_verify_required_commands
+    desktop_verify_staged_files
+    desktop_verify_optional_staged_files
+    desktop_verify_primary_user_files
+  fi
+}
+
+# Executed in the offline target by the selected desktop stage, never by the
+# build or source audit. Core metadata checks above apply to every desktop.
+desktop_verify_role_installation() {
+  installer_assert_class_plan
+  role=$INSTALLER_DESKTOP_ROLE
+  run_in_target 'verify physical desktop class presence and absent activation' \
+    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -S -B -c '
+import configparser
+import os
+import json
+import grp
+from pathlib import Path
+import pwd
+import stat
+import sys
+
+role = sys.argv[1]
+if role not in ("desktop/base", "desktop/medium", "desktop/full"):
+    raise SystemExit("unregistered desktop class")
+receipt = Path("__INSTALLER_PATH_FILE_INSTALLER_CLASSES__")
+records = receipt.read_text().splitlines()
+if (receipt.is_symlink() or records.count("format\t2") != 1
+        or [line for line in records if line.startswith("role\t")] != ["role\t" + role]):
+    raise SystemExit("desktop class receipt differs")
+required = [
+    Path("__INSTALLER_PATH_DIR_OPT_BITWARDEN__/bitwarden"),
+    Path("__INSTALLER_PATH_DIR_OPT_VIVALDI__/vivaldi"),
+    Path("__INSTALLER_PATH_DIR_OPT__/calix/calix"),
+    Path("__INSTALLER_PATH_DIR_OPT__/waycal/waycal"),
+    Path("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/com.github.dahenson.agenda"),
+    Path("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/calix-fruux-bootstrap"),
+    Path("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waycal-control"),
+    Path("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-worker"),
+    Path("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-build"),
+    Path("__INSTALLER_PATH_DIR_SYSTEMD_USER__/build.slice"),
+    Path("__INSTALLER_PATH_DIR_USR_LIBEXEC__/hyprpolkitagent"),
+    Path("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-hyprpolkit-agent"),
+    Path("__INSTALLER_PATH_DIR_SYSTEMD_USER_HYPRPOLKITAGENT_DROPIN__/10-labwc-session.conf"),
+    Path("__INSTALLER_PATH_DIR_SYSTEMD_USER_HYPRPOLKITAGENT_DROPIN__/60-resource-class.conf"),
+    Path("__INSTALLER_PATH_DIR_SYSTEMD_USER_HYPRPOLKITAGENT_DROPIN__/70-no-core.conf"),
+    Path("__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_AGENDA_SCHEMAS__/gschemas.compiled"),
+    Path("__INSTALLER_PATH_DIR_ETC__/apparmor.d/opt.Bitwarden.bitwarden"),
+    Path("__INSTALLER_PATH_DIR_ETC__/apparmor.d/opt.tuta-mail.AppRun"),
+    Path("__INSTALLER_PATH_DIR_ETC__/apparmor.d/opt.ledger-live.AppRun"),
+    Path("__INSTALLER_PATH_DIR_ETC__/apparmor.d/sleek"),
+    Path("__INSTALLER_PATH_DIR_ETC__/apparmor.d/obsidian"),
+    Path("__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.config/obsidian/obsidian.json"),
+    Path("__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.config/systemd/user/obsidian-git-sync.service"),
+    Path("__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.config/systemd/user/obsidian-git-sync.timer"),
+    Path("__INSTALLER_PATH_DIR_ETC__/apparmor.d/tomat"),
+    Path("__INSTALLER_PATH_DIR_ETC__/apparmor.d/usr.bin.spotify"),
+    Path("__INSTALLER_PATH_DIR_ETC__/udev/rules.d/53-ledger-wallet.rules"),
+    Path("__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.local/share/applications/tutanota-desktop.desktop"),
+    Path("__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/sleek.desktop"),
+    Path("__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/ledger-live.desktop"),
+    Path("__INSTALLER_PATH_DIR_ETC__/app-veth.json"),
+    Path("__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.config/systemd/user/labwc-calendar-credentials.service"),
+]
+def trusted_parents(path):
+    for parent in path.parents:
+        meta = parent.lstat()
+        if not stat.S_ISDIR(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+            raise SystemExit("required desktop class asset has untrusted ancestry")
+
+for path in required:
+    trusted_parents(path)
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022 or info.st_nlink != 1:
+        raise SystemExit("required desktop class asset has unsafe metadata: " + str(path))
+
+account = pwd.getpwnam(sys.argv[2])
+if account.pw_uid == 0:
+    raise SystemExit("desktop build storage cannot belong to root")
+for offset in (3, 6):
+    relative, expected_url, branch = sys.argv[offset:offset+3]
+    checkout = Path(account.pw_dir) / relative
+    if (Path(relative).is_absolute() or len(Path(relative).parts) != 2
+            or any(part in (".", "..") for part in Path(relative).parts)
+            or os.path.realpath(checkout) != str(checkout)):
+        raise SystemExit("desktop repository path is indirect or outside its account")
+    for directory in (checkout, checkout / ".git"):
+        info = directory.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != account.pw_uid
+                or stat.S_IMODE(info.st_mode) != 0o700):
+            raise SystemExit("desktop repository metadata is not private to its account")
+    captured = {}
+    for leaf in ("HEAD", "config"):
+        descriptor = os.open(checkout / ".git" / leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            info = os.fstat(descriptor)
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != account.pw_uid
+                    or info.st_mode & 0o077 or info.st_size > 65536):
+                raise SystemExit("desktop repository record is unsafe or oversized")
+            value = os.read(descriptor, 65537)
+            if len(value) > 65536:
+                raise SystemExit("desktop repository record exceeds its limit")
+            captured[leaf] = value.decode("utf-8")
+        finally:
+            os.close(descriptor)
+    config = configparser.RawConfigParser(strict=True)
+    config.read_string(captured["config"])
+    if (captured["HEAD"] != "ref: refs/heads/" + branch + "\n"
+            or config.get("remote \"origin\"", "url") != expected_url
+            or config.get("branch \"" + branch + "\"", "remote") != "origin"
+            or config.get("branch \"" + branch + "\"", "merge") != "refs/heads/" + branch):
+        raise SystemExit("desktop repository does not retain its configured origin and tracking branch")
+pool_group = grp.getgrnam("devops").gr_gid
+build_root = Path("__INSTALLER_PATH_DIR_POOL_BUILD__") / account.pw_name
+for path, uid, gid, mode in (
+    (Path("__INSTALLER_PATH_DIR_POOL__"), 0, pool_group, 0o3775),
+    (Path("__INSTALLER_PATH_DIR_POOL_BUILD__"), 0, pool_group, 0o2770),
+    (build_root, account.pw_uid, pool_group, 0o2770),
+    (build_root / "tmp", account.pw_uid, account.pw_gid, 0o700),
+):
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != uid
+            or info.st_gid != gid or stat.S_IMODE(info.st_mode) != mode):
+        raise SystemExit("desktop build storage has unsafe metadata: " + str(path))
+
+# AppDir AppRun and native package entrypoints may be contained symlinks.
+# Validate each link and its ancestry before following it; bound the chain,
+# reject cycles and escapes, then require a root-owned executable regular file.
+for path, boundary in (
+    (Path("__INSTALLER_PATH_DIR_OPT_TUTA_MAIL__/AppRun"), Path("__INSTALLER_PATH_DIR_OPT_TUTA_MAIL__")),
+    (Path("__INSTALLER_PATH_DIR_OPT_OBSIDIAN__/obsidian"), Path("__INSTALLER_PATH_DIR_OPT_OBSIDIAN__")),
+    (Path("__INSTALLER_PATH_DIR_OPT_SLEEK__/sleek"), Path("__INSTALLER_PATH_DIR_OPT_SLEEK__")),
+    (Path("__INSTALLER_PATH_DIR_OPT_LEDGER_LIVE__/AppRun"), Path("__INSTALLER_PATH_DIR_OPT_LEDGER_LIVE__")),
+    (Path("__INSTALLER_PATH_DIR_USR_BIN__/tomat"), Path("__INSTALLER_PATH_DIR_USR__")),
+    (Path("__INSTALLER_PATH_DIR_USR_BIN__/spotify"), Path("__INSTALLER_PATH_DIR_USR__")),
+    (Path("__INSTALLER_PATH_DIR_USR_BIN__/l3afpad"), Path("__INSTALLER_PATH_DIR_USR__")),
+):
+    seen = set()
+    for _ in range(17):
+        if path in seen or not path.is_relative_to(boundary):
+            raise SystemExit("desktop entrypoint has a cyclic or escaping link")
+        seen.add(path)
+        trusted_parents(path)
+        info = path.lstat()
+        if info.st_uid != 0 or info.st_nlink != 1:
+            raise SystemExit("desktop entrypoint has untrusted ownership or identity")
+        if stat.S_ISLNK(info.st_mode):
+            link = os.readlink(path)
+            if not link or len(link) > 4096 or os.path.isabs(link):
+                raise SystemExit("desktop entrypoint link must be bounded and relative")
+            path = Path(os.path.normpath(str(path.parent / link)))
+            continue
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022 or not info.st_mode & 0o111:
+            raise SystemExit("desktop entrypoint is not a trusted executable")
+        break
+    else:
+        raise SystemExit("desktop entrypoint link chain exceeds the limit")
+if role == "desktop/base":
+    network = json.loads(Path("__INSTALLER_PATH_DIR_ETC__/app-veth.json").read_text())["apps"]
+    allowed = {"bitwarden", "freerdp", "ledger-live", "liferea", "obsidian", "spotify", "tutanota", "vivaldi"}
+    if any(policy["network"] for name,policy in network.items() if name not in allowed):
+        raise SystemExit("base desktop authorizes excluded application networking")
+    if any(network.get(name, {}).get("network") is not True for name in ("bitwarden", "ledger-live", "spotify", "tutanota", "vivaldi")):
+        raise SystemExit("base desktop lacks essential application network confinement")
+    forbidden = [
+        Path("__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.profile.d/71-devops-de.sh"),
+        Path("__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.profile.d/72-incus.sh"),
+        Path("__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.profile.d/75-firmware-workspace.sh"),
+        Path("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-ai-copilots"),
+        Path("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-podman-menu"),
+        Path("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/whisper-cli"),
+        Path("__INSTALLER_PATH_DIR_USR_BIN__/podman"),
+        Path("__INSTALLER_PATH_DIR_USR_BIN__/qemu-system-x86_64"),
+        Path("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/podman"),
+        Path("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/docker"),
+        Path("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/docker-compose"),
+        Path("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/podman-devops-host"),
+        Path("__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/podman-devops-bootstrap.service"),
+        Path("__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/incus-host.service"),
+        Path("__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/managed-buildbuddy.service"),
+    ]
+    for path in forbidden:
+        if path.exists() or path.is_symlink():
+            raise SystemExit("base desktop contains excluded specialist activation: " + str(path))
+    units = Path("__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.config/systemd/user")
+    for pattern in ("*whisper*", "*llama*", "*codex*", "*.wants/*whisper*", "*.wants/*codex*"):
+        if any(units.glob(pattern)):
+            raise SystemExit("base desktop contains excluded AI/DevOps service activation")
+print("desktop class presence and activation metadata verified; runtime behavior untested")
+' "$role" "$ACCOUNT_USERNAME" "$OBSIDIAN_GIT_DIRECTORY" "$OBSIDIAN_GIT_REPOSITORY_URL" "$OBSIDIAN_GIT_REPOSITORY_BRANCH" \
+    "$BROWSER_NETSCAPE_DIRECTORY" "$BROWSER_NETSCAPE_REPOSITORY_URL" "$BROWSER_NETSCAPE_REPOSITORY_BRANCH"
+  # Read-only package metadata/ancestry gate, with bounded dpkg-query calls.
+  # No agent, compositor, display or service is started in the offline target.
+  run_in_target 'verify packaged Qt Hyprpolkitagent before desktop activation' \
+    __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-hyprpolkit-agent --check
+}

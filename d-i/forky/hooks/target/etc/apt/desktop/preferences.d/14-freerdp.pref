@@ -1,0 +1,4 @@
+# Forky's native SDL client; no foreign-suite dependency fallback.
+Package: freerdp-sdl libfreerdp-client3-3 libfreerdp3-3 libwinpr3-3
+Pin: release o=Debian,n=forky
+Pin-Priority: 900

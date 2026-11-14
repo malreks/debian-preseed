@@ -1,0 +1,933 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""One bounded Fruux operation, using private stdin/stdout and Secret Service.
+
+The GTK controller owns interactive operation deadlines and cancellation. The
+--reminders service mode reads only explicit UID opt-ins and current Fruux items.
+No shell, vendor executable, Calix database mutation or Sleek text-file scan.
+"""
+from __future__ import annotations
+
+import base64
+import fcntl
+import hashlib
+from datetime import date, datetime, timedelta, timezone
+import io
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import signal
+import stat
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from zoneinfo import ZoneInfo
+
+import labwc_calendar_reminders as reminders
+from defusedxml import ElementTree as XML
+from icalendar import Calendar, Event, Todo, Timezone
+
+DAV = '{DAV:}'
+CAL = '{urn:ietf:params:xml:ns:caldav}'
+MAX_BODY = 4 * 1024 * 1024
+MAX_RESOURCE = 256 * 1024
+MAX_ITEMS = 500
+KINDS = {'VEVENT', 'VTODO'}
+OPERATIONS = {'discover', 'list', 'get', 'create', 'update', 'complete', 'delete', 'review', 'acknowledge'}
+UNAVAILABLE = {'keyring-unavailable', 'network-unavailable', 'no-calendars', 'deadline', 'write-busy',
+               'unsupported-recurrence', 'scheduled-object', 'read-only', 'missing-etag'}
+
+
+class Error(Exception):
+    def __init__(self, code: str):
+        self.code = code
+
+
+def require(ok: bool, code: str = 'invalid-input') -> None:
+    if not ok:
+        raise Error(code)
+
+
+def text(value, maximum: int = 4096, *, empty: bool = True) -> str:
+    require(isinstance(value, str) and len(value.encode('utf-8')) <= maximum
+            and (empty or bool(value.strip())) and '\0' not in value)
+    return value
+
+
+def configured_origin() -> str:
+    home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    data = private_json(home / '.config/calix/fruux-account.json', home)
+    server = data.get('server')
+    require(isinstance(server, str) and server, 'unsafe-server-url')
+    parsed = urllib.parse.urlsplit(server)
+    require(parsed.scheme == 'https' and parsed.hostname and not parsed.username
+            and not parsed.password and not parsed.query and not parsed.fragment
+            and parsed.port in (None, 443) and parsed.path in ('', '/'), 'unsafe-server-url')
+    return server.rstrip('/')
+
+
+def href(value: str, base: str | None = None) -> str:
+    origin = configured_origin()
+    base = base or origin + '/'
+    text(value, empty=False)
+    require(not any(ord(c) < 33 or ord(c) == 127 for c in value), 'unsafe-server-url')
+    url = urllib.parse.urljoin(base, value)
+    parsed = urllib.parse.urlsplit(url)
+    decoded = urllib.parse.unquote(parsed.path, errors='strict')
+    require(parsed.scheme == 'https' and parsed.netloc == urllib.parse.urlsplit(origin).netloc
+            and not parsed.query and not parsed.fragment and decoded.startswith('/')
+            and '\\' not in decoded and '//' not in decoded
+            and '%' not in decoded
+            and all(part not in {'.', '..'} for part in decoded.split('/'))
+            and not any(ord(c) < 32 or ord(c) == 127 for c in decoded), 'unsafe-server-url')
+    return url
+
+
+def strong_etag(value) -> str:
+    require(isinstance(value, str) and re.fullmatch(r'"[\x21\x23-\x7e]{1,256}"', value) is not None,
+            'missing-etag')
+    return value
+
+
+def private_json(path: Path, home: Path, *, maximum=16384) -> dict:
+    for parent in (home, home / '.config', path.parent):
+        info = parent.lstat()
+        require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid()
+                and not info.st_mode & 0o077, 'unsafe-account')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
+                and info.st_nlink == 1 and not info.st_mode & 0o077, 'unsafe-account')
+        require(info.st_size <= maximum, 'unsafe-account')
+        raw = stream.read(maximum + 1)
+    require(len(raw) <= maximum, 'unsafe-account')
+    value = json.loads(raw)
+    require(isinstance(value, dict), 'unsafe-account')
+    return value
+
+
+def credentials(*, unlock=True) -> tuple[str, str]:
+    require(os.getuid() != 0 and os.getuid() == os.geteuid(), 'unsafe-account')
+    home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    require(Path.home() == home, 'unsafe-account')
+    data = private_json(home / '.config/calix/fruux-account.json', home)
+    origin = configured_origin()
+    require(set(data) == {'version', 'server', 'username'} and data['version'] == 1
+            and data['server'] == origin, 'unsafe-account')
+    username = text(data['username'], 4096, empty=False)
+    require(username == username.strip() and ':' not in username
+            and not any(ord(c) < 32 for c in username), 'unsafe-account')
+    import gi
+    gi.require_version('Secret', '1')
+    from gi.repository import Secret
+    schema = Secret.Schema.new('org.freedesktop.Secret.Generic', Secret.SchemaFlags.DONT_MATCH_NAME,
+                               {'service': Secret.SchemaAttributeType.STRING,
+                                'username': Secret.SchemaAttributeType.STRING})
+    service = Secret.Service.get_sync(Secret.ServiceFlags.OPEN_SESSION | Secret.ServiceFlags.LOAD_COLLECTIONS, None)
+    flags = Secret.SearchFlags.ALL | Secret.SearchFlags.LOAD_SECRETS
+    if unlock:
+        flags |= Secret.SearchFlags.UNLOCK
+    items = service.search_sync(schema, {'service': 'com.ianswope.Calix',
+        'username': 'caldav-password:' + origin + '|' + username.lower()},
+        flags, None)
+    require(len(items) == 1 and items[0].get_secret() is not None, 'keyring-unavailable')
+    password = text(items[0].get_secret().get_text(), 4096, empty=False)
+    return username, password
+
+
+def state_path(name: str) -> Path:
+    return Path(pwd.getpwuid(os.getuid()).pw_dir) / '.config/calix' / name
+
+
+def sync_state_directory() -> None:
+    fd = os.open(state_path('fruux-pending.json').parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def pending_change() -> dict | None:
+    path = state_path('fruux-pending.json')
+    if not path.exists() and not path.is_symlink():
+        return None
+    data = private_json(path, Path(pwd.getpwuid(os.getuid()).pw_dir), maximum=65536)
+    require(set(data) in ({'version', 'request_id', 'method', 'kind', 'url', 'sha256', 'previous_etag'},
+                         {'version', 'request_id', 'method', 'kind', 'url', 'sha256', 'previous_etag', 'reminder'})
+            and data['version'] == 1 and re.fullmatch(r'[a-f0-9]{12}', data['request_id'])
+            and data['method'] in {'PUT', 'DELETE'} and data['kind'] in KINDS
+            and re.fullmatch(r'[a-f0-9]{64}', data['sha256']), 'unsafe-account')
+    href(data['url'])
+    if data['previous_etag'] != '*':
+        strong_etag(data['previous_etag'])
+    if 'reminder' in data:
+        validate_reminder_intent(data['reminder'], data['url'], data['kind'])
+    return data
+
+
+def reminder_store():
+    return reminders.Store(Path(pwd.getpwuid(os.getuid()).pw_dir))
+
+
+def validate_reminder_intent(candidate, url, kind):
+    require(isinstance(candidate, dict) and set(candidate) == {'uid', 'url', 'kind', 'timezone', 'preference'})
+    reminders.uid_key(candidate['uid'])
+    require(candidate['url'] == url and candidate['kind'] == kind)
+    reminders.preference(candidate['preference'])
+    try:
+        ZoneInfo(text(candidate['timezone'], 128, empty=False))
+    except (ValueError, KeyError):
+        raise Error('invalid-reminder') from None
+
+
+def apply_reminder(candidate, *, confirmed=True):
+    """Commit a reminder while the caller holds the shared writer lock."""
+    if candidate is None:
+        return
+    settings = candidate['preference'] if confirmed else dict(reminders.DEFAULT)
+    with reminder_store() as store:
+        store.set(candidate['uid'], candidate['url'], candidate['kind'], candidate['timezone'], settings)
+
+
+def reminder_candidate(calendar, component, kind, url, settings, zone):
+    settings = reminders.preference(settings)
+    candidate = {'uid': str(component['UID']), 'url': url, 'kind': kind,
+                 'timezone': zone, 'preference': settings}
+    validate_reminder_intent(candidate, url, kind)
+    if settings['enabled']:
+        # Validation precedes the remote write. A task without a due/start date
+        # or an unsupported recurrence must not silently accept a dead opt-in.
+        reminders.due_slots(calendar, component, kind, {**candidate, 'enabled_at': 0}, int(time.time()))
+    with reminder_store() as store:
+        store.prepare(candidate['uid'], url, kind, zone, settings)
+    return candidate
+
+
+def writer_lock() -> int:
+    fd = os.open(state_path('.fruux-actions.lock'), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        info = os.fstat(fd)
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
+                and info.st_nlink == 1 and not info.st_mode & 0o077, 'unsafe-account')
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Error('write-busy') from None
+        current = state_path('.fruux-actions.lock').lstat()
+        require((current.st_dev, current.st_ino) == (info.st_dev, info.st_ino), 'unsafe-account')
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def remove_intent(expected: dict) -> None:
+    require(pending_change() == expected, 'pending-change')
+    state_path('fruux-pending.json').unlink()
+    sync_state_directory()
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args):
+        return None
+
+
+class Client:
+    def __init__(self, username: str, password: str):
+        self.authorization = 'Basic ' + base64.b64encode((username + ':' + password).encode()).decode('ascii')
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        self.deadline = time.monotonic() + 40
+        self.remaining = 12 * 1024 * 1024
+        self.request_id = uuid.uuid4().hex[:12]
+
+    def write(self, method: str, url: str, kind: str, body: bytes | None = None, headers: dict | None = None,
+              *, reminder: dict | None = None):
+        lock = writer_lock()
+        remote_started = False
+        try:
+            require(pending_change() is None, 'pending-change')
+            headers = headers or {}
+            intent = {'version': 1, 'request_id': self.request_id, 'method': method, 'kind': kind,
+                      'url': href(url), 'sha256': hashlib.sha256(body or b'').hexdigest(),
+                      'previous_etag': headers.get('If-Match', '*')}
+            if reminder is not None:
+                validate_reminder_intent(reminder, url, kind)
+                with reminder_store() as store:
+                    store.prepare(reminder['uid'], url, kind, reminder['timezone'], reminder['preference'])
+                intent['reminder'] = reminder
+            encoded_intent = (json.dumps(intent, sort_keys=True) + '\n').encode()
+            require(len(encoded_intent) <= 65536, 'invalid-input')
+            fd = os.open(state_path('fruux-pending.json'), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, 'wb') as stream:
+                stream.write(encoded_intent)
+                stream.flush()
+                os.fsync(stream.fileno())
+            sync_state_directory()
+            try:
+                remote_started = True
+                result = self.request(method, url, body, headers)
+            except Error as error:
+                if error.code != 'outcome-unknown':
+                    remove_intent(intent)
+                raise
+            # Keep the durable intent until the controller has RECEIVED our
+            # successful reply. A crash between server acknowledgement and
+            # stdout delivery must still require review on the next action.
+            apply_reminder(reminder)
+            return result
+        except Error:
+            raise
+        except reminders.ReminderError as error:
+            raise Error('outcome-unknown' if remote_started else error.code) from None
+        except Exception:
+            raise Error('outcome-unknown') from None
+        finally:
+            os.close(lock)
+
+    def request(self, method: str, url: str, body: bytes | None = None,
+                headers: dict | None = None) -> tuple[int, dict, bytes]:
+        url = href(url)
+        mutation = method in {'PUT', 'DELETE'}
+        request_headers = {'Authorization': self.authorization,
+                           'User-Agent': 'labwc-calendar-actions/1', 'Accept-Encoding': 'identity'}
+        request_headers.update(headers or {})
+        remaining = self.deadline - time.monotonic()
+        require(remaining > 0, 'deadline')
+        request = urllib.request.Request(url, data=body, method=method, headers=request_headers)
+        try:
+            try:
+                response = self.opener.open(request, timeout=min(8, remaining))
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                status = response.code
+                response_headers = {key.lower(): value for key, value in response.headers.items()}
+                # A successful write response is sufficient server acknowledgement.
+                # No readback is used to silently retry an uncertain write.
+                if mutation:
+                    if status in {200, 201, 204}:
+                        return status, response_headers, b''
+                    if status == 412:
+                        raise Error('conflict')
+                    if status in {401, 403, 404, 405, 409, 413, 415, 423}:
+                        raise Error({401: 'authentication', 403: 'read-only', 404: 'not-found',
+                                     409: 'conflict', 423: 'conflict'}.get(status, 'server-rejected'))
+                    raise Error('outcome-unknown')
+                require(status not in {401, 403}, 'authentication')
+                require(status != 404, 'not-found')
+                # Discovery may redirect to a canonical path, on this exact
+                # HTTPS origin only. The next request is validated before auth.
+                if status in {301, 302, 307, 308}:
+                    return status, response_headers, b''
+                require(status in {200, 207}, 'server-rejected')
+                data = bytearray()
+                while True:
+                    require(time.monotonic() < self.deadline, 'deadline')
+                    block = response.read1(min(65536, MAX_BODY + 1 - len(data)))
+                    require(time.monotonic() < self.deadline, 'deadline')
+                    if not block:
+                        break
+                    data.extend(block)
+                    self.remaining -= len(block)
+                    require(len(data) <= MAX_BODY and self.remaining >= 0, 'response-limit')
+                return status, response_headers, bytes(data)
+        except Error:
+            raise
+        except Exception:
+            # A broken transport cannot establish whether a write was accepted.
+            raise Error('outcome-unknown' if mutation else 'network-unavailable') from None
+
+    def properties(self, url: str, names: list[str], depth: str = '0') -> list[tuple[str, dict]]:
+        from xml.etree.ElementTree import Element, SubElement, tostring
+        root = Element(DAV + 'propfind')
+        props = SubElement(root, DAV + 'prop')
+        for name in names:
+            SubElement(props, name)
+        for hop in range(4):
+            status, headers, body = self.request('PROPFIND', url, tostring(root),
+                {'Depth': depth, 'Content-Type': 'application/xml; charset=utf-8'})
+            if status in {301, 302, 307, 308}:
+                require(hop < 3 and 'location' in headers, 'unsafe-server-url')
+                url = href(headers['location'], url)
+                continue
+            return multistatus(body, url)
+        raise Error('unsafe-server-url')
+
+
+def multistatus(body: bytes, base: str, *, allow_missing=False) -> list[tuple[str, dict]]:
+    require(len(body) <= MAX_BODY, 'response-limit')
+    count = depth = 0
+    parser = XML.iterparse(io.BytesIO(body), events=('start', 'end'),
+                           forbid_dtd=True, forbid_entities=True, forbid_external=True)
+    for event, element in parser:
+        if event == 'start':
+            count += 1
+            depth += 1
+            require(count <= 20000 and depth <= 24, 'response-limit')
+        else:
+            depth -= 1
+    root = parser.root
+    require(root.tag == DAV + 'multistatus', 'invalid-response')
+    result = []
+    seen = set()
+    for response in root.findall(DAV + 'response'):
+        require(len(result) < MAX_ITEMS + 1, 'response-limit')
+        url = href(response.findtext(DAV + 'href') or '', base)
+        require(url not in seen, 'invalid-response')
+        seen.add(url)
+        direct_status = response.findtext(DAV + 'status')
+        if allow_missing and direct_status and re.fullmatch(r'HTTP/\S+ (?:404|410)(?: .*)?', direct_status):
+            result.append((url, {'missing': True}))
+            continue
+        require(direct_status is None or re.fullmatch(r'HTTP/\S+ 200(?: .*)?', direct_status), 'invalid-response')
+        props = {}
+        for group in response.findall(DAV + 'propstat'):
+            if re.fullmatch(r'HTTP/\S+ 200(?: .*)?', group.findtext(DAV + 'status') or ''):
+                prop = group.find(DAV + 'prop')
+                if prop is not None:
+                    for child in prop:
+                        require(child.tag not in props, 'invalid-response')
+                        props[child.tag] = child
+        result.append((url, props))
+    return result
+
+
+def discovery(client: Client, kind: str) -> list[dict]:
+    rows = client.properties(configured_origin() + '/', [DAV + 'current-user-principal'])
+    require(len(rows) == 1, 'discovery-failed')
+    principal = rows[0][1].get(DAV + 'current-user-principal')
+    require(principal is not None and len(principal.findall(DAV + 'href')) == 1, 'discovery-failed')
+    principal_url = href(principal.findtext(DAV + 'href') or '', rows[0][0])
+    rows = client.properties(principal_url, [CAL + 'calendar-home-set'])
+    require(len(rows) == 1, 'discovery-failed')
+    home_set = rows[0][1].get(CAL + 'calendar-home-set')
+    require(home_set is not None and 1 <= len(home_set.findall(DAV + 'href')) <= 4, 'discovery-failed')
+    result = []
+    seen = set()
+    for home in home_set.findall(DAV + 'href'):
+        home_url = href(home.text or '', rows[0][0])
+        rows = client.properties(home_url, [DAV + 'resourcetype', DAV + 'displayname',
+            DAV + 'current-user-privilege-set', CAL + 'supported-calendar-component-set'], '1')
+        for url, props in rows:
+            resource_type = props.get(DAV + 'resourcetype')
+            components = props.get(CAL + 'supported-calendar-component-set')
+            if resource_type is None or resource_type.find(CAL + 'calendar') is None:
+                continue
+            supported = {node.get('name') for node in components} if components is not None else KINDS
+            if kind not in supported or url in seen:
+                continue
+            require(url.endswith('/') and len(result) < 64, 'discovery-failed')
+            seen.add(url)
+            privileges = props.get(DAV + 'current-user-privilege-set')
+            granted = {child.tag for p in privileges for child in p} if privileges is not None else set()
+            all_write = DAV + 'all' in granted or DAV + 'write' in granted
+            result.append({'url': url, 'name': (props[DAV + 'displayname'].text or 'Calendar')[:256]
+                           if DAV + 'displayname' in props else 'Calendar',
+                           'create': all_write or DAV + 'bind' in granted,
+                           'update': all_write or DAV + 'write-content' in granted,
+                           'delete': all_write or DAV + 'unbind' in granted})
+    require(bool(result), 'no-calendars')
+    return sorted(result, key=lambda item: (item['name'].casefold(), item['url']))
+
+
+def resource_url(value: str, collection: str) -> str:
+    url = href(value)
+    require(url.startswith(collection) and bool(url[len(collection):])
+            and '/' not in urllib.parse.unquote(url[len(collection):]), 'unsafe-server-url')
+    return url
+
+
+def parse_calendar(raw: bytes, kind: str) -> tuple[Calendar, object]:
+    require(0 < len(raw) <= MAX_RESOURCE and raw.upper().count(b'BEGIN:') <= 128, 'response-limit')
+    calendar = Calendar.from_ical(raw)
+    require(calendar.name == 'VCALENDAR' and not calendar.errors, 'invalid-calendar')
+    components = [component for component in calendar.subcomponents if component.name != 'VTIMEZONE']
+    require(1 <= len(components) <= 64 and all(c.name == kind and not c.errors for c in components),
+            'invalid-calendar')
+    masters = [component for component in components if 'RECURRENCE-ID' not in component]
+    require(len(masters) == 1, 'unsupported-recurrence')
+    component = masters[0]
+    uid = str(component.get('UID', ''))
+    require(bool(uid) and all(str(c.get('UID', '')) == uid for c in components), 'invalid-calendar')
+    # Duplicate editable/identity fields cannot be interpreted safely.
+    for key in ('UID', 'SUMMARY', 'DESCRIPTION', 'LOCATION', 'DTSTART', 'DTEND', 'DUE',
+                'STATUS', 'PERCENT-COMPLETE', 'SEQUENCE'):
+        require(not isinstance(component.get(key), list), 'invalid-calendar')
+    return calendar, component
+
+
+def formatted(component, key: str) -> str:
+    value = component.get(key)
+    if value is None:
+        return ''
+    value = getattr(value, 'dt', value)
+    if isinstance(value, datetime):
+        # Floating times remain floating in the form; timezone is explicit there.
+        return value.isoformat(timespec='minutes')
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)[:16384]
+
+
+def event_end(component) -> str:
+    end = formatted(component, 'DTEND')
+    if not end and 'DTSTART' in component:
+        start = component['DTSTART'].dt
+        duration = component.get('DURATION')
+        if duration is not None:
+            finish = start + duration.dt
+        else:
+            finish = start + (timedelta(hours=1) if isinstance(start, datetime) else timedelta(days=1))
+        end = finish.isoformat(timespec='minutes') if isinstance(finish, datetime) else finish.isoformat()
+    return end
+
+
+def item(raw: bytes, kind: str, url: str, etag: str) -> dict:
+    calendar, component = parse_calendar(raw, kind)
+    temporal_value = component.get('DTSTART', component.get('DUE'))
+    zone = getattr(getattr(getattr(temporal_value, 'dt', None), 'tzinfo', None), 'key', None)
+    if not zone and temporal_value is not None:
+        zone = temporal_value.params.get('TZID')
+    try:
+        ZoneInfo(zone or 'Europe/Stockholm')
+    except (ValueError, KeyError, TypeError):
+        zone = 'Europe/Stockholm'
+    return {'url': url, 'etag': strong_etag(etag), 'uid': str(component['UID']),
+            'summary': formatted(component, 'SUMMARY') or '(Untitled)',
+            'description': formatted(component, 'DESCRIPTION'), 'location': formatted(component, 'LOCATION'),
+            'start': formatted(component, 'DTSTART'), 'end': event_end(component) if kind == 'VEVENT' else '',
+            'due': formatted(component, 'DUE'), 'status': formatted(component, 'STATUS'),
+            'timezone': zone or 'Europe/Stockholm', 'recurrence': reminders.recurrence_name(component),
+            'percent': formatted(component, 'PERCENT-COMPLETE'),
+            'recurring': any(key in component for key in ('RRULE', 'RDATE', 'EXDATE'))
+                         or sum(c.name == kind for c in calendar.subcomponents) > 1,
+            'scheduled': 'ORGANIZER' in component or 'ATTENDEE' in component}
+
+
+def listing(client: Client, collection: str, kind: str, pending: bool) -> list[dict]:
+    from xml.etree.ElementTree import Element, SubElement, tostring
+    root = Element(CAL + 'calendar-query')
+    prop = SubElement(root, DAV + 'prop')
+    SubElement(prop, DAV + 'getetag')
+    SubElement(prop, CAL + 'calendar-data')
+    filters = SubElement(root, CAL + 'filter')
+    parent = SubElement(filters, CAL + 'comp-filter', {'name': 'VCALENDAR'})
+    SubElement(parent, CAL + 'comp-filter', {'name': kind})
+    status, _, raw = client.request('REPORT', collection, tostring(root),
+        {'Depth': '1', 'Content-Type': 'application/xml; charset=utf-8'})
+    require(status == 207, 'invalid-response')
+    result = []
+    for url, props in multistatus(raw, collection):
+        require(CAL + 'calendar-data' in props and DAV + 'getetag' in props, 'invalid-response')
+        data = (props[CAL + 'calendar-data'].text or '').encode('utf-8')
+        entry = item(data, kind, resource_url(url, collection), props[DAV + 'getetag'].text)
+        if pending and (entry['status'] in {'COMPLETED', 'CANCELLED'} or entry['percent'] == '100'):
+            continue
+        result.append(entry)
+        require(len(result) <= MAX_ITEMS, 'response-limit')
+    return sorted(result, key=lambda row: (row['due'] or row['start'] or '9999', row['summary'].casefold(), row['url']))
+
+
+def temporal(value: str, zone: str):
+    value = text(value, 128)
+    if not value:
+        return None
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            raise Error('invalid-date') from None
+    require(re.fullmatch(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?', value) is not None,
+            'invalid-date')
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise Error('invalid-date') from None
+    if parsed.tzinfo is None:
+        try:
+            local = ZoneInfo(text(zone, 128, empty=False))
+        except (KeyError, ValueError):
+            raise Error('invalid-date') from None
+        possible = {candidate.astimezone(timezone.utc) for fold in (0, 1)
+                    if (candidate := parsed.replace(tzinfo=local, fold=fold)).astimezone(timezone.utc)
+                    .astimezone(local).replace(tzinfo=None) == parsed}
+        require(len(possible) == 1, 'ambiguous-date')
+        return possible.pop()
+    return parsed.astimezone(timezone.utc)
+
+
+def replace(component, key: str, value) -> None:
+    component.pop(key, None)
+    if value is not None and value != '':
+        component.add(key, value)
+
+
+def changes(calendar: Calendar, component, kind: str, fields: dict, *, recurring: bool) -> bytes:
+    required = {'summary', 'description', 'location', 'start', 'end', 'due', 'timezone'}
+    require(isinstance(fields, dict) and set(fields) in (required, required | {'recurrence'}), 'invalid-input')
+    frequency = fields.get('recurrence', reminders.recurrence_name(component) if recurring else 'none')
+    require(isinstance(frequency, str) and frequency in (set(reminders.RECURRENCE_RULES) | {'custom'}), 'invalid-input')
+    summary = text(fields['summary'], 1024, empty=False)
+    require('\n' not in summary and '\r' not in summary, 'invalid-input')
+    replace(component, 'SUMMARY', summary)
+    replace(component, 'DESCRIPTION', text(fields['description'], 16384))
+    replace(component, 'LOCATION', text(fields['location'], 4096))
+    if recurring:
+        # Series metadata can change while recurrence IDs, exceptions, timezones
+        # and alarm data stay intact. Moving an entire series needs a richer UI.
+        require(all(fields[key] == (event_end(component) if key == 'end' and kind == 'VEVENT'
+                                   else formatted(component, prop)) for key, prop in
+                    (('start', 'DTSTART'), ('end', 'DTEND'), ('due', 'DUE'))), 'unsupported-recurrence')
+        require(frequency == reminders.recurrence_name(component), 'unsupported-recurrence')
+    else:
+        require(frequency != 'custom', 'invalid-input')
+        start, end, due = (temporal(fields[key], fields['timezone']) for key in ('start', 'end', 'due'))
+        if frequency != 'none':
+            require(start is not None, 'reminder-needs-date')
+            try:
+                zone = ZoneInfo(text(fields['timezone'], 128, empty=False))
+            except (ValueError, KeyError):
+                raise Error('invalid-date') from None
+            # RRULE operates on the calendar-local DTSTART. UTC conversion here
+            # would move a daily 09:00 meeting when the local offset changes.
+            start, end, due = (value.astimezone(zone) if isinstance(value, datetime) else value
+                               for value in (start, end, due))
+            require(frequency != 'weekdays' or start.weekday() < 5, 'recurrence-start-day')
+            require(frequency != 'weekends' or start.weekday() >= 5, 'recurrence-start-day')
+            if isinstance(start, datetime):
+                require(2 <= start.year <= 9899, 'invalid-date')
+                if not any(c.name == 'VTIMEZONE' and str(c.get('TZID')) == zone.key
+                           for c in calendar.subcomponents):
+                    calendar.add_component(Timezone.from_tzinfo(zone, tzid=zone.key,
+                        first_date=date(start.year - 1, 1, 1), last_date=date(start.year + 100, 1, 1)))
+            replace(component, 'RRULE', reminders.RECURRENCE_RULES[frequency])
+        if kind == 'VEVENT':
+            require(start is not None and end is not None and type(start) is type(end) and end > start
+                    and due is None, 'invalid-date')
+            replace(component, 'DTSTART', start)
+            replace(component, 'DTEND', end)
+            component.pop('DURATION', None)
+        else:
+            require(end is None and (due is None or start is None or (type(start) is type(due) and due > start)),
+                    'invalid-date')
+            replace(component, 'DTSTART', start)
+            replace(component, 'DUE', due)
+            if due is not None or start is None:
+                component.pop('DURATION', None)
+    replace(component, 'LAST-MODIFIED', datetime.now(timezone.utc))
+    replace(component, 'DTSTAMP', datetime.now(timezone.utc))
+    sequence = int(component.get('SEQUENCE', 0))
+    require(0 <= sequence < 2147483647, 'invalid-calendar')
+    replace(component, 'SEQUENCE', sequence + 1)
+    raw = calendar.to_ical()
+    require(len(raw) <= MAX_RESOURCE, 'response-limit')
+    return raw
+
+
+def execute(request: dict, client: Client) -> dict:
+    require(isinstance(request, dict) and request.get('op') in OPERATIONS and request.get('kind') in KINDS)
+    require(set(request) <= {'op', 'kind', 'calendar', 'url', 'etag', 'uid', 'pending', 'fields', 'series', 'request_id', 'reminder'})
+    op, kind = request['op'], request['kind']
+    require('reminder' not in request or op in {'create', 'update'})
+    if op in {'review', 'acknowledge'}:
+        lock = writer_lock()
+        try:
+            pending = pending_change()
+            require(pending is not None and pending['request_id'] == request.get('request_id'), 'pending-change')
+            if op == 'acknowledge':
+                remove_intent(pending)
+                return {'result': 'acknowledged'}
+            try:
+                status, headers, raw = client.request('GET', pending['url'])
+            except Error as error:
+                if error.code == 'not-found':
+                    apply_reminder(pending.get('reminder'), confirmed=False)
+                    return {'pending': pending, 'remote': 'absent', 'item': None}
+                raise
+            require(status == 200, 'invalid-response')
+            tag = next((value for key, value in headers.items() if key.lower() == 'etag'), None)
+            entry = item(raw, pending['kind'], pending['url'], tag)
+            matches = hashlib.sha256(raw).hexdigest() == pending['sha256']
+            apply_reminder(pending.get('reminder'), confirmed=matches and pending['method'] == 'PUT')
+            return {'pending': pending, 'remote': 'matches' if matches else 'present', 'item': entry}
+        finally:
+            os.close(lock)
+    calendars = discovery(client, kind)
+    if op == 'discover':
+        return {'calendars': calendars, 'pending': pending_change()}
+    collection = href(text(request.get('calendar'), empty=False))
+    selected = [row for row in calendars if row['url'] == collection]
+    require(len(selected) == 1, 'calendar-changed')
+    calendar_info = selected[0]
+    if op == 'list':
+        require(type(request.get('pending', False)) is bool)
+        return {'items': listing(client, collection, kind, request.get('pending', False))}
+    if op == 'create':
+        require(calendar_info['create'], 'read-only')
+        calendar = Calendar()
+        calendar.add('PRODID', '-//Labwc Desktop//Fruux Calendar Actions 1//EN')
+        calendar.add('VERSION', '2.0')
+        component = Event() if kind == 'VEVENT' else Todo()
+        component.add('UID', str(uuid.uuid4()) + '@labwc-calendar')
+        component.add('CREATED', datetime.now(timezone.utc))
+        if kind == 'VTODO':
+            component.add('STATUS', 'NEEDS-ACTION')
+            component.add('PERCENT-COMPLETE', 0)
+        calendar.add_component(component)
+        raw = changes(calendar, component, kind, request.get('fields'), recurring=False)
+        url = resource_url(collection + str(uuid.uuid4()) + '.ics', collection)
+        candidate = reminder_candidate(calendar, component, kind, url, request.get('reminder', reminders.DEFAULT),
+                                       request['fields']['timezone'])
+        client.write('PUT', url, kind, raw, {'If-None-Match': '*', 'Content-Type': 'text/calendar; charset=utf-8'},
+                     reminder=candidate)
+        return {'result': 'created', 'write_request_id': client.request_id,
+                'uid': str(component['UID']), 'url': url, 'kind': kind}
+    url = resource_url(text(request.get('url'), empty=False), collection)
+    expected = strong_etag(request.get('etag'))
+    status, headers, raw = client.request('GET', url)
+    require(status == 200 and len(raw) <= MAX_RESOURCE, 'invalid-response')
+    # HTTP header names are case insensitive, including fixture implementations.
+    received = next((value for key, value in headers.items() if key.lower() == 'etag'), None)
+    require(strong_etag(received) == expected, 'conflict')
+    calendar, component = parse_calendar(raw, kind)
+    require(str(component['UID']) == text(request.get('uid'), empty=False), 'conflict')
+    entry = item(raw, kind, url, expected)
+    if op == 'get':
+        with reminder_store() as store:
+            entry['reminder'] = store.get(str(component['UID']), url, kind)
+        return {'item': entry}
+    require(not entry['scheduled'], 'scheduled-object')
+    require(not entry['recurring'] or request.get('series') is True, 'series-confirmation')
+    if op == 'delete':
+        require(calendar_info['delete'], 'read-only')
+        candidate = reminder_candidate(calendar, component, kind, url, reminders.DEFAULT, 'Europe/Stockholm')
+        client.write('DELETE', url, kind, headers={'If-Match': expected}, reminder=candidate)
+        return {'result': 'deleted', 'write_request_id': client.request_id,
+                'uid': str(component['UID']), 'url': url, 'kind': kind}
+    require(calendar_info['update'], 'read-only')
+    if op == 'complete':
+        require(kind == 'VTODO' and not entry['recurring'], 'unsupported-recurrence')
+        replace(component, 'STATUS', 'COMPLETED')
+        replace(component, 'PERCENT-COMPLETE', 100)
+        replace(component, 'COMPLETED', datetime.now(timezone.utc))
+        replace(component, 'LAST-MODIFIED', datetime.now(timezone.utc))
+        replace(component, 'DTSTAMP', datetime.now(timezone.utc))
+        replace(component, 'SEQUENCE', int(component.get('SEQUENCE', 0)) + 1)
+        raw = calendar.to_ical()
+    else:
+        raw = changes(calendar, component, kind, request.get('fields'), recurring=entry['recurring'])
+    require(len(raw) <= MAX_RESOURCE, 'response-limit')
+    with reminder_store() as store:
+        settings = store.get(str(component['UID']), url, kind)
+    candidate = reminder_candidate(calendar, component, kind, url,
+        reminders.DEFAULT if op == 'complete' else request.get('reminder', settings),
+        request.get('fields', {}).get('timezone', 'Europe/Stockholm'))
+    client.write('PUT', url, kind, raw, {'If-Match': expected, 'Content-Type': 'text/calendar; charset=utf-8'},
+                 reminder=candidate)
+    return {'result': 'completed' if op == 'complete' else 'updated',
+            'write_request_id': client.request_id, 'uid': str(component['UID']),
+            'url': url, 'kind': kind}
+
+
+def reminder_batches(entries):
+    groups = {}
+    for key, entry in entries.items():
+        collection = href(entry['url'].rsplit('/', 1)[0] + '/')
+        resource_url(entry['url'], collection)
+        groups.setdefault(collection, []).append((key, entry))
+    for collection, values in sorted(groups.items()):
+        for offset in range(0, len(values), 64):
+            yield collection, values[offset:offset + 64]
+
+
+def reminder_report(client, collection, entries):
+    from xml.etree.ElementTree import Element, SubElement, tostring
+    root = Element(CAL + 'calendar-multiget')
+    props = SubElement(root, DAV + 'prop')
+    SubElement(props, DAV + 'getetag')
+    SubElement(props, CAL + 'calendar-data')
+    selected = {entry['url']: (key, entry) for key, entry in entries}
+    require(len(selected) == len(entries), 'invalid-reminder')
+    for url in sorted(selected):
+        SubElement(root, DAV + 'href').text = urllib.parse.urlsplit(url).path
+    status, _, raw = client.request('REPORT', collection, tostring(root),
+        {'Depth': '1', 'Content-Type': 'application/xml; charset=utf-8'})
+    require(status == 207, 'invalid-response')
+    rows = multistatus(raw, collection, allow_missing=True)
+    require({url for url, _ in rows} == set(selected), 'invalid-response')
+    # An incomplete response is unavailable, never evidence that missing items
+    # still exist. No cached calendar body can authorize a phone delivery.
+    return [(selected[url][1], props) for url, props in rows]
+
+
+def reminder_cycle(initial_policy, cursor):
+    with reminder_store() as store:
+        with store.locked():
+            entries = store.read('phone-reminders.json')['items']
+            paused = store.read(reminders.PHONE_CONTROL)['paused']
+            pending = pending_change()
+            if pending:
+                entries = {key: entry for key, entry in entries.items() if entry['url'] != pending['url']}
+        if paused or not entries:
+            return 0
+        policy = reminders.read_policy()
+        if not reminders.boolean(policy, 'ENABLED'):
+            return 0
+        targets = {channel: reminders.destination(policy, channel) for channel in ('telegram', 'ntfy')}
+        if not any(targets.values()):
+            return 0
+        username, password = credentials(unlock=False)
+        client = Client(username, password)
+        batches = list(reminder_batches(entries))
+        cursor %= len(batches)
+        batches = batches[cursor:] + batches[:cursor]
+        count = 0
+        for collection, batch in batches:
+            cursor += 1
+            for entry, props in reminder_report(client, collection, batch):
+                if props.get('missing') is True:
+                    with store.locked():
+                        current = store.read('phone-reminders.json')['items'].get(reminders.uid_key(entry['uid']))
+                        pending = pending_change()
+                        if current == entry and (not pending or pending['url'] != entry['url']):
+                            store.set(entry['uid'], entry['url'], entry['kind'], entry['timezone'], reminders.DEFAULT)
+                    continue
+                if CAL + 'calendar-data' not in props or DAV + 'getetag' not in props:
+                    continue
+                strong_etag(props[DAV + 'getetag'].text)
+                calendar, component = parse_calendar((props[CAL + 'calendar-data'].text or '').encode(), entry['kind'])
+                require(str(component['UID']) == entry['uid'], 'conflict')
+                now = int(time.time())
+                for epoch, slot in reminders.due_slots(calendar, component, entry['kind'], entry, now):
+                    title = ''.join(c if c.isprintable() else ' ' for c in str(component.get('SUMMARY', '(Untitled)')))[:512]
+                    when = datetime.fromtimestamp(epoch, ZoneInfo(entry['timezone'])).isoformat(timespec='minutes')
+                    message = ('Event: ' if entry['kind'] == 'VEVENT' else 'Task: ') + title + '\nWhen: ' + when
+                    for channel in ('telegram', 'ntfy'):
+                        require(time.monotonic() < client.deadline, 'deadline')
+                        with store.locked():
+                            # Recheck the opt-in, any unresolved remote write
+                            # and the root-owned channel policy at dispatch.
+                            if store.read(reminders.PHONE_CONTROL)['paused']:
+                                continue
+                            pending = pending_change()
+                            if pending and pending['url'] == entry['url']:
+                                continue
+                            current_policy = reminders.read_policy()
+                            target = reminders.destination(current_policy, channel)
+                            original = reminders.destination(initial_policy, channel)
+                            identifier = reminders.reserve(store, entry, epoch, slot, channel, int(time.time()))
+                            if identifier is None:
+                                continue
+                            if target is None or target != original:
+                                reminders.record_result(store, identifier, 'rejected', 0)
+                                continue
+                            status, delay = reminders.dispatch(target, message, channel,
+                                timeout=max(0.1, min(8, client.deadline - time.monotonic())))
+                            reminders.record_result(store, identifier, status, int(time.time()) + delay if delay else 0)
+                        count += 1
+                        print('calendar-reminder status=' + status + ' channel=' + channel + ' id=' + identifier,
+                              file=sys.stderr, flush=True)
+                        if count >= 32:
+                            return cursor
+        return cursor
+
+
+def run_reminders():
+    require(os.getuid() != 0 and os.getuid() == os.geteuid()
+            and os.environ.get('LABWC_SESSION_OWNER') == 'desktop', 'unsafe-account')
+    home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    require(Path.home() == home, 'unsafe-account')
+    runtime = Path('__INSTALLER_PATH_DIR_RUN_USER__') / str(os.getuid())
+    info = runtime.lstat()
+    bus = (runtime / 'bus').lstat()
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid()
+            and stat.S_IMODE(info.st_mode) == 0o700 and stat.S_ISSOCK(bus.st_mode)
+            and bus.st_uid == os.getuid() and bus.st_nlink == 1
+            and os.environ.get('XDG_RUNTIME_DIR') == str(runtime), 'unsafe-account')
+    os.environ.clear()
+    os.environ.update({'PATH': '__INSTALLER_PATH_DIR_USR__/bin:/bin', 'HOME': str(home), 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8',
+                       'TZ': 'Europe/Stockholm', 'XDG_CONFIG_HOME': str(home / '.config'),
+                       'XDG_DATA_HOME': str(home / '.local/share'), 'XDG_RUNTIME_DIR': str(runtime),
+                       'DBUS_SESSION_BUS_ADDRESS': f'unix:path={runtime}/bus',
+                       'LABWC_SESSION_OWNER': 'desktop'})
+    os.umask(0o077)
+    def deadline(*_):
+        raise Error('deadline')
+    def stop(*_):
+        raise SystemExit(0)
+    signal.signal(signal.SIGALRM, deadline)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    cursor = 0
+    initial_policy = None
+    retry_delay = 30
+    while True:
+        started = time.monotonic()
+        # Covers Secret Service, DNS, streamed reads and dispatch, not just a
+        # socket's inactivity timeout. This mode has no subprocess delegates.
+        signal.setitimer(signal.ITIMER_REAL, 45)
+        try:
+            if initial_policy is None:
+                # Policy validation is part of the retry loop. A malformed or
+                # temporarily unavailable policy must leave this long-lived
+                # worker available for repair instead of exhausting systemd's
+                # start limit before the desktop can correct it.
+                initial_policy = reminders.read_policy()
+            cursor = reminder_cycle(initial_policy, cursor)
+        except (Error, reminders.ReminderError) as error:
+            if isinstance(error, reminders.ReminderError) and error.code == 'reminder-policy':
+                initial_policy = None
+            status = 'outcome-unknown' if error.code == 'reminder-state-unknown' else 'unavailable'
+            print('calendar-reminder status=' + status + ' error=' + error.code, file=sys.stderr, flush=True)
+            cursor += 1
+        except Exception:
+            print('calendar-reminder status=failed error=invalid-response', file=sys.stderr, flush=True)
+            cursor += 1
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+        elapsed = time.monotonic() - started
+        if initial_policy is not None:
+            retry_delay = 30
+        else:
+            retry_delay = min(900, max(30, retry_delay * 2))
+        time.sleep(max(1, retry_delay - elapsed))
+
+
+def main() -> int:
+    request_id = uuid.uuid4().hex[:12]
+    try:
+        if sys.argv[1:] == ['--reminders']:
+            return run_reminders()
+        require(len(sys.argv) == 1)
+        raw = sys.stdin.buffer.read(MAX_RESOURCE + 1)
+        require(0 < len(raw) <= MAX_RESOURCE)
+        request = json.loads(raw)
+        username, password = credentials()
+        client = Client(username, password)
+        client.request_id = request_id
+        result = execute(request, client)
+        response = {'status': 'ok', 'request_id': request_id, **result}
+        code = 0
+    except (Error, reminders.ReminderError) as error:
+        code = 4 if error.code in {'outcome-unknown', 'reminder-state-unknown'} else 3 if error.code in UNAVAILABLE else 1
+        response = {'status': 'outcome-unknown' if code == 4 else 'unavailable' if code == 3 else 'failed',
+                    'error': error.code, 'request_id': request_id}
+    except Exception:
+        # Neither parser errors, HTTP bodies nor keyring exceptions may leak.
+        code = 1
+        response = {'status': 'failed', 'error': 'invalid-response', 'request_id': request_id}
+    encoded = json.dumps(response, ensure_ascii=True).encode() + b'\n'
+    if len(encoded) > 4 * 1024 * 1024:
+        encoded = json.dumps({'status': 'failed', 'error': 'response-limit', 'request_id': request_id}).encode() + b'\n'
+        code = 1
+    sys.stdout.buffer.write(encoded)
+    return code
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

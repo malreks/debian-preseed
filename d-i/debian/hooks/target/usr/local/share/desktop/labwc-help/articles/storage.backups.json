@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "blocks": [
+    {
+      "type": "paragraph",
+      "text": "A useful backup is a separate copy that you have checked you can restore. Include documents, relevant application data and private configuration. Protect encrypted backups and keep recovery keys separately."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Before copying"
+    },
+    {
+      "type": "list",
+      "items": [
+        "Identify the source and destination carefully. Check available space.",
+        "Close applications with databases or use their documented export/backup operation.",
+        "Keep at least one copy outside the computer.",
+        "Verify representative restored files in a safe destination.",
+        "Close files and use the owning unmount/eject action before unplugging media."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Snapshots and synchronization"
+    },
+    {
+      "type": "paragraph",
+      "text": "Timeshift snapshots focus on system recovery and do not replace a user-data backup. Two-way synchronization can propagate deletion or corruption. NFS/Filen access is not proof that a separate backup exists."
+    },
+    {
+      "type": "warning",
+      "text": "Restore operations can overwrite newer data. Preserve a copy of the current state and confirm the exact destination before restoring."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Plan a restore before you need it"
+    },
+    {
+      "type": "paragraph",
+      "text": "Write down which data belongs in the backup, where the separate copy lives, and how you would unlock it from another trusted computer. Include application exports where ordinary file copies are not sufficient. A copy on the same failing disk is vulnerable to that disk’s loss."
+    },
+    {
+      "type": "paragraph",
+      "text": "Restore a representative document into a separate empty directory and open it with the intended application. Compare its contents and date locally before trusting the backup. This check is your deliberate operation; Help never reads files, mounts backup media or validates a backup automatically."
+    }
+  ]
+}

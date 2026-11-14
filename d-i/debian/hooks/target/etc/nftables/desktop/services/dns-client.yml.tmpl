@@ -1,0 +1,17 @@
+apiVersion: cybops.nftables/v1
+kind: NftablesServiceOverlay
+metadata:
+  name: dns-client
+  description: Outbound DNS client overlay.
+  merge_priority: 50
+egress:
+  rules:
+    dns_over_tls_client:
+      enabled: true
+      protocols:
+      - tcp
+      ports:
+      - __INSTALLER_SYSTEM_NAMESERVERS_PORT__
+      allow_to:
+        ipv4: __INSTALLER_SYSTEM_NAMESERVERS_IPV4_ALLOWLIST__
+        ipv6: __INSTALLER_SYSTEM_NAMESERVERS_IPV6_ALLOWLIST__

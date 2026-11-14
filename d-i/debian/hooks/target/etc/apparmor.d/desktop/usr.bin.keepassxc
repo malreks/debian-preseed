@@ -1,0 +1,52 @@
+# Managed by unattended-installer.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+profile keepassxc __INSTALLER_PATH_DIR_USR__/bin/keepassxc flags=(attach_disconnected, mediate_deleted) {
+  __INSTALLER_PATH_DIR_USR_SHARE__/imsprog/ r,
+  owner @{HOME}/Workspace/{,**/} r,
+  #include <abstractions/desktop-application>
+  # Database/key-file selection, import/export and atomic-save backups.
+  #include <abstractions/user-documents>
+  include if exists <abstractions/user-tmp>
+
+  __INSTALLER_PATH_DIR_USR__/bin/keepassxc mr,
+  __INSTALLER_PATH_DIR_USR__/bin/ r,
+  __INSTALLER_PATH_DIR_USR__/bin/wl-copy mrix,
+  __INSTALLER_PATH_DIR_USR_SHARE__/keepassxc/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/keepassxc/** r,
+
+  __INSTALLER_PATH_DIR_DEV__/bus/usb/ r,
+  # YubiKey challenge-response and FIDO devices remain limited by udev/DAC.
+  __INSTALLER_PATH_DIR_DEV__/bus/usb/** rw,
+  __INSTALLER_PATH_DIR_DEV__/hidraw* rw,
+  network inet stream,
+  network inet6 stream,
+  deny __INSTALLER_PATH_DIR_DEV__/dri/card[0-9]* rw,
+  __INSTALLER_PATH_DIR_RUN__/udev/data/{+usb:*,c189:*} r,
+  @{sys}/devices/**/usb*/speed r,
+  @{sys}/devices/**/usb*/**/speed r,
+  # Secure exec can make the observed cmdline/comm inodes root-owned.
+  # @{pid} is a PID pattern, not a self-only kernel variable. Limit this
+  # ownership exception to those two metadata files; keep stat owner-bound.
+  @{PROC}/@{pid}/{cmdline,comm} r,
+  owner @{PROC}/@{pid}/stat r,
+
+  owner @{HOME}/.cache/keepassxc/ rw,
+  owner @{HOME}/.cache/keepassxc/** rwkl,
+  owner @{HOME}/.config/#[0-9]* rwkl,
+  owner @{HOME}/.config/QtProject.conf* rwkl,
+  owner @{HOME}/.config/keepassxc/ rw,
+  owner @{HOME}/.config/keepassxc/** rwkl,
+  owner @{HOME}/.config/qt6ct/ rw,
+  owner @{HOME}/.config/qt6ct/** rwkl,
+  owner @{HOME}/.local/share/keepassxc/ rw,
+  owner @{HOME}/.local/share/keepassxc/** rwkl,
+  owner @{HOME}/Syncthing/ rw,
+  owner @{HOME}/Syncthing/keepassxc/ rw,
+  owner @{HOME}/Syncthing/keepassxc/** rwkl,
+
+  include if exists <local/usr.bin.keepassxc>
+}

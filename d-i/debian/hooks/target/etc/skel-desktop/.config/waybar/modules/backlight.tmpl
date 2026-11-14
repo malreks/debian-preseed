@@ -1,0 +1,22 @@
+{
+  "backlight": {
+    "interval": 30,
+    "cursor": true,
+    "format": "<span foreground='__THEME_WAYBAR_BUTTON_BACKLIGHT_AVAILABLE_ICON_COLOR__'>__THEME_WAYBAR_BUTTON_BACKLIGHT_AVAILABLE_ICON_GLYPH__</span> {percent}%",
+    "tooltip-format": "Display brightness {percent}%\nScroll or use the brightness keys to adjust",
+    "tooltip": true,
+    "menu": "on-click-release",
+    "menu-file": "~/.config/waybar/gtk/brightness-menu.xml",
+    "menu-actions": {
+      "brightness_up": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_LABWC_BRIGHTNESS_CONTROL_COMMAND__ up",
+      "brightness_down": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_LABWC_BRIGHTNESS_CONTROL_COMMAND__ down",
+      "brightness_15": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_LABWC_BRIGHTNESS_CONTROL_COMMAND__ set 15",
+      "brightness_30": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_LABWC_BRIGHTNESS_CONTROL_COMMAND__ set 30",
+      "brightness_55": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_LABWC_BRIGHTNESS_CONTROL_COMMAND__ set 55",
+      "brightness_80": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_LABWC_BRIGHTNESS_CONTROL_COMMAND__ set 80",
+      "brightness_100": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_LABWC_BRIGHTNESS_CONTROL_COMMAND__ set 100"
+    },
+    "on-scroll-up": "__INSTALLER_LABWC_BRIGHTNESS_CONTROL_COMMAND__ up",
+    "on-scroll-down": "__INSTALLER_LABWC_BRIGHTNESS_CONTROL_COMMAND__ down"
+  }
+}

@@ -1,0 +1,38 @@
+# Shared privileged Incus host backend: storage, bridge and restricted sockets.
+# Desktop login, menus and Web UI checks have independent desktop-only owners.
+#include <tunables/global>
+
+profile incus-host __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/incus-host flags=(attach_disconnected) {
+  #include <abstractions/base>
+  #include <abstractions/python>
+  #include <abstractions/nameservice>
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/incus-host rix,
+  __INSTALLER_PATH_DIR_USR__/bin/python3* rix,
+  __INSTALLER_PATH_DIR_USR__/bin/incus r,
+  __INSTALLER_PATH_DIR_USR__/bin/systemd-tmpfiles rix,
+  __INSTALLER_PATH_DIR_ETC__/incus/host.conf r,
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_INCUS_USER_DROPIN__/20-bootstrap.conf r,
+  __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/85-qemu-incus-storage.conf r,
+  __INSTALLER_PATH_DIR_USR__/lib/systemd/system/incus{,-startup,-user}.{service,socket} r,
+  __INSTALLER_PATH_DIR_OPT__/incus/lib/systemd/incusd r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/incus/unix.socket rw,
+  __INSTALLER_PATH_DIR_VAR_LIB__/incus/unix.socket.user r,
+  __INSTALLER_PATH_DIR_POOL__/ rw,
+  __INSTALLER_PATH_DIR_POOL__/{incus,qemu}/ rw,
+  __INSTALLER_PATH_DIR_RUN__/lock/incus-host/ rw,
+  __INSTALLER_PATH_DIR_RUN__/lock/incus-host/bootstrap.lock rwk,
+  __INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/ rw,
+  __INSTALLER_PATH_DIR_INCUS_BOOTSTRAP_STATE__/ rw,
+  __INSTALLER_PATH_DIR_INCUS_BOOTSTRAP_STATE__/*.json rwk,
+  capability chown,
+  capability fowner,
+  capability fsetid,
+  capability dac_override,
+  network unix stream,
+  signal (send) set=(term, kill) peer=incus-host,
+  signal (receive) set=(chld) peer=incus-host,
+  signal (receive) set=(hup, term, kill) peer=unconfined,
+
+  include if exists <local/usr.local.libexec.incus-host>
+}

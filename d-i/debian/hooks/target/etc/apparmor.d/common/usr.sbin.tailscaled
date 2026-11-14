@@ -1,0 +1,270 @@
+# Managed by unattended-installer.
+#
+# The daemon owns network, state, TPM, and packet-filter access. The CLI has a
+# separate attachment for direct invocations, limited to the local API, bounded
+# diagnostics, and the installer-staged bootstrap key. All profiles in this file
+# follow the desktop mode selected through __INSTALLER_PATH_DIR_ETC__/apparmor/modes.conf.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+# Explicitly entered by the service constructor. Do not attach every execution
+# of the package binary: authenticated host-side SFTP sessions re-exec it as
+# `be-child sftp` after login/su and must retain that account's ordinary policy.
+profile usr.sbin.tailscaled flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/dbus-strict>
+
+  # Network and packet-filter administration remain confined to this daemon.
+  capability net_admin,
+  capability net_raw,
+  capability dac_override,
+  capability sys_ptrace,
+  # Native SSH incubators drop to the already-authorized local account.
+  capability setuid,
+  capability setgid,
+  deny capability sys_admin,
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network inet raw,
+  network netlink raw,
+  ptrace (read) peer=unconfined,
+  ptrace (read) peer=tailscale-netkit,
+
+  __INSTALLER_PATH_DIR_USR__/sbin/tailscaled rix,
+  # Daemon-spawned CLI calls retain this confinement.
+  # Direct CLI invocations continue to attach to usr.bin.tailscale below.
+  __INSTALLER_PATH_DIR_USR__/bin/tailscale rix,
+  __INSTALLER_PATH_DIR_USR__/bin/true rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{login,su} rPx -> tailscale-ssh-host,
+  signal (receive) set=(term,kill) peer=tailscale-netkit,
+  signal (send, receive) peer=usr.sbin.tailscaled,
+  signal (receive) set=(chld) peer=tailscale-ssh-host,
+  __INSTALLER_PATH_DIR_DEV__/ptmx rw,
+  __INSTALLER_PATH_DIR_DEV__/pts/{,ptmx,[0-9]*} rw,
+  # The managed service and bootstrap disable self-updates. Do not give the
+  # network daemon package-manager or iptables execution rights; its firewall
+  # backend is forced to nftables by the service environment.
+  # Upstream's best-effort startup cleanup still looks for both iptables tools
+  # regardless of the selected backend. They must never execute in this image.
+  deny __INSTALLER_PATH_DIR_USR__/{bin,sbin}/{ip6tables,ip6tables-restore,ip6tables-save,iptables,iptables-restore,iptables-save,xtables-nft-multi,xtables-legacy-multi} x,
+  __INSTALLER_PATH_DIR_USR__/sbin/resolvconf rix,
+  /{,usr/}bin/{flock,sed} rix,
+  # Tailscale 1.104.1's hostinfo desktop detection invokes loginctl to list
+  # sessions and read their Type. Inherit this profile.
+  __INSTALLER_PATH_DIR_USR__/bin/loginctl rix,
+  # The direct DNS backend probes is-active before considering a restart.
+  # The private /run exposes no manager or bus socket, so this reports inactive
+  # without an AppArmor exec denial and cannot reach the host manager.
+  __INSTALLER_PATH_DIR_USR__/bin/systemctl rix,
+  network unix stream,
+  dbus (send) bus=system path=/org/freedesktop/login1
+    interface=org.freedesktop.login1.Manager
+    member={ListSessions,ListSessionsEx,GetSession}
+    peer=(name=org.freedesktop.login1),
+  dbus (send) bus=system path=/org/freedesktop/login1/session/*
+    interface=org.freedesktop.DBus.Properties member={Get,GetAll}
+    peer=(name=org.freedesktop.login1),
+  dbus (receive) bus=system peer=(name=org.freedesktop.login1),
+  dbus (receive) bus=system peer=(name=org.freedesktop.DBus),
+  # Adding logind D-Bus mediation must retain the daemon's DNS integration.
+  dbus (send) bus=system path=/org/freedesktop/resolve1
+    interface=org.freedesktop.resolve1.Manager
+    member={SetLinkDNS,SetLinkDomains,SetLinkDefaultRoute,SetLinkLLMNR,SetLinkMulticastDNS,SetLinkDNSSEC,SetLinkDNSOverTLS,RevertLink,FlushCaches}
+    peer=(name=org.freedesktop.resolve1),
+  dbus (send) bus=system path=/org/freedesktop/resolve1
+    interface=org.freedesktop.DBus.Peer member=Ping
+    peer=(name=org.freedesktop.resolve1),
+  dbus (receive) bus=system peer=(name=org.freedesktop.resolve1),
+  dbus (send) bus=system path=/org/freedesktop/NetworkManager
+    interface=org.freedesktop.NetworkManager member=GetDeviceByIpIface
+    peer=(name=org.freedesktop.NetworkManager),
+  dbus (send) bus=system path=/org/freedesktop/NetworkManager/Devices/*
+    interface=org.freedesktop.NetworkManager.Device member={GetAppliedConnection,Reapply}
+    peer=(name=org.freedesktop.NetworkManager),
+  dbus (send) bus=system path=/org/freedesktop/NetworkManager{,/**}
+    interface=org.freedesktop.DBus.Properties member={Get,GetAll}
+    peer=(name=org.freedesktop.NetworkManager),
+  dbus (receive) bus=system peer=(name=org.freedesktop.NetworkManager),
+  __INSTALLER_PATH_DIR_USR_SHARE__/doc/resolvconf/copyright r,
+  __INSTALLER_PATH_DIR_DEV__/net/tun rw,
+  __INSTALLER_PATH_DIR_DEV__/tpmrm0 rw,
+  __INSTALLER_PATH_DIR_RUN__/resolvconf/run-lock rwk,
+
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_ETC__/**/ r,
+  __INSTALLER_PATH_DIR_ETC__/debian_version r,
+  __INSTALLER_PATH_DIR_ETC__/default/tailscaled r,
+  __INSTALLER_PATH_DIR_ETC__/resolvconf/update-libc.d/ rw,
+  __INSTALLER_PATH_DIR_ETC__/resolvconf/update-libc.d/tailscale rw,
+  __INSTALLER_PATH_DIR_ETC__/resolvconf/update-libc.d/tailscale.tmp[0-9]* rw,
+  # /etc is a private writable DNS directory in the daemon's mount namespace.
+  __INSTALLER_PATH_DIR_ETC__/resolv.conf rw,
+  __INSTALLER_PATH_DIR_ETC__/resolv.conf.[0-9a-f]*.tmp rw,
+  __INSTALLER_PATH_DIR_ETC__/resolv.pre-tailscale-backup.conf rw,
+  __INSTALLER_PATH_DIR_ETC__/resolv.tailscale.conf rw,
+  __INSTALLER_PATH_DIR_ETC__/ssl/ r,
+  __INSTALLER_PATH_DIR_ETC__/ssl/** r,
+  __INSTALLER_PATH_DIR_RUN__/tailscale/ rw,
+  __INSTALLER_PATH_DIR_RUN__/tailscale/** rwkl,
+  __INSTALLER_PATH_DIR_VAR_LIB_TAILSCALE__/ rw,
+  __INSTALLER_PATH_DIR_VAR_LIB_TAILSCALE__/** rwkl,
+  __INSTALLER_PATH_DIR_VAR_CACHE__/tailscale/{,**} rwkl,
+
+  owner @{PROC}/@{pid}/{cgroup,mountinfo,mounts} r,
+  owner @{PROC}/@{pid}/net/unix r,
+  @{PROC}/1/{cgroup,stat} r,
+  @{PROC}/modules r,
+  @{PROC}/net/{ip6_tables_names,ip_tables_names} r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/core/somaxconn r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/ipv6/conf/ r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/ipv6/conf/*/ r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/ipv6/conf/*/{disable_ipv6,disable_policy} r,
+  @{sys}/devices/virtual/dmi/id/{bios_vendor,product_name,sys_vendor} r,
+  @{sys}/fs/cgroup/system.slice/tailscaled.service/cpu.max r,
+
+  include if exists <local/usr.sbin.tailscaled>
+}
+
+# This constructor is the only service process with host network/mount
+# namespace authority. It cannot execute account programs or a shell.
+profile tailscale-netkit __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tailscale-netkit flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/dbus-strict>
+  deny /{,usr/}bin/{sh,bash,dash} x,
+  capability sys_admin,
+  capability net_admin,
+  capability net_raw,
+  capability sys_ptrace,
+  capability dac_override,
+  capability setpcap,
+  capability setuid,
+  capability setgid,
+  capability sys_chroot,
+  # iproute2's kernel link/module probes run only in the root constructor.
+  # The daemon and authenticated SSH delegate do not receive this capability.
+  capability sys_module,
+  ptrace (read) peer=unconfined,
+  ptrace (readby) peer=usr.sbin.tailscaled,
+  network netlink raw,
+  network netlink dgram,
+  network unix stream,
+  network unix seqpacket,
+  network unix dgram,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tailscale-netkit rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tailscale-ssh-host r,
+  __INSTALLER_PATH_DIR_USR__/sbin/tailscaled rPx -> usr.sbin.tailscaled,
+  __INSTALLER_PATH_DIR_USR__/bin/tailscale rPx -> usr.bin.tailscale,
+  __INSTALLER_PATH_DIR_USR__/{bin,sbin}/ip rix,
+  __INSTALLER_PATH_DIR_USR__/sbin/{nft,sysctl} rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{bwrap,mount,umount,nsenter,resolvectl} rix,
+  __INSTALLER_PATH_DIR_ETC__/tailscale/netkit.json r,
+  __INSTALLER_PATH_DIR_APPARMOR__/usr.sbin.tailscaled r,
+  __INSTALLER_PATH_DIR_ETC__/default/tailscaled r,
+  __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_TAILSCALED_DROPIN__/override.conf r,
+  __INSTALLER_PATH_DIR_SYSTEMD_ETC__/system/dnsmasq-app-veth.service r,
+  __INSTALLER_PATH_DIR_ETC__/dnsmasq-app-veth.conf r,
+  __INSTALLER_PATH_DIR_ETC__/NetworkManager/conf.d/75-tailscale-netkit.conf r,
+  __INSTALLER_PATH_DIR_ETC__/sysctl.d/92-tailscale-netkit.conf r,
+  __INSTALLER_PATH_DIR_BOOT__/{,config-*} r,
+  __INSTALLER_PATH_DIR_ETC__/{iproute2,ssl}/{,**} r,
+  __INSTALLER_PATH_DIR_USR__/{lib,share}/iproute2/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf,hosts,host.conf,gai.conf,protocols,services,localtime,debian_version,machine-id} r,
+  __INSTALLER_PATH_DIR_RUN__/tailscale/ rw,
+  __INSTALLER_PATH_DIR_RUN__/tailscale/** rwkl,
+  __INSTALLER_PATH_DIR_RUN__/tailscale-netkit/ rw,
+  __INSTALLER_PATH_DIR_RUN__/tailscale-netkit/** rwkl,
+  __INSTALLER_PATH_DIR_RUN__/systemd/notify w,
+  __INSTALLER_PATH_DIR_RUN__/systemd/resolve/io.systemd.Resolve rw,
+  __INSTALLER_PATH_DIR_RUN__/dbus/system_bus_socket rw,
+  __INSTALLER_PATH_DIR_VAR_LIB_TAILSCALE__/{,**} rwkl,
+  __INSTALLER_PATH_DIR_VAR_CACHE__/tailscale/{,**} rwkl,
+  __INSTALLER_PATH_DIR_TMP__/{,**} rwkl,
+  __INSTALLER_PATH_DIR_SYS__/{,**} r,
+  # The constructor pins the freshly validated device directory and index
+  # before publishing its ownership marker; RTM_NEWLINK ignores this alias.
+  __INSTALLER_PATH_DIR_SYS__/devices/virtual/net/*/ifalias w,
+  __INSTALLER_PATH_DIR_DEV__/{,**} r,
+  @{PROC}/@{pid}/{fd/,fd/[0-9]*,ns/net,mounts,mountinfo,stat,status} r,
+  @{PROC}/1/ns/mnt r,
+  @{PROC}/filesystems r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/ipv4/ip_forward rw,
+  # Constructor sets this only after entering the pinned private network NS.
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/ipv6/ip_nonlocal_bind rw,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/{ipv4,ipv6}/conf/*/{rp_filter,route_localnet,forwarding} rw,
+  /net:\[[0-9]*\] r,
+  /mnt:\[[0-9]*\] r,
+  / r,
+  __INSTALLER_PATH_DIR_PROC__/ w,
+  /{bindfile*,oldroot,newroot}/ rw,
+  /{oldroot,newroot}/** rwkl,
+  @{PROC}/ r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/kernel/{osrelease,overflowgid,overflowuid} r,
+  @{PROC}/[0-9]*/{mountinfo,ns/,ns/mnt} r,
+  # bwrap constructs its fixed mount tree; no arbitrary command or client path
+  # can reach this root-only service entrypoint.
+  mount,
+  umount,
+  pivot_root,
+  signal (send, receive) peer=tailscale-netkit,
+  signal (send) set=(term,kill) peer=usr.sbin.tailscaled,
+  signal (send) set=(term,kill) peer=usr.bin.tailscale,
+  signal (receive) set=(chld) peer=usr.bin.tailscale,
+  dbus (send, receive) bus=system peer=(name=org.freedesktop.resolve1),
+  dbus (send, receive) bus=system peer=(name=org.freedesktop.DBus),
+  include if exists <local/usr.local.libexec.tailscale-netkit>
+}
+
+profile tailscale-ssh-host flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/wrapper-python>
+  deny /{,usr/}bin/{sh,bash,dash} x,
+  capability sys_admin,
+  capability sys_chroot,
+  capability sys_ptrace,
+  ptrace (read) peer=unconfined,
+  __INSTALLER_PATH_DIR_USR__/bin/{login,su} rPUx,
+  __INSTALLER_PATH_DIR_RUN__/tailscale-netkit/ r,
+  __INSTALLER_PATH_DIR_RUN__/tailscale-netkit/host.{net,mnt} r,
+  @{PROC}/1/ns/mnt r,
+  @{PROC}/1/root/ r,
+  /net:\[[0-9]*\] r,
+  /mnt:\[[0-9]*\] r,
+  / r,
+  signal (send) set=(chld) peer=usr.sbin.tailscaled,
+  include if exists <local/usr.local.libexec.tailscale-ssh-host>
+}
+
+profile usr.bin.tailscale __INSTALLER_PATH_DIR_USR__/bin/tailscale flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+
+  # netcheck uses marked sockets and ICMP probes. On the target kernel,
+  # CAP_NET_RAW also authorizes SO_MARK; the CLI needs no CAP_NET_ADMIN.
+  capability net_raw,
+  signal (receive) set=(term,kill) peer=tailscale-netkit,
+  signal (send) set=(chld) peer=tailscale-netkit,
+  network inet raw,
+  network inet6 raw,
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+
+  __INSTALLER_PATH_DIR_USR__/bin/tailscale rix,
+  __INSTALLER_PATH_DIR_ETC__/debian_version r,
+  __INSTALLER_PATH_DIR_ETC__/ssl/ r,
+  __INSTALLER_PATH_DIR_ETC__/ssl/** r,
+  __INSTALLER_PATH_DIR_RUN__/tailscale/ r,
+  __INSTALLER_PATH_DIR_RUN__/tailscale/tailscaled.sock rw,
+  __INSTALLER_PATH_DIR_FIRSTBOOT__/tailscale/auth.key r,
+  __INSTALLER_PATH_DIR_FIRSTBOOT__/tailscale/bootstrap.log a,
+  owner @{PROC}/@{pid}/{cgroup,mountinfo} r,
+  @{sys}/fs/cgroup/system.slice/tailscaled.service/cpu.max r,
+  @{sys}/fs/cgroup/system.slice/tailscale-bootstrap.service/cpu.max r,
+
+  include if exists <local/usr.bin.tailscale>
+}

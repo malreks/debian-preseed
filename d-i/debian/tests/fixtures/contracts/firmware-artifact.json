@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "execution": "unexecuted behavioral/failure source fixtures; no native program or extraction executed",
+  "cases": [
+    {
+      "name": "role-ownership",
+      "expect": "medium/full desktops and server DevOps include os.firmware; base and CI/DNS-only roles do not"
+    },
+    {
+      "name": "desktop-only-login-and-gui",
+      "expect": "only medium/full desktop classes select desktop.ch341a; no skel-desktop or graphical command validation on server"
+    },
+    {
+      "name": "restricted-pinned-policy",
+      "expect": "reject duplicate JSON keys, unpinned commit, moving URL, unsupported host, invalid digest or reversed byte bounds before acquisition"
+    },
+    {
+      "name": "redirect-before-request",
+      "expect": "shared HTTP owner validates every redirect before requesting it; HTTPS and total transport deadline remain bounded"
+    },
+    {
+      "name": "header-resource-bound",
+      "expect": "member count, declared expanded total, individual size, PAX extension aggregate and long path limits apply before payload allocation"
+    },
+    {
+      "name": "path-and-type",
+      "expect": "reject absolute/dot/dotdot/duplicate/foreign-root paths, symlinks, hardlinks, devices and sparse entries; never run tar extraction or package scripts"
+    },
+    {
+      "name": "pax-bomb",
+      "expect": "oversized PAX/GNU extension or inconsistent record length refuses before allocation"
+    },
+    {
+      "name": "elf-and-digests",
+      "expect": "source digest, required members, selected binary digest and amd64 ELF identity all match before publishing"
+    },
+    {
+      "name": "source-and-license",
+      "expect": "complete immutable release keeps pinned source archive, license, readme, flash support list and policy metadata"
+    },
+    {
+      "name": "concurrency",
+      "expect": "same ownership lock guards install and cleanup; a second writer cannot replace existing release or stable command"
+    },
+    {
+      "name": "uncertain-child",
+      "expect": "retained private acquisition and pending marker; status76 and no same-boot automatic retry or numeric PID fallback"
+    },
+    {
+      "name": "recovery",
+      "expect": "explicit recovery requires a different boot and the exact owned workspace; releases and other files survive"
+    },
+    {
+      "name": "entrypoint-competition",
+      "expect": "refuse a pre-existing unmanaged executable or differing stable symlink"
+    },
+    {
+      "name": "final-identity",
+      "expect": "published executable bytes match approved binary SHA256 without executing the program"
+    },
+    {
+      "name": "no-hardware",
+      "expect": "installation stages CLI/workspace/udev rules only; no selected programmer or firmware mutation executes"
+    }
+  ]
+}

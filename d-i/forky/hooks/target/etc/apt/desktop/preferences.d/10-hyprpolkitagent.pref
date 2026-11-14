@@ -1,0 +1,6 @@
+# Preserve the reviewed Debian Forky Hyprpolkitagent implementation for Labwc.
+# Dependencies follow the selected native suite; no package-version pins or
+# foreign-suite fallback is permitted.
+Package: hyprpolkitagent:any
+Pin: release o=Debian,n=forky
+Pin-Priority: 1001

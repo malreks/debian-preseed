@@ -1,0 +1,260 @@
+#!/bin/sh
+# shellcheck disable=SC2154
+# Sourced installer module; edit this file directly.
+
+devops_stage_codex_app_server() {
+  environment_source_repo=$(installer_repo_file_value FILE_TARGET_CODEX_APP_SERVER)
+  service_source_repo=$(installer_repo_file_value FILE_TARGET_SKEL_USER_UNIT_CODEX_APP_SERVER_SERVICE)
+  codex_service_prefix='__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-app-run codex-app-server -- '
+  if [ "$INSTALLER_HOST_VARIANT" = server ]; then
+    service_source_repo=$(installer_repo_file_value FILE_SERVER_CODEX_USER_UNIT)
+    codex_service_prefix=
+  fi
+  proxy_source_repo=$(installer_repo_file_value FILE_TARGET_SKEL_USER_UNIT_CODEX_APP_SERVER_PROXY_SERVICE)
+  socket_source_repo=$(installer_repo_file_value FILE_TARGET_SKEL_USER_UNIT_CODEX_APP_SERVER_SOCKET)
+  environment_tmp="${tmp_env_dir}/codex-app-server.env.$$"
+  service_tmp="${tmp_env_dir}/codex-app-server.service.$$"
+  proxy_tmp="${tmp_env_dir}/codex-app-server-proxy.service.$$"
+  socket_tmp="${tmp_env_dir}/codex-app-server.socket.$$"
+  environment_target="${target_root}__INSTALLER_PATH_DIR_ETC__/codex/app-server.env"
+  template_config_dir="${target_root}${DEVOPS_SKEL_DIR}/.config"
+  template_systemd_dir="${template_config_dir}/systemd"
+  template_unit_dir="${template_systemd_dir}/user"
+  template_wants_dir="${template_unit_dir}/sockets.target.wants"
+  template_link="${template_wants_dir}/codex-app-server.socket"
+  user_config_dir="${target_root}${ACCOUNT_HOME}/.config"
+  user_systemd_dir="${user_config_dir}/systemd"
+  user_unit_dir="${user_systemd_dir}/user"
+  wants_dir="${user_unit_dir}/sockets.target.wants"
+  service_link="${wants_dir}/codex-app-server.socket"
+
+  bootstrap_fetch_seed_file \
+    "$seed_base" \
+    "$environment_source_repo" \
+    "$environment_tmp" \
+    0600 \
+    "Codex app-server non-secret environment policy ${environment_source_repo}"
+  installer_assert_no_unresolved_installer_placeholders \
+    "$environment_tmp" \
+    "Codex app-server non-secret environment policy ${environment_source_repo}"
+  bootstrap_fetch_seed_file \
+    "$seed_base" \
+    "$service_source_repo" \
+    "$service_tmp" \
+    0600 \
+    "Codex app-server backend unit ${service_source_repo}"
+  bootstrap_fetch_seed_file \
+    "$seed_base" \
+    "$proxy_source_repo" \
+    "$proxy_tmp" \
+    0600 \
+    "Codex app-server proxy unit ${proxy_source_repo}"
+  bootstrap_fetch_seed_file \
+    "$seed_base" \
+    "$socket_source_repo" \
+    "$socket_tmp" \
+    0600 \
+    "Codex app-server activation socket ${socket_source_repo}"
+  for managed_unit_tmp in "$service_tmp" "$proxy_tmp" "$socket_tmp"; do
+    managed_unit_rendered="${managed_unit_tmp}.rendered"
+    installer_apply_scalar_placeholders \
+      "$managed_unit_tmp" \
+      "$managed_unit_rendered" \
+      DEVOPS_CODEX_WRAPPER_PATH "$DEVOPS_CODEX_WRAPPER_PATH" \
+      DEVOPS_CODEX_BINARY_PATH "$DEVOPS_CODEX_BINARY_PATH" \
+      DEVOPS_CODEX_HOME "$DEVOPS_CODEX_HOME" \
+      DEVOPS_CODEX_SOCKETS_ROOT "$DEVOPS_CODEX_SOCKETS_ROOT" \
+      DEVOPS_CODEX_APP_SERVER_CONTROL_DIR "$DEVOPS_CODEX_APP_SERVER_CONTROL_DIR" \
+      DEVOPS_CODEX_APP_SERVER_READY_HELPER "$DEVOPS_CODEX_APP_SERVER_READY_HELPER" \
+      DEVOPS_CODEX_CREDENTIALS_ROOT "$DEVOPS_CODEX_CREDENTIALS_ROOT" \
+      DEVOPS_CODEX_APP_SERVER_ENVIRONMENT "$DEVOPS_CODEX_APP_SERVER_ENVIRONMENT" \
+      DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET "$DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET" \
+      DEVOPS_CODEX_APP_SERVER_SOCKET "$DEVOPS_CODEX_APP_SERVER_SOCKET" ||
+      devops_fatal "failed to render Codex app-server user unit ${managed_unit_tmp}"
+    mv -f -- "$managed_unit_rendered" "$managed_unit_tmp" ||
+      devops_fatal "failed to publish rendered Codex app-server user unit ${managed_unit_tmp}"
+    installer_assert_no_unresolved_installer_placeholders \
+      "$managed_unit_tmp" \
+      "Codex app-server user unit ${managed_unit_tmp}"
+  done
+  unset managed_unit_tmp managed_unit_rendered
+
+  if grep -Eq '^[[:space:]]*(OPENAI_API_KEY|CODEX_MCP_API_KEY)=' "$environment_tmp"; then
+    devops_fatal "Codex app-server non-secret environment policy contains a secret assignment"
+  fi
+  grep -Fqx 'CODEX_APP_SERVER_SECRET_ENV_NAMES=CODEX_MCP_API_KEY' "$environment_tmp" ||
+    devops_fatal "Codex app-server environment policy does not contain the approved secret-name allowlist"
+  # Require the logging supervisor and the canonical Codex wrapper together.
+  expected_backend_exec="ExecStart=${codex_service_prefix}${DEVOPS_CODEX_WRAPPER_PATH} app-server --listen unix://${DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET}"
+  grep -Fqx "$expected_backend_exec" "$service_tmp" ||
+    devops_fatal "Codex app-server backend does not use the managed wrapper command"
+  grep -Fqx 'PartOf=codex-app-server.socket' "$service_tmp" ||
+    devops_fatal "Codex app-server backend is not owned by its listener"
+  grep -Fqx 'StopWhenUnneeded=no' "$service_tmp" ||
+    devops_fatal "Codex app-server backend must survive proxy idle exits"
+  grep -Fqx 'PartOf=codex-app-server.socket' "$proxy_tmp" ||
+    devops_fatal "Codex app-server proxy is not owned by its listener"
+  grep -Fqx 'Environment=CODEX_APP_SERVER_SECRET_ENV_NAMES=CODEX_MCP_API_KEY' "$service_tmp" ||
+    devops_fatal "Codex app-server unit is missing its safe default secret-name policy"
+  if grep -Fq 'ExecStartPre=__INSTALLER_PATH_DIR_USR_BIN__/test -r __INSTALLER_PATH_DIR_ETC__/codex/app-server.env' "$service_tmp"; then
+    devops_fatal "Codex app-server optional environment policy must not block startup"
+  fi
+  grep -Fqx "ExecStartPost=${codex_service_prefix}${DEVOPS_CODEX_APP_SERVER_READY_HELPER}" "$service_tmp" ||
+    devops_fatal "Codex app-server backend does not wait for its private socket"
+  grep -Fqx 'SuccessExitStatus=143 SIGTERM' "$service_tmp" ||
+    devops_fatal "Codex app-server backend does not treat managed listener shutdown as successful"
+  grep -Fqx "EnvironmentFile=-${DEVOPS_CODEX_APP_SERVER_ENVIRONMENT}" "$service_tmp" ||
+    devops_fatal "Codex app-server unit is missing its non-secret environment policy"
+  grep -Fqx "LoadCredential=codex-mcp.env:${DEVOPS_CODEX_CREDENTIALS_ROOT}/mcp.env" "$service_tmp" ||
+    devops_fatal "Codex app-server unit is missing its MCP credential environment"
+  if grep -Eq '^EnvironmentFile=-?%d/' "$service_tmp"; then
+    devops_fatal "Codex app-server credentials must be consumed by the execution wrapper"
+  fi
+  expected_proxy_exec="ExecStart=__INSTALLER_PATH_DIR_USR_LIB__/systemd/systemd-socket-proxyd --exit-idle-time=10min ${DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET}"
+  grep -Fqx "$expected_proxy_exec" "$proxy_tmp" ||
+    devops_fatal "Codex app-server proxy does not enforce the managed idle timeout"
+  grep -Fqx 'Requires=codex-app-server.socket codex-app-server.service' "$proxy_tmp" ||
+    devops_fatal "Codex app-server proxy does not own the backend lifecycle"
+  for managed_output_unit in "$service_tmp" "$proxy_tmp"; do
+    grep -Fqx 'StandardOutput=null' "$managed_output_unit" &&
+      grep -Fqx 'StandardError=null' "$managed_output_unit" ||
+      devops_fatal "Codex app-server units must not send diagnostics to journald"
+  done
+  grep -Fqx "ListenStream=${DEVOPS_CODEX_APP_SERVER_SOCKET}" "$socket_tmp" ||
+    devops_fatal "Codex app-server activation socket does not own the public endpoint"
+  grep -Fqx 'Service=codex-app-server-proxy.service' "$socket_tmp" ||
+    devops_fatal "Codex app-server socket does not activate the managed proxy"
+  grep -Fqx 'WantedBy=sockets.target' "$socket_tmp" ||
+    devops_fatal "Codex app-server socket is not enabled through sockets.target"
+  if grep -Eq '^[[:space:]]*[^#[:space:]].*auth\.json' "$service_tmp"; then
+    devops_fatal "Codex app-server unit must not require or overmount pre-login auth.json state"
+  fi
+  if grep -Fq "ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-app-run codex-app-server -- ${DEVOPS_CODEX_BINARY_PATH}" "$service_tmp"; then
+    devops_fatal "Codex app-server unit bypasses the managed wrapper"
+  fi
+  if grep -Eq '^[[:space:]]*WantedBy=' "$service_tmp" "$proxy_tmp"; then
+    devops_fatal "Codex app-server processes must not be enabled independently of socket activation"
+  fi
+  if grep -Eq '^[[:space:]]*User=' "$service_tmp" "$proxy_tmp" "$socket_tmp"; then
+    devops_fatal "Codex app-server user units must inherit their account identity from the user manager"
+  fi
+
+  for managed_base_dir in "${target_root}__INSTALLER_PATH_DIR_ETC__/codex" "${target_root}${DEVOPS_SKEL_DIR}"; do
+    if [ -e "$managed_base_dir" ] || [ -L "$managed_base_dir" ]; then
+      [ -d "$managed_base_dir" ] && [ ! -L "$managed_base_dir" ] ||
+        devops_fatal "Codex app-server base directory is indirect: $managed_base_dir"
+    else
+      install -d -m 0755 -- "$managed_base_dir"
+    fi
+    [ "$(readlink -f -- "$managed_base_dir")" = "$managed_base_dir" ] ||
+      devops_fatal "Codex app-server base directory traverses a symlink: $managed_base_dir"
+    chmod 0755 "$managed_base_dir"
+    chown root:root "$managed_base_dir"
+    devops_assert_target_metadata \
+      0:0:755 \
+      "$managed_base_dir" \
+      "Codex app-server base directory"
+  done
+  unset managed_base_dir
+
+  for managed_unit_dir in \
+    "$template_config_dir" \
+    "$template_systemd_dir" \
+    "$template_unit_dir" \
+    "$template_wants_dir" \
+    "$user_config_dir" \
+    "$user_systemd_dir" \
+    "$user_unit_dir" \
+    "$wants_dir"
+  do
+    case "$managed_unit_dir" in
+      "$template_config_dir"|"$template_systemd_dir"|"$template_unit_dir"|"$template_wants_dir")
+        managed_unit_owner=0:0
+        ;;
+      *)
+        managed_unit_owner=$account_ids
+        ;;
+    esac
+    if [ -e "$managed_unit_dir" ] || [ -L "$managed_unit_dir" ]; then
+      [ -d "$managed_unit_dir" ] && [ ! -L "$managed_unit_dir" ] ||
+        devops_fatal "Codex app-server user-unit directory is indirect: $managed_unit_dir"
+      chmod 0700 "$managed_unit_dir"
+    else
+      install -d -m 0700 -- "$managed_unit_dir"
+    fi
+    [ "$(readlink -f -- "$managed_unit_dir")" = "$managed_unit_dir" ] ||
+      devops_fatal "Codex app-server user-unit directory traverses a symlink: $managed_unit_dir"
+    chown "$managed_unit_owner" "$managed_unit_dir"
+    devops_assert_target_metadata \
+      "${managed_unit_owner}:700" \
+      "$managed_unit_dir" \
+      "Codex app-server user-unit directory"
+  done
+  unset managed_unit_dir managed_unit_owner
+
+  for managed_unit_name in \
+    codex-app-server.service \
+    codex-app-server-proxy.service \
+    codex-app-server.socket
+  do
+    case "$managed_unit_name" in
+      codex-app-server.service) managed_unit_tmp=$service_tmp ;;
+      codex-app-server-proxy.service) managed_unit_tmp=$proxy_tmp ;;
+      codex-app-server.socket) managed_unit_tmp=$socket_tmp ;;
+      *) devops_fatal "unsupported Codex app-server unit: $managed_unit_name" ;;
+    esac
+    template_unit_target="${template_unit_dir}/${managed_unit_name}"
+    account_unit_target="${user_unit_dir}/${managed_unit_name}"
+    for managed_unit_target in "$template_unit_target" "$account_unit_target"; do
+      if [ -e "$managed_unit_target" ] || [ -L "$managed_unit_target" ]; then
+        [ -f "$managed_unit_target" ] && [ ! -L "$managed_unit_target" ] ||
+          devops_fatal "Codex app-server managed file is indirect: $managed_unit_target"
+      fi
+    done
+    unset managed_unit_target
+
+    install -m 0644 -- "$managed_unit_tmp" "$template_unit_target"
+    install -m 0644 -- "$managed_unit_tmp" "$account_unit_target"
+    chown root:root "$template_unit_target"
+    chown "$account_ids" "$account_unit_target"
+    cmp -s -- "$template_unit_target" "$account_unit_target" ||
+      devops_fatal "Codex app-server account unit differs from its skeleton source: $managed_unit_name"
+    devops_assert_target_metadata \
+      0:0:644 \
+      "$template_unit_target" \
+      "Codex app-server skeleton unit"
+    devops_assert_target_metadata \
+      "${account_ids}:644" \
+      "$account_unit_target" \
+      "Codex app-server account unit"
+  done
+  unset managed_unit_name managed_unit_tmp template_unit_target account_unit_target
+
+  if [ -e "$environment_target" ] || [ -L "$environment_target" ]; then
+    [ -f "$environment_target" ] && [ ! -L "$environment_target" ] ||
+      devops_fatal "Codex app-server environment file is indirect: $environment_target"
+  fi
+  install -m 0644 -- "$environment_tmp" "$environment_target"
+  chown root:root "$environment_target"
+
+  for managed_unit_link in "$template_link" "$service_link"; do
+    if [ -L "$managed_unit_link" ]; then
+      [ "$(readlink -- "$managed_unit_link")" = ../codex-app-server.socket ] ||
+        devops_fatal "Codex app-server socket enablement link has an unexpected target: $managed_unit_link"
+    elif [ -e "$managed_unit_link" ]; then
+      devops_fatal "Codex app-server socket enablement path is not a symlink: $managed_unit_link"
+    else
+      ln -s -- ../codex-app-server.socket "$managed_unit_link"
+    fi
+  done
+  chown -h root:root "$template_link"
+  chown -h "$account_ids" "$service_link"
+  unset managed_unit_link
+
+  devops_assert_target_metadata \
+    0:0:644 \
+    "$environment_target" \
+    "Codex app-server environment file"
+
+  rm -f -- "$environment_tmp" "$service_tmp" "$proxy_tmp" "$socket_tmp"
+}

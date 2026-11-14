@@ -1,0 +1,96 @@
+{
+  "format": 1,
+  "execution": "Unexecuted source and failure-injection cases; static inspection only.",
+  "cases": [
+    {
+      "case": "desktop-only-scope",
+      "input": "base, medium and full desktop roles",
+      "expect": "The same nine desktop field components and toolkit/icon/pointer controls are present; application-preference pages are absent."
+    },
+    {
+      "case": "atomic-native-file-publication",
+      "input": "Waybar module, stylesheet and symbolic-icon edits, plus Swaylock edits",
+      "expect": "Exact owner write authority covers the native file, its directory and its private .managed-* sibling; no broader application directory is writable."
+    },
+    {
+      "case": "mapping-preservation",
+      "input": "Render all 567 field defaults and retain 672 source mappings",
+      "expect": "All mappings still identify the current source line, token index and native grammar; no unresolved target path enters installed data."
+    },
+    {
+      "case": "private-setup-authority",
+      "input": "Replace a setup module with a symlink, hardlink, wrong owner or permissive mode",
+      "expect": "The private import boundary rejects the candidate before importing it; no installed setup wrapper remains."
+    },
+    {
+      "case": "bounded-outer-release",
+      "input": "Digest mismatch, truncated gzip, excessive expanded bytes, excessive members, duplicate path or escaped member",
+      "expect": "Extraction fails before public theme publication; only private retained input data may remain. No archive executable runs."
+    },
+    {
+      "case": "outer-release-links",
+      "input": "Outer pinned theme release containing symlink, hardlink, device or FIFO members",
+      "expect": "Outer member validation refuses the archive. Narrow contained-link handling inside approved vendor theme archives stays separate."
+    },
+    {
+      "case": "publication-outcome-unknown",
+      "input": "Lose the acknowledgment after a public theme directory rename",
+      "expect": "Return outcome-unknown with the private publication journal and identities retained; do not automatically retry or delete evidence."
+    },
+    {
+      "case": "committed-cleanup-pending",
+      "input": "Fail owned-stage cleanup after the theme inventory commit",
+      "expect": "Keep the committed inventory and return a distinct cleanup-pending status; retain recovery data."
+    },
+    {
+      "case": "concurrent-field-writer",
+      "input": "Run a second color or theme writer while the shared account lock is held",
+      "expect": "Reject the second writer without changing native files; cleanup and recovery retain the same ownership lock."
+    },
+    {
+      "case": "interrupted-field-transaction",
+      "input": "Interrupt between native file publication and journal commit",
+      "expect": "Recover exact previous bytes or retain the journal if recovery cannot be proved; never report success on an uncertain result."
+    },
+    {
+      "case": "dock-stop-interruption",
+      "input": "Interrupt a dock color edit immediately before or after its service stop, before publishing native files",
+      "expect": "The same account lock owns the operation. A durable journal records prior liveness before the stop; recovery starts the previously active dock without reverting legitimate QSettings shutdown writes."
+    },
+    {
+      "case": "mixed-field-authentication-failure",
+      "input": "Select both user desktop colors and greeter colors, then cancel or fail administrator authentication",
+      "expect": "Restore the user's previous native bytes and dock liveness. Keep the account journal until authenticated greeter rollback is proved; do not report a partially saved selection as success."
+    },
+    {
+      "case": "lost-greeter-field-reply",
+      "input": "Lose the pkexec reply after the root greeter files were written, before the account commit decision",
+      "expect": "The root-owned journal binds the initiating UID and transaction token. Account recovery requests rollback through the existing authenticated helper; unrelated callers or tokens cannot finalize it."
+    },
+    {
+      "case": "committed-greeter-field-recovery",
+      "input": "Interrupt after the account commit decision and before root finalization or dock restart",
+      "expect": "Verify committed account bytes, finalize the matching root journal and restore prior dock liveness before clearing account recovery evidence. No automatic replay of the requested mutation occurs."
+    },
+    {
+      "case": "dock-restart-not-active",
+      "input": "The dock start job returns but the exact user unit is not active, or its status cannot be established",
+      "expect": "Keep the committed account journal and report unfinished recovery; never clear liveness evidence merely because the start request returned zero."
+    },
+    {
+      "case": "committed-file-replacement",
+      "input": "Replace a committed theme or color file before recovery finalizes its root journal",
+      "expect": "Retain both journals and return a conflict before root finalization; never erase recovery evidence or overwrite the concurrent file."
+    },
+    {
+      "case": "unresolved-greeter-evidence",
+      "input": "A fields-pending.json recovery file is retained when a new greeter field, theme or wallpaper edit is requested",
+      "expect": "Refuse the new root mutation without interpreting, replaying, rewriting or deleting that file. New transactions write only the shared pending.json journal; explicit recovery must resolve the retained evidence first."
+    },
+    {
+      "case": "optional-custom-tls-name",
+      "input": "Custom CA enabled and SYSTEM_NAMESERVERS_TLS_SAN_CUSTOM empty",
+      "expect": "Each configured resolver keeps its authenticated hostname; no wildcard, empty peer name, insecure TLS mode or CA fallback is introduced."
+    }
+  ]
+}

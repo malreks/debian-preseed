@@ -1,0 +1,187 @@
+#include <tunables/global>
+
+# The menu and terminal wrapper are unprivileged. Fixed systemd operations
+# cross the existing Polkit boundary; no privileged shell or mount helper.
+profile network-sharing __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{network-sharing,nfsmnt,filenmnt} flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/managed_network_sharing.py r,
+  #include <abstractions/wrapper-terminal>
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/nfsmnt r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/filenmnt r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/network-sharing rix,
+  / r,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_ETC__/network-sharing/ r,
+  __INSTALLER_PATH_DIR_ETC__/network-sharing/config.json r,
+  __INSTALLER_PATH_DIR_ETC__/filen/ r,
+  __INSTALLER_PATH_DIR_ETC__/filen/{private,offsec}.json r,
+  __INSTALLER_PATH_DIR_ETC__/fstab r,
+  # Bounded IPv4 TCP availability check; PID 1 performs the actual mounts.
+  network inet stream,
+  __INSTALLER_PATH_DIR_RUN__/ r,
+  __INSTALLER_PATH_DIR_RUN__/network-sharing/ r,
+  __INSTALLER_PATH_DIR_RUN__/network-sharing/report.json r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/.sharing-toggle.lock rwk,
+  __INSTALLER_PATH_DIR_USR__/bin/systemctl rCx -> systemctl,
+  __INSTALLER_PATH_DIR_USR__/bin/journalctl rCx -> journalctl,
+
+  # Cross-profile child lifecycle: Python may kill/reap a timed-out command.
+  signal (send) set=(term, kill) peer=network-sharing//{systemctl,journalctl},
+  signal (receive) set=(chld) peer=network-sharing//{systemctl,journalctl},
+  # nfsmnt runs in the terminal's foreground process group.
+  signal (receive) set=(hup, int, term, kill) peer=desktop-launcher,
+  signal (send) set=(chld) peer=desktop-launcher,
+
+  profile systemctl {
+    #include <abstractions/base>
+    #include <abstractions/dbus-strict>
+    __INSTALLER_PATH_DIR_USR__/bin/systemctl mr,
+    # The native agent launches both fallback agents when a controlling TTY exists,
+    # even when the wrapper captures stdout and supplies __INSTALLER_PATH_DIR_DEV__/null on stdin.
+    # Keep both agents inside this unprivileged systemctl child profile.
+    __INSTALLER_PATH_DIR_USR__/bin/{pkttyagent,systemd-tty-ask-password-agent} rix,
+    # Trixie's polkit 126 uses the packaged setuid PAM helper; Forky's
+    # socket-based helper remains covered below. This is a native authorization
+    # boundary, never a project-provided privilege helper or password argument.
+    /{lib,usr/lib}/polkit-1/polkit-agent-helper-1 rPUx,
+    __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf,machine-id} r,
+    __INSTALLER_PATH_DIR_RUN__/systemd/{system,private} rw,
+    __INSTALLER_PATH_DIR_RUN__/systemd/system/ r,
+    __INSTALLER_PATH_DIR_RUN__/systemd/ask-password/{,ask.*} r,
+    owner __INSTALLER_PATH_DIR_RUN__/systemd/ask-password/sck.* w,
+    __INSTALLER_PATH_DIR_RUN__/systemd/ask-password-block/ rw,
+    owner __INSTALLER_PATH_DIR_RUN__/systemd/ask-password-block/[0-9]*:[0-9]* rw,
+    # The native systemd implementation creates its user request directory before adding the watch.
+    owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/ask-password/ rw,
+    owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/ask-password/ask.* r,
+    owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/ask-password/sck.* w,
+    # Polkit 127 delegates PAM to its socket-activated root service.
+    __INSTALLER_PATH_DIR_RUN__/polkit/agent-helper.socket rw,
+    __INSTALLER_PATH_DIR_PROC__/sys/fs/nr_open r,
+    __INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id r,
+    owner @{PROC}/@{pid}/{stat,status,cgroup,mountinfo} r,
+    # Polkit 127 resolves the caller's pidfd through its own fdinfo file.
+    owner @{PROC}/@{pid}/fdinfo/[0-9]* r,
+    __INSTALLER_PATH_DIR_DEV__/tty rw,
+    # Observed file_inherit denial for the invoking user's terminal.
+    owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+    network unix stream,
+    # The password agent sends replies to its owned sck.* datagram socket.
+    network unix dgram,
+    dbus (send, receive) bus=system peer=(name=org.freedesktop.systemd1),
+    dbus (send, receive) bus=system peer=(name=org.freedesktop.PolicyKit1),
+    dbus (receive) bus=system interface=org.freedesktop.PolicyKit1.AuthenticationAgent,
+    dbus receive bus=system peer=(name=org.freedesktop.DBus),
+    # The desktop agent remains primary; pkttyagent registers as a fallback.
+    # systemctl reaps its agents and pkttyagent restores/reraises TTY signals.
+    # The packaged AppArmor parser spells SIGTSTP "stp".
+    signal (send, receive) set=(hup, int, term, kill, chld, cont, stp, ttin, ttou) peer=network-sharing//systemctl,
+    signal (receive) set=(term, kill) peer=network-sharing,
+    signal (send) set=(chld) peer=network-sharing,
+    signal (receive) set=(hup, int, term, kill) peer=desktop-launcher,
+  }
+
+  profile journalctl {
+    #include <abstractions/base>
+    __INSTALLER_PATH_DIR_USR__/bin/journalctl mr,
+    __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf,machine-id} r,
+    __INSTALLER_PATH_DIR_RUN__/log/journal/{,**} r,
+    __INSTALLER_PATH_DIR_VAR_LOG__/journal/{,**} r,
+    __INSTALLER_PATH_DIR_USR__/lib/systemd/catalog/database r,
+    __INSTALLER_PATH_DIR_RUN__/systemd/journal/{,**} r,
+    __INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id r,
+    owner @{PROC}/@{pid}/{stat,status,cgroup,mountinfo} r,
+    signal (receive) set=(term, kill) peer=network-sharing,
+    signal (send) set=(chld) peer=network-sharing,
+  }
+  include if exists <local/network-sharing>
+}
+
+# One bounded root diagnostic process, with no capabilities and no networking.
+# NFS client-controlled names are data only. No mount paths, ctl files, exports
+# mutation, cache flushing, keyring mutation or client expiry operations.
+profile network-sharing-report __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-sharing-report flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-sharing-report r,
+  __INSTALLER_PATH_DIR_ETC__/apparmor/modes.conf r,
+  __INSTALLER_PATH_DIR_ETC__/network-sharing/config.json r,
+  owner @{PROC}/@{pid}/attr/{current,apparmor/current} r,
+  @{PROC}/fs/nfsd/{versions,threads} r,
+  @{PROC}/fs/nfsd/clients/ r,
+  @{PROC}/fs/nfsd/clients/[0-9]*/ r,
+  @{PROC}/fs/nfsd/clients/[0-9]*/info r,
+  @{PROC}/net/rpc/{nfs,nfsd} r,
+  owner @{PROC}/@{pid}/net/rpc/{nfs,nfsd} r,
+  @{sys}/module/{nfs,nfsd}/parameters/nfs4_disable_idmapping r,
+  __INSTALLER_PATH_DIR_RUN__/network-sharing/ rw,
+  __INSTALLER_PATH_DIR_RUN__/network-sharing/.report-* rw,
+  __INSTALLER_PATH_DIR_RUN__/network-sharing/report.json rw,
+  deny network,
+  include if exists <local/network-sharing-report>
+}
+
+# Finite read-only startup check. This cannot change identities, mappings,
+# keyrings or kernel parameters and never opens an exported/mounted path.
+profile network-sharing-identity __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-sharing-identity flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/nameservice-strict>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-sharing-identity r,
+  __INSTALLER_PATH_DIR_ETC__/apparmor/modes.conf r,
+  owner @{PROC}/@{pid}/attr/{current,apparmor/current} r,
+  deny network inet,
+  deny network inet6,
+  deny network netlink,
+  / r,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_ETC__/network-sharing/ r,
+  __INSTALLER_PATH_DIR_ETC__/network-sharing/config.json r,
+  # The native NFS config reader takes LOCK_SH before reading every main
+  # file and drop-in. Both components of a stacked label must allow it;
+  # directory enumeration stays read-only and config writes remain denied.
+  /{usr/,}etc/idmapd.conf rk,
+  /{usr/,}etc/idmapd.conf.d/ r,
+  /{usr/,}etc/idmapd.conf.d/*.conf rk,
+  __INSTALLER_PATH_DIR_ETC__/request-key.conf r,
+  __INSTALLER_PATH_DIR_ETC__/request-key.d/{,*.conf} r,
+  __INSTALLER_PATH_DIR_ETC__/exports r,
+  __INSTALLER_PATH_DIR_ETC__/exports.d/{,*.exports} r,
+  @{sys}/module/{nfs,nfsd}/parameters/nfs4_disable_idmapping r,
+  # Resolve both profiles explicitly and retain the parent under
+  # NoNewPrivileges=yes. A leading '&' instead stacks onto an executable
+  # attachment; these read-only tools have no such attached profile.
+  __INSTALLER_PATH_DIR_USR__/sbin/nfsidmap rPx -> "network-sharing-identity//&network-sharing-identity//nfsidmap",
+  __INSTALLER_PATH_DIR_USR__/sbin/nfsconf rPx -> "network-sharing-identity//&network-sharing-identity//nfsconf",
+  __INSTALLER_PATH_DIR_USR__/sbin/{nfsidmap,nfsconf} m,
+  /{usr/,}etc/nfs.conf rk,
+  /{usr/,}etc/nfs.conf.d/ r,
+  /{usr/,}etc/nfs.conf.d/*.conf rk,
+  # Both components of a stacked child's label must permit its lifecycle.
+  signal (send, receive) set=(term, kill, chld) peer=network-sharing-identity,
+  signal (send) set=(term, kill) peer=network-sharing-identity//{nfsidmap,nfsconf},
+  signal (receive) set=(chld) peer=network-sharing-identity//{nfsidmap,nfsconf},
+  signal (receive) set=(term, kill) peer=unconfined,
+
+  profile nfsidmap {
+    #include <abstractions/base>
+    #include <abstractions/nameservice-strict>
+    deny network inet,
+    deny network inet6,
+    deny network netlink,
+    __INSTALLER_PATH_DIR_USR__/sbin/nfsidmap mr,
+    /{usr/,}etc/idmapd.conf rk,
+    /{usr/,}etc/idmapd.conf.d/ r,
+    /{usr/,}etc/idmapd.conf.d/*.conf rk,
+    signal (receive) set=(term, kill) peer=network-sharing-identity,
+    signal (send) set=(chld) peer=network-sharing-identity,
+  }
+  profile nfsconf {
+    #include <abstractions/base>
+    __INSTALLER_PATH_DIR_USR__/sbin/nfsconf mr,
+    /{usr/,}etc/nfs.conf rk,
+    /{usr/,}etc/nfs.conf.d/ r,
+    /{usr/,}etc/nfs.conf.d/*.conf rk,
+    signal (receive) set=(term, kill) peer=network-sharing-identity,
+    signal (send) set=(chld) peer=network-sharing-identity,
+  }
+  include if exists <local/network-sharing-identity>
+}

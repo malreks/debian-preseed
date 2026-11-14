@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+exec __INSTALLER_PATH_DIR_USR_LOCAL_LIB__/yt-dlp/bin/yt-dlp "$@"

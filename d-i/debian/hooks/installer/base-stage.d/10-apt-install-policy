@@ -1,0 +1,63 @@
+#!/bin/sh
+# Base-installer hook: enforce no-Recommends/no-Suggests before any target APT
+# transaction can occur. Apt-setup stages the same authoritative policy again.
+set -eu
+
+RUNTIME_DIR=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+COMMON_LIB="${RUNTIME_DIR}/bootstrap/common-lib.sh"
+
+apt_install_policy_fatal() {
+  apt_install_policy_message=$(printf '%s' "$*" | tr '\r\n\t' '   ')
+  if command -v installer_error >/dev/null 2>&1; then
+    installer_error "base-installer APT policy: ${apt_install_policy_message}"
+  else
+    printf '[base-installer:apt-install-policy] fatal: %s\n' "$apt_install_policy_message" >&2
+    if [ -c /dev/tty4 ] && [ -w /dev/tty4 ]; then
+      printf '[base-installer:apt-install-policy] fatal: %s\n' "$apt_install_policy_message" >/dev/tty4 || :
+    fi
+    if command -v logger >/dev/null 2>&1; then
+      logger -t preseed-base-apt-policy "fatal: $apt_install_policy_message" 2>/dev/null || :
+    fi
+  fi
+  exit 1
+}
+
+[ -r "$COMMON_LIB" ] || apt_install_policy_fatal "installer common library is unavailable: ${COMMON_LIB}"
+# shellcheck disable=SC1090
+. "$COMMON_LIB" || apt_install_policy_fatal 'installer common library failed to load'
+installer_operation_context_repo FILE_INST_BASE_10_APT_INSTALL_POLICY 28 apt_install_policy
+
+HOST_ENV="${DIR_INSTALLER_ENV}/host.env"
+[ -r "$HOST_ENV" ] || apt_install_policy_fatal "composed host environment is unavailable: ${HOST_ENV}"
+# shellcheck disable=SC1090,SC1091
+installer_load_data_env "$HOST_ENV" || apt_install_policy_fatal "composed host environment failed to load: ${HOST_ENV}"
+
+TARGET=${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}
+POLICY_SOURCE=${INSTALLER_APT_INSTALL_POLICY_SOURCE:-${DIR_INSTALLER_ENV}/99noinstall-recommends}
+POLICY_RELATIVE_PATH=${DIR_APT_CONF_D}/99noinstall-recommends
+POLICY_TARGET="${TARGET}${POLICY_RELATIVE_PATH}"
+POLICY_TMP="${POLICY_TARGET}.tmp.$$"
+
+case "$TARGET" in
+  /*) ;;
+  *) apt_install_policy_fatal "installer target must be an absolute path: ${TARGET:-unset}" ;;
+esac
+[ "$TARGET" != / ] ||
+  apt_install_policy_fatal "refusing to stage target APT policy into the installer root"
+
+[ -d "$TARGET" ] || exit 0
+[ -f "$POLICY_SOURCE" ] && [ -r "$POLICY_SOURCE" ] && [ ! -L "$POLICY_SOURCE" ] ||
+  apt_install_policy_fatal "authoritative APT install policy is missing or unsafe: $POLICY_SOURCE"
+grep -Fqx 'APT::Install-Recommends "false";' "$POLICY_SOURCE" ||
+  apt_install_policy_fatal "authoritative APT policy does not disable Recommends"
+grep -Fqx 'APT::Install-Suggests "false";' "$POLICY_SOURCE" ||
+  apt_install_policy_fatal "authoritative APT policy does not disable Suggests"
+
+install -d -m 0755 "$(dirname "$POLICY_TARGET")"
+trap 'rm -f "$POLICY_TMP"' EXIT HUP INT TERM
+install -m 0644 "$POLICY_SOURCE" "$POLICY_TMP"
+mv "$POLICY_TMP" "$POLICY_TARGET"
+trap - EXIT HUP INT TERM
+
+printf '[base-installer:apt-install-policy] installed %s before target package selection\n' \
+  "$POLICY_RELATIVE_PATH" >&2

@@ -1,0 +1,199 @@
+# ------------------------------------------------------------------
+#
+#    Copyright (C) 2004-2006 Novell/SUSE
+#    Copyright (C) 2014 Canonical Ltd.
+#
+#    This program is free software; you can redistribute it and/or
+#    modify it under the terms of version 2 of the GNU General Public
+#    License published by the Free Software Foundation.
+#
+# ------------------------------------------------------------------
+#
+# Managed AppArmor profiling defaults. The dedicated rsyslog destination is
+# first so aa-logprof and aa-genprof use the complete AppArmor event stream
+# without scanning unrelated system messages.
+
+[settings]
+  profiledir = __INSTALLER_PATH_DIR_ETC__/apparmor.d __INSTALLER_PATH_DIR_ETC__/subdomain.d
+  inactive_profiledir = __INSTALLER_PATH_DIR_USR_SHARE__/apparmor/extra-profiles
+  logfiles = __INSTALLER_LOG_APPARMOR_FILE__ __INSTALLER_LOG_AUDIT_FILE__ __INSTALLER_PATH_DIR_VAR_LOG__/audit/audit.log __INSTALLER_PATH_DIR_VAR_LOG__/syslog __INSTALLER_PATH_DIR_VAR_LOG__/kern.log __INSTALLER_PATH_DIR_VAR_LOG__/messages
+
+  parser = __INSTALLER_PATH_DIR_USR__/sbin/apparmor_parser /sbin/apparmor_parser /sbin/subdomain_parser
+  logger = __INSTALLER_PATH_DIR_USR__/bin/logger /bin/logger
+
+  # Customize how file ownership permissions are presented:
+  # 0 - off
+  # 1 - default to the mode reported by the log
+  # 2 - force new permissions to owner rules
+  # 3 - force every permission on the rule to be an owner rule
+  default_owner_prompt = 1
+
+  # Relative directories below __INSTALLER_PATH_DIR_ETC__/apparmor.d that may provide #include
+  # candidates. Keep empty unless a repository-managed include catalog is
+  # deliberately added.
+  custom_includes =
+
+  # When called with --json, write input/output diagnostics to
+  # __INSTALLER_PATH_DIR_TMP__/aa-jsonlog-*. Leave disabled outside explicit debugging sessions.
+  json_log = 0
+
+[qualifiers]
+  # Shells and AppArmor profiling/policy-management tools must not be suggested
+  # for separate child confinement.
+  /bin/bash                 = icnu
+  __INSTALLER_PATH_DIR_USR__/bin/bash             = icnu
+  /bin/ksh                  = icnu
+  __INSTALLER_PATH_DIR_USR__/bin/ksh              = icnu
+  /bin/dash                 = icnu
+  __INSTALLER_PATH_DIR_USR__/bin/dash             = icnu
+  /bin/zsh                  = icnu
+  __INSTALLER_PATH_DIR_USR__/bin/zsh              = icnu
+  __INSTALLER_PATH_DIR_USR__/bin/aa-easyprof      = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-audit        = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-autodep      = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-cleanprof    = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-complain     = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-decode       = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-disable      = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-enforce      = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-genprof      = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-load         = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-logprof      = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-mergeprof    = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-remove-unknown = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-status       = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-teardown     = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-unconfined   = u
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-update-browser = u
+  __INSTALLER_PATH_DIR_USR__/bin/aa-notify        = u
+  __INSTALLER_PATH_DIR_USR__/sbin/apparmor_parser = u
+
+  # These programs cannot function usefully if confined by a generated child
+  # profile.
+  /bin/mount                         = u
+  __INSTALLER_PATH_DIR_USR__/bin/mount                     = u
+  __INSTALLER_PATH_DIR_ETC__/init.d/subdomain              = u
+  /sbin/cardmgr                      = u
+  __INSTALLER_PATH_DIR_USR__/sbin/cardmgr                  = u
+  /sbin/subdomain_parser             = u
+  __INSTALLER_PATH_DIR_USR__/sbin/subdomain_parser         = u
+  __INSTALLER_PATH_DIR_USR__/sbin/genprof                  = u
+  __INSTALLER_PATH_DIR_USR__/sbin/logprof                  = u
+  __INSTALLER_PATH_DIR_USR__/lib/YaST2/servers_non_y2/ag_genprof = u
+  __INSTALLER_PATH_DIR_USR__/lib/YaST2/servers_non_y2/ag_logprof = u
+
+  # Common helper programs should inherit the parent profile instead of
+  # receiving standalone profiles.
+  /bin/awk          = icn
+  __INSTALLER_PATH_DIR_USR__/bin/awk      = icn
+  /bin/cat          = icn
+  __INSTALLER_PATH_DIR_USR__/bin/cat      = icn
+  /bin/chmod        = icn
+  __INSTALLER_PATH_DIR_USR__/bin/chmod    = icn
+  /bin/chown        = icn
+  __INSTALLER_PATH_DIR_USR__/bin/chown    = icn
+  /bin/cp           = icn
+  __INSTALLER_PATH_DIR_USR__/bin/cp       = icn
+  /bin/gawk         = icn
+  __INSTALLER_PATH_DIR_USR__/bin/gawk     = icn
+  /bin/grep         = icn
+  __INSTALLER_PATH_DIR_USR__/bin/grep     = icn
+  /bin/gunzip       = icn
+  __INSTALLER_PATH_DIR_USR__/bin/gunzip   = icn
+  /bin/gzip         = icn
+  __INSTALLER_PATH_DIR_USR__/bin/gzip     = icn
+  /bin/kill         = icn
+  __INSTALLER_PATH_DIR_USR__/bin/kill     = icn
+  /bin/ln           = icn
+  __INSTALLER_PATH_DIR_USR__/bin/ln       = icn
+  /bin/ls           = icn
+  __INSTALLER_PATH_DIR_USR__/bin/ls       = icn
+  /bin/mkdir        = icn
+  __INSTALLER_PATH_DIR_USR__/bin/mkdir    = icn
+  /bin/mv           = icn
+  __INSTALLER_PATH_DIR_USR__/bin/mv       = icn
+  /bin/readlink     = icn
+  __INSTALLER_PATH_DIR_USR__/bin/readlink = icn
+  /bin/rm           = icn
+  __INSTALLER_PATH_DIR_USR__/bin/rm       = icn
+  /bin/sed          = icn
+  __INSTALLER_PATH_DIR_USR__/bin/sed      = icn
+  /bin/touch        = icn
+  __INSTALLER_PATH_DIR_USR__/bin/touch    = icn
+  /sbin/killall5    = icn
+  __INSTALLER_PATH_DIR_USR__/sbin/killall5 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/basename = icn
+  __INSTALLER_PATH_DIR_USR__/bin/cut      = icn
+  __INSTALLER_PATH_DIR_USR__/bin/dirname  = icn
+  __INSTALLER_PATH_DIR_USR__/bin/env      = icn
+  __INSTALLER_PATH_DIR_USR__/bin/find     = icn
+  __INSTALLER_PATH_DIR_USR__/bin/head     = icn
+  __INSTALLER_PATH_DIR_USR__/bin/killall  = icn
+  __INSTALLER_PATH_DIR_USR__/bin/nice     = icn
+  __INSTALLER_PATH_DIR_USR__/bin/perl     = icn
+  __INSTALLER_PATH_DIR_USR__/bin/printf   = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python   = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python2  = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python2.7 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3  = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.3 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.4 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.5 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.6 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.7 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.8 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.9 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.10 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.11 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.12 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.15 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.16 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.17 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.18 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/python3.19 = icn
+  __INSTALLER_PATH_DIR_USR__/bin/sort     = icn
+  __INSTALLER_PATH_DIR_USR__/bin/tail     = icn
+  __INSTALLER_PATH_DIR_USR__/bin/tee      = icn
+  __INSTALLER_PATH_DIR_USR__/bin/tr       = icn
+  __INSTALLER_PATH_DIR_USR__/bin/uname    = icn
+
+[required_hats]
+  ^.+/apache(|2|2-prefork)$ = DEFAULT_URI HANDLING_UNTRUSTED_INPUT
+  ^.+/httpd(|2|2-prefork)$  = DEFAULT_URI HANDLING_UNTRUSTED_INPUT
+
+[defaulthat]
+  ^.+/apache(|2|2-prefork)$ = DEFAULT_URI
+  ^.+/httpd(|2|2-prefork)$  = DEFAULT_URI
+
+[globs]
+  # /foo/bar/lib/libbaz.so -> /foo/bar/lib/lib*
+  /lib/lib[^\/]+so[^\/]*$ = /lib/lib*so*
+
+  # Strip kernel version numbers from kernel module accesses.
+  ^/lib/modules/[^\/]+\/     = /lib/modules/*/
+  ^__INSTALLER_PATH_DIR_USR__/lib/modules/[^\/]+\/ = __INSTALLER_PATH_DIR_USR__/lib/modules/*/
+
+  # Strip PID numbers from procfs accesses.
+  ^__INSTALLER_PATH_DIR_PROC__/\d+/ = __INSTALLER_PATH_DIR_PROC__/*/
+
+  # Generalize local user home directories.
+  ^__INSTALLER_PATH_DIR_HOME__/[^\/]+ = __INSTALLER_PATH_DIR_HOME__/*
+
+  # Generalize Perl module paths across native and multiarch layouts.
+  ^__INSTALLER_PATH_DIR_USR__/lib/perl5/.+$         = __INSTALLER_PATH_DIR_USR__/lib/perl5/**
+  ^__INSTALLER_PATH_DIR_USR__/lib/[^\/]+/perl5?/.+$ = __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/perl{,5}/**
+
+  # Locale and timezone data.
+  ^__INSTALLER_PATH_DIR_USR__/lib/locale/.+$    = __INSTALLER_PATH_DIR_USR__/lib/locale/**
+  ^__INSTALLER_PATH_DIR_USR_SHARE__/locale/.+$  = __INSTALLER_PATH_DIR_USR_SHARE__/locale/**
+  ^__INSTALLER_PATH_DIR_USR_SHARE__/zoneinfo/.+$ = __INSTALLER_PATH_DIR_USR_SHARE__/zoneinfo/**
+
+  # Font trees.
+  /fonts/.+$ = /fonts/**
+
+  # PAM and security configuration families.
+  ^__INSTALLER_PATH_DIR_ETC__/security/_[^\/]+$           = __INSTALLER_PATH_DIR_ETC__/security/*
+  ^/lib/security/pam_filter/[^\/]+$ = /lib/security/pam_filter/*
+  ^/lib/security/pam_[^\/]+\.so$    = /lib/security/pam_*.so
+  ^__INSTALLER_PATH_DIR_ETC__/pam.d/[^\/]+$               = __INSTALLER_PATH_DIR_ETC__/pam.d/*
+  ^__INSTALLER_PATH_DIR_ETC__/profile.d/[^\/]+\.sh$       = __INSTALLER_PATH_DIR_ETC__/profile.d/*.sh

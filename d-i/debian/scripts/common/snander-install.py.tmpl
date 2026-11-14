@@ -1,0 +1,368 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Install verified firmware tools as data, without running archive members."""
+from __future__ import annotations
+import fcntl
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+from urllib.parse import urlsplit
+
+POLICY = Path('__INSTALLER_PATH_FILE_SNANDER_POLICY__')
+RELEASES = Path('__INSTALLER_PATH_DIR_SNANDER_RELEASES__')
+STATE = Path('__INSTALLER_PATH_DIR_SNANDER_STATE__')
+LOCK = Path('__INSTALLER_PATH_FILE_SNANDER_LOCK__')
+PENDING = Path('__INSTALLER_PATH_FILE_SNANDER_PENDING__')
+ENTRY = Path('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/SNANDer')
+FETCH = '__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/installer-artifact-fetch'
+
+
+class OutcomeUnknown(RuntimeError):
+    pass
+
+
+def directory(path: Path, *, create: bool = False) -> None:
+    for parent in reversed((path, *path.parents)):
+        if create and not parent.exists():
+            parent.mkdir(mode=0o755)
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError('untrusted firmware installation ancestry')
+
+
+def regular(path: Path, maximum: int) -> bytes:
+    directory(path.parent)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as source:
+        info = os.fstat(source.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                or info.st_mode & 0o022 or not 0 < info.st_size <= maximum):
+            raise ValueError('untrusted firmware installation file')
+        data = source.read(maximum + 1)
+        if len(data) != info.st_size:
+            raise ValueError('firmware input changed or exceeds its bound')
+        return data
+
+
+def sync(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def write(path: Path, content: bytes, mode: int) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode)
+    with os.fdopen(fd, 'wb') as output:
+        output.write(content)
+        os.fchmod(output.fileno(), mode)
+        output.flush()
+        os.fsync(output.fileno())
+    sync(path.parent)
+
+
+def pairs(items):
+    result = {}
+    for name, value in items:
+        if name in result:
+            raise ValueError('duplicate firmware policy field')
+        result[name] = value
+    return result
+
+
+def policy() -> dict:
+    value = json.loads(regular(POLICY, 65536), object_pairs_hook=pairs)
+    if (not isinstance(value, dict) or set(value) != {'format','version','commit','url','hosts',
+            'sha256','binary_sha256','minimum_bytes','maximum_bytes'} or value['format'] != 1):
+        raise ValueError('unsupported firmware policy schema')
+    for field, pattern in (('version',r'[0-9]+(?:\.[0-9]+){3}'),('commit',r'[0-9a-f]{40}'),
+                           ('sha256',r'[0-9a-f]{64}'),('binary_sha256',r'[0-9a-f]{64}')):
+        if not isinstance(value[field], str) or re.fullmatch(pattern,value[field]) is None:
+            raise ValueError('invalid firmware artifact identity')
+    for field in ('minimum_bytes','maximum_bytes'):
+        if type(value[field]) is not int or not 1 <= value[field] <= 33_554_432:
+            raise ValueError('invalid firmware transfer bound')
+    if value['minimum_bytes'] > value['maximum_bytes']:
+        raise ValueError('inconsistent firmware transfer bounds')
+    hosts = value['hosts'].split()
+    if not hosts or len(hosts) > 8 or any(re.fullmatch(r'[a-z0-9.-]+',host) is None for host in hosts):
+        raise ValueError('invalid firmware redirect policy')
+    url = urlsplit(value['url'])
+    if (url.scheme != 'https' or url.hostname not in hosts or url.username or url.password
+            or url.port not in (None,443) or url.query or url.fragment
+            or not url.path.endswith('/'+value['commit'])):
+        raise ValueError('firmware source URL is not pinned to its commit')
+    return value
+
+
+def download(value: dict, destination: Path, lock: int) -> None:
+    if not hasattr(os,'pidfd_open') or not hasattr(signal,'pidfd_send_signal'):
+        raise ValueError('identity-pinned firmware acquisition is unavailable')
+    process = None
+    pinned = None
+    try:
+        process = subprocess.Popen([FETCH,value['url'],str(destination),str(value['minimum_bytes']),
+            str(value['maximum_bytes']),'artifact',value['hosts']], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,pass_fds=(lock,),start_new_session=True,
+            env={'PATH':'__INSTALLER_PATH_DIR_USR_BIN__:/bin','LC_ALL':'C'})
+        pinned = os.pidfd_open(process.pid)
+        status = process.wait(timeout=930)
+        if status:
+            raise OutcomeUnknown('firmware transport failed without complete worker evidence')
+    except BaseException as error:
+        if process is not None and process.returncode is None:
+            if pinned is None:
+                raise OutcomeUnknown('firmware child identity unavailable; retain workspace') from None
+            try:
+                signal.pidfd_send_signal(pinned,0)
+                if os.getsid(process.pid) != process.pid or os.getpgid(process.pid) != process.pid:
+                    raise OutcomeUnknown('firmware child session identity changed')
+                os.killpg(process.pid,signal.SIGKILL)
+                process.wait(timeout=5)
+            except (OSError,subprocess.TimeoutExpired):
+                raise OutcomeUnknown('firmware child termination cannot be proved') from None
+            # A killed transport may have left its native worker unresolved.
+            # Never clean or retry that private acquisition in this boot.
+            raise OutcomeUnknown('firmware acquisition interrupted; retain workspace') from error
+        raise
+    finally:
+        if pinned is not None:
+            os.close(pinned)
+
+
+def archive_members(path: Path, commit: str) -> dict[str, bytes]:
+    """Stream bounded tar headers and PAX records before allocating payloads.
+
+    This vendor artifact deliberately allows only regular files/directories.
+    Installer source archives have their separate regular-file-only contract.
+    No link, device, sparse entry, extraction command or archive script runs.
+    """
+    root = 'SNANDer-'+commit
+    wanted = {root+'/'+name for name in ('Linux/SNANDer','LICENSE','readme.txt','flash_support_list.txt')}
+    selected = {}; seen = set(); total = 0; extensions = 0; pending_path = None
+    def number(raw: bytes) -> int:
+        raw = raw.rstrip(b'\0 ').lstrip(b' ')
+        if not raw or re.fullmatch(b'[0-7]{1,12}',raw) is None:
+            raise ValueError('unsupported vendor tar size/checksum')
+        return int(raw,8)
+    with gzip.open(path,'rb') as stream:
+        for index in range(16385):
+            block = stream.read(512)
+            if len(block) != 512:
+                raise ValueError('truncated vendor tar header')
+            if block == bytes(512):
+                # Permit normal bounded tar padding; consume gzip checksum too.
+                trailer = stream.read(10241)
+                if not 512 <= len(trailer) <= 10240 or any(trailer) or stream.read(1):
+                    raise ValueError('excessive vendor tar padding/trailer')
+                break
+            if index == 16384 or number(block[148:156]) != sum(block[:148])+256+sum(block[156:]):
+                raise ValueError('vendor tar header limit or checksum failure')
+            size = number(block[124:136]); kind = block[156:157]
+            total += 512 + ((size+511)//512)*512
+            if total > 134_217_728 or size > 33_554_432:
+                raise ValueError('vendor archive expansion bound exceeded')
+            name = block[:100].split(b'\0',1)[0]
+            prefix = block[345:500].split(b'\0',1)[0]
+            if prefix:
+                name = prefix+b'/'+name
+            if kind in (b'x',b'g',b'L'):
+                extensions += size
+                if size > 16384 or extensions > 65536:
+                    raise ValueError('vendor tar metadata bound exceeded')
+                raw = stream.read(size)
+                if len(raw) != size:
+                    raise ValueError('truncated vendor tar metadata')
+                if kind == b'L':
+                    if pending_path is not None or len(raw) > 1025:
+                        raise ValueError('ambiguous vendor long name')
+                    pending_path = raw.rstrip(b'\0').decode('utf-8')
+                else:
+                    offset = 0
+                    while offset < size:
+                        stop = raw.find(b' ',offset,offset+12)
+                        if stop < 0 or not raw[offset:stop].isdigit():
+                            raise ValueError('invalid bounded PAX record')
+                        length = int(raw[offset:stop])
+                        if length <= stop-offset+2 or offset+length > size or raw[offset+length-1:offset+length] != b'\n':
+                            raise ValueError('invalid PAX record length')
+                        field = raw[stop+1:offset+length-1]
+                        key, separator, val = field.partition(b'=')
+                        if not separator or key not in {b'comment',b'mtime',b'atime',b'ctime',b'uid',b'gid',b'uname',b'gname',b'path'}:
+                            raise ValueError('unsupported vendor PAX authority')
+                        if key == b'path':
+                            if kind != b'x' or pending_path is not None:
+                                raise ValueError('ambiguous PAX path')
+                            pending_path = val.decode('utf-8')
+                        offset += length
+            elif kind in (b'0',b'\0',b'5'):
+                member = pending_path if pending_path is not None else name.decode('utf-8')
+                pending_path = None
+                member = member.rstrip('/') if kind == b'5' else member
+                if (len(member) > 1024 or member.startswith('/') or '\\' in member or ':' in member
+                        or any(ord(c)<32 or ord(c)==127 for c in member)
+                        or any(part in ('','.','..') for part in member.split('/'))
+                        or member.split('/')[0] != root or member in seen or (kind == b'5' and size)):
+                    raise ValueError('unsafe or duplicate vendor member')
+                seen.add(member)
+                content = bytearray()
+                left = size
+                while left:
+                    chunk = stream.read(min(left,65536))
+                    if not chunk:
+                        raise ValueError('truncated vendor member')
+                    left -= len(chunk)
+                    if member in wanted:
+                        content.extend(chunk)
+                if member in wanted:
+                    if kind == b'5' or not content or sum(map(len,selected.values()))+len(content) > 33_554_432:
+                        raise ValueError('invalid selected vendor member')
+                    selected[member] = bytes(content)
+            else:
+                raise ValueError('vendor archive links/devices/sparse members are not approved')
+            padding = (-size)%512
+            if len(stream.read(padding)) != padding:
+                raise ValueError('truncated vendor member padding')
+        else:
+            raise ValueError('vendor archive member bound exceeded')
+    if pending_path is not None or set(selected) != wanted:
+        raise ValueError('vendor archive omits required members or has dangling metadata')
+    binary = selected[root+'/Linux/SNANDer']
+    if len(binary) < 64 or binary[:6] != b'\x7fELF\x02\x01' or int.from_bytes(binary[18:20],'little') != 62:
+        raise ValueError('firmware artifact is not an amd64 ELF binary')
+    return selected
+
+
+def install(value: dict, lock: int) -> None:
+    directory(RELEASES,create=True)
+    release = RELEASES/value['version']
+    binary = release/'bin/SNANDer'
+    expected = json.dumps(value,sort_keys=True).encode()+b'\n'
+    if release.exists() or release.is_symlink():
+        if regular(release/'metadata/policy.json',65536) != expected:
+            raise ValueError('existing firmware release policy differs; no reset')
+        if hashlib.sha256(regular(binary,33_554_432)).hexdigest() != value['binary_sha256']:
+            raise ValueError('existing firmware executable identity differs')
+    else:
+        workspace = Path(tempfile.mkdtemp(prefix='.install-',dir=STATE))
+        write(PENDING,json.dumps({'format':1,'boot':Path('__INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id').read_text().strip(),
+            'workspace':workspace.name},sort_keys=True).encode()+b'\n',0o600)
+        uncertain = False
+        staging = None
+        try:
+            archive = workspace/'source.tar.gz'
+            download(value,archive,lock)
+            source = regular(archive,value['maximum_bytes'])
+            if len(source) < value['minimum_bytes'] or hashlib.sha256(source).hexdigest() != value['sha256']:
+                raise ValueError('firmware archive digest differs')
+            files = archive_members(archive,value['commit'])
+            binary_data = files['SNANDer-'+value['commit']+'/Linux/SNANDer']
+            if hashlib.sha256(binary_data).hexdigest() != value['binary_sha256']:
+                raise ValueError('firmware binary digest differs')
+            staging = Path(tempfile.mkdtemp(prefix='.release-',dir=RELEASES))
+            for name in ('bin','metadata','source'):
+                (staging/name).mkdir(mode=0o755)
+            write(staging/'bin/SNANDer',binary_data,0o755)
+            for member,destination in (('LICENSE','LICENSE'),('readme.txt','readme.txt'),('flash_support_list.txt','flash-support-list.txt')):
+                write(staging/'metadata'/destination,files['SNANDer-'+value['commit']+'/'+member],0o644)
+            write(staging/'metadata/policy.json',expected,0o644)
+            write(staging/'source'/('SNANDer-'+value['commit']+'.tar.gz'),source,0o644)
+            os.chmod(staging,0o755);sync(staging)
+            os.rename(staging,release);sync(RELEASES)
+        except OutcomeUnknown:
+            uncertain = True
+            raise
+        finally:
+            if not uncertain:
+                if staging is not None and staging.exists():
+                    shutil.rmtree(staging)
+                shutil.rmtree(workspace)
+                PENDING.unlink();sync(STATE)
+    directory(ENTRY.parent)
+    if ENTRY.exists() or ENTRY.is_symlink():
+        if not ENTRY.is_symlink() or ENTRY.readlink() != binary:
+            raise ValueError('firmware command has a competing owner; no replacement')
+    else:
+        ENTRY.symlink_to(binary);sync(ENTRY.parent)
+    if hashlib.sha256(regular(binary,33_554_432)).hexdigest() != value['binary_sha256']:
+        raise ValueError('published firmware command failed final integrity verification')
+
+
+def main(argv: list[str]) -> int:
+    if os.geteuid() != 0 or argv not in ([],['--recover-after-reboot']):
+        raise ValueError('root and a registered firmware installer operation are required')
+    directory(STATE,create=True)
+    os.chmod(STATE,0o700)
+    fd = os.open(LOCK,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_CLOEXEC,0o600)
+    try:
+        info=os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600:
+            raise ValueError('unsafe firmware ownership lock')
+        fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if PENDING.exists() or PENDING.is_symlink():
+            if argv != ['--recover-after-reboot']:
+                raise OutcomeUnknown('firmware acquisition has retained recovery evidence')
+            record=json.loads(regular(PENDING,4096),object_pairs_hook=pairs)
+            boot=Path('__INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id').read_text().strip()
+            if (set(record)!={'format','boot','workspace'} or record['format']!=1 or record['boot']==boot
+                    or re.fullmatch(r'\.install-[A-Za-z0-9_]+',record['workspace']) is None):
+                raise ValueError('firmware recovery requires a different boot and an owned workspace')
+            workspace=STATE/record['workspace'];directory(workspace)
+            # Only the acquisition workspace is removed after its old boot is
+            # gone. Published releases and unrelated files remain untouched.
+            owned = os.open(workspace,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+            try:
+                identity=os.fstat(owned)
+                names=os.listdir(owned)
+                if len(names)>64:
+                    raise ValueError('firmware recovery workspace exceeds its file bound')
+                records=[]
+                for name in names:
+                    info=os.stat(name,dir_fd=owned,follow_symlinks=False)
+                    if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink!=1
+                            or info.st_mode&0o022 or info.st_size>33_554_432):
+                        raise ValueError('firmware recovery member has a different owner or type')
+                    records.append((name,info.st_dev,info.st_ino))
+                for name,device,inode in records:
+                    info=os.stat(name,dir_fd=owned,follow_symlinks=False)
+                    if (info.st_dev,info.st_ino)!=(device,inode):
+                        raise ValueError('firmware recovery member identity changed')
+                    os.unlink(name,dir_fd=owned)
+                current=workspace.lstat()
+                if (current.st_dev,current.st_ino)!=(identity.st_dev,identity.st_ino):
+                    raise ValueError('firmware recovery directory identity changed')
+            finally:
+                os.close(owned)
+            workspace.rmdir();PENDING.unlink();sync(STATE)
+            return 0
+        if argv:
+            raise ValueError('no firmware recovery is pending')
+        install(policy(),fd)
+        return 0
+    finally:
+        os.close(fd)
+
+
+if __name__=='__main__':
+    def interrupted(_signum,_frame):
+        raise InterruptedError('firmware installation interrupted')
+    for signum in (signal.SIGHUP,signal.SIGINT,signal.SIGTERM,signal.SIGALRM):
+        signal.signal(signum,interrupted)
+    signal.alarm(1200)
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except OutcomeUnknown:
+        print('snander-install: outcome unknown; private recovery evidence retained; no automatic retry',file=sys.stderr)
+        sys.exit(76)
+    except (OSError,ValueError,RuntimeError,KeyError,TypeError,UnicodeError,subprocess.SubprocessError):
+        print('snander-install: protected artifact installation failed; no archive program was executed',file=sys.stderr)
+        sys.exit(1)

@@ -1,0 +1,221 @@
+# Managed exact executable attachments; native package candidates are suite-owned.
+#include <tunables/global>
+
+profile syncthing-configure __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/syncthing-configure flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/nameservice>
+
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network netlink raw,
+  signal (send, receive) peer=syncthing-configure,
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/syncthing-configure rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{dirname,flock,id,install,python3,syncthing,timeout} rix,
+  / r,
+  __INSTALLER_PATH_DIR_ETC__/syncthing/service.conf r,
+  __INSTALLER_PATH_DIR_DATA__/ r,
+  __INSTALLER_PATH_DIR_DATA__/** rwkl,
+  __INSTALLER_PATH_DIR_HOME__/ r,
+  __INSTALLER_PATH_DIR_HOME__/*/ r,
+  __INSTALLER_PATH_DIR_HOME__/*/Syncthing/ rw,
+  __INSTALLER_PATH_DIR_HOME__/*/Syncthing/** rwkl,
+  __INSTALLER_PATH_DIR_HOME__/*/.local/ r,
+  __INSTALLER_PATH_DIR_HOME__/*/.local/state/ rw,
+  __INSTALLER_PATH_DIR_HOME__/*/.local/state/syncthing/ rw,
+  __INSTALLER_PATH_DIR_HOME__/*/.local/state/syncthing/** rwkl,
+
+  include if exists <local/usr.local.libexec.syncthing-configure>
+}
+
+profile rsyslog-security-socket __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-security-socket flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+
+  capability chown,
+  capability fowner,
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-security-socket rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{chmod,chown,getent,sleep} rix,
+  __INSTALLER_PATH_DIR_RUN__/rsyslog/security-scanners/ rw,
+  __INSTALLER_LOG_SCANNER_SOCKET__ rw,
+
+  include if exists <local/usr.local.libexec.rsyslog-security-socket>
+}
+
+profile rsyslog-app-socket __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-app-socket flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+
+  capability chown,
+  capability fowner,
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-app-socket rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{chmod,chown,sleep} rix,
+  __INSTALLER_PATH_DIR_RUN__/rsyslog/apps/ rw,
+  __INSTALLER_LOG_APPS_SOCKET__ rw,
+
+  include if exists <local/usr.local.libexec.rsyslog-app-socket>
+}
+
+profile rsyslog-openai-socket __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-openai-socket flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+
+  capability chown,
+  capability fowner,
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-openai-socket rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{chmod,chown,find,getent,sleep} rix,
+  __INSTALLER_PATH_DIR_RUN__/rsyslog/openai/ rw,
+  __INSTALLER_LOG_CHATGPT_SOCKET__ rw,
+  __INSTALLER_LOG_CHATGPT_RUNTIME_DIR__/ r,
+
+  include if exists <local/usr.local.libexec.rsyslog-openai-socket>
+}
+
+
+profile timeshift-notify-shim __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/timeshift/notify-send flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/timeshift/notify-send rix,
+
+  include if exists <local/usr.local.libexec.timeshift.notify-send>
+}
+
+profile unattended-upgrades-notify __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/unattended-upgrades-notify flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+
+  / r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/unattended-upgrades-notify rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{chmod,date,find,id,install,logger,mktemp,mv,rm} rix,
+  __INSTALLER_PATH_DIR_DEV__/log w,
+  __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/ rw,
+  __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/unattended-upgrades/ rw,
+  __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/unattended-upgrades/** rwkl,
+
+  include if exists <local/usr.local.libexec.unattended-upgrades-notify>
+}
+
+profile labwc-thinkpad-hotkeys __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-thinkpad-hotkeys flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-thinkpad-hotkeys r,
+  __INSTALLER_PATH_DIR_SYS__/devices/platform/thinkpad_acpi/ r,
+  __INSTALLER_PATH_DIR_SYS__/devices/platform/thinkpad_acpi/hotkey_{mask,all_mask} r,
+  __INSTALLER_PATH_DIR_SYS__/devices/platform/thinkpad_acpi/hotkey_mask w,
+}
+
+profile nft-policy-generate __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/nft-policy-generate flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+
+  capability net_admin,
+  capability chown,
+  network netlink raw,
+  unix,
+  dbus,
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/nft-policy-generate rix,
+  __INSTALLER_PATH_DIR_USR__/sbin/nft rix,
+  __INSTALLER_PATH_DIR_USR__/bin/systemctl rix,
+  __INSTALLER_PATH_DIR_ETC__/nftables.conf rw,
+  __INSTALLER_PATH_DIR_ETC__/ rw,
+  __INSTALLER_PATH_DIR_ETC__/.nftables.conf.*.tmp rw,
+  __INSTALLER_PATH_DIR_ETC__/.nft-restore.* rw,
+  __INSTALLER_PATH_DIR_ETC__/nftables.d/ rw,
+  __INSTALLER_PATH_DIR_ETC__/nftables.d/** rwkl,
+  __INSTALLER_PATH_DIR_ETC__/nftables/ r,
+  __INSTALLER_PATH_DIR_ETC__/nftables/** r,
+  __INSTALLER_PATH_DIR_ETC__/nftables.local.d/{,**} r,
+  __INSTALLER_PATH_DIR_RUN__/dbus/system_bus_socket rw,
+  __INSTALLER_PATH_DIR_RUN__/nftables.lock rwk,
+  __INSTALLER_PATH_DIR_RUN__/lock/ rw,
+  __INSTALLER_PATH_DIR_RUN__/lock/labwc-firewall-security.lock rwk,
+  __INSTALLER_PATH_DIR_RUN__/systemd/private rw,
+  __INSTALLER_PATH_DIR_VAR__/backups/nftables/ rw,
+  __INSTALLER_PATH_DIR_VAR__/backups/nftables/** rwkl,
+  owner __INSTALLER_PATH_DIR_TMP__/.nftables.conf.*.tmp rw,
+  owner __INSTALLER_PATH_DIR_TMP__/.95-firewall-security.nft.*.tmp rw,
+
+  include if exists <local/usr.local.sbin.nft-policy-generate>
+}
+
+# Unprivileged client dispatch. Native clients retain their distribution
+# profiles when present; PUx otherwise returns to normal desktop-user policy.
+# The authority boundary is the devops Unix socket, not a sudo wrapper.
+profile podman-client __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{podman,docker,docker-compose} flags=(attach_disconnected) {
+  #include <abstractions/wrapper-base>
+  #include <abstractions/python>
+  #include <abstractions/nameservice>
+
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{podman,docker,docker-compose} rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/podman-devops-client rix,
+  __INSTALLER_PATH_DIR_USR__/bin/python3* rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{podman,docker,docker-compose} rPUx,
+  __INSTALLER_PATH_DIR_RUN__/podman-devops/ r,
+  __INSTALLER_PATH_DIR_RUN__/podman-devops/podman.sock r,
+  __INSTALLER_PATH_DIR_ETC__/podman-devops/ r,
+  __INSTALLER_PATH_DIR_ETC__/podman-devops/client.conf r,
+  signal (send, receive),
+
+  include if exists <local/usr.local.libexec.podman-devops-client>
+}
+
+
+
+
+
+
+
+
+
+profile labwc-apparmor-policy-worker __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-apparmor-policy-worker flags=(attach_disconnected) {
+  #include <abstractions/wrapper-perl>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-apparmor-policy-worker rix,
+  __INSTALLER_PATH_DIR_PERL5_SITE_PERL__/labwc-security-action/{,**} r,
+  __INSTALLER_PATH_DIR_PERL5_SITE_PERL__/runtime/{,**} r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apparmor-modes-run rPx -> apparmor-modes,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-apparmor-boot-state rPx -> labwc-apparmor-boot-state,
+  __INSTALLER_PATH_DIR_USR__/bin/{readlink,systemctl} rix,
+  __INSTALLER_PATH_DIR_USR__/sbin/{aa-audit,apparmor_parser} rPUx,
+  __INSTALLER_PATH_DIR_ETC__/apparmor/{logprof.conf,parser.conf} r,
+  __INSTALLER_PATH_DIR_APPARMOR__/ r,
+  __INSTALLER_PATH_DIR_APPARMOR__/* rw,
+  __INSTALLER_PATH_DIR_APPARMOR__/{abi,abstractions,local,tunables}/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/apparmor/ rw,
+  __INSTALLER_PATH_DIR_VAR_LIB__/apparmor/backup/{,**} rwkl,
+  signal (send) set=(hup, int, term, kill, cont),
+  __INSTALLER_PATH_DIR_ETC__/apparmor/ rw,
+  __INSTALLER_PATH_DIR_ETC__/apparmor/modes.conf rw,
+  __INSTALLER_PATH_DIR_ETC__/apparmor/.modes.* rwkl,
+  __INSTALLER_PATH_DIR_SYS__/module/apparmor/parameters/enabled r,
+  __INSTALLER_PATH_DIR_SYS__/kernel/security/apparmor/profiles r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/labwc-apparmor-policy/ rw,
+  __INSTALLER_PATH_DIR_VAR_LIB__/labwc-apparmor-policy/policy.lock rwk,
+  include if exists <local/usr.local.libexec.labwc-apparmor-policy-worker>
+}
+
+profile labwc-apparmor-boot-state __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-apparmor-boot-state flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-apparmor-boot-state r,
+  # Exact package-owned entrypoints; GRUB must probe host devices. The owning
+  # system service still restricts network, writable mounts and process lifetime.
+  __INSTALLER_PATH_DIR_USR__/sbin/grub-mkconfig rPUx,
+  __INSTALLER_PATH_DIR_USR__/bin/grub-script-check rPUx,
+  signal (send) set=(hup, int, term, kill, cont),
+  / r,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_ETC__/default/ r,
+  __INSTALLER_PATH_DIR_ETC__/default/grub.d/ rw,
+  __INSTALLER_PATH_DIR_ETC__/default/grub.d/35-security-core.cfg rw,
+  __INSTALLER_PATH_DIR_ETC__/default/grub.d/.labwc-apparmor.* rw,
+  __INSTALLER_PATH_DIR_BOOT__/ r,
+  __INSTALLER_PATH_DIR_BOOT__/grub/ rw,
+  __INSTALLER_PATH_DIR_BOOT__/grub/grub.cfg rw,
+  __INSTALLER_PATH_DIR_BOOT__/grub/.labwc-apparmor.* rw,
+  __INSTALLER_PATH_DIR_USR__/ r,
+  __INSTALLER_PATH_DIR_USR__/{bin,sbin}/ r,
+  __INSTALLER_PATH_DIR_VAR__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/labwc-apparmor-policy/ rw,
+  __INSTALLER_PATH_DIR_VAR_LIB__/labwc-apparmor-policy/{boot.lock,boot-transaction.json,.labwc-apparmor.*} rwk,
+  include if exists <local/usr.local.libexec.labwc-apparmor-boot-state>
+}

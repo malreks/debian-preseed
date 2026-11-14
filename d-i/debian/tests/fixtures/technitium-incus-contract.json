@@ -1,0 +1,227 @@
+{
+  "format": 1,
+  "execution": "UNEXECUTED source/failure-injection cases; static inspection only",
+  "owners": [
+    "scripts/server/setup.py.tmpl",
+    "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
+    "hooks/target/usr/local/lib/server/technitium_incus.py.tmpl",
+    "hooks/target/usr/local/lib/server/technitium-init.sh.tmpl"
+  ],
+  "cases": [
+    {
+      "id": "current-exclusive-role",
+      "given": "Technitium selected with GitHub Actions, GitLab CI/CD or server DevOps",
+      "expect": "Reject the declared class conflict before partitioning; no generated installable plan for that combination. The two runner classes remain composable without Technitium."
+    },
+    {
+      "id": "install-pending",
+      "given": "No private enrollment or daemon API",
+      "expect": "Verify pinned application/.NET bytes and serialize regular-file image only; never create or start a guest during installation; status installed-but-pending-private-incus-configuration."
+    },
+    {
+      "id": "no-remote-admin",
+      "given": "Unconfigured or configured instance",
+      "expect": "Guest loopback 5380 is reachable only through its root-owned mode-0600 private Unix proxy; no host TCP management listener, default-admin exposure or remote Incus API."
+    },
+    {
+      "id": "dns-record-families",
+      "given": "IPv4-only profile, client requests A or AAAA",
+      "expect": "Both record types remain resolvable over IPv4. IPv6 profile enables dual-stack transport and upstream preference; no record-type filter."
+    },
+    {
+      "id": "native-library-missing",
+      "given": "A captured ELF DT_NEEDED entry is absent from the native suite",
+      "expect": "Refuse image capture before any Incus mutation; never download a foreign-suite root filesystem or invoke ldd."
+    },
+    {
+      "id": "elf-not-amd64",
+      "given": "Wrong ELF class, byte order, machine, interpreter or malformed dynamic strings",
+      "expect": "Refuse the image; no executable probing of vendor artifacts."
+    },
+    {
+      "id": "link-chain-escape",
+      "given": "Vendor symlink chain/cycle/absolute escape or special file",
+      "expect": "Verify contained relative link identity under its exact artifact tree; refuse escape/cycle/special object before native mutation."
+    },
+    {
+      "id": "aggregate-bound",
+      "given": "More than 12000 image files or 1GiB bytes or 128MiB per member",
+      "expect": "Refuse during traversal/capture; no unbounded extraction/member accumulation."
+    },
+    {
+      "id": "image-identity-change",
+      "given": "Image pathname replacement or metadata/bytes change while upload holds an open descriptor",
+      "expect": "Use nofollow same-inode hash and tar reads; report outcome unknown and retain the transaction after any possible guest mutation."
+    },
+    {
+      "id": "competing-object",
+      "given": "Project, storage pool, bridge, instance or receipt belongs to another owner",
+      "expect": "Refuse; never reset a store or adopt a preexisting object."
+    },
+    {
+      "id": "xfs-data-pool",
+      "given": "Btrfs root with separately mounted XFS /pool and enabled project quotas",
+      "expect": "Use native Incus dir storage on /pool with its disk limit; images, snapshots and backups stay on the same data partition. Never demand Btrfs /pool or create a loop image."
+    },
+    {
+      "id": "pool-not-mounted-or-unqualified",
+      "given": "The dedicated /pool mount is absent, read-only, or XFS project quotas are disabled",
+      "expect": "Refuse before image/store creation; preserve filesystem and existing stores, with no root-filesystem fallback."
+    },
+    {
+      "id": "pending-request-timeout",
+      "given": "Lost response to native Incus mutation or asynchronous completion",
+      "expect": "Keep private incus-transaction.json, distinguish outcome unknown, never issue an automatic retry or force operation."
+    },
+    {
+      "id": "configured-bridge",
+      "given": "Distinct physical Ethernet/Wi-Fi uplinks and owned private bridge/veth",
+      "expect": "NAT and routing match the bridge at layer 3; the receipt binds the exact veth; preserve original client IPs and enforce explicit recursion CIDRs on both uplinks."
+    },
+    {
+      "id": "host-isolation",
+      "given": "DNS guest tries host services or private-network egress",
+      "expect": "Drop on owned bridge except bounded IPv6 neighbour discovery and established replies; allow only declared public DNS/TLS egress."
+    },
+    {
+      "id": "firewall-routing-not-applied",
+      "given": "Staged files exist but owned loaded chain marker or forwarding sysctls differ",
+      "expect": "Refuse start; do not claim online or reload live policy implicitly."
+    },
+    {
+      "id": "guest-identity",
+      "given": "Start configured workload",
+      "expect": "Unprivileged/non-nesting instance, no host mounts/sockets/devices, UID/GID2103 DNS child with all capabilities removed; namespaced port threshold53."
+    },
+    {
+      "id": "stopped-backup",
+      "given": "Running container or nonzero guest PID",
+      "expect": "Refuse backup/update/restore before snapshot or file mutation."
+    },
+    {
+      "id": "exact-restore",
+      "given": "Valid authenticated-encrypted format3 receipt and stopped owned snapshot",
+      "expect": "Restore the exact rootfs snapshot, private configuration, policy and application/.NET bundle pointer; retain pre-restore snapshot/archive and durable rename journal."
+    },
+    {
+      "id": "obsolete-vendor-file",
+      "given": "Old manifest owns application files absent from the update",
+      "expect": "Remove only old manifest files and now-empty owned directories, non-recursively; unexpected data leaves evidence and stops update."
+    },
+    {
+      "id": "private-password",
+      "given": "Complete PRESEED_TECHNITIUM_* secret fields supplied through actual initrd /preseed.env",
+      "expect": "Keep designated locked OS account distinct from primary SSH user and private web administrator. Secrets never enter source, image, receipt, argv or logs; no second admin-password JSON input."
+    },
+    {
+      "id": "complete-firewall-candidate",
+      "given": "Explicit recursion CIDRs for both physical uplinks and an unconfigured server firewall",
+      "expect": "Assemble the private input ACL, bridge isolation, forwarding, DNAT and masquerade as one candidate. Publish the firewall exactly once; retain both the ACL and forwarding in the final bytes."
+    },
+    {
+      "id": "invalid-policy-before-publication",
+      "given": "Overlapping bridge/uplink subnet, invalid CIDR/interface, duplicate uplink, inconsistent IPv6 policy, missing firewall boundary or unverified bundle",
+      "expect": "Reject before creating the recovery workspace or journal and before changing resolver, credentials, service policy, firewall, forwarding or native Incus objects."
+    },
+    {
+      "id": "private-json-shape",
+      "given": "Private input is an array, scalar or object with the wrong fields; recursion_cidrs contains non-string members",
+      "expect": "Return the sanitized failed result before mutation, without a traceback containing private input, argv secrets or vendor output."
+    },
+    {
+      "id": "exact-configuration-recovery",
+      "given": "Some managed policy files exist while others are absent",
+      "expect": "Durably retain each previous file's exact bytes, digest, UID, GID and mode or explicit absence, plus the original resolver symlink, before the first policy publication. The private journal names only its owned recovery workspace."
+    },
+    {
+      "id": "policy-identity-replaced",
+      "given": "A policy file or resolver link changes after capture but before publication",
+      "expect": "Reject the changed identity without overwriting that competing state, report outcome unknown if the transaction has begun, and retain the journal and all previous bytes. Never claim rollback success."
+    },
+    {
+      "id": "configuration-write-or-sync-failure",
+      "given": "Atomic replacement or fsync fails after a candidate or configured marker may have been published",
+      "expect": "Keep the nonterminal configuration journal and recovery workspace. Return outcome unknown; start, backup, update and restore refuse to proceed until the operator resolves the exact partial state."
+    },
+    {
+      "id": "configuration-native-timeout",
+      "given": "Incus preparation loses a response, times out or cannot prove completion",
+      "expect": "Retain both the configuration journal and the native Incus transaction; do not hand over the resolver, mark configuration complete, activate the guest or retry automatically."
+    },
+    {
+      "id": "configuration-terminal-receipt",
+      "given": "All candidates, stopped guest preparation, resolver handover and configured marker have completed durably",
+      "expect": "Only then publish configured-activation-pending as the terminal configuration state. Online remains false; activation still requires operator-applied firewall/routing and the existing native preflight."
+    },
+    {
+      "id": "concurrent-configuration",
+      "given": "A second configuration or maintenance process competes with the first or an interrupted journal remains",
+      "expect": "Use the existing bounded global ownership lock; refuse duplicate configuration without resetting private state, deleting evidence or introducing another lock protocol."
+    },
+    {
+      "id": "protected-input-fifo",
+      "given": "A private enrollment input, artifact receipt, catalog or servicing-code snapshot is replaced with a FIFO",
+      "expect": "The shared nofollow nonblocking reader rejects the non-regular object without waiting for a writer. No managed code or private input is consumed."
+    },
+    {
+      "id": "protected-input-change",
+      "given": "A protected input is replaced, chmodded, relinked or rewritten at the same length during capture",
+      "expect": "Compare opened and named identities including mode, links, UID/GID, size, mtime and ctime; reject before parsing or executing the captured data."
+    },
+    {
+      "id": "custom-service-identity",
+      "given": "PRESEED_TECHNITIUM_USERNAME=dnsuser, separate primary human username",
+      "expect": "Create locked nologin UID/GID2103 service account with no supplementary authority; primary user alone receives the SSH authorized key. Later operations verify the durable identity receipt against native passwd/group/shadow."
+    },
+    {
+      "id": "identity-collision",
+      "given": "Designated Technitium username matches primary user, root, reserved identity or unsafe identifier",
+      "expect": "Reject before identity creation or native Incus mutation; never lock the primary account."
+    },
+    {
+      "id": "locked-password",
+      "given": "Optional Technitium OS password supplied",
+      "expect": "Hash only via bounded private stdin and lock the native shadow hash; no interactive login, cleartext argv or reuse as web password."
+    },
+    {
+      "id": "web-pair-pending",
+      "given": "Missing or partial private web username/password pair",
+      "expect": "Installation remains installed-but-pending; refuse configure/start before native guest mutation or management exposure."
+    },
+    {
+      "id": "web-custom-admin",
+      "given": "Complete custom web username/password and a fresh native configuration",
+      "expect": "Use private bootstrap admin, create and verify named administrator through pinned native API, log out private tokens and retain durable configuration journal; no invented username environment variable."
+    },
+    {
+      "id": "web-response-lost",
+      "given": "Native API authentication/user creation/TLS setting outcome cannot be proved",
+      "expect": "Retain web and Incus transaction journals; report outcome unknown, never reissue uncertain account mutation or claim online."
+    },
+    {
+      "id": "tls-certificate-pending",
+      "given": "TLS passphrase provided but private certificate not yet staged",
+      "expect": "Keep only root-private Unix management/guest loopback; report certificate pending, never claim TLS enabled or publish a remote listener."
+    },
+    {
+      "id": "encrypted-backup",
+      "given": "Complete backup passphrase and stopped owned guest",
+      "expect": "Stream format3 Scrypt/AES256GCM authenticated archive; bound bytes/time, exclude backup passphrase and ephemeral socket, and retain exact Incus snapshot and digest receipt."
+    },
+    {
+      "id": "backup-key-missing",
+      "given": "Backup passphrase absent",
+      "expect": "Reject before Incus snapshot/export or archive mutation; no plaintext fallback."
+    },
+    {
+      "id": "backup-authentication",
+      "given": "Wrong passphrase, ciphertext/header/tag corruption or changed archive identity",
+      "expect": "Reject before parsing archive members or restoring target state; never accept old plaintext format2 or disclose the supplied passphrase."
+    },
+    {
+      "id": "restore-key-preserved",
+      "given": "Valid encrypted backup restored",
+      "expect": "Retain current private backup passphrase across credential-directory replacement; archive cannot replace backup key or management socket."
+    }
+  ]
+}

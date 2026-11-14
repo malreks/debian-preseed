@@ -1,0 +1,10 @@
+#!/bin/sh
+# User-facing runner administration entrypoint. The privileged boundary is a
+# fixed polkit action; no caller-supplied engine, socket, or environment is accepted.
+set -eu
+helper=__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/server/ci-runners-control
+[ -x "$helper" ] || {
+  printf '%s\n' 'ci-runners: no local runner roles are installed' >&2
+  exit 69
+}
+exec __INSTALLER_PATH_DIR_USR__/bin/pkexec "$helper" "$@"

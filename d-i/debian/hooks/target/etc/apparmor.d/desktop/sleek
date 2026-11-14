@@ -1,0 +1,37 @@
+# Managed by unattended-installer.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+profile sleek /{usr/bin/sleek,opt/sleek/sleek} flags=(attach_disconnected) {
+  #include <abstractions/electron-application>
+  #include <abstractions/user-documents>
+  include if exists <abstractions/user-tmp>
+
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network netlink raw,
+
+  # Read-only inherited Bluetooth status descriptor.
+  __INSTALLER_PATH_DIR_DEV__/rfkill r,
+
+  __INSTALLER_PATH_DIR_USR__/bin/sleek mr,
+  __INSTALLER_PATH_DIR_OPT__/sleek/ r,
+  __INSTALLER_PATH_DIR_OPT__/sleek/** mrix,
+
+  owner @{HOME}/.cache/sleek/ rw,
+  owner @{HOME}/.cache/sleek/** rwk,
+  owner @{HOME}/.config/sleek/ rw,
+  owner @{HOME}/.config/sleek/** rwkl,
+  owner @{HOME}/.local/share/sleek/ rw,
+  owner @{HOME}/.local/share/sleek/** rwkl,
+  owner @{HOME}/@{XDG_DOCUMENTS_DIR}/ rw,
+  owner @{HOME}/@{XDG_DOCUMENTS_DIR}/** rwkl,
+  owner @{HOME}/Syncthing/sleek/ rw,
+  owner @{HOME}/Syncthing/sleek/** rwkl,
+
+  include if exists <local/sleek>
+}

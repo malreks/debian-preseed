@@ -1,0 +1,15 @@
+# Managed by unattended-installer.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+profile timeshift /{usr/bin/timeshift,usr/bin/timeshift-gtk,usr/bin/timeshift-launcher,usr/local/libexec/timeshift-snapshot,etc/timeshift/backup-hooks.d/90-grub-btrfs-refresh} flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/timeshift-runtime>
+
+  __INSTALLER_PATH_DIR_USR__/bin/timeshift mr,
+  __INSTALLER_PATH_DIR_USR__/bin/timeshift-gtk mr,
+  __INSTALLER_PATH_DIR_USR__/bin/timeshift-launcher mr,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/timeshift-snapshot mr,
+  __INSTALLER_PATH_DIR_ETC__/timeshift/backup-hooks.d/90-grub-btrfs-refresh mr,
+}

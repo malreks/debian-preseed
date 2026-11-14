@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+[ "$#" -eq 0 ] || { printf '%s\n' 'usage: labwc-window-switcher' >&2; exit 2; }
+runtime_uid=$(__INSTALLER_PATH_DIR_USR__/bin/id -u)
+[ "$runtime_uid" -ne 0 ] || {
+  printf '%s\n' 'labwc-window-switcher must run as the desktop user' >&2
+  exit 1
+}
+[ "${LABWC_SESSION_OWNER:-}" = desktop ] || {
+  printf '%s\n' 'labwc-window-switcher requires the managed desktop session' >&2
+  exit 1
+}
+[ "${XDG_SESSION_TYPE:-}" = wayland ] || {
+  printf '%s\n' 'labwc-window-switcher requires a Wayland session' >&2
+  exit 1
+}
+runtime_root="__INSTALLER_PATH_DIR_RUN_USER__/$runtime_uid"
+[ "${XDG_RUNTIME_DIR:-}" = "$runtime_root" ] || {
+  printf '%s\n' 'labwc-window-switcher requires the current desktop runtime directory' >&2
+  exit 1
+}
+# Directory link counts vary with the filesystem and its child directories.
+# The caller's canonical, non-symlink 0700 directory is the access boundary.
+[ ! -L "$runtime_root" ] && [ -d "$runtime_root" ] &&
+  [ "$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$runtime_root" -maxdepth 0 -printf '%U %m' 2>__INSTALLER_PATH_DIR_DEV__/null || true)" = "$runtime_uid 700" ] || {
+  printf '%s\n' 'labwc-window-switcher runtime directory is unsafe' >&2
+  exit 1
+}
+wayland_display=${WAYLAND_DISPLAY:-}
+case "$wayland_display" in
+  ''|*/*|*..*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]*)
+    printf '%s\n' 'labwc-window-switcher display name is unsafe' >&2
+    exit 1
+    ;;
+esac
+wayland_socket="$runtime_root/$wayland_display"
+# Socket permissions follow the compositor's umask; the private parent already
+# excludes other users. Require a real socket owned by this UID, not an alias.
+[ ! -L "$wayland_socket" ] && [ -S "$wayland_socket" ] &&
+  [ "$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$wayland_socket" -maxdepth 0 -printf '%U %n' 2>__INSTALLER_PATH_DIR_DEV__/null || true)" = "$runtime_uid 1" ] || {
+  printf '%s\n' 'labwc-window-switcher Wayland socket is unsafe' >&2
+  exit 1
+}
+# Waybar must invoke this on mouse release, after GTK's pointer grab ends.
+# Send down/up on the SAME virtual keyboard, before the user selects or cancels.
+# No F13 (or Alt) is held for the lifetime of labwc's native thumbnail switcher.
+# The enclosing transient service isolates the cgroup; timeout also bounds direct
+# invocations and tears down the virtual keyboard if the compositor stops replying.
+exec __INSTALLER_PATH_DIR_USR__/bin/timeout --signal=TERM --kill-after=1s 2s __INSTALLER_PATH_DIR_USR__/bin/wtype -P F13 -p F13

@@ -1,0 +1,21 @@
+Server network ownership
+
+Installation always uses the physical Ethernet adapter. The shared uplink
+stage binds its MAC and the optional Wi-Fi adapter to the profile's stable
+names. NetworkManager owns the installed server's physical connections;
+unrelated ifupdown stanzas remain unmanaged. Role services use the selected
+default route and the firewall permits only the declared physical pair.
+
+MANAGED_NETWORK_PRIMARY_IFACE selects metric 100; the fallback uses 600.
+WIFI_ENABLE controls private AP preconfiguration from the initrd-root
+/preseed.env restricted reader. A saved AP may reconnect automatically even
+when that flag was false at installation. Its IPv4 and enabled IPv6 addresses
+are the Ethernet installation address plus one in the same prefix. Reserve
+that pair outside a dynamic DHCP allocation pool. A changed Ethernet lease
+requires explicit paired-address policy maintenance; arbitrary changing DHCP
+leases are not qualified by the fresh-install static evidence.
+
+IPV6_ENABLE=false disables IPv6 on both physical uplinks, not loopback or
+unrelated private job namespaces. Desktop veth/proxy/session configuration is
+not staged for server roles. Technitium management stays loopback-only and
+port 53 stays closed until explicit private configuration.

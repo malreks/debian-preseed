@@ -1,0 +1,38 @@
+Package: *
+Pin: release o=Debian,n=forky
+Pin-Priority: 900
+
+# The LLVM 24 runtime is supplied by Debian Experimental. Keep the
+# package-qualified pkgsel request from being captured by the apt.llvm.org
+# wildcard policy in 20-vendors.pref.
+Package: libclang-rt-24-dev
+Pin: release o=Debian,n=experimental
+Pin-Priority: 1001
+
+Package: libclang-rt-24-dev
+Pin: origin apt.llvm.org
+Pin-Priority: -1
+
+Package: *
+Pin: release o=Debian,n=trixie
+Pin-Priority: 400
+
+Package: *
+Pin: release o=Debian,n=sid
+Pin-Priority: 100
+
+Package: *
+Pin: release o=Debian,n=rc-buggy
+Pin-Priority: -1
+
+Package: *
+Pin: release o=Debian,n=experimental
+Pin-Priority: 1
+
+Package: *
+Pin: release o=Debian,n=trixie-backports
+Pin-Priority: -1
+
+Package: *
+Pin: release o=Debian,n=forky-backports
+Pin-Priority: -1

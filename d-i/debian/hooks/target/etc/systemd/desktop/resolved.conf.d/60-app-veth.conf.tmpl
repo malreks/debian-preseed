@@ -1,0 +1,21 @@
+# systemd-resolved remains the host resolver and may serve VPN-specific links.
+# Managed application veth DNS uses the separate dnsmasq -> Stubby path.
+[Resolve]
+# Route public/global queries through the local strict Stubby resolver. Resolved
+# remains available for host and per-link VPN DNS and route-only domains.
+DNS=__INSTALLER_APP_VETH_TLS_HOST_ADDRESS__:__INSTALLER_APP_VETH_TLS_HOST_PORT__
+# Global DNS uses Stubby's authenticated TLS-only transport. There is no
+# independent global fallback. The loopback connection to Stubby is plain DNS;
+# per-link VPN transport settings remain under their network manager's policy.
+FallbackDNS=
+DNSOverTLS=no
+# Stubby performs DNSSEC validation using the packaged root trust anchor.
+# Treat this loopback hop as a client of that validator; a second validator
+# can reject Stubby's replies when its separate DNSSEC proof queries are not
+# forwarded with the required signatures ("no-signature"). Stubby continues
+# to reject bogus answers and uses authenticated TLS without fallback.
+# VPNs may explicitly set their own per-link DNSSEC policy.
+DNSSEC=no
+Cache=yes
+CacheFromLocalhost=yes
+MulticastDNS=resolve

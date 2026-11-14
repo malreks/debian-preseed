@@ -1,0 +1,30 @@
+<?xml version='1.0' encoding='utf-8'?>
+<interface>
+  <object class="GtkAccelGroup" id="menu_accel_group" />
+  <object class="GtkMenu" id="menu">
+    <property name="accel-group">menu_accel_group</property>
+    <property name="reserve-toggle-size">False</property>
+    <child>
+      <object class="GtkMenuItem" id="brightness_up"><property name="visible">True</property><property name="label">Increase brightness</property></object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="brightness_down"><property name="visible">True</property><property name="label">Decrease brightness</property></object>
+    </child>
+    <child><object class="GtkSeparatorMenuItem"><property name="visible">True</property></object></child>
+    <child>
+      <object class="GtkMenuItem" id="brightness_15"><property name="visible">True</property><property name="label">Night · 15%</property></object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="brightness_30"><property name="visible">True</property><property name="label">Dim · 30%</property></object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="brightness_55"><property name="visible">True</property><property name="label">Balanced · 55%</property></object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="brightness_80"><property name="visible">True</property><property name="label">Bright · 80%</property></object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="brightness_100"><property name="visible">True</property><property name="label">Maximum · 100%</property></object>
+    </child>
+  </object>
+</interface>

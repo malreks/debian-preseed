@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# Only a path to an anonymous, root-owned memfd is inherited, never its value.
+case "${MANAGED_SSH_PASSPHRASE_FD:-}" in __INSTALLER_PATH_DIR_PROC__/[0-9]*/fd/[0-9]*) ;; *) exit 1 ;; esac
+exec __INSTALLER_PATH_DIR_BIN__/cat -- "$MANAGED_SSH_PASSPHRASE_FD"

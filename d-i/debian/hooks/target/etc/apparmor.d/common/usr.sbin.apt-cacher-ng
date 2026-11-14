@@ -1,0 +1,33 @@
+# Managed by unattended-installer.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+profile apt-cacher-ng __INSTALLER_PATH_DIR_USR__/sbin/apt-cacher-ng flags=(attach_disconnected, complain) {
+  #include <abstractions/base>
+  include if exists <abstractions/nameservice>
+  include if exists <abstractions/ssl_certs>
+
+  capability chown,
+  capability dac_read_search,
+  capability fowner,
+  capability setgid,
+  capability setuid,
+
+  __INSTALLER_PATH_DIR_USR__/sbin/apt-cacher-ng mr,
+  __INSTALLER_PATH_DIR_USR__/lib/apt-cacher-ng/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/apt-cacher-ng/** r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/doc/apt-cacher-ng/** r,
+  __INSTALLER_PATH_DIR_ETC__/apt-cacher-ng/** r,
+  __INSTALLER_PATH_DIR_ETC__/apt/** r,
+  __INSTALLER_PATH_DIR_ETC__/ssl/certs/** r,
+
+  __INSTALLER_PATH_DIR_VAR_CACHE__/apt-cacher-ng/** rwk,
+  __INSTALLER_PATH_DIR_VAR_LOG__/apt-cacher-ng/** rw,
+  __INSTALLER_PATH_DIR_RUN__/apt-cacher-ng/** rwk,
+  __INSTALLER_PATH_DIR_VAR__/run/apt-cacher-ng/** rwk,
+  __INSTALLER_PATH_DIR_TMP__/** rwk,
+
+  include if exists <local/usr.sbin.apt-cacher-ng>
+}

@@ -1,0 +1,21 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+import os
+import sys
+
+
+if os.geteuid() == 0:
+    print(
+        "fatal: Zoom must run as the configured desktop user, never root",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+os.execv(
+    "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-compat-app",
+    [
+        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-compat-app",
+        "auto",
+        "zoom",
+        *sys.argv[1:],
+    ],
+)

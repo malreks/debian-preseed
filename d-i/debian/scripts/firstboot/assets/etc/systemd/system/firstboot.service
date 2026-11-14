@@ -1,0 +1,44 @@
+[Unit]
+Description=First boot provisioning and validation wrapper
+Documentation=man:systemd.service(5)
+
+# Collect persistent diagnostics even when the collector cannot start.
+# Validation also requires the ready collector's forwarding owner.
+Wants=network-online.target apparmor-modes.service rsyslog.service
+Requires=apparmor.service local-fs.target systemd-tmpfiles-setup.service journal-sealing.service auditd.service
+After=apparmor.service local-fs.target systemd-tmpfiles-setup.service systemd-journald.socket journal-sealing.service network-online.target apparmor-modes.service auditd.service rsyslog.service rsyslog-journal-forwarding.service
+
+# The wrapper skips a successful marker under its lock. Failed legacy markers
+# must not suppress a fresh validation attempt.
+
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+# Do not use oneshot here: multi-user.target waits only for the successful
+# exec transition, not for the wrapper's complete diagnostic runtime.
+Type=exec
+# Reload the staged source, not a possibly older boot/cache generation. This
+# runs outside the firstboot attachment and must succeed before validation.
+# Rebuild the cache; --skip-cache conflicts with parser.conf's write-cache.
+ExecStartPre=__INSTALLER_PATH_DIR_USR_SBIN__/apparmor_parser --replace --skip-read-cache --write-cache __INSTALLER_PATH_DIR_APPARMOR__/firstboot
+ExecStart=__INSTALLER_PATH_FILE_FIRSTBOOT_HELPER__
+# Publish a request after the wrapper exits. A shared OnSuccess handler has
+# ambiguous MONITOR_* sources when independent bootstraps complete together.
+ExecStopPost=__INSTALLER_PATH_FILE_SECONDBOOT_HELPER__ --queue
+
+StandardOutput=journal
+StandardError=journal
+
+TimeoutStartSec=30s
+RuntimeMaxSec=35min
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+KillMode=control-group
+
+User=root
+Group=root
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

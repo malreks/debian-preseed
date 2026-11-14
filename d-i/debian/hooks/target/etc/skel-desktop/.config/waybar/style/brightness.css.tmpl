@@ -1,0 +1,27 @@
+/* Waybar brightness button rules. Native theme values remain editable per mapping. */
+
+#backlight {
+  background: __THEME_WAYBAR_BUTTON_BACKLIGHT_NORMAL_BACKGROUND_COLOR__;
+  border-style: __THEME_WAYBAR_BORDER_STYLE__;
+  border-color: __THEME_WAYBAR_BUTTON_BACKLIGHT_NORMAL_OUTLINE_COLOR__;
+  color: __THEME_WAYBAR_BUTTON_BACKLIGHT_AVAILABLE_TEXT_COLOR__;
+}
+
+#backlight.unavailable {
+  color: __THEME_WAYBAR_BUTTON_BACKLIGHT_UNAVAILABLE_TEXT_COLOR__;
+}
+
+#backlight:hover, #backlight:active {
+  background: __THEME_WAYBAR_BUTTON_BACKLIGHT_HOVER_BACKGROUND_COLOR__;
+  border-color: __THEME_WAYBAR_BUTTON_BACKLIGHT_HOVER_OUTLINE_COLOR__;
+}
+
+window#waybar.internal #backlight:hover, window#waybar.internal #backlight:active {
+  box-shadow: inset 0 0 0 1px __THEME_WAYBAR_BUTTON_BACKLIGHT_HOVER_OUTLINE_COLOR__,
+              inset 0 0 4px 0 __THEME_WAYBAR_BUTTON_BACKLIGHT_HOVER_SHADOW_COLOR__;
+}
+
+window#waybar.external #backlight:hover, window#waybar.external #backlight:active {
+  box-shadow: inset 0 0 0 1px __THEME_WAYBAR_BUTTON_BACKLIGHT_HOVER_OUTLINE_COLOR__,
+              inset 0 0 4px 0 __THEME_WAYBAR_BUTTON_BACKLIGHT_HOVER_SHADOW_COLOR__;
+}

@@ -1,0 +1,130 @@
+package WhisperMode::Runtime;
+
+use strict;
+use warnings;
+
+use Moo;
+use MooX::StrictConstructor;
+use MooX::TypeTiny;
+use WhisperMode::Artifacts;
+use WhisperMode::Audio;
+use WhisperMode::Config;
+use WhisperMode::Memory;
+use WhisperMode::Recorder;
+use WhisperMode::State;
+use WhisperMode::Systemd;
+use WhisperMode::Transcriber;
+
+has config => ( is => 'ro', lazy => 1, builder => sub { WhisperMode::Config->new() } );
+has state => ( is => 'ro', lazy => 1, builder => sub { WhisperMode::State->new() } );
+has artifacts => ( is => 'ro', lazy => 1, builder => sub { WhisperMode::Artifacts->new() } );
+has audio => ( is => 'ro', lazy => 1, builder => sub { WhisperMode::Audio->new() } );
+has systemd => ( is => 'ro', lazy => 1, builder => sub { WhisperMode::Systemd->new() } );
+
+sub _recorder {
+    my ($self) = @_;
+    return WhisperMode::Recorder->new(
+        artifacts => $self->artifacts(), audio => $self->audio(),
+        state => $self->state(), systemd => $self->systemd(),
+    );
+}
+
+sub _memory {
+    my ($self) = @_;
+    return WhisperMode::Memory->new(config => $self->config(), systemd => $self->systemd());
+}
+
+sub _notify_state {
+    my ($summary, $body) = @_;
+    return if !-x '__INSTALLER_PATH_DIR_USR__/bin/notify-send' || !-x '__INSTALLER_PATH_DIR_USR__/bin/timeout';
+    return if !length($ENV{DBUS_SESSION_BUS_ADDRESS} // q{});
+    system(
+        '__INSTALLER_PATH_DIR_USR__/bin/timeout', '--kill-after=1s', '3s', '__INSTALLER_PATH_DIR_USR__/bin/notify-send',
+        '--app-name=Whisper', '--urgency=low', '--category=audio.whisper',
+        '--', $summary, $body,
+    );
+    return;
+}
+
+sub run {
+    my ($self, $action) = @_;
+    if ($action eq 'server-enabled') {
+        return $self->_memory()->enabled() ? 0 : 1;
+    }
+    if ($action eq 'server-ready') {
+        $self->_memory()->wait_until_ready();
+        return 0;
+    }
+    if ($action eq 'server') {
+        $self->_memory()->run_server();
+        return 0;
+    }
+    if ($action eq 'finalize-recording') {
+        my $lock = $self->state()->lock(0, 1);
+        return 0 if !$lock;
+        return 0 if $self->systemd()->is_active($self->systemd()->record_service());
+        my $recording = $self->_recorder()->finalize();
+        my $transcribe =
+            defined($recording)
+            && $self->systemd()->is_active($self->systemd()->session_target());
+        undef $lock;
+        $self->systemd()->start_transcription() if $transcribe;
+        return 0;
+    }
+    if ($action eq 'record-worker') {
+        my $lock = $self->state()->lock(0, 0);
+        $self->_recorder()->record_worker(\$lock);
+        return 0;
+    }
+    if ($action eq 'transcribe') {
+        WhisperMode::Transcriber->new(
+            artifacts => $self->artifacts(), config => $self->config(),
+            memory => $self->_memory(), state => $self->state(),
+        )->transcribe_pending();
+        return 0;
+    }
+    if ($action eq 'mute-default-source') {
+        my $lock = $self->state()->lock(0, 1);
+        return 0 if !$lock;
+        my $recording_guard = $self->state()->lock(1, 1);
+        return 0 if !$recording_guard;
+        return 0 if $self->systemd()->is_active($self->systemd()->record_service());
+        my $muted = $self->audio()->set_default_source_muted(1);
+        $muted or die "whisper-record-toggle: no usable audio capture source became available\n";
+        return 0;
+    }
+
+    my $lock = $self->state()->lock(0, 1)
+        or die "whisper-record-toggle: another control action is in progress\n";
+    return 0 if $self->systemd()->is_running($self->systemd()->transcribe_service());
+    my $recorder = $self->_recorder();
+    my $pending = $self->state()->read();
+    my $transcribe = 0;
+    my $state_message;
+    if ($action eq 'toggle') {
+        if ($self->systemd()->is_running($self->systemd()->record_service())) {
+            $transcribe = defined $recorder->stop();
+            $state_message = 'Whisper recording disabled';
+        } elsif ($pending) {
+            $transcribe = defined $recorder->finalize();
+            $state_message = 'Whisper recording disabled';
+        } else {
+            $recorder->start();
+            $state_message = 'Whisper recording enabled';
+        }
+    } elsif ($action eq 'start') {
+        $recorder->start();
+        $state_message = 'Whisper recording enabled';
+    } elsif ($action eq 'stop') {
+        $transcribe = defined $recorder->stop();
+        $state_message = 'Whisper recording disabled';
+    } else {
+        die "whisper-record-toggle: unsupported action: $action\n";
+    }
+    undef $lock;
+    $self->systemd()->start_transcription() if $transcribe;
+    _notify_state($state_message, $state_message . '.') if defined $state_message;
+    return 0;
+}
+
+1;

@@ -1,0 +1,15 @@
+# Desktop-only private Web UI readiness. No storage mutation or menu grants.
+#include <tunables/global>
+profile incus-desktop-ui __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/incus-desktop-ui-check flags=(attach_disconnected) {
+  #include <abstractions/base>
+  #include <abstractions/python>
+  __INSTALLER_PATH_DIR_USR__/bin/python3* rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/incus-desktop-ui-check r,
+  __INSTALLER_PATH_DIR_PYTHON3_SYSTEM_PACKAGES__/installer-managed.pth r,
+  __INSTALLER_PATH_DIR_PYTHON3_LOCAL__/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,
+  __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf} r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/incus/unix.socket rw,
+  network unix stream,
+  signal (receive) set=(hup, term, kill) peer=unconfined,
+}

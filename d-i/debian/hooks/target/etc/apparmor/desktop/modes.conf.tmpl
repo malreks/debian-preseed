@@ -1,0 +1,143 @@
+# Managed by unattended-installer.
+#
+# Format:
+#   MODE PRESENCE PROFILE_FILE EXECUTABLE_PROBE
+#
+# This tracked modes.conf.tmpl is installed as
+# __INSTALLER_PATH_DIR_ETC__/apparmor/modes.conf only after MODE has been rendered from
+# __DESKTOP_APPARMOR_STATE__ to the selected enforce or complain value. The
+# installed administrative action may later write enforce or complain for the
+# desktop profiles. The hardware control plane always requires enforce. Full
+# disablement is a separately confirmed next-boot setting, never a live unload.
+# PRESENCE is required, optional, or if-executable.
+# PROFILE_FILE is relative to __INSTALLER_PATH_DIR_ETC__/apparmor.d and must not contain slashes.
+# EXECUTABLE_PROBE is "-" unless PRESENCE is if-executable.
+#
+# Repository-owned wrapper, control-plane, application, service, browser,
+# container, and vendor profile sources use the managed policy below. During
+# desktop target staging, DESKTOP_APPARMOR_STATE selects the MODE of desktop
+# rows. The hardware control plane stays enforced even on a complain desktop:
+# its broker, worker and policy helper refuse any other loaded mode. The
+# privileged Fuzzel global action updates only the desktop rows.
+#
+# apparmor-modes reconciles only this declared profile policy. Kernel
+# selection, kernel configuration, boot command-line flags, LSM ordering, and
+# AppArmor feature availability are preconfigured by the installer and are not
+# probed or revalidated by the mode helper.
+
+# Repository-managed desktop wrapper and control-plane source.
+__DESKTOP_APPARMOR_STATE__ required desktop-wrappers -
+__DESKTOP_APPARMOR_STATE__ required apparmor-modes -
+__DESKTOP_APPARMOR_STATE__ required network-sharing -
+__DESKTOP_APPARMOR_STATE__ required labwc-network-sharing -
+__DESKTOP_APPARMOR_STATE__ optional filen-sync-private -
+__DESKTOP_APPARMOR_STATE__ optional filen-sync-offsec -
+__DESKTOP_APPARMOR_STATE__ required zoom-discord-compat -
+__DESKTOP_APPARMOR_STATE__ required labwc-appearance -
+__DESKTOP_APPARMOR_STATE__ if-executable gitbuild __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitbuild
+__DESKTOP_APPARMOR_STATE__ if-executable gitbuild-worker __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/gitbuild-worker
+__DESKTOP_APPARMOR_STATE__ required compz -
+__DESKTOP_APPARMOR_STATE__ required debugsys -
+__DESKTOP_APPARMOR_STATE__ required document-applications -
+__DESKTOP_APPARMOR_STATE__ required labwc-session -
+__DESKTOP_APPARMOR_STATE__ required tomat -
+__DESKTOP_APPARMOR_STATE__ required waybar-menus -
+__DESKTOP_APPARMOR_STATE__ required calendars -
+__DESKTOP_APPARMOR_STATE__ required desktop-utilities -
+
+# Repository-managed system, storage, first-boot, Podman, and optional GitLab
+# Runner wrapper policy. Optional sources are staged in later installer phases.
+__DESKTOP_APPARMOR_STATE__ required system-wrappers -
+__DESKTOP_APPARMOR_STATE__ required desktop-system-wrappers -
+__DESKTOP_APPARMOR_STATE__ optional usr.local.sbin.tpm2-enroll.sh -
+__DESKTOP_APPARMOR_STATE__ optional firstboot -
+enforce optional hardware-tuning -
+enforce optional incus-host -
+enforce optional incus-desktop-ui -
+enforce required app-veth -
+
+# Repository-managed status reader used by the privileged security launcher.
+__DESKTOP_APPARMOR_STATE__ required usr.sbin.aa-status -
+
+# Repository-managed desktop application profiles.
+__DESKTOP_APPARMOR_STATE__ required whisper-local-transcription -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.totem -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.qoredb -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.spotify -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.sqlitebrowser -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.pwsh -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.retroarch -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.qbittorrent -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.telegram-desktop -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.keepassxc -
+__DESKTOP_APPARMOR_STATE__ required usr.bin.zoom -
+__DESKTOP_APPARMOR_STATE__ required opt.Bitwarden.bitwarden -
+__DESKTOP_APPARMOR_STATE__ required opt.Filen.Filen -
+__DESKTOP_APPARMOR_STATE__ required opt.postman.app.Postman -
+__DESKTOP_APPARMOR_STATE__ required opt.ledger-live.AppRun -
+__DESKTOP_APPARMOR_STATE__ required opt.tuta-mail.AppRun -
+__DESKTOP_APPARMOR_STATE__ required Discord -
+__DESKTOP_APPARMOR_STATE__ if-executable chatgpt __INSTALLER_PATH_DIR_USR__/lib/chatgpt/ChatGPT
+__DESKTOP_APPARMOR_STATE__ required obsidian -
+__DESKTOP_APPARMOR_STATE__ required sleek -
+
+# Repository-managed privileged runtime profiles.
+__DESKTOP_APPARMOR_STATE__ required crun -
+__DESKTOP_APPARMOR_STATE__ optional timeshift -
+
+# Repository-managed service compatibility profiles.
+__DESKTOP_APPARMOR_STATE__ required usr.sbin.apt-cacher-ng -
+__DESKTOP_APPARMOR_STATE__ required usr.sbin.avahi-daemon -
+__DESKTOP_APPARMOR_STATE__ if-executable usr.sbin.tailscaled __INSTALLER_PATH_DIR_USR__/sbin/tailscaled
+
+# Package-owned desktop profiles selected by this repository. Their vendor
+# attachment files are retained, least-privilege rules are supplied through
+# local includes, and the mode helper removes unconfined/default-allow flags.
+__DESKTOP_APPARMOR_STATE__ if-executable code __INSTALLER_PATH_DIR_USR__/bin/code
+__DESKTOP_APPARMOR_STATE__ optional vscode -
+__DESKTOP_APPARMOR_STATE__ if-executable chromium __INSTALLER_PATH_DIR_USR__/bin/chromium
+# Optional legacy files may be include-only stubs without their own AppArmor
+# labels. The mode helper detects that they have no independent label and skips
+# a standalone enforce or complain transition.
+# The distribution msedge conffile is disabled when the vendor profile is
+# installed: both attach __INSTALLER_PATH_DIR_OPT__/microsoft/msedge/msedge. Never reconcile msedge
+# into enforce/complain here, which would re-enable the duplicate attachment.
+__DESKTOP_APPARMOR_STATE__ optional opt.microsoft.msedge.microsoft-edge -
+__DESKTOP_APPARMOR_STATE__ if-executable microsoft-edge-stable __INSTALLER_PATH_DIR_USR__/bin/microsoft-edge-stable
+__DESKTOP_APPARMOR_STATE__ if-executable mullvad-browser __INSTALLER_PATH_DIR_USR__/bin/mullvad-browser
+__DESKTOP_APPARMOR_STATE__ if-executable tor-browser __INSTALLER_PATH_DIR_OPT_TOR_BROWSER__/Browser/firefox.real
+__DESKTOP_APPARMOR_STATE__ if-executable vivaldi-stable __INSTALLER_PATH_DIR_USR__/bin/vivaldi-stable
+__DESKTOP_APPARMOR_STATE__ if-executable vivaldi-bin __INSTALLER_PATH_DIR_USR__/bin/vivaldi-stable
+__DESKTOP_APPARMOR_STATE__ optional mullvad -
+
+# Package-owned desktop profiles that otherwise load unconfined.
+# The installer copies local/desktop-application to each matching
+# local/<profile> include before applying the selected desktop state.
+__DESKTOP_APPARMOR_STATE__ if-executable 1password __INSTALLER_PATH_DIR_OPT__/1Password/1password
+__DESKTOP_APPARMOR_STATE__ if-executable brave __INSTALLER_PATH_DIR_USR__/bin/brave-browser
+__DESKTOP_APPARMOR_STATE__ if-executable chrome __INSTALLER_PATH_DIR_USR__/bin/google-chrome-stable
+__DESKTOP_APPARMOR_STATE__ optional discord -
+__DESKTOP_APPARMOR_STATE__ if-executable element-desktop __INSTALLER_PATH_DIR_USR__/bin/element-desktop
+__DESKTOP_APPARMOR_STATE__ if-executable github-desktop __INSTALLER_PATH_DIR_USR__/bin/github-desktop
+__DESKTOP_APPARMOR_STATE__ if-executable keybase __INSTALLER_PATH_DIR_USR__/bin/keybase
+__DESKTOP_APPARMOR_STATE__ if-executable opera __INSTALLER_PATH_DIR_USR__/bin/opera
+__DESKTOP_APPARMOR_STATE__ if-executable qutebrowser __INSTALLER_PATH_DIR_USR__/bin/qutebrowser
+__DESKTOP_APPARMOR_STATE__ if-executable signal-desktop __INSTALLER_PATH_DIR_USR__/bin/signal-desktop
+__DESKTOP_APPARMOR_STATE__ if-executable slack __INSTALLER_PATH_DIR_USR__/bin/slack
+__DESKTOP_APPARMOR_STATE__ if-executable steam __INSTALLER_PATH_DIR_USR__/bin/steam
+
+# Container and build tools follow the same selected desktop state.
+__DESKTOP_APPARMOR_STATE__ if-executable buildah __INSTALLER_PATH_DIR_USR__/bin/buildah
+__DESKTOP_APPARMOR_STATE__ if-executable linux-sandbox __INSTALLER_PATH_DIR_USR_LIBEXEC__/x86_64-linux-gnu/bazel/linux-sandbox
+__DESKTOP_APPARMOR_STATE__ if-executable mmdebstrap __INSTALLER_PATH_DIR_USR__/bin/mmdebstrap
+__DESKTOP_APPARMOR_STATE__ if-executable rootlesskit __INSTALLER_PATH_DIR_USR__/bin/rootlesskit
+__DESKTOP_APPARMOR_STATE__ if-executable runc __INSTALLER_PATH_DIR_USR__/bin/runc
+__DESKTOP_APPARMOR_STATE__ if-executable userbindmount __INSTALLER_PATH_DIR_USR__/bin/userbindmount
+__DESKTOP_APPARMOR_STATE__ if-executable virtiofsd __INSTALLER_PATH_DIR_USR_LIBEXEC__/virtiofsd
+
+# Profiles already observed working in enforce mode still follow the selected
+# desktop state.
+__DESKTOP_APPARMOR_STATE__ if-executable lsb_release __INSTALLER_PATH_DIR_USR__/bin/lsb_release
+__DESKTOP_APPARMOR_STATE__ if-executable nvidia_modprobe __INSTALLER_PATH_DIR_USR__/bin/nvidia-modprobe
+__DESKTOP_APPARMOR_STATE__ if-executable usr.bin.man __INSTALLER_PATH_DIR_USR__/bin/man
+__DESKTOP_APPARMOR_STATE__ if-executable usr.bin.totem-previewers __INSTALLER_PATH_DIR_USR__/bin/totem-video-thumbnailer

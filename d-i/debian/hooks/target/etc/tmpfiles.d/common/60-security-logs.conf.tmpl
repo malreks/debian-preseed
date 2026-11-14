@@ -1,0 +1,22 @@
+# Pre-create desktop-specific managed security log destinations before rsyslog starts.
+L __INSTALLER_PATH_DIR_VAR_LOG__/auth.log - - - - __INSTALLER_LOG_AUTH_FILE__
+d __INSTALLER_PATH_DIR_RUN__/rsyslog/security-scanners 0750 root securitylogger -
+
+# Sanitized category-only signals wake the Labwc/Mako session through a
+# dedicated signal-reader group without granting access to the real logs.
+# These signals describe this boot's logs, which may live on __INSTALLER_PATH_DIR_VAR__/log tmpfs.
+# Reset once at boot; rsyslog's ordinary --create preflight must preserve them.
+d __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications 0755 root root -
+d __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/security 0750 root logreader -
+d __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/system 2750 root logreader -
+f+! __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/security/auth.signal 0640 root logreader -
+f+! __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/security/usb.signal 0640 root logreader -
+f+! __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/security/storage.signal 0640 root logreader -
+f+! __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/security/apparmor.signal 0640 root logreader -
+f+! __INSTALLER_PATH_DIR_VAR_LIB__/labwc-notifications/security/firewall.signal 0640 root logreader -
+
+# Non-active aa-easyprof drafts are reviewable but never loaded automatically.
+d __INSTALLER_PATH_DIR_VAR_LIB__/apparmor/easyprof 0755 root root -
+d __INSTALLER_PATH_DIR_VAR_LIB__/apparmor/drafts 0755 root root -
+d __INSTALLER_PATH_DIR_VAR_LIB__/apparmor/backup 0700 root root -
+d __INSTALLER_PATH_DIR_VAR_LIB__/apparmor/generated-rule-backups 0700 root root -

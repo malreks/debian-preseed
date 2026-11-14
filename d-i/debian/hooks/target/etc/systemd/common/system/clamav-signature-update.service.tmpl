@@ -1,0 +1,51 @@
+[Unit]
+RequiresMountsFor=__INSTALLER_LOG_CLAMAV_DIR__
+After=systemd-tmpfiles-setup.service
+Description=Update official and curated external ClamAV signatures
+Documentation=man:freshclam(1) man:fangfrisch(1)
+Wants=network-online.target
+After=network-online.target nss-lookup.target
+ConditionFileIsExecutable=__INSTALLER_PATH_DIR_USR__/bin/freshclam
+ConditionFileIsExecutable=__INSTALLER_PATH_DIR_USR__/bin/fangfrisch
+ConditionFileIsExecutable=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/clamav-signature-update
+ConditionPathExists=__INSTALLER_PATH_DIR_ETC__/fangfrisch.conf
+
+[Service]
+Type=oneshot
+User=clamav
+Group=clamav
+Environment=HOME=__INSTALLER_PATH_DIR_VAR_LIB__/fangfrisch
+ExecCondition=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-online-check
+ExecStartPre=+__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/native-logging --check freshclam
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/clamav-signature-update
+TimeoutStartSec=45min
+TimeoutStopSec=30s
+# Retain ownership of descendants after the bounded redacting adapter exits.
+KillMode=control-group
+StateDirectory=fangfrisch
+StateDirectoryMode=0770
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+# The enforced wrapper profile deliberately transitions into the package-owned
+# signature clients. NoNewPrivileges would reject those AppArmor transitions.
+NoNewPrivileges=false
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=__INSTALLER_PATH_DIR_VAR_LIB__/clamav __INSTALLER_PATH_DIR_VAR_LIB__/fangfrisch __INSTALLER_LOG_CLAMAV_DIR__
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+UMask=0027

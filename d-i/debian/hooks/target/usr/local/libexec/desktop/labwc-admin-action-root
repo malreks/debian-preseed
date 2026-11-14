@@ -1,0 +1,61 @@
+#!/bin/sh
+set -eu
+
+PATH=__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin
+LC_ALL=C.UTF-8
+export PATH LC_ALL
+umask 077
+
+fatal() {
+  printf 'fatal: %s\n' "$*" >&2
+  exit 1
+}
+
+[ "$(__INSTALLER_PATH_DIR_USR__/bin/id -u)" -eq 0 ] ||
+  fatal "privileged power helper must run as root"
+case "${PKEXEC_UID:-}" in
+  ''|0|0*|*[!0-9]*)
+    fatal "privileged power helper must be invoked by a non-root user through pkexec"
+    ;;
+esac
+invoker_passwd=$(__INSTALLER_PATH_DIR_USR__/bin/getent passwd "$PKEXEC_UID" 2>__INSTALLER_PATH_DIR_DEV__/null) ||
+  fatal "pkexec invoking account does not exist: $PKEXEC_UID"
+invoker_name=${invoker_passwd%%:*}
+invoker_passwd_tail=${invoker_passwd#*:}
+invoker_passwd_tail=${invoker_passwd_tail#*:}
+invoker_record_uid=${invoker_passwd_tail%%:*}
+case "$invoker_name" in
+  ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]*)
+    fatal "pkexec invoking account name is unsafe: ${invoker_name:-unset}"
+    ;;
+esac
+[ "${#invoker_name}" -le 64 ] ||
+  fatal "pkexec invoking account name exceeds the managed identifier limit"
+[ "$invoker_record_uid" = "$PKEXEC_UID" ] ||
+  fatal "pkexec invoking account identity does not match PKEXEC_UID"
+
+action=${1:-}
+[ "$#" -eq 1 ] && [ -n "$action" ] ||
+  fatal "usage: labwc-admin-action-root <suspend|reboot|poweroff|shutdown|logout>"
+case "$action" in
+  shutdown) action=poweroff ;;
+  suspend|reboot|poweroff|logout|greeter-poweroff|greeter-reboot) ;;
+  *) fatal "unsupported privileged power action: ${action}" ;;
+esac
+
+[ -x __INSTALLER_PATH_DIR_USR__/bin/systemctl ] ||
+  fatal "required executable is not available: __INSTALLER_PATH_DIR_USR__/bin/systemctl"
+
+# Queue the authenticated action in a system-manager cgroup before returning
+# to the initiating Waybar service. The worker, rather than this pkexec
+# descendant, owns session teardown and therefore survives stopping the
+# requester's managed user target.
+worker_unit="labwc-admin-action@${PKEXEC_UID}-${action}.service"
+# Type=notify acknowledges the authorized worker. Poweroff/reboot cleanup is
+# best effort; logout/suspend retain their package and session checks.
+# The greeter has no desktop notification helper: keep its fixed frontend
+# attached to the unit result so failed/cancelled starts can restore its UI.
+case "$action" in
+  greeter-*) exec __INSTALLER_PATH_DIR_USR__/bin/systemctl --wait start "$worker_unit" ;;
+esac
+exec __INSTALLER_PATH_DIR_USR__/bin/systemctl start "$worker_unit"

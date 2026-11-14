@@ -1,0 +1,32 @@
+# Only the supervisor opens this socket. The private /run masks it in payloads.
+__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,
+__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/app_veth_policy.py r,
+__INSTALLER_PATH_DIR_ETC__/app-veth.json r,
+__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_managed_app/ r,
+__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_managed_app/__init__.py r,
+__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_managed_app/network_client.py r,
+__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_managed_app/events.py r,
+__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_managed_app/integrity.py r,
+__INSTALLER_PATH_DIR_RUN__/ r,
+__INSTALLER_PATH_DIR_RUN__/systemd/resolve/stub-resolv.conf r,
+__INSTALLER_PATH_DIR_RUN__/app-veth/ r,
+__INSTALLER_PATH_DIR_RUN__/app-veth/control.sock rw,
+network unix seqpacket,
+network unix dgram,
+__INSTALLER_PATH_DIR_DEV__/log w,
+__INSTALLER_PATH_DIR_RUN__/systemd/journal/dev-log w,
+# The supervisor inspects the blocked init in its caller-owned user namespace.
+# Linux grants the creator capabilities in that child namespace; AppArmor must
+# permit this read-side check too. No capability is added to the host process,
+# and the including profiles retain their explicit ptrace peer restrictions.
+capability sys_ptrace,
+# Namespace inodes are root-owned even when their owning user namespace belongs
+# to the desktop account. DAC/ptrace checks and the broker's FD/uid validation
+# still apply; an owner qualifier here rejects the real nsfs inode.
+@{PROC}/[0-9]*/ns/{net,pid} r,
+@{PROC}/[0-9]*/status r,
+# attach_disconnected can mediate the root-owned nsfs handle as exactly "/".
+# Opening a procfs namespace path needs this read too; it grants no child paths.
+/ r,
+/net:\[[0-9]*\] r,
+/pid:\[[0-9]*\] r,

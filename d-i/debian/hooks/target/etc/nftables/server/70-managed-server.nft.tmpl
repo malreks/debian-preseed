@@ -1,0 +1,24 @@
+# Only the managed_server table is owned here. Never flush unrelated policy.
+# Until private DNS configuration is supplied, DNS and management stay closed.
+add table inet managed_server
+delete table inet managed_server
+table inet managed_server {
+  chain ingress {
+    type filter hook input priority -5; policy accept;
+    iifname "lo" accept
+    ct state established,related accept
+    tcp dport { 5380, 53443 } drop
+    __INSTALLER_SSH_SERVER_RULE_PREFIX__iifname { "__INSTALLER_MANAGED_NETWORK_ETHERNET_IFACE__", "__INSTALLER_MANAGED_NETWORK_WIFI_IFACE__" } tcp dport __INSTALLER_SSH_SERVER_PORT__ ip saddr __INSTALLER_SSH_SERVER_CIDR_ALLOW__ accept
+    __INSTALLER_SSH_SERVER_RULE_PREFIX__iifname { "__INSTALLER_MANAGED_NETWORK_ETHERNET_IFACE__", "__INSTALLER_MANAGED_NETWORK_WIFI_IFACE__" } tcp dport __INSTALLER_SSH_SERVER_PORT__ ip6 saddr __INSTALLER_SSH_SERVER_CIDR_ALLOW6__ accept
+    tcp dport __INSTALLER_SSH_SERVER_PORT__ limit rate 5/minute burst 10 packets log prefix "[managed-server-ssh] "
+    tcp dport __INSTALLER_SSH_SERVER_PORT__ drop
+    # BEGIN profile NFS ACL
+    tcp dport 2049 drop
+    udp dport 2049 drop
+    # END profile NFS ACL
+    # BEGIN private DNS ACL
+    # END private DNS ACL
+    udp dport 53 drop
+    tcp dport 53 drop
+  }
+}

@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.gtk.vfs.LabwcVolumeMonitor
+Exec=__INSTALLER_PATH_DIR_USR__/bin/systemctl --user start labwc-gvfs-volume-monitor.service
+SystemdService=labwc-gvfs-volume-monitor.service

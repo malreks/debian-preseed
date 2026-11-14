@@ -1,0 +1,31 @@
+{
+  "pulseaudio": {
+    "format": "<span foreground='__THEME_WAYBAR_BUTTON_AUDIO_NORMAL_ICON_COLOR__'>__THEME_WAYBAR_BUTTON_AUDIO_NORMAL_ICON_GLYPH__</span> {volume}% {format_source}",
+    "format-muted": "<span foreground='__THEME_WAYBAR_BUTTON_AUDIO_MUTED_ICON_COLOR__'>__THEME_WAYBAR_BUTTON_AUDIO_MUTED_ICON_GLYPH__</span> {volume}% {format_source}",
+    "format-source": "<span color='__THEME_WAYBAR_BUTTON_AUDIO_MICROPHONE_NORMAL_ICON_COLOR__'>__THEME_WAYBAR_BUTTON_AUDIO_MICROPHONE_NORMAL_ICON_GLYPH__</span>__THEME_WAYBAR_BUTTON_AUDIO_MICROPHONE_NORMAL_SEPARATOR_ICON_GLYPH__{volume}%",
+    "format-source-muted": "<span color='__THEME_WAYBAR_BUTTON_AUDIO_MICROPHONE_MUTED_ICON_COLOR__'>__THEME_WAYBAR_BUTTON_AUDIO_MICROPHONE_MUTED_ICON_GLYPH__</span>__THEME_WAYBAR_BUTTON_AUDIO_MICROPHONE_MUTED_SEPARATOR_ICON_GLYPH__{volume}%",
+    "tooltip-format": "{desc}",
+    "scroll-step": 5,
+    "max-volume": 120,
+    "on-click-right": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_LABWC_AUDIO_CONTROL_COMMAND__",
+    "on-click-middle": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-menu-action audio_mute",
+    "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+ --limit 1.2",
+    "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
+    "menu": "on-click",
+    "menu-file": "~/.config/waybar/gtk/audio-menu.xml",
+    "menu-actions": {
+      "audio_open": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_LABWC_AUDIO_CONTROL_COMMAND__",
+      "audio_mute": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-menu-action audio_mute",
+      "audio_mic": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-menu-action audio_mic_mute",
+      "audio_25": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ 25% --limit 1.0",
+      "audio_45": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ 45% --limit 1.0",
+      "audio_65": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ 65% --limit 1.0",
+      "audio_85": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ 85% --limit 1.0",
+      "audio_100": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ 100% --limit 1.0",
+      "whisper_record": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/whisper-record-toggle start",
+      "whisper_transcribe": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/systemctl --user --no-block start whisper-transcribe.service",
+      "whisper_stop": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/whisper-record-toggle stop",
+      "whisper_cancel": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/systemctl --user stop whisper-transcribe.service"
+    }
+  }
+}

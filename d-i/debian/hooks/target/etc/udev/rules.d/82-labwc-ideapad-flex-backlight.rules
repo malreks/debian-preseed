@@ -1,0 +1,4 @@
+# Lenovo IdeaPad Flex 5 14ITL05 (DMI product 82HS) keyboard illumination.
+# The ideapad_acpi driver exposes the keyboard LED as platform::kbd_backlight;
+# its supported maximum from the Flex hardware report is brightness level 2.
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="platform::kbd_backlight", ATTR{brightness}="2"

@@ -1,0 +1,326 @@
+#!/usr/bin/python3
+"""Installation-only temporary TPM enrollment; removed by the staging owner.
+
+FD 4 holds the installer key, 5/6 the selected root/home partitions and 7 the
+physical install disk. The target bridge reserves 9 for stdin and closes it
+before this program starts. Here 9 becomes the permanent enrollment lock.
+No device pathname or plaintext target key is substituted for those handles.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import stat
+import sys
+
+
+def bootstrap_runtime_snapshot():
+    source = Path('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tpm2-policy-check')
+    for parent in source.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('untrusted crypto maintenance code ancestry')
+    fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid or before.st_gid
+                or before.st_nlink != 1 or stat.S_IMODE(before.st_mode) != 0o755
+                or not 0 < before.st_size <= 1048576):
+            raise ValueError('unsafe crypto maintenance code snapshot')
+        snapshot = stream.read(1048577)
+        after = os.fstat(stream.fileno())
+        if (len(snapshot) != before.st_size or len(snapshot) > 1048576
+                or (before.st_mtime_ns, before.st_ctime_ns) != (after.st_mtime_ns, after.st_ctime_ns)):
+            raise ValueError('crypto maintenance code changed during capture')
+    namespace = {'__name__': '_trusted_crypto_maintenance', '__file__': str(source)}
+    exec(compile(snapshot, str(source), 'exec'), namespace)
+    return namespace
+
+
+_RUNTIME = bootstrap_runtime_snapshot()
+globals().update({name: value for name, value in _RUNTIME.items() if not name.startswith('__')})
+_NATIVE_COMMAND = command
+_BOOTSTRAP_DEADLINE = time.monotonic() + 600
+_BOOTSTRAP_OUTPUT_REMAINING = 33554432
+_BOOTSTRAP_DEVICES = {}
+_BOOTSTRAP_DISK = None
+TRANSACTION = Path('__INSTALLER_PATH_FILE_CRYPTO_BOOTSTRAP_TRANSACTION__')
+
+
+class BootstrapUnavailable(ValueError):
+    pass
+
+
+def bootstrap_kernel_value(path: Path, *, allow_empty: bool = False) -> bytes:
+    # Linux sysfs values are kernel data. Bound reads before decoding/retaining
+    # them; trailing LF removal matches the existing POSIX disk fingerprint.
+    with path.open('rb') as stream:
+        data = stream.read(8193)
+    if (not data and not allow_empty) or len(data) > 8192 or b'\x00' in data or b'\r' in data:
+        raise ValueError('invalid kernel block-device identity field')
+    return data.rstrip(b'\n')
+
+
+def bootstrap_disk_identity(device: str, expected_digest: str) -> dict:
+    identity = device_identity(7)
+    node = ':'.join(map(str, identity['node']))
+    # These are Linux sysfs block interfaces, not configurable project roots.
+    sys_device = (Path('__INSTALLER_PATH_DIR_SYS__/dev/block') / node).resolve(strict=True)
+    sys_devices = Path('__INSTALLER_PATH_DIR_SYS__/devices').resolve(strict=True)
+    if not sys_device.is_relative_to(sys_devices) or (sys_device / 'partition').exists():
+        raise ValueError('selected physical disk descriptor is not a whole disk')
+    if device != '__INSTALLER_PATH_DIR_DEV__/' + sys_device.name:
+        raise ValueError('physical disk handle differs from the frozen selection')
+    sequence = bootstrap_kernel_value(sys_device / 'diskseq')
+    number = bootstrap_kernel_value(sys_device / 'dev')
+    sectors = bootstrap_kernel_value(sys_device / 'size')
+    logical = bootstrap_kernel_value(sys_device / 'queue/logical_block_size')
+    if (not sequence.isdigit() or int(sequence) != identity['disk_sequence']
+            or number != node.encode() or not sectors.isdigit() or int(sectors) <= 0
+            or logical not in (b'512', b'4096')):
+        raise ValueError('physical disk generation or geometry differs')
+    identifiers = bytearray()
+    for field in ('wwid', 'device/wwid', 'device/serial'):
+        path = sys_device / field
+        try:
+            value = bootstrap_kernel_value(path, allow_empty=True)
+        except FileNotFoundError:
+            continue
+        identifiers.extend(field.encode() + b'=' + value + b';')
+    data = (b'device=' + device.encode('ascii') + b'\nsequence=' + sequence + b'\nnumber=' + number
+            + b'\nsectors512=' + sectors + b'\nlogical=' + logical + b'\nids=' + bytes(identifiers) + b'\n')
+    if (hashlib.sha256(data).hexdigest() != expected_digest or device_identity(7) != identity
+            or bootstrap_kernel_value(sys_device / 'diskseq') != sequence):
+        raise ValueError('physical disk differs from the partman identity receipt')
+    return identity
+
+
+def bootstrap_partition(fd: int, slot: str) -> dict:
+    identity = device_identity(fd)
+    node = ':'.join(map(str, identity['node']))
+    member = (Path('__INSTALLER_PATH_DIR_SYS__/dev/block') / node).resolve(strict=True)
+    if (not member.is_relative_to(Path('__INSTALLER_PATH_DIR_SYS__/devices'))
+            or bootstrap_kernel_value(member / 'partition') != slot.encode('ascii')
+            or bootstrap_kernel_value(member.parent / 'dev') !=
+                ':'.join(map(str, _BOOTSTRAP_DISK['identity']['node'])).encode('ascii')
+            or identity['disk_sequence'] != _BOOTSTRAP_DISK['identity']['disk_sequence']):
+        raise ValueError('crypto partition handle differs from the selected disk or slot')
+    return identity
+
+
+def bootstrap_guard() -> None:
+    if time.monotonic() >= _BOOTSTRAP_DEADLINE:
+        raise TimeoutError('crypto bootstrap operation deadline expired')
+    if _BOOTSTRAP_DISK is not None:
+        if bootstrap_disk_identity(_BOOTSTRAP_DISK['path'], _BOOTSTRAP_DISK['sha256']) != _BOOTSTRAP_DISK['identity']:
+            raise ValueError('physical install disk identity changed')
+        for fd, record in _BOOTSTRAP_DEVICES.items():
+            if bootstrap_partition(fd, record['slot']) != record['identity']:
+                raise ValueError('selected crypto partition identity changed')
+
+
+def bootstrap_command(argv, **options):
+    global _BOOTSTRAP_OUTPUT_REMAINING
+    bootstrap_guard()
+    options['timeout'] = min(options.get('timeout', 30), _BOOTSTRAP_DEADLINE - time.monotonic())
+    if options['timeout'] <= 0:
+        raise TimeoutError('crypto bootstrap operation deadline expired')
+    output = _NATIVE_COMMAND(argv, **options)
+    _BOOTSTRAP_OUTPUT_REMAINING -= len(output)
+    if _BOOTSTRAP_OUTPUT_REMAINING < 0:
+        raise ValueError('aggregate crypto bootstrap output bound exceeded')
+    bootstrap_guard()
+    return output
+
+
+# The immutable maintenance snapshot remains the one owner of streaming,
+# pidfds, bounded cleanup, secret input and native status handling.
+_RUNTIME['command'] = bootstrap_command
+command = bootstrap_command
+
+
+def bootstrap_write(record: dict) -> None:
+    encoded = (json.dumps(record, sort_keys=True) + '\n').encode('ascii')
+    if len(encoded) > 1048576:
+        raise ValueError('crypto bootstrap transaction size bound exceeded')
+    atomic_write(TRANSACTION, encoded)
+
+
+def bootstrap_token(document: dict, before: dict) -> None:
+    tokens = document.get('tokens', {})
+    if not isinstance(tokens, dict) or len(tokens) != 1:
+        raise ValueError('exactly one temporary TPM token is required')
+    token = next(iter(tokens.values()))
+    if not isinstance(token, dict):
+        raise ValueError('invalid temporary TPM token record')
+    slots = token.get('keyslots', [])
+    previous_slots = before.get('keyslots', {})
+    current_slots = document.get('keyslots', {})
+    if (not isinstance(slots, list) or len(slots) != 1 or not isinstance(slots[0], str)
+            or re.fullmatch(r'[0-9]|[12][0-9]|3[01]', slots[0]) is None
+            or not isinstance(previous_slots, dict) or not isinstance(current_slots, dict)
+            or token.get('type') != 'systemd-tpm2' or token.get('tpm2-pin', False) is not False
+            or token.get('tpm2-pcr-bank') != 'sha256' or token.get('tpm2-pcrs') != [7]
+            or token.get('tpm2-pubkey-pcrs', []) or token.get('tpm2-pcrlock', False)
+            or slots[0] in previous_slots
+            or set(current_slots) != set(previous_slots) | set(slots)
+            or current_slots[slots[0]].get('type') != 'luks2'
+            or any(current_slots.get(slot) != policy for slot, policy in previous_slots.items())):
+        raise ValueError('temporary token changed the bootstrap slot or selected TPM policy')
+
+
+def bootstrap_verify_token(fd: int) -> None:
+    command([CRYPTSETUP, 'open', '--test-passphrase', '--type', 'luks2', '--token-only',
+             '--token-type', 'systemd-tpm2', '--tries', '1', FD_ROOT + str(fd)], pass_fds=(fd, 9), timeout=90)
+
+
+def bootstrap_main(argv: list[str]) -> int:
+    global _BOOTSTRAP_DISK
+    os.umask(0o077)
+    if len(argv) != 4 or not re.fullmatch(r'[0-9a-f]{64}', argv[1]):
+        raise ValueError('invalid frozen crypto disk identity arguments')
+    disk, digest, root_slot, home_slot = argv
+    if not re.fullmatch(re.escape('__INSTALLER_PATH_DIR_DEV__/') + r'[A-Za-z0-9_.-]+', disk):
+        raise ValueError('invalid frozen physical disk name')
+    values = config()
+    key_info = os.fstat(4)
+    if (not stat.S_ISREG(key_info.st_mode) or key_info.st_uid or key_info.st_gid
+            or key_info.st_nlink != 1 or stat.S_IMODE(key_info.st_mode) != 0o400 or key_info.st_size != 64):
+        raise ValueError('invalid inherited installer key authority')
+    key = os.pread(4, 65, 0)
+    if not re.fullmatch(rb'[0-9a-f]{64}', key):
+        raise ValueError('invalid inherited installer key encoding')
+    _BOOTSTRAP_DISK = {'path': disk, 'sha256': digest, 'identity': bootstrap_disk_identity(disk, digest)}
+    for fd, volume, slot in ((5, 'ROOT', root_slot), (6, 'HOME', home_slot)):
+        if values['CRYPTO_LUKS2_' + volume] == 'false':
+            if slot:
+                raise ValueError('disabled crypto volume carries a partition slot')
+            continue
+        if not re.fullmatch(r'[1-9][0-9]{0,8}', slot):
+            raise ValueError('invalid frozen crypto partition slot')
+        identity = bootstrap_partition(fd, slot)
+        if any(record['identity']['node'] == identity['node'] for record in _BOOTSTRAP_DEVICES.values()):
+            raise ValueError('root and home must have distinct selected partitions')
+        _BOOTSTRAP_DEVICES[fd] = {'slot': slot, 'identity': identity, 'uuid': values[volume + '_LUKS_UUID'].lower()}
+    lock = os.open(STATE / 'enrollment.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    if lock != 9:
+        os.dup2(lock, 9, inheritable=False)
+        os.close(lock)
+    enrollment_lock()
+    if MUTATION.exists() or MUTATION.is_symlink():
+        raise OutcomeUnknown('a retained permanent crypto mutation requires explicit recovery')
+    secure_boot = command(['__INSTALLER_PATH_DIR_USR_BIN__/mokutil', '--sb-state']).decode('utf-8')
+    if not re.search(r'^SecureBoot enabled', secure_boot, re.M):
+        raise ValueError('TPM2 encryption requires enabled UEFI Secure Boot')
+    tpm = command([CRYPTENROLL, '--tpm2-device=list']).decode('utf-8')
+    if not re.search(r'__INSTALLER_PATH_DIR_DEV__/tpm(?:rm)?[0-9]+', tpm):
+        raise ValueError('TPM2 encryption requires a usable TPM2 device')
+    before = {}
+    for fd, record in _BOOTSTRAP_DEVICES.items():
+        device = FD_ROOT + str(fd)
+        try:
+            actual = command([CRYPTSETUP, 'luksUUID', device], pass_fds=(fd,)).decode('ascii').strip().lower()
+            before[str(fd)] = metadata(device)
+            command([CRYPTENROLL, device], pass_fds=(fd,))  # Read-only native descriptor support probe.
+        except CommandFailure as error:
+            raise BootstrapUnavailable('native selected-descriptor/LUKS2 support is unavailable; no enrollment attempted') from error
+        if actual != record['uuid']:
+            raise ValueError('selected crypto UUID differs from the frozen layout')
+        command([CRYPTSETUP, 'open', '--test-passphrase', '--type', 'luks2', '--tries', '1',
+                 '--key-file', '-', device], data=key, pass_fds=(fd, 9), timeout=90)
+    credential = Path(values['BOOTSTRAP_CREDENTIAL_FILE'])
+    if TRANSACTION.exists() or TRANSACTION.is_symlink():
+        try:
+            retained = json.loads(private_read(TRANSACTION, 1048576))
+            if (retained.get('format') != 1 or retained.get('state') != 'verified'
+                    or retained.get('boot_id') != boot_id() or retained.get('disk') != _BOOTSTRAP_DISK
+                    or retained.get('devices') != {str(fd): record for fd, record in _BOOTSTRAP_DEVICES.items()}):
+                raise OutcomeUnknown('retained bootstrap transaction requires explicit recovery; no automatic retry')
+            for fd in _BOOTSTRAP_DEVICES:
+                if document_hash(before[str(fd)]) != retained.get('after_sha256', {}).get(str(fd)):
+                    raise OutcomeUnknown('crypto metadata differs from the verified bootstrap receipt')
+                bootstrap_token(before[str(fd)], retained['before'][str(fd)])
+                bootstrap_verify_token(fd)
+            if command(['__INSTALLER_PATH_DIR_USR_BIN__/systemd-creds', 'decrypt', '--name=install-passphrase',
+                        str(credential), '-'], timeout=90) != key:
+                raise ValueError('sealed bootstrap recovery differs from the installer key')
+            bootstrap_guard()
+        except BaseException as error:
+            raise OutcomeUnknown('retained bootstrap receipt cannot be reverified; explicit recovery is required') from error
+        print('Temporary TPM enrollment receipt reverified without changing keyslots.')
+        return 0
+    if credential.exists() or credential.is_symlink():
+        raise OutcomeUnknown('unowned sealed bootstrap credential requires explicit recovery')
+    for document in before.values():
+        if (not isinstance(document, dict) or document.get('tokens')
+                or not isinstance(document.get('keyslots'), dict) or len(document['keyslots']) != 1):
+            raise ValueError('initial TPM enrollment requires fresh LUKS2 bootstrap-only metadata')
+    record = {'format': 1, 'state': 'preparing', 'boot_id': boot_id(), 'disk': _BOOTSTRAP_DISK,
+              'devices': {str(fd): value for fd, value in _BOOTSTRAP_DEVICES.items()},
+              'before': before, 'after_sha256': {}}
+    # This durable record precedes sealing and every keyslot mutation. A failed
+    # or interrupted attempt is retained, never silently retried or cleared.
+    bootstrap_write(record)
+    try:
+        candidate = credential.with_name(credential.name + '.candidate')
+        if candidate.exists() or candidate.is_symlink():
+            raise OutcomeUnknown('retained sealing candidate requires explicit recovery')
+        command(['__INSTALLER_PATH_DIR_USR_BIN__/systemd-creds', 'encrypt', '--with-key=tpm2',
+                 '--tpm2-device=auto', '--tpm2-pcrs=7', '--name=install-passphrase', '-', str(candidate)],
+                data=key, timeout=120)
+        private_read(candidate)
+        candidate_fd = os.open(candidate, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            os.fchmod(candidate_fd, 0o400)
+            os.fsync(candidate_fd)
+        finally:
+            os.close(candidate_fd)
+        os.link(candidate, credential, follow_symlinks=False)  # Never replace another credential owner.
+        candidate.unlink()
+        sync_state()
+        if command(['__INSTALLER_PATH_DIR_USR_BIN__/systemd-creds', 'decrypt', '--name=install-passphrase',
+                    str(credential), '-'], timeout=90) != key:
+            raise ValueError('sealed bootstrap recovery differs from the installer key')
+        for fd in _BOOTSTRAP_DEVICES:
+            if metadata(FD_ROOT + str(fd)) != before[str(fd)]:
+                raise OutcomeUnknown('crypto metadata changed after bootstrap preflight')
+            record['state'] = 'enrolling'
+            record['active_device'] = str(fd)
+            bootstrap_write(record)
+            command([CRYPTENROLL, '--unlock-key-file=__INSTALLER_PATH_DIR_DEV__/stdin', '--tpm2-device=auto',
+                     '--tpm2-pcrs=7:sha256', '--tpm2-with-pin=no', '--tpm2-public-key=', '--tpm2-pcrlock=',
+                     FD_ROOT + str(fd)], data=key, pass_fds=(fd, 9), timeout=120)
+            after = metadata(FD_ROOT + str(fd))
+            bootstrap_token(after, before[str(fd)])
+            bootstrap_verify_token(fd)
+            command([CRYPTSETUP, 'open', '--test-passphrase', '--type', 'luks2', '--tries', '1',
+                     '--key-file', '-', FD_ROOT + str(fd)], data=key, pass_fds=(fd, 9), timeout=90)
+            if metadata(FD_ROOT + str(fd)) != after:
+                raise OutcomeUnknown('temporary token metadata changed during verification')
+            record['after_sha256'][str(fd)] = document_hash(after)
+        bootstrap_guard()
+        record['state'] = 'verified'
+        record.pop('active_device', None)
+        bootstrap_write(record)
+    except BaseException as error:
+        raise OutcomeUnknown('crypto bootstrap result is uncertain; retain installer key, sealed credential and transaction') from error
+    print('Temporary TPM tokens and sealed bootstrap recovery verified; final PIN enrollment remains pending.')
+    return 0
+
+
+if __name__ == '__main__':
+    def bootstrap_interrupted(number, _frame):
+        raise InterruptedError('crypto bootstrap interrupted by signal ' + str(number))
+    for number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        signal.signal(number, bootstrap_interrupted)
+    try:
+        sys.exit(bootstrap_main(sys.argv[1:]))
+    except OutcomeUnknown as error:
+        print('crypto-bootstrap: ' + str(error), file=sys.stderr)
+        sys.exit(76)
+    except BootstrapUnavailable as error:
+        print('crypto-bootstrap: ' + str(error), file=sys.stderr)
+        sys.exit(69)
+    except (OSError, ValueError, KeyError, TypeError, struct.error, subprocess.SubprocessError) as error:
+        print('crypto-bootstrap: ' + str(error), file=sys.stderr)
+        sys.exit(1)

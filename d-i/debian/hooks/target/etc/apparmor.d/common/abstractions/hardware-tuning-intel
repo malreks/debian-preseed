@@ -1,0 +1,28 @@
+# Included ONLY when Intel tuning passes the explicit install and CPU gates.
+__INSTALLER_PATH_DIR_HARDWARE_TUNING__/intel.py r,
+__INSTALLER_PATH_DIR_ETC__/hardware-tuning/intel.json r,
+__INSTALLER_PATH_DIR_ETC__/hardware-tuning/broker.json r,
+__INSTALLER_PATH_DIR_RUN__/hardware-tuning/intel.{json,lock} rwk,
+__INSTALLER_PATH_DIR_RUN__/hardware-tuning/.intel.json.tuning-* rw,
+__INSTALLER_PATH_DIR_PROC__/cpuinfo r,
+__INSTALLER_PATH_DIR_SYS__/ r,
+__INSTALLER_PATH_DIR_SYS__/** r,
+__INSTALLER_PATH_DIR_SYS__/devices/**/platform-profile-[0-9]*/profile w,
+__INSTALLER_PATH_DIR_SYS__/devices/system/cpu/cpufreq/policy[0-9]*/{scaling_governor,scaling_min_freq,scaling_max_freq,energy_performance_preference} w,
+__INSTALLER_PATH_DIR_SYS__/devices/system/cpu/intel_pstate/{min_perf_pct,max_perf_pct,no_turbo,hwp_dynamic_boost} w,
+__INSTALLER_PATH_DIR_SYS__/devices/system/cpu/cpu[0-9]*/power/energy_perf_bias w,
+__INSTALLER_PATH_DIR_SYS__/devices/system/cpu/intel_uncore_frequency/**/{min_freq_khz,max_freq_khz} w,
+__INSTALLER_PATH_DIR_SYS__/devices/**/constraint_[0-9]*_{power_limit_uw,time_window_us} w,
+__INSTALLER_PATH_DIR_SYS__/devices/**/{gt_min_freq_mhz,gt_max_freq_mhz,gt_boost_freq_mhz,rps_min_freq_mhz,rps_max_freq_mhz,rps_boost_freq_mhz} w,
+__INSTALLER_PATH_DIR_SYS__/devices/**/gt/gt[0-9]*/{rps_up_threshold_pct,rps_down_threshold_pct} w,
+__INSTALLER_PATH_DIR_SYS__/devices/**/tile[0-9]*/gt[0-9]*/freq0/{min_freq,max_freq} w,
+
+# Read-only single-policy-owner checks; no systemd start/stop/set methods.
+__INSTALLER_PATH_DIR_HARDWARE_TUNING__/system_state.py r,
+__INSTALLER_PATH_DIR_RUN__/dbus/system_bus_socket rw,
+unix,
+dbus (send) bus=system path=/org/freedesktop/DBus
+  interface=org.freedesktop.DBus member=Hello peer=(name=org.freedesktop.DBus),
+dbus (send) bus=system path=/org/freedesktop/systemd1/unit/*
+  interface=org.freedesktop.DBus.Properties member=Get
+  peer=(name=org.freedesktop.systemd1),

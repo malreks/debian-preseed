@@ -1,0 +1,35 @@
+# Managed by unattended-installer.
+#
+# Enforced short-lived Vivaldi shell wrapper. Managed launches disable the
+# wrapper's optional per-user codec downloader and use the root-owned codec
+# installed below __INSTALLER_PATH_DIR_VAR__/opt/vivaldi. The browser transitions into vivaldi-bin,
+# so the long-running renderer does not inherit shell or helper execution.
+
+#include <abstractions/base>
+
+deny __INSTALLER_PATH_DIR_DEV__/snd/ r,
+deny __INSTALLER_PATH_DIR_DEV__/snd/** rwklm,
+deny __INSTALLER_PATH_DIR_DEV__/sound/ r,
+deny __INSTALLER_PATH_DIR_DEV__/sound/** rwklm,
+
+/{,usr/}bin/bash rix,
+/{,usr/}bin/{cat,dirname,readlink,tr,uname} rix,
+
+__INSTALLER_PATH_DIR_DEV__/tty rw,
+# Direct terminal launches inherit the invoking user's PTY descriptors.
+owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+__INSTALLER_PATH_DIR_ETC__/os-release r,
+__INSTALLER_PATH_DIR_USR__/lib/os-release r,
+
+__INSTALLER_PATH_DIR_OPT__/vivaldi/ r,
+__INSTALLER_PATH_DIR_OPT__/vivaldi/vivaldi r,
+__INSTALLER_PATH_DIR_OPT__/vivaldi/libffmpeg.so* mr,
+__INSTALLER_PATH_DIR_VAR__/opt/vivaldi/ r,
+__INSTALLER_PATH_DIR_VAR__/opt/vivaldi/media-codecs-*/libffmpeg.so mr,
+owner @{PROC}/@{pid}/fd/[0-9]* rw,
+
+__INSTALLER_PATH_DIR_OPT__/vivaldi/vivaldi-bin px -> vivaldi-bin,
+
+# Read-only btop monitoring from the managed terminal.
+ptrace (readby) peer=desktop-launcher,
+ptrace (readby) peer=waypaper//waypaper-ps,

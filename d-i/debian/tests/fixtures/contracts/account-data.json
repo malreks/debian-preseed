@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "execution": "unexecuted source/failure fixtures; parser and managed modules not executed",
+  "cases": [
+    {
+      "name": "suite-profile-view",
+      "expect": "each of 26 suite/profile account-policy views binds its family default groups; server primary groups exclude desktop audio/video defaults"
+    },
+    {
+      "name": "no-data-sourcing",
+      "expect": "early, partman, finish and all later account consumers call the one restricted data loader"
+    },
+    {
+      "name": "complete-validation-first",
+      "expect": "duplicate field, malformed quote, process environment override or control byte refuses before changing caller variables"
+    },
+    {
+      "name": "literal-dollar-backtick",
+      "input": "ACCOUNT_FULLNAME='literal $(not-a-command) `not-a-command`'",
+      "expect": "retain literal data; never execute or evaluate it"
+    },
+    {
+      "name": "apostrophe",
+      "input": "ACCOUNT_FULLNAME='Example O'\\''Neil'",
+      "expect": "Example O'Neil"
+    },
+    {
+      "name": "empty-final-value",
+      "input": "FRUUX_CALENDAR_PASSWORD=''",
+      "expect": "preserve an explicitly empty field through command substitution and record decoding"
+    },
+    {
+      "name": "private-identity",
+      "expect": "primary identity/password remain private running-initrd inputs; generated account-policy views contain no private identity or credentials"
+    },
+    {
+      "name": "diagnostics",
+      "expect": "disable xtrace/verbose before decoding private snapshots; report schema errors without field values"
+    },
+    {
+      "name": "native-runtime",
+      "expect": "early decoding uses only d-i shell and AWK with the authenticated cached parser, without Python/Perl/JSON/GNU assumptions"
+    }
+  ]
+}

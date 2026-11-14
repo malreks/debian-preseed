@@ -1,0 +1,301 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Run one fixed Waybar action in a transient user service.
+
+Waybar configuration contains only the command after ``--``.  This helper
+owns the systemd-run policy and accepts a bounded command vocabulary, so a
+malformed menu value cannot turn into an arbitrary user-manager request.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+import uuid
+
+
+SYSTEMD_RUN = "__INSTALLER_PATH_DIR_USR__/bin/systemd-run"
+RUNTIME_ROOT = Path("__INSTALLER_PATH_DIR_RUN_USER__")
+ACTION_NAME = re.compile(r"[a-z0-9_]+\Z")
+
+# These aliases are the only bare command names rendered by the desktop
+# profile values used in Waybar.  All other command names must be absolute.
+ALIASES = {
+    "labwc-bluetooth": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth",
+    "labwc-brightness-control": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-brightness-control",
+    "labwc-capture": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture",
+    "labwc-keyboard-layout": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-keyboard-layout",
+    "labwc-network-control-menu": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu",
+    "labwc-power-settings": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings",
+    "labwc-system-action": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action",
+    "labwc-terminal": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal",
+    "pavucontrol": "__INSTALLER_PATH_DIR_USR__/bin/pavucontrol",
+}
+MENU_BUTTONS = frozenset({
+    "notifications", "power", "tomat", "wayscriber",
+})
+BLOCKED_ENVIRONMENT = (
+    "LD_PRELOAD", "LD_AUDIT", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONHOME",
+    "GI_TYPELIB_PATH", "GIO_MODULE_DIR", "GTK_MODULES", "DISPLAY", "XAUTHORITY",
+)
+
+
+def normalize_command(arguments: list[str]) -> tuple[tuple[str, ...], str | None]:
+    if len(arguments) == 1 and arguments[0].startswith("--menu="):
+        button = arguments[0].removeprefix("--menu=")
+        if button not in MENU_BUTTONS:
+            raise ValueError("invalid Waybar popup button")
+        return ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu", button), None
+    if "--" not in arguments:
+        raise ValueError("usage: labwc-waybar-run [--output-class=CLASS] -- COMMAND [ARGUMENT ...]")
+    separator = arguments.index("--")
+    options, raw = arguments[:separator], arguments[separator + 1:]
+    if not raw or len(raw) > 8:
+        raise ValueError("invalid Waybar action command")
+    output_class = None
+    for option in options:
+        if option.startswith("--output-class="):
+            value = option.removeprefix("--output-class=")
+            if value not in {"INTERNAL", "EXTERNAL"} or output_class is not None:
+                raise ValueError("invalid Waybar output class")
+            output_class = value
+        else:
+            raise ValueError("unsupported Waybar wrapper option")
+
+    executable = ALIASES.get(raw[0], raw[0])
+    command = (executable, *raw[1:])
+    if any(not isinstance(value, str) or not value or len(value) > 256 for value in command):
+        raise ValueError("invalid Waybar action argument")
+    if not allowed(command):
+        raise ValueError("unapproved Waybar action command")
+    if output_class is not None and executable != "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu":
+        raise ValueError("output class is only valid for the main menu")
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu" and output_class is None:
+        raise ValueError("main menu requires an output class")
+    return command, output_class
+
+
+def allowed(command: tuple[str, ...]) -> bool:
+    executable, *arguments = command
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu":
+        return len(arguments) == 1 and arguments[0] in MENU_BUTTONS
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-menu-action":
+        # The dispatcher has its own exact action table.  The wrapper accepts
+        # only its identifier-shaped argument and never forwards extra words.
+        return len(arguments) == 1 and ACTION_NAME.fullmatch(arguments[0]) is not None
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu":
+        return not arguments or (len(arguments) == 1 and arguments[0] in {
+            "--debug=gtk", "--debug=qt", "--debug=electron",
+            "--debug=wayland-graphics", "--debug=full", "--debug=xwayland",
+        })
+    if executable in {
+        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-calendar",
+        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-agenda",
+        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-window-switcher",
+        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayscriber-toggle",
+        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu",
+        "__INSTALLER_PATH_DIR_USR__/bin/pavucontrol",
+    }:
+        return not arguments
+    if executable == "__INSTALLER_PATH_DIR_USR__/bin/wayscriber":
+        return arguments in (
+            ["--active"], ["--light-toggle"], ["--freeze"],
+            ["--daemon-toggle"], ["--light-draw-toggle"],
+            ["--session-info"], ["--about"], ["--clear-session"],
+            ["--clear-tool-state"], ["--list-languages"],
+        )
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayscriber-config":
+        return not arguments
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal":
+        return arguments in (
+            ["-e", "nmtui"],
+            ["-e", "btop", "--config", "~/.config/btop/btop-cpu.conf"],
+            ["-e", "btop", "--config", "~/.config/btop/btop-memory.conf"],
+        )
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-keyboard-layout":
+        return arguments == ["waybar-toggle"]
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-brightness-control":
+        return arguments == ["menu"] or arguments in (
+            ["up"], ["down"], ["set", "15"], ["set", "30"], ["set", "55"],
+            ["set", "80"], ["set", "100"],
+        )
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action":
+        return arguments in (["battery-power"], ["storage-overview"])
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings":
+        return not arguments or (len(arguments) == 1 and arguments[0] in {
+            "lock", "suspend", "reboot", "logout", "poweroff",
+        })
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth":
+        return len(arguments) == 1 and arguments[0] in {
+            "open", "scan", "pair-menu", "connect", "disconnect", "manage",
+            "adapter", "power-toggle",
+        }
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture":
+        return len(arguments) == 1 and arguments[0] in {
+            "annotate-full", "screenshot-full", "screenshot-box", "record-full",
+            "record-box", "stop",
+        }
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-actions":
+        return len(arguments) == 1 and arguments[0] in {
+            "event-create", "event-manage", "tasks-pending", "tasks-all", "task-create",
+            "task-edit", "task-details", "task-complete", "task-delete",
+        }
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications":
+        return len(arguments) == 1 and arguments[0] in {
+            "dnd-dismiss", "dnd", "center", "restore", "dnd-on", "dnd-off", "dismiss", "clear",
+        }
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-tomat":
+        return arguments in [
+            ["toggle"], ["skip"], ["stop"], ["config"], ["custom"],
+            ["start", "default"], ["start", "25"], ["start", "50"], ["start", "90"], ["start", "test"],
+            ["settings", "notifications"], ["settings", "sounds"], ["settings", "overlays"],
+        ]
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/whisper-record-toggle":
+        return arguments in (["start"], ["stop"])
+    if executable == "__INSTALLER_PATH_DIR_USR__/bin/systemctl":
+        return arguments in (
+            ["--user", "--no-block", "start", "whisper-transcribe.service"],
+            ["--user", "stop", "whisper-transcribe.service"],
+        )
+    if executable == "__INSTALLER_PATH_DIR_USR__/bin/wpctl":
+        return (len(arguments) == 5
+                and arguments[:2] == ["set-volume", "@DEFAULT_AUDIO_SINK@"]
+                and arguments[2] in {"25%", "45%", "65%", "85%", "100%"}
+                and arguments[3:] == ["--limit", "1.0"])
+    return False
+
+
+def session_environment() -> dict[str, str]:
+    uid = os.getuid()
+    if uid == 0 or os.geteuid() != uid or os.environ.get("LABWC_SESSION_OWNER") != "desktop":
+        raise ValueError("Waybar actions require the ordinary desktop account")
+    runtime = RUNTIME_ROOT / str(uid)
+    runtime_info = runtime.lstat()
+    bus = runtime / "bus"
+    bus_info = bus.lstat()
+    if (not stat.S_ISDIR(runtime_info.st_mode) or runtime_info.st_uid != uid
+            or stat.S_IMODE(runtime_info.st_mode) != 0o700
+            or not stat.S_ISSOCK(bus_info.st_mode) or bus_info.st_uid != uid
+            or bus_info.st_nlink != 1):
+        raise ValueError("unsafe desktop runtime")
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in BLOCKED_ENVIRONMENT}
+    environment["XDG_RUNTIME_DIR"] = str(runtime)
+    environment["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + str(bus)
+    return environment
+
+
+def systemd_command(command: tuple[str, ...], output_class: str | None) -> list[str]:
+    # Only approved argv reach here. A readable family/action plus a random
+    # suffix identifies concurrent invocations without coalescing mutations.
+    session_closing = RUNTIME_ROOT / str(os.getuid()) / "labwc-session-closing"
+    family = Path(command[0]).name.removeprefix('labwc-')
+    if command[0] == '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-menu-action':
+        action = command[1]
+    elif command[0] == '__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu':
+        action = 'menu-' + command[1]
+    else:
+        action = family
+    label = re.sub(r'[^a-z0-9-]', '-', action.lower())[:64]
+    invocation_id = uuid.uuid4().hex
+    popup_owner = command[0] == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu"
+    state_button = None
+    if command[:4] == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal", "-e", "btop", "--config"):
+        state_button = "cpu" if command[-1].endswith("btop-cpu.conf") else "memory"
+    elif command == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action", "storage-overview"):
+        state_button = "storage"
+    elif command == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-window-switcher",):
+        state_button = "taskview"
+    elif command == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayscriber-toggle",):
+        state_button = "wayscriber"
+    elif command[0] == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu":
+        state_button = command[1]
+    nested_state = state_button in {"cpu", "memory", "storage"}
+    options = [
+        SYSTEMD_RUN, "--user", "--quiet", "--collect",
+        # Popup owners are singleton services. A fixed unit identity makes a
+        # second click fail closed while the first GTK menu still owns the
+        # marker; ordinary actions retain unique units for concurrency.
+        "--unit=labwc-waybar-" + label + (".service" if popup_owner else "-" + invocation_id + ".service"),
+        "--description=Waybar action: " + label,
+        "--service-type=exec", "--expand-environment=no", "--slice=app.slice",
+        "--property=Requisite=labwc-session.target",
+        "--property=After=labwc-session.target",
+        "--property=PartOf=labwc-session.target waybar.service",
+        "--property=ExitType=cgroup", "--property=KillMode=control-group",
+        "--property=TimeoutStartSec=10s", "--property=TimeoutStopSec=20s",
+        # systemd-run receives this as a transient unit property.  Unlike a
+        # unit-file ConditionPathExists= entry, this property is not expanded
+        # from the %t specifier and rejects the value as non-absolute.  The
+        # runtime directory was already validated in session_environment().
+        "--property=ConditionPathExists=!" + str(session_closing),
+        "--property=UnsetEnvironment=" + " ".join(BLOCKED_ENVIRONMENT),
+        "--property=StandardInput=null", "--property=StandardError=journal",
+        "--property=SyslogIdentifier=labwc-waybar-" + label,
+    ]
+    if state_button is not None and not nested_state:
+        options.extend((
+            "--property=ExecStartPre=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state start "
+            + state_button + " " + invocation_id,
+            "--property=ExecStopPost=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state cleanup "
+            + state_button + " " + invocation_id,
+        ))
+    if nested_state:
+        options.append("--setenv=LABWC_WAYBAR_ACTION_ID=" + invocation_id)
+        options.append("--setenv=LABWC_WAYBAR_STATE_BUTTON=" + state_button)
+    if command[:4] == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal", "-e", "btop", "--config"):
+        monitor = "CPU" if command[-1].endswith("btop-cpu.conf") else "Memory"
+        options.append("--setenv=LABWC_TERMINAL_TITLE=Labwc-" + monitor + "-" + invocation_id[:8])
+    elif command == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action", "storage-overview"):
+        options.append("--setenv=LABWC_TERMINAL_TITLE=Labwc-Storage-" + invocation_id[:8])
+    executable = command[0]
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu":
+        options[options.index("--property=TimeoutStartSec=10s")] = "--property=TimeoutStartSec=5s"
+        options[options.index("--property=TimeoutStopSec=20s")] = "--property=TimeoutStopSec=3s"
+        options.extend(("--property=RuntimeMaxSec=15s", "--property=StandardInput=null",
+                        "--property=StandardOutput=null", "--property=StandardError=journal"))
+    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu":
+        options.append("--property=SuccessExitStatus=3")
+        options.append("--setenv=LABWC_FUZZEL_OUTPUT_CLASS=" + str(output_class))
+    elif executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-window-switcher":
+        options[options.index("--property=TimeoutStartSec=10s")] = "--property=TimeoutStartSec=3s"
+        options[options.index("--property=TimeoutStopSec=20s")] = "--property=TimeoutStopSec=1s"
+        options.extend(("--property=RuntimeMaxSec=3s", "--property=StandardInput=null",
+                        "--property=StandardOutput=null", "--property=StandardError=journal"))
+    elif executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayscriber-toggle":
+        options[options.index("--property=TimeoutStartSec=10s")] = "--property=TimeoutStartSec=5s"
+        options[options.index("--property=TimeoutStopSec=20s")] = "--property=TimeoutStopSec=2s"
+        options.extend(("--property=RuntimeMaxSec=30s", "--property=StandardInput=null",
+                        "--property=StandardOutput=null", "--property=StandardError=journal"))
+    elif executable == "__INSTALLER_PATH_DIR_USR__/bin/wayscriber":
+        options.append("--setenv=WAYSCRIBER_DISABLE_UPDATE_CHECK=1")
+    elif executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-actions":
+        options.append("--property=SuccessExitStatus=2 3")
+    return [*options, "--", *command]
+
+
+def close_inherited_fds() -> None:
+    # Do not inspect procfs to discover inherited descriptors.  Besides being
+    # denied by the wrapper's AppArmor profile, that race can observe the
+    # directory descriptor used by listdir itself.  CPython implements
+    # closerange with the kernel close_range/closefrom fast path where
+    # available. The endpoint is a C int, not Py_ssize_t: sys.maxsize would
+    # overflow on 64-bit Python before any descriptor could be closed.
+    # Linux file descriptors are below INT_MAX on every supported target.
+    os.closerange(3, 2147483647)
+
+
+def main(arguments: list[str]) -> None:
+    command, output_class = normalize_command(arguments)
+    environment = session_environment()
+    close_inherited_fds()
+    os.execve(SYSTEMD_RUN, systemd_command(command, output_class), environment)
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1:])
+    except (OSError, ValueError) as error:
+        print(f"labwc-waybar-run: {error}", file=sys.stderr)
+        raise SystemExit(1)

@@ -1,0 +1,43 @@
+[Unit]
+Description=Validate and activate the locked devops rootless container engine
+Documentation=file:__INSTALLER_PATH_DIR_DATA__/docs/podman-devops.md
+RequiresMountsFor=__INSTALLER_PATH_DIR_POOL__/podman __INSTALLER_PATH_DIR_RUN__/podman-devops
+# Match the engine's prerequisite before its readiness query can activate the
+# socket. A failed policy/DNS/network start must block bootstrap, not provoke
+# repeated remote-client failures and exhaust socket activation limits.
+Requires=app-veth.service
+Wants=podman-devops.socket
+After=systemd-tmpfiles-setup.service podman-devops.socket app-veth.service
+ConditionPathExists=__INSTALLER_PATH_DIR_ETC__/podman-devops/layout.json
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/podman-devops-host start
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=180
+TimeoutStopSec=15
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+# The locked service account has no home, login session, or user bus.
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictRealtime=yes
+LockPersonality=yes
+ReadWritePaths=__INSTALLER_PATH_DIR_RUN__/lock __INSTALLER_PATH_DIR_RUN__/podman-devops
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=podman-devops-bootstrap
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Compilation and development workloads
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
+TasksAccounting=yes
+CPUWeight=__SYSTEMD_BUILD_CPU_WEIGHT__
+IOWeight=__SYSTEMD_BUILD_IO_WEIGHT__
+MemoryHigh=__SYSTEMD_BUILD_MEMORY_HIGH__
+MemoryMax=__SYSTEMD_BUILD_MEMORY_MAX__
+MemorySwapMax=__SYSTEMD_BUILD_MEMORY_SWAP_MAX__
+TasksMax=__SYSTEMD_BUILD_TASKS_MAX__

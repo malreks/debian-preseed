@@ -1,0 +1,8 @@
+[Unit]
+After=labwc-session.target
+Requisite=labwc-session.target
+Description=Lifetime leases for nvidia high tuning
+PartOf=labwc-session.target
+StopWhenUnneeded=yes
+# The lease service owns bounded retries while this request remains active.
+Wants=hardware-tuning-nvidia-high.service

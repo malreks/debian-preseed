@@ -1,0 +1,14 @@
+# Managed by unattended-installer.
+#
+# Read-only desktop policy shared by short-lived Labwc wrappers. Wayland,
+# D-Bus, GUI toolkits, temporary files, and user data remain explicit opt-ins.
+
+#include <abstractions/wrapper-base>
+
+__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf r,
+# Waybar can inherit an open battery descriptor into any click/status helper.
+# Restrict this to read-only battery telemetry, not arbitrary sysfs or devices.
+__INSTALLER_PATH_DIR_SYS__/devices/**/power_supply/*/{online,status,capacity,energy_now,energy_full,energy_full_design,power_now,charge_now,charge_full,charge_full_design,current_now,voltage_now,voltage_min_design} r,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
+
+include if exists <local/wrapper-desktop>

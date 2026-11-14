@@ -1,0 +1,49 @@
+# Managed by unattended-installer.
+#
+# Toolkit resources for the few repository-owned wrappers that render their
+# own GTK window instead of transitioning into a separate GUI application.
+
+#include <abstractions/wrapper-wayland>
+#include <abstractions/desktop-graphics>
+include if exists <abstractions/dbus-session-strict>
+
+__INSTALLER_PATH_DIR_ETC__/dconf/ r,
+__INSTALLER_PATH_DIR_ETC__/dconf/** r,
+__INSTALLER_PATH_DIR_ETC__/fonts/ r,
+__INSTALLER_PATH_DIR_ETC__/fonts/** r,
+__INSTALLER_PATH_DIR_ETC__/gtk-{3,4}.0/ r,
+__INSTALLER_PATH_DIR_ETC__/gtk-{3,4}.0/** r,
+__INSTALLER_PATH_DIR_ETC__/xdg/gtk-3.0/settings.ini r,
+
+__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/fonts/ r,
+__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/fonts/** r,
+__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/icons/ r,
+__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/icons/** r,
+__INSTALLER_PATH_DIR_USR_SHARE__/fontconfig/conf.avail/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/fontconfig/conf.avail/** r,
+__INSTALLER_PATH_DIR_USR_SHARE__/fonts/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/fonts/** r,
+__INSTALLER_PATH_DIR_USR_SHARE_GLIB_SCHEMAS__/gschemas.compiled r,
+__INSTALLER_PATH_DIR_USR_SHARE__/gtk-{3,4}.0/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/gtk-{3,4}.0/** r,
+__INSTALLER_PATH_DIR_USR_SHARE__/icons/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/icons/** r,
+__INSTALLER_PATH_DIR_USR_SHARE_PIXMAPS__/ r,
+__INSTALLER_PATH_DIR_USR_SHARE_PIXMAPS__/** r,
+__INSTALLER_PATH_DIR_USR_SHARE__/themes/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/themes/** r,
+__INSTALLER_PATH_DIR_USR_SHARE__/xkeyboard-config-*/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/xkeyboard-config-*/** r,
+
+__INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/ r,
+__INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/** mr,
+
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/dconf/user rw,
+owner @{HOME}/.cache/fontconfig/ r,
+owner @{HOME}/.cache/fontconfig/** r,
+owner @{HOME}/.config/dconf/user r,
+owner @{HOME}/.config/gtk-3.0/settings.ini r,
+owner @{HOME}/.local/share/gvfs-metadata/ r,
+owner @{HOME}/.local/share/gvfs-metadata/** r,
+
+include if exists <local/wrapper-gui>

@@ -1,0 +1,12 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Open the GTK4 New Local Reminder dialog."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, '__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__')
+from labwc_calendar_reminders_gtk import main
+
+if __name__ == '__main__':
+    os.umask(0o077)
+    raise SystemExit(main('--new'))

@@ -1,0 +1,498 @@
+# Managed by unattended-installer.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+profile desktop-btop __INSTALLER_PATH_DIR_USR__/bin/btop flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/base>
+  include <abstractions/nameservice-strict>
+  include <abstractions/wrapper-terminal>
+  # btop remains an ordinary user: no CAP_KILL, setuid, sudo or shell exec.
+  # This permission allows metadata reads in user-owned child namespaces;
+  # it does not give btop a kernel capability in the host user namespace.
+  capability sys_ptrace,
+  # AppArmor mediates both directions; base.d supplies the reciprocal grant.
+  signal (send),
+  # Foot sends HUP when the terminal closes; both sides are mediated.
+  signal (receive) set=(hup) peer=desktop-launcher,
+  network netlink raw,
+  ptrace (read),
+  deny ptrace (trace),
+  __INSTALLER_PATH_DIR_USR__/bin/btop mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{btop,terminfo}/{,**} r,
+  /{etc,lib}/terminfo/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/{os-release,fstab,mtab} r,
+  __INSTALLER_PATH_DIR_USR__/lib/os-release r,
+  __INSTALLER_PATH_DIR_SYS__/{,**} r,
+  # NVML reads GPU statistics through the existing NVIDIA control devices;
+  # privileged GPU state changes still require kernel capabilities.
+  __INSTALLER_PATH_DIR_DEV__/nvidiactl rw,
+  __INSTALLER_PATH_DIR_DEV__/nvidia[0-9]* rw,
+  __INSTALLER_PATH_DIR_DEV__/nvidia-uvm rw,
+  # btop removes stale NVIDIA device aliases while refreshing its inventory;
+  # AppArmor represents unlink permission as write on this exact device range.
+  __INSTALLER_PATH_DIR_DEV__/char/195:{0,255} w,
+  @{PROC}/driver/nvidia/{,**} r,
+  @{PROC}/ r,
+  @{PROC}/[0-9]*/ r,
+  @{PROC}/[0-9]*/fd/ r,
+  @{PROC}/[0-9]*/fdinfo/ r,
+  @{PROC}/{cpuinfo,diskstats,loadavg,meminfo,mounts,partitions,stat,uptime,version} r,
+  @{PROC}/net/{dev,route,wireless} r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/kernel/{osrelease,pid_max} r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/vm/mmap_min_addr r,
+  @{PROC}/devices r,
+  @{PROC}/[0-9]*/{cmdline,comm,exe,limits,loginuid,oom_score,oom_score_adj,stat,statm,status,io,sched,schedstat,smaps_rollup,wchan,cgroup} r,
+  @{PROC}/[0-9]*/fdinfo/[0-9]* r,
+  @{PROC}/[0-9]*/net/{tcp,tcp6,udp,udp6} r,
+  @{PROC}/[0-9]*/task/{,[0-9]*/} r,
+  owner @{PROC}/[0-9]*/task/[0-9]*/comm rw,
+  @{PROC}/[0-9]*/task/[0-9]*/{stat,status,statm,sched,schedstat} r,
+  # Monitoring never reads process environments, memory or trace controls.
+  deny @{PROC}/[0-9]*/{environ,mem,syscall,stack} rw,
+  owner @{HOME}/.config/btop/{,**} rwkl,
+  owner @{HOME}/.cache/btop/{,**} rwkl,
+  owner @{HOME}/.local/state/btop/{,**} rwkl,
+  owner @{HOME}/.local/state/btop.log{,.1} rwk,
+}
+
+profile desktop-editors __INSTALLER_PATH_DIR_USR__/bin/{l3afpad,qimgv,kdiff3,gnumeric,xournalpp,gnote,qalculate-qt} flags=(attach_disconnected, mediate_deleted) {
+  # September 20 audit: Qt atomic saves require both the published file and
+  # the temporary inode, with mediate_deleted on this profile (not a home wildcard).
+  owner @{HOME}/.{profile,bash_profile,bashrc,bash_aliases,zshenv,zprofile,zshrc,zlogout,zsh_aliases,dircolors,vimrc,sudo_as_admin_successful} r,
+  owner @{HOME}/.config/QtProject.conf{,.lock,.*} rwkl,
+  owner "@{HOME}/.config/#[0-9]*" rwkl,
+  owner @{HOME}/.local/state/kdiff3staterc{,.lock,.*} rwkl,
+  owner "@{HOME}/.local/state/#[0-9]*" rwkl,
+  __INSTALLER_PATH_DIR_ETC__/alsa/conf.d/ r,
+  __INSTALLER_PATH_DIR_ETC__/pipewire/client.conf.d/{,20-volume-ceiling.conf} r,
+  @{sys}/devices/virtual/dmi/id/{bios_vendor,board_vendor} r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/kernel/core_pattern r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/vm/nr_hugepages r,
+  owner @{PROC}/[0-9]*/task/[0-9]*/comm rw,
+  #include <abstractions/document-runtime>
+  __INSTALLER_PATH_DIR_USR__/bin/{l3afpad,qimgv,kdiff3,gnumeric,xournalpp,gnote,qalculate-qt} mr,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  owner @{HOME}/.config/{l3afpad,kdiff3*,gnumeric,xournalpp,gnote,qalculate,qimgv}/ rw,
+  owner @{HOME}/.config/{l3afpad,kdiff3*,gnumeric,xournalpp,gnote,qalculate,qimgv}/** rwklm,
+  owner @{HOME}/.config/wayscriber/config.toml r,
+  owner @{HOME}/.config/{kdiff3rc,qalculaterc}* rwkl,
+  # Tomat menu opens only this application-specific configuration directory.
+  owner @{HOME}/.config/tomat/ rw,
+  owner @{HOME}/.config/tomat/** rwkl,
+  owner @{HOME}/.local/share/{l3afpad,gnumeric,xournalpp,gnote,qalculate}/ rw,
+  owner @{HOME}/.local/share/{l3afpad,gnumeric,xournalpp,gnote,qalculate}/** rwklm,
+  owner @{HOME}/.local/state/{l3afpad,kdiff3,xournalpp,gnote,qimgv}/{,**} rwkl,
+  owner @{HOME}/.cache/{l3afpad,gnumeric,xournalpp,gnote,qalculate,qimgv,thumbnails}/ rw,
+  owner @{HOME}/.cache/{l3afpad,gnumeric,xournalpp,gnote,qalculate,qimgv,thumbnails}/** rwklm,
+  __INSTALLER_PATH_DIR_USR__/bin/{diff,git,lp,lpr,pdftoppm,pdftotext} rix,
+  # GLib/glycin CPU quota probes and its separately confined image decoder.
+  owner @{PROC}/[0-9]*/cgroup r,
+  # Toolkit process checks need same-owner statistics and command lines only.
+  owner @{PROC}/[0-9]*/{stat,cmdline} r,
+  # Editors may save extensionless non-hidden documents directly in HOME.
+  # One filename component only: no dotfiles, subtrees or executable mapping.
+  owner @{HOME}/[^.]* rwk,
+  @{sys}/fs/cgroup/**/cpu.max r,
+  signal (send) set=(kill term) peer=desktop-editors//editor-glycin-bwrap,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rCx -> editor-glycin-bwrap,
+  profile editor-glycin-bwrap flags=(attach_disconnected, mediate_deleted) {
+    #include <abstractions/base>
+    #include <abstractions/bwrap-common>
+    include if exists <abstractions/fonts>
+    signal (receive) set=(kill term) peer=desktop-editors,
+    __INSTALLER_PATH_DIR_USR__/bin/true rix,
+    # bwrap sets NNP before executing the loader: inherit, do not transition.
+    __INSTALLER_PATH_DIR_USR_LIBEXEC__/glycin-loaders/2+/{glycin-image-rs,glycin-svg} rix,
+    __INSTALLER_PATH_DIR_USR__/lib/** mr,
+    __INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/{,**} r,
+    __INSTALLER_PATH_DIR_USR_SHARE_MIME__/mime.cache r,
+    __INSTALLER_PATH_DIR_USR_SHARE_PIXMAPS__/l3afpad.png r,
+    __INSTALLER_PATH_DIR_USR__/{,local/}share/icons/{,**} r,
+    __INSTALLER_PATH_DIR_USR_SHARE_BACKGROUNDS__/{,**} r,
+    __INSTALLER_PATH_DIR_USR_SHARE__/xournalpp/ui/pixmaps/com.github.xournalpp.xournalpp.svg r,
+    owner __INSTALLER_PATH_DIR_TMP__/gdk-pixbuf-glycin-tmp.* rwk,
+    owner @{HOME}/.cache/fontconfig/{,**} r,
+    owner @{HOME}/.cache/glycin/{,**} rwkl,
+  }
+  include if exists <local/desktop-editors>
+}
+
+profile desktop-media __INSTALLER_PATH_DIR_USR__/bin/{mpv,recoll,recollindex,recollq,liferea} flags=(attach_disconnected, mediate_deleted) {
+  # Missing exec transitions created thousands of null learning descendants.
+  # Keep WebKit in the application domain; isolate glycin's namespace builder.
+  #include <abstractions/webkit-runtime>
+  __INSTALLER_PATH_DIR_USR__/bin/iconv rix,
+  network inet dgram,
+  # mpv labels its own worker threads through procfs.  Keep this to the
+  # same-owner task comm files; no broader process control is granted.
+  owner @{PROC}/[0-9]*/task/[0-9]*/comm rw,
+  # libplacebo reads these two stable, read-only firmware identity values.
+  @{sys}/devices/virtual/dmi/id/{board_vendor,bios_vendor} r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIB__/python3.[0-9]*/dist-packages/ r,
+  __INSTALLER_PATH_DIR_DEV__/tty rw,
+  # Recoll inherits the terminal descriptors supplied by its launcher.
+  # Keep access limited to the invoking user's pseudo-terminals.
+  owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+  owner @{HOME}/.local/share/net.sourceforge.liferea/{,**} rwkl,
+  owner @{HOME}/.cache/net.sourceforge.liferea/{,**} rwkl,
+  signal (send) set=(kill term) peer=desktop-media//media-glycin-bwrap,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rCx -> media-glycin-bwrap,
+  profile media-glycin-bwrap flags=(attach_disconnected, mediate_deleted) {
+    #include <abstractions/base>
+    #include <abstractions/bwrap-common>
+    include if exists <abstractions/fonts>
+    signal (receive) set=(kill term) peer=desktop-media,
+    ptrace (read, readby) peer=desktop-media//media-glycin-bwrap,
+    __INSTALLER_PATH_DIR_USR__/bin/true rix,
+    __INSTALLER_PATH_DIR_USR_LIBEXEC__/glycin-loaders/2+/{glycin-image-rs,glycin-svg} rix,
+    __INSTALLER_PATH_DIR_USR__/lib/** mr,
+    __INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/{,**} r,
+    __INSTALLER_PATH_DIR_USR_SHARE_MIME__/mime.cache r,
+    __INSTALLER_PATH_DIR_USR__/{,local/}share/icons/{,**} r,
+    __INSTALLER_PATH_DIR_USR_SHARE__/liferea/{,**} r,
+    owner __INSTALLER_PATH_DIR_TMP__/gdk-pixbuf-glycin-tmp.* rwk,
+    owner @{HOME}/.cache/fontconfig/{,**} r,
+    owner @{HOME}/.cache/glycin/{,**} rwkl,
+    owner @{HOME}/.local/share/{liferea,net.sourceforge.liferea}/{,**} r,
+  }
+  #include <abstractions/document-runtime>
+  #include <abstractions/pipewire-audio>
+  __INSTALLER_PATH_DIR_USR__/bin/{mpv,recoll,recollindex,recollq,liferea} mrix,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/recoll/filters/** rix,
+  # Debian's GStreamer scanner and installed Recoll conversion helpers.
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner rix,
+  __INSTALLER_PATH_DIR_USR_LIBEXEC__/gstreamer-1.0/gst-plugin-scanner rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{bzip2,head,mktemp,pandoc,pdftohtml,rm,tar,tail,xz} rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{cat,file,ffmpeg,ffprobe,gzip,unzip,pdftotext,python3,python3.[0-9]*,perl} rix,
+  __INSTALLER_PATH_DIR_USR__/lib/python3*/** mr,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/perl*/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/perl*/** r,
+  owner @{HOME}/.recoll/ rw,
+  owner @{HOME}/.recoll/** rwklm,
+  owner @{HOME}/.{config,cache}/{mpv,recoll,liferea}/ rw,
+  owner @{HOME}/.{config,cache}/{mpv,recoll,liferea}/** rwklm,
+  owner @{HOME}/.local/share/{mpv,recoll,liferea}/ rw,
+  owner @{HOME}/.local/share/{mpv,recoll,liferea}/** rwklm,
+  owner @{HOME}/.local/state/mpv/ rw,
+  owner @{HOME}/.local/state/mpv/** rwklm,
+  # Recoll's QtWebEngine viewer creates a Chromium user namespace. These
+  # permissions do not grant capabilities in the initial (host) namespace.
+  userns,
+  capability sys_admin,
+  capability sys_chroot,
+  capability sys_ptrace,
+  network inet6 dgram,
+  ptrace (read, trace) peer=@{profile_name},
+  __INSTALLER_PATH_DIR_USR__/lib/qt6/libexec/QtWebEngineProcess rix,
+  @{PROC}/ r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/fs/inotify/max_user_watches r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/kernel/yama/ptrace_scope r,
+  owner @{PROC}/[0-9]*/{cmdline,stat,statm,fd/} r,
+  owner @{PROC}/[0-9]*/task/ r,
+  owner @{PROC}/[0-9]*/task/[0-9]*/status r,
+  owner @{PROC}/[0-9]*/{setgroups,gid_map,uid_map,oom_score_adj} rw,
+  # Qt probes this package-owned directory with mkdir. Directory-only access;
+  # DAC still prevents ordinary users changing system data or creating files.
+  __INSTALLER_PATH_DIR_USR_SHARE__/qt6/resources/locales/ rw,
+  owner @{HOME}/.config/Recoll.org/ rw,
+  owner @{HOME}/.config/Recoll.org/** rwkl,
+  owner @{HOME}/.cache/Recoll.org/ rw,
+  owner @{HOME}/.cache/Recoll.org/** rwkl,
+  owner @{HOME}/.cache/qtshadercache-*/ rw,
+  owner @{HOME}/.cache/qtshadercache-*/** rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/recoll-*-index.pid rwk,
+  include if exists <local/desktop-media>
+}
+
+# Terminals are the user's general command entry point. Permit arbitrary
+# executable locations, including versioned toolchains, mounted workspaces,
+# and newly installed tools. Direct descendants inherit this unrestricted
+# command domain even when another executable attachment exists. DAC, kernel
+# capabilities and authentication still apply. Explicit permissions survive
+# the managed mode controller without a default_allow exception.
+profile desktop-terminal __INSTALLER_PATH_DIR_USR__/bin/{foot,footclient,kitty} flags=(attach_disconnected, mediate_deleted) {
+  allow all,
+  # Keep arbitrary inherited execution explicit: never attach an implicit
+  # compiler/application profile to a command launched from this terminal.
+  /** rix,
+}
+
+# These are intentional user-command launchers/file managers, not document
+# parsers. An existing narrower profile wins; otherwise children stay in this
+# developer domain. There is no general unconfined execution fallback.
+profile desktop-launcher __INSTALLER_PATH_DIR_USR__/bin/{fuzzel,xdg-terminal-exec,thunar,Thunar,xarchiver,nnn} flags=(attach_disconnected, mediate_deleted) {
+  # btop reads statistics; this does not authorize ptrace attachment/writes.
+  ptrace (read) peer=hardware-tuning-client,
+  signal (send) set=(hup) peer=session-controls,
+  signal (send) set=(hup) peer=labwc-security-action,
+  signal (send) set=(hup) peer=desktop-btop,
+  # Foreground nfsmnt and its systemctl client retain the terminal lifecycle.
+  signal (send) set=(hup, int, term, kill) peer=labwc-network-sharing{,//systemctl},
+  signal (receive) set=(chld) peer=labwc-network-sharing,
+  # Embedded Python may ignore the caller environment. Failed optional bytecode
+  # cache writes are harmless: never grant writes to the packaged interpreter.
+  deny __INSTALLER_PATH_DIR_USR__/lib/python3{,.[0-9]*}/{,**/}__pycache__/*.pyc* w,
+  deny __INSTALLER_PATH_DIR_USR__/lib/kitty/{,**/}__pycache__/*.pyc* w,
+  include if exists <abstractions/hardware-tuning-desktop-parent>
+  # The tracked Fuzzel child must accept its wrapper's cancellation cleanup.
+  signal (receive) set=(term, kill) peer=labwc-fuzzel,
+  # The Python adapter passes a bounded private input file as native dmenu stdin.
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-fuzzel-menu.*/input r,
+  # General-purpose file managers and ncdu must enumerate the filesystem.
+  # Trailing slash restricts this to directories; file data, writes and exec
+  # retain their existing policy, and ordinary DAC permissions still apply.
+  /**/ r,
+  # nmtui/libudev reads one network-device record per interface index.
+  __INSTALLER_PATH_DIR_RUN__/udev/data/n[0-9]* r,
+  # Waybar opens nmtui in this terminal domain. NetworkManager performs Wi-Fi
+  # activation, radio changes and connection edits after its Polkit checks.
+  # The same namespace includes nmtui's SecretAgent password callbacks.
+  #include <abstractions/dbus-strict>
+  dbus (send, receive) bus=system path=/org/freedesktop/NetworkManager{,/**}
+    peer=(name=org.freedesktop.NetworkManager),
+  # libnm 1.58 enumerates devices and subscribes to their changes at this root.
+  dbus (send, receive) bus=system path=/org/freedesktop
+    interface=org.freedesktop.DBus.ObjectManager
+    member={GetManagedObjects,InterfacesAdded,InterfacesRemoved}
+    peer=(name=org.freedesktop.NetworkManager),
+  # libnm verifies the daemon's uid before registering its password agent.
+  dbus (send) bus=system path=/org/freedesktop/DBus
+    interface=org.freedesktop.DBus member=GetConnectionUnixUser
+    peer=(name=org.freedesktop.DBus),
+  dbus (receive) bus=system path=/org/freedesktop/DBus
+    interface=org.freedesktop.DBus member=NameOwnerChanged
+    peer=(name=org.freedesktop.DBus),
+  #include <abstractions/devops-toolchain-data>
+  #include <abstractions/desktop-runtime>
+  #include <abstractions/user-documents>
+  #include <abstractions/pipewire-audio>
+  capability sys_ptrace,
+  ptrace (read) peer=unconfined,
+  # btop: exact additional peers observed in the installed-session audit.
+  ptrace (read) peer=labwc-chatgpt//chatgpt-bwrap,
+  ptrace (read) peer=labwc-panel-run,
+  ptrace (read) peer=labwc-chatgpt//chatgpt-dbus-proxy,
+  ptrace (read) peer=labwc-chatgpt-log-runner,
+  ptrace (read) peer=labwc-chatgpt,
+  ptrace (read) peer=desktop-launcher//application-bwrap,
+  # btop in the terminal needs read-only process statistics, not ptrace writes.
+  ptrace (read) peer=bitwarden,
+  ptrace (read) peer=filen,
+  ptrace (read) peer=vivaldi-bin,
+  ptrace (read) peer=vivaldi-stable,
+  ptrace (read) peer=codex-wrapper,
+  ptrace (read) peer=codex-wrapper//codex-bwrap,
+  ptrace (read) peer=crystal-dock,
+  ptrace (read) peer=ksecretd,
+  ptrace (read) peer=labwc-bluetooth,
+  ptrace (read) peer=labwc-calendar,
+  ptrace (read) peer=labwc-compositor,
+  ptrace (read) peer=labwc-fuzzel,
+  ptrace (read) peer=labwc-health-notify,
+  ptrace (read) peer=labwc-brightness-control,
+  ptrace (read) peer=labwc-waybar-battery,
+  ptrace (read) peer=labwc-waybar-events,
+  ptrace (read) peer=waypaper,
+  ptrace (read) peer=waypaper-swaybg,
+  ptrace (read) peer=waypaper//waypaper-bwrap,
+  ptrace (read) peer=labwc-app,
+  ptrace (read) peer=labwc-app//app-bwrap,
+  ptrace (read) peer=labwc-capture,
+  ptrace (read) peer=labwc-output-watch,
+  # Observed btop proc-stat reads; never authorize trace/attach/write here.
+  ptrace (read) peer=labwc-swaybg,
+  ptrace (read) peer=tomat,
+  ptrace (read) peer=labwc-notifications,
+  ptrace (read) peer=labwc-plans,
+  ptrace (read) peer=labwc-tomat,
+  ptrace (read) peer=labwc-session,
+  ptrace (read) peer=session-controls,
+  ptrace (read) peer=session-glycin-bwrap,
+  ptrace (read) peer=waybar,
+  ptrace (read) peer=whisper-record-toggle,
+  # Additional read-only status peers observed in the September 16 audit.
+  # read/ readby mediate proc metadata; do not grant trace or wildcard peers.
+  ptrace (read) peer=code,
+  ptrace (read) peer=microsoft-edge-stable,
+  ptrace (read) peer=labwc-microsoft-edge-launcher,
+  ptrace (read) peer=mullvad-browser,
+  ptrace (read) peer=labwc-mullvad-browser-launcher,
+  ptrace (read) peer=mullvad,
+  ptrace (read) peer=obsidian,
+  ptrace (read) peer=qoredb,
+  signal (send) set=(hup) peer=freerdp-client,
+  ptrace (read) peer=desktop-editors,
+  # A terminal can launch Code through its package shell trampoline. Transition
+  # before the first script exec instead of building null learning descendants.
+  __INSTALLER_PATH_DIR_USR__/bin/code rpx -> code,
+  __INSTALLER_PATH_DIR_USR__/bin/btop rPx -> desktop-btop,
+  # aa-status is a native, read-only diagnostic in AppArmor 4.1.
+  # Keep it in its own child rather than granting general __INSTALLER_PATH_DIR_USR__/sbin execution.
+  __INSTALLER_PATH_DIR_USR__/sbin/aa-status rCx -> apparmor-status,
+  signal (send) set=(hup, int, term, kill) peer=desktop-launcher//apparmor-status,
+  signal (receive) set=(chld) peer=desktop-launcher//apparmor-status,
+  profile apparmor-status {
+    #include <abstractions/base>
+    # Procfs executable links require read access across process credentials.
+    # This does not grant a host capability; an authorized root caller must
+    # already possess it. Process attachment and memory writes remain denied.
+    capability sys_ptrace,
+    ptrace (read),
+    deny ptrace (trace),
+    __INSTALLER_PATH_DIR_USR__/sbin/aa-status mr,
+    owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+    __INSTALLER_PATH_DIR_SYS__/module/apparmor/{,parameters/,parameters/enabled,parameters/available} r,
+    __INSTALLER_PATH_DIR_SYS__/kernel/security/{,apparmor/,apparmor/profiles} r,
+    @{PROC}/ r,
+    @{PROC}/{mounts,[0-9]*/mounts} r,
+    @{PROC}/[0-9]*/{,exe,attr/,attr/current,attr/apparmor/,attr/apparmor/current} r,
+    signal (receive) set=(hup, int, term, kill) peer=desktop-launcher,
+    signal (send) set=(chld) peer=desktop-launcher,
+  }
+  __INSTALLER_PATH_DIR_USR_SHARE__/code/{bin/code,code} rpx -> code,
+  # Debian's clang frontend lives below __INSTALLER_PATH_DIR_USR__/lib; keep its linker children in
+  # this existing developer domain instead of complain-mode null descendants.
+  __INSTALLER_PATH_DIR_USR__/lib/llvm-[0-9]*/bin/clang rix,
+  __INSTALLER_PATH_DIR_USR__/bin/** rPix,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/{bin,sbin,libexec}/** rPix,
+  __INSTALLER_PATH_DIR_USR_LIBEXEC__/** rPix,
+  __INSTALLER_PATH_DIR_USR__/lib/chromium/** rPix,
+  __INSTALLER_PATH_DIR_OPT__/** rPix,
+  __INSTALLER_PATH_DIR_USR__/ r,
+  __INSTALLER_PATH_DIR_SRV__/ r,
+  __INSTALLER_PATH_DIR_DATA__/bin/ r,
+  __INSTALLER_PATH_DIR_DATA__/codex/lib/ r,
+  __INSTALLER_PATH_DIR_DATA__/llama/{bin,lib}/ r,
+  __INSTALLER_PATH_DIR_VAR__/ r,
+  __INSTALLER_PATH_DIR_VAR_LOG__/ r,
+  /{run,var}/log/journal/ r,
+  /{run,var}/log/journal/*/ r,
+  # Keep the concrete runtime paths alongside the brace form so policy
+  # inspection and older AppArmor loaders see the same journal directories.
+  __INSTALLER_PATH_DIR_RUN__/log/journal/ r,
+  __INSTALLER_PATH_DIR_VAR_LOG__/journal/*/user-[0-9]*.journal r,
+  # journalctl also reads rotated and unclean-shutdown user journals. DAC
+  # retains access control; no system journal or write permission is added.
+  /{run,var}/log/journal/*/user-[0-9]*.journal{,~} r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/systemd/catalog/database r,
+  __INSTALLER_PATH_DIR_DATA__/codex/lib/codex rPx -> codex-wrapper,
+  __INSTALLER_PATH_DIR_USR__/lib/thunar/** rix,
+  # Thunar's archive helper is a sibling directory, not thunar/**. Without
+  # this exec rule, complain mode creates null learning profiles for the
+  # helper, xarchiver and every subsequent compression/glycin subprocess.
+  __INSTALLER_PATH_DIR_USR__/lib/thunar-archive-plugin/xarchiver.tap rix,
+  # Terminal package queries are read-only; no apt/dpkg database writes.
+  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/{status,triggers/File,triggers/Unincorp} r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/apt/extended_states r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/apt/lists/** r,
+  __INSTALLER_PATH_DIR_VAR_CACHE__/apt/{pkgcache,srcpkgcache}.bin r,
+  # Git invokes package-owned helpers below its exec-path, not only git itself.
+  # Inherit the terminal domain; never create complain-mode null descendants.
+  __INSTALLER_PATH_DIR_USR__/lib/git-core/git rix,
+  __INSTALLER_PATH_DIR_USR__/lib/git-core/git-* rix,
+  # GLib's desktop-entry trampoline retains this domain until the selected
+  # executable attaches to its existing profile through the rules above.
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/glib-2.0/gio-launch-desktop rix,
+  # udevadm queries device metadata, not block/USB device contents.
+  __INSTALLER_PATH_DIR_RUN__/udev/data/{b[0-9]*:[0-9]*,c189:[0-9]*,+usb:*} r,
+  # thunar-volman also reads input-device metadata while handling hotplug.
+  __INSTALLER_PATH_DIR_RUN__/udev/data/{c13:[0-9]*,+input:input[0-9]*} r,
+  # The account owns the checked-out configuration tree. Edits from a terminal
+  # are confined to that account's files; release and system configuration
+  # under __INSTALLER_PATH_DIR_DATA__/codex/{lib,share} and __INSTALLER_PATH_DIR_ETC__/codex stay separate.
+  __INSTALLER_PATH_DIR_DATA__/codex/usr/** r,
+  owner __INSTALLER_PATH_DIR_DATA__/codex/usr/ rw,
+  owner __INSTALLER_PATH_DIR_DATA__/codex/usr/** rwklm,
+
+  # A terminal's mail check may read its user's traditional mail spool.
+  owner __INSTALLER_PATH_DIR_VAR__/mail/* r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  # Authentication boundary: Polkit/sudo retain their own authorization checks;
+  # privileged repository helpers attach to their existing dedicated profiles.
+  __INSTALLER_PATH_DIR_USR__/bin/{pkexec,sudo,sudoedit} rPUx,
+  __INSTALLER_PATH_DIR_RUN__/mount/utab r,
+  # util-linux's setuid mount drops credentials for privileged-only options
+  # such as -a. Isolate that drop from the general terminal/file-manager domain.
+  # Authorized mounts run through sudo or PID 1, outside this unprivileged child.
+  __INSTALLER_PATH_DIR_USR__/bin/{mount,umount} rCx -> mount-user,
+  profile mount-user {
+    #include <abstractions/base>
+    include <abstractions/nameservice-strict>
+    capability setuid,
+    capability setgid,
+    __INSTALLER_PATH_DIR_USR__/bin/{mount,umount} mr,
+    __INSTALLER_PATH_DIR_USR__/sbin/mount.nfs{,4} rix,
+    __INSTALLER_PATH_DIR_ETC__/{fstab,mtab} r,
+    __INSTALLER_PATH_DIR_RUN__/mount/utab r,
+    @{PROC}/{filesystems,mounts,self/mountinfo,self/mounts} r,
+    /**/ r,
+  }
+  signal (send) set=(kill term) peer=desktop-launcher//application-bwrap,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rCx -> application-bwrap,
+  profile application-bwrap flags=(attach_disconnected) {
+    signal (receive) set=(kill term) peer=desktop-launcher,
+    #include <abstractions/bwrap-common>
+    #include <abstractions/bwrap-desktop-runtime>
+    #include <abstractions/devops-toolchain-runtime>
+  }
+  include if exists <local/desktop-launcher>
+}
+
+# FreeRDP's file clipboard uses libfuse. Its privileged fallback is isolated
+# from the terminal/file-manager domain and may mount only cliprdr directories.
+profile freerdp-client __INSTALLER_PATH_DIR_USR__/bin/{sdl-freerdp,sdl-freerdp3} flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/document-runtime>
+  #include <abstractions/pipewire-audio>
+  include if exists <abstractions/nameservice-strict>
+  network inet dgram,
+  network inet6 dgram,
+  unix,
+  signal (receive) set=(hup) peer=desktop-launcher,
+  __INSTALLER_PATH_DIR_USR__/bin/{sdl-freerdp,sdl-freerdp3} mr,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  __INSTALLER_PATH_DIR_ETC__/{freerdp,ssl}/** r,
+  __INSTALLER_PATH_DIR_ETC__/krb5.conf r,
+  __INSTALLER_PATH_DIR_ETC__/krb5.conf.d/{,**} r,
+  __INSTALLER_PATH_DIR_DEV__/tty rw,
+  owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+  __INSTALLER_PATH_DIR_DEV__/fuse rw,
+  __INSTALLER_PATH_DIR_PROC__/filesystems r,
+  owner @{PROC}/[0-9]*/{mountinfo,mounts,cgroup,stat,status} r,
+  owner @{PROC}/[0-9]*/task/[0-9]*/comm rw,
+  __INSTALLER_PATH_DIR_SYS__/devices/virtual/dmi/id/{bios_vendor,board_vendor} r,
+  owner @{HOME}/.config/freerdp/{,**} rwkl,
+  owner @{HOME}/.local/share/freerdp/{,**} rwkl,
+  owner @{HOME}/.cache/freerdp/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_TMP__/com.freerdp.client.cliprdr.[0-9]*/{,**} rwkl,
+  # libfuse first tries an unprivileged mount, then the setuid package helper.
+  # Do not grant sys_admin to the network client merely to satisfy that probe.
+  deny mount fstype=fuse __INSTALLER_PATH_DIR_DEV__/fuse -> __INSTALLER_PATH_DIR_TMP__/com.freerdp.client.cliprdr.[0-9]*/,
+  __INSTALLER_PATH_DIR_USR__/bin/fusermount3 rCx -> clipboard-fuse,
+  __INSTALLER_PATH_DIR_USR__/bin/umount rCx -> clipboard-fuse,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-freerdp-askpass rPx -> labwc-freerdp-askpass,
+  /{,usr/}bin/{sh,dash} rix,
+  signal (send, receive) peer=freerdp-client//clipboard-fuse,
+  profile clipboard-fuse flags=(attach_disconnected) {
+    #include <abstractions/base>
+    include if exists <abstractions/nameservice-strict>
+    capability sys_admin,
+    capability dac_override,
+    capability dac_read_search,
+    capability setuid,
+    __INSTALLER_PATH_DIR_USR__/bin/{fusermount3,umount} rix,
+    __INSTALLER_PATH_DIR_DEV__/fuse rw,
+    __INSTALLER_PATH_DIR_ETC__/{fuse.conf,mtab} r,
+    __INSTALLER_PATH_DIR_PROC__/filesystems r,
+    owner @{PROC}/[0-9]*/{mountinfo,mounts,status} r,
+    __INSTALLER_PATH_DIR_RUN__/mount/{utab,utab.lock,utab.act,utab.event} rwk,
+    owner __INSTALLER_PATH_DIR_TMP__/com.freerdp.client.cliprdr.[0-9]*/{,**} rwkl,
+    mount fstype=fuse options=(rw,nosuid,nodev) __INSTALLER_PATH_DIR_DEV__/fuse -> __INSTALLER_PATH_DIR_TMP__/com.freerdp.client.cliprdr.[0-9]*/,
+    umount __INSTALLER_PATH_DIR_TMP__/com.freerdp.client.cliprdr.[0-9]*/,
+    signal (send, receive) peer=freerdp-client,
+  }
+  include if exists <local/freerdp-client>
+}

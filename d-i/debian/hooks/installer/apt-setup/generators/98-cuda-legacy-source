@@ -1,0 +1,59 @@
+#!/bin/sh
+# apt-setup generator: publish the selected legacy CUDA source and key before
+# apt-setup performs its first target update. The source stays in the target's
+# canonical sources.list so pkgsel sees the same repository set as apt-setup.
+set -eu
+
+RUNTIME_DIR=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+COMMON_LIB="$RUNTIME_DIR/bootstrap/common-lib.sh"
+cuda_generator_fatal() {
+  cuda_generator_message=$(printf '%s' "$*" | tr '\r\n\t' '   ')
+  if command -v installer_error >/dev/null 2>&1; then
+    installer_error "CUDA apt-setup generator: ${cuda_generator_message}"
+  else
+    printf '[apt-setup:cuda-legacy] fatal: %s\n' "$cuda_generator_message" >&2
+    if [ -c /dev/tty4 ] && [ -w /dev/tty4 ]; then
+      printf '[apt-setup:cuda-legacy] fatal: %s\n' "$cuda_generator_message" >/dev/tty4 || :
+    fi
+    if command -v logger >/dev/null 2>&1; then
+      logger -t preseed-apt-cuda "fatal: $cuda_generator_message" 2>/dev/null || :
+    fi
+  fi
+  exit 1
+}
+[ -r "$COMMON_LIB" ] || {
+  cuda_generator_fatal 'installer common library missing'
+}
+# shellcheck disable=SC1090
+. "$COMMON_LIB"
+installer_operation_context_repo FILE_INST_APT_98_CUDA_LEGACY_SOURCE 29 cuda_legacy_apt_setup
+
+installer_cuda_legacy_selected || exit 0
+
+HOST_ENV="${DIR_INSTALLER_ENV}/host.env"
+[ -r "$HOST_ENV" ] || {
+  cuda_generator_fatal "composed host environment is unavailable: ${HOST_ENV}"
+}
+# shellcheck disable=SC1090,SC1091
+if installer_load_data_env "$HOST_ENV"; then
+  :
+else
+  host_env_status=$?
+  installer_fatal_status "$host_env_status" "CUDA apt-setup host profile data was rejected: ${HOST_ENV}"
+fi
+
+target=${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}
+case "$target" in
+  /) ;;
+  /*) target=${target%/} ;;
+  *) cuda_generator_fatal "CUDA target root is unavailable: ${target:-unset}" ;;
+esac
+
+repository=$(installer_cuda_repository_url)
+installer_cuda_stage_target_key
+
+# The helper replaces any stale CUDA line atomically, then appends exactly one
+# source entry. trusted=yes is source-scoped and is required for this legacy
+# archive's weak metadata; signed-by still records and uses the published key.
+installer_cuda_stage_target_source "$repository" / ""
+installer_info 'published legacy CUDA source and key before apt-setup update'

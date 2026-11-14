@@ -1,0 +1,496 @@
+#!/bin/sh
+set -eu
+
+PATH=__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__:__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__
+export PATH
+umask 077
+
+SECONDBOOT_ROOT=${SECONDBOOT_ROOT:-/}
+
+case "$SECONDBOOT_ROOT" in
+  /*) ;;
+  *)
+    printf 'fatal: SECONDBOOT_ROOT must be absolute\n' >&2
+    exit 1
+    ;;
+esac
+[ -d "$SECONDBOOT_ROOT" ] || {
+  printf 'fatal: SECONDBOOT_ROOT is not a directory: %s\n' "$SECONDBOOT_ROOT" >&2
+  exit 1
+}
+SECONDBOOT_ROOT=$(CDPATH='' cd -P -- "$SECONDBOOT_ROOT" && pwd -P) || {
+  printf 'fatal: failed to resolve SECONDBOOT_ROOT: %s\n' "$SECONDBOOT_ROOT" >&2
+  exit 1
+}
+
+if [ "$SECONDBOOT_ROOT" = / ] && [ "$(id -u)" -ne 0 ]; then
+  printf 'fatal: secondboot cleanup must run as root\n' >&2
+  exit 1
+fi
+
+root_prefix=${SECONDBOOT_ROOT%/}
+
+root_path() {
+  case "${1:-}" in
+    /*) printf '%s%s\n' "$root_prefix" "$1" ;;
+    *)
+      printf 'fatal: secondboot path must be absolute: %s\n' "${1:-unset}" >&2
+      exit 1
+      ;;
+  esac
+}
+
+log() {
+  printf '[secondboot] %s\n' "$*"
+}
+
+cleanup_request=$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/cleanup-request)
+
+# ExecStopPost publishes a private request after the bootstrap process exits.
+# The path unit rechecks it after cleanup exits, so concurrent requests cannot
+# disappear into an already-running start job. Markers alone authorize removal,
+# including partial cleanup after another component's failed attempt.
+case "$#:${1:-}" in
+  0:) ;;
+  1:--queue)
+    queue_temporary=$(mktemp "${cleanup_request}.XXXXXX")
+    trap 'rm -f -- "$queue_temporary"' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    mv -fT -- "$queue_temporary" "$cleanup_request"
+    exit 0
+    ;;
+  *) printf 'fatal: unsupported secondboot cleanup arguments\n' >&2; exit 1 ;;
+esac
+
+systemd_changed=false
+
+finish_cleanup() {
+  cleanup_status=$?
+  trap - EXIT
+  if [ "$systemd_changed" = true ] && [ "$SECONDBOOT_ROOT" = / ]; then
+    # disable --no-reload and explicit unlinking are committed once, including
+    # partial cleanup and error exits. Never reload once per completed helper.
+    if ! systemctl daemon-reload; then
+      log "warning: could not reload removed bootstrap units"
+      [ "$cleanup_status" -ne 0 ] || cleanup_status=1
+    fi
+    systemctl reset-failed firstboot.service crowdsec-firstboot.service \
+      tailscale-bootstrap.service fruux-firstboot.service >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || true
+  fi
+  exit "$cleanup_status"
+}
+trap finish_cleanup EXIT
+
+bootstrap_processes_exited() {
+  set -- firstboot.service crowdsec-firstboot.service tailscale-bootstrap.service
+  if [ -e "$(root_path __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/fruux-firstboot.service)" ]; then
+    set -- "$@" fruux-firstboot.service
+  fi
+  bootstrap_unit_count=$#
+  bootstrap_fields=$(systemctl show --property=MainPID --property=ControlPID --property=SubState \
+    "$@") || {
+    log "could not inspect bootstrap processes; retained boot retry"
+    return 2
+  }
+  [ -n "$bootstrap_fields" ] || { log "missing bootstrap process state; retained boot retry"; return 2; }
+  bootstrap_pid_count=0
+  bootstrap_state_count=0
+  for bootstrap_field in $bootstrap_fields; do
+    case "$bootstrap_field" in
+      MainPID=0|ControlPID=0) bootstrap_pid_count=$((bootstrap_pid_count + 1)) ;;
+      MainPID=*|ControlPID=*)
+        case "${bootstrap_field#*=}" in
+          ''|*[!0-9]*) log "invalid bootstrap process state; retained boot retry"; return 2 ;;
+        esac
+        log "deferring cleanup until bootstrap processes and stop commands exit"
+        return 1
+        ;;
+      SubState=dead|SubState=failed|SubState=auto-restart|SubState=auto-restart-queued)
+        bootstrap_state_count=$((bootstrap_state_count + 1))
+        ;;
+      SubState=*)
+        # MainPID can already be zero before the stop command is spawned.
+        log "deferring cleanup until bootstrap service transitions finish"
+        return 1
+        ;;
+      *) log "invalid bootstrap process state; retained boot retry"; return 2 ;;
+    esac
+  done
+  [ "$bootstrap_pid_count" -eq "$((bootstrap_unit_count * 2))" ] && \
+    [ "$bootstrap_state_count" -eq "$bootstrap_unit_count" ] || {
+    log "incomplete bootstrap process state; retained boot retry"
+    return 2
+  }
+}
+
+# Consume this run's request before doing work. A later atomic publication is
+# a new request and is left for the path unit to activate after this run exits.
+# If a bootstrap is still busy, status 75 schedules a delayed service retry;
+# After= alone cannot wait for natural exits after their start jobs finish.
+rm -f -- "$cleanup_request"
+if [ "$SECONDBOOT_ROOT" = / ]; then
+  if bootstrap_processes_exited; then
+    :
+  else
+    process_status=$?
+    [ "$process_status" -eq 1 ] && exit 75
+    exit 1
+  fi
+fi
+
+remove_transient_secret() {
+  secret_path=$1
+  [ -e "$secret_path" ] || [ -L "$secret_path" ] || return 0
+  # Unlink without following a symlink or mutating a multiply-linked inode.
+  # Overwriting is not reliable secure erasure on SSD/COW storage.
+  rm -f -- "$secret_path"
+}
+
+regular_file_exists() {
+  [ -f "$1" ] && [ ! -L "$1" ]
+}
+
+firstboot_completed_successfully() {
+  regular_file_exists "$1" &&
+    grep -F -x -q 'status=0' "$1"
+}
+
+cleanup_deferred=false
+
+defer_cleanup() {
+  cleanup_deferred=true
+  log "deferring full cleanup: $1"
+}
+
+disable_remove_unit() {
+  unit_name=$1
+  case "$unit_name" in
+    firstboot.service|crowdsec-firstboot.service|tailscale-bootstrap.service|fruux-firstboot.service|secondboot.service|secondboot.path) ;;
+    *)
+      printf 'fatal: refusing unexpected cleanup unit: %s\n' "$unit_name" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "$SECONDBOOT_ROOT" = / ] && command -v systemctl >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    # Completion markers authorize removal, never stopping another process.
+    if [ "$unit_name" = secondboot.path ]; then
+      systemctl --no-reload disable --now "$unit_name" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || true
+    else
+      systemctl --no-reload disable "$unit_name" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || true
+    fi
+  fi
+
+  systemd_changed=true
+  systemd_dir=$(root_path __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__)
+  for link_dir in "$systemd_dir"/*.wants "$systemd_dir"/*.requires; do
+    [ -d "$link_dir" ] || continue
+    rm -f -- "${link_dir}/${unit_name}"
+  done
+  rm -f -- "${systemd_dir}/${unit_name}"
+}
+
+cleanup_fruux_bootstrap() {
+  fruux_helper=$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/fruux-cleanup)
+  fruux_unit=$(root_path __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/fruux-firstboot.service)
+  fruux_greetd=$(root_path __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_GREETD_DROPIN__/40-fruux-firstboot.conf)
+  if [ ! -e "$fruux_helper" ] && [ ! -e "$fruux_unit" ] && [ ! -e "$fruux_greetd" ]; then
+    return 0
+  fi
+  # No checkout/fixture may reach a real account or execute a rendered target
+  # helper. The installed helper drops UID before taking the writer's lock.
+  if [ "$SECONDBOOT_ROOT" != / ] || ! regular_file_exists "$fruux_helper"; then
+    defer_cleanup "Fruux completion check is unavailable"
+    return 0
+  fi
+  if "$fruux_helper"; then
+    # The password has been read back from Secret Service and its temporary
+    # input durably removed. Preserve the permanent account/database/receipt.
+    rm -f -- "$fruux_greetd"
+    sync -f "$(dirname "$fruux_greetd")"
+    disable_remove_unit fruux-firstboot.service
+    for fruux_link_dir in "$(root_path __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__)"/*.wants \
+      "$(root_path __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__)"/*.requires; do
+      [ ! -d "$fruux_link_dir" ] || sync -f "$fruux_link_dir"
+    done
+    sync -f "$(root_path __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__)"
+    rm -f -- "$fruux_helper"
+    sync -f "$(dirname "$fruux_helper")"
+    log "removed completed Fruux firstboot unit, login ordering and cleanup helper"
+  else
+    defer_cleanup "Fruux automatic credential delivery has not completed; private input retained if present"
+  fi
+}
+
+cleanup_crowdsec_bootstrap() {
+  crowdsec_state_dir=$(root_path __INSTALLER_PATH_DIR_CROWDSEC_STATE__)
+  crowdsec_token="${crowdsec_state_dir}/enroll.token"
+  crowdsec_complete="${crowdsec_state_dir}/complete"
+  crowdsec_helper=$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/crowdsec-firstboot)
+  crowdsec_unit=$(root_path __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/crowdsec-firstboot.service)
+
+  if ! regular_file_exists "$crowdsec_complete"; then
+    if [ -e "$crowdsec_helper" ] ||
+       [ -e "$crowdsec_unit" ] ||
+       [ -e "$crowdsec_token" ]; then
+      defer_cleanup "CrowdSec bootstrap has not completed"
+    fi
+    return 0
+  fi
+
+  remove_transient_secret "$crowdsec_token"
+  disable_remove_unit crowdsec-firstboot.service
+  rm -f -- \
+    "$crowdsec_helper" \
+    "$crowdsec_complete" \
+    "${crowdsec_state_dir}/core-ready" \
+    "${crowdsec_state_dir}/capi-activated" \
+    "${crowdsec_state_dir}/status.env" \
+    "${crowdsec_state_dir}/bootstrap.log"
+  rmdir "$crowdsec_state_dir" 2>__INSTALLER_PATH_DIR_DEV__/null || true
+  log "removed completed CrowdSec bootstrap artifacts"
+}
+
+cleanup_tailscale_bootstrap() {
+  tailscale_state_dir=$(root_path __INSTALLER_PATH_DIR_TAILSCALE_STATE__)
+  tailscale_complete="${tailscale_state_dir}/complete"
+  tailscale_auth_key="${tailscale_state_dir}/auth.key"
+  tailscale_helper=$(root_path __INSTALLER_PATH_FILE_TAILSCALE_MANAGED_HELPER__)
+  tailscale_unit=$(root_path __INSTALLER_PATH_FILE_TAILSCALE_BOOTSTRAP_SERVICE__)
+
+  if regular_file_exists "$tailscale_complete"; then
+    remove_transient_secret "$tailscale_auth_key"
+    disable_remove_unit tailscale-bootstrap.service
+    rm -f -- \
+      "$tailscale_helper" \
+      "$tailscale_complete" \
+      "${tailscale_state_dir}/status.env" \
+      "${tailscale_state_dir}/bootstrap.log"
+    rmdir "$tailscale_state_dir" 2>__INSTALLER_PATH_DIR_DEV__/null || true
+    log "removed completed Tailscale bootstrap artifacts"
+    return 0
+  fi
+
+  if [ -e "$tailscale_helper" ] ||
+     [ -e "$tailscale_unit" ] ||
+     [ -e "$tailscale_auth_key" ]; then
+    defer_cleanup "Tailscale bootstrap has not completed"
+  fi
+}
+
+cleanup_tpm2_enrollment() {
+  if [ -e "$crypto_pending" ]; then
+    defer_cleanup "TPM2 enrollment is still pending"
+    return 0
+  fi
+  if [ -e "$crypto_config" ] && ! regular_file_exists "$crypto_complete"; then
+    defer_cleanup "TPM2 enrollment completion marker is missing"
+    return 0
+  fi
+
+  rm -f -- \
+    "$crypto_install_passphrase" \
+    "$crypto_pending" \
+    "$(root_path __INSTALLER_PATH_DIR_ETC__/profile.d/tpm2-enroll-prompt.sh)" \
+    "$(root_path __INSTALLER_PATH_DIR_ETC_XDG__/autostart/tpm2-enroll.desktop)" \
+    "$(root_path __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/tpm2-enroll-launch)" \
+    "$(root_path __INSTALLER_PATH_DIR_RUN_LOCK__/tpm2-enroll.lock)"
+  rmdir "$(root_path __INSTALLER_PATH_DIR_CRYPTO_STATE__)" 2>__INSTALLER_PATH_DIR_DEV__/null || true
+  log "retired TPM2 bootstrap prompts; retained reenrollment helper and release evidence"
+}
+
+remove_initramfs_health_hooks() {
+  initramfs_root=$(root_path __INSTALLER_PATH_DIR_INITRAMFS_SCRIPTS__)
+  initramfs_pending=$(root_path __INSTALLER_PATH_FILE_FIRSTBOOT_INITRAMFS_CLEANUP_PENDING__)
+  initramfs_changed=0
+  if [ -e "$initramfs_pending" ] || [ -L "$initramfs_pending" ]; then
+    regular_file_exists "$initramfs_pending" || {
+      printf 'fatal: invalid pending initramfs cleanup record\n' >&2
+      exit 1
+    }
+    initramfs_changed=1
+  fi
+
+  for hook_path in \
+    "${initramfs_root}/installer-health-common" \
+    "${initramfs_root}/init-top/90-installer-health" \
+    "${initramfs_root}/init-premount/90-installer-health" \
+    "${initramfs_root}/local-top/90-installer-health" \
+    "${initramfs_root}/local-block/90-installer-health" \
+    "${initramfs_root}/local-premount/90-installer-health" \
+    "${initramfs_root}/local-bottom/90-installer-health" \
+    "${initramfs_root}/init-bottom/90-installer-health" \
+    "${initramfs_root}/init-top/health-init-top" \
+    "${initramfs_root}/local-top/health-local-top" \
+    "${initramfs_root}/local-premount/health-local-premount" \
+    "${initramfs_root}/local-bottom/health-local-bottom" \
+    "${initramfs_root}/init-bottom/health-init-bottom"
+  do
+    [ -e "$hook_path" ] || [ -L "$hook_path" ] || continue
+    if [ ! -e "$initramfs_pending" ]; then
+      pending_candidate=$(mktemp "${initramfs_pending}.XXXXXX")
+      printf '%s\n' 'format=1' 'operation=remove-installer-health-hooks' >"$pending_candidate"
+      sync -f "$pending_candidate"
+      mv -fT -- "$pending_candidate" "$initramfs_pending"
+      sync -f "$(dirname "$initramfs_pending")"
+    fi
+    rm -f -- "$hook_path"
+    sync -f "$(dirname "$hook_path")"
+    initramfs_changed=1
+  done
+
+  if [ "$SECONDBOOT_ROOT" = / ] && [ "$initramfs_changed" -eq 1 ]; then
+    [ -x __INSTALLER_PATH_DIR_USR_SBIN__/update-initramfs ] || {
+      printf 'fatal: update-initramfs is required after removing staged hooks\n' >&2
+      exit 1
+    }
+    __INSTALLER_PATH_DIR_USR_SBIN__/update-initramfs -u -k all
+    # Keep pending work across failed rebuilds and interrupted verification.
+    verified_images=0
+    listing_limit_bytes=16777216
+    listing_probe_bytes=$((listing_limit_bytes + 1))
+    for boot_image in __INSTALLER_PATH_DIR_BOOT__/initrd.img-*; do
+      # The signing hook publishes detached signatures beside the real images.
+      case "$boot_image" in *.sig) continue ;; esac
+      [ -f "$boot_image" ] || continue
+      listing=$(mktemp __INSTALLER_PATH_DIR_RUN__/secondboot-initramfs.XXXXXX)
+      listing_status_file=$(mktemp __INSTALLER_PATH_DIR_RUN__/secondboot-initramfs-status.XXXXXX)
+      if ! (
+        if __INSTALLER_PATH_DIR_USR_BIN__/lsinitramfs "$boot_image"; then
+          printf '%s\n' 0 >"$listing_status_file"
+        else
+          listing_status=$?
+          printf '%s\n' "$listing_status" >"$listing_status_file"
+        fi
+      ) | __INSTALLER_PATH_DIR_USR_BIN__/head -c "$listing_probe_bytes" >"$listing"; then
+        rm -f -- "$listing" "$listing_status_file"
+        printf 'fatal: cannot verify rebuilt initramfs\n' >&2
+        exit 1
+      fi
+      listing_bytes=$(__INSTALLER_PATH_DIR_USR_BIN__/wc -c <"$listing") || {
+        rm -f -- "$listing" "$listing_status_file"
+        printf 'fatal: cannot measure rebuilt initramfs listing\n' >&2
+        exit 1
+      }
+      case "$listing_bytes" in
+        ''|*[!0-9\ ]*)
+          rm -f -- "$listing" "$listing_status_file"
+          printf 'fatal: rebuilt initramfs listing size is invalid\n' >&2
+          exit 1
+          ;;
+      esac
+      while [ "${listing_bytes# }" != "$listing_bytes" ]; do
+        listing_bytes=${listing_bytes# }
+      done
+      if [ "$listing_bytes" -gt "$listing_limit_bytes" ]; then
+        rm -f -- "$listing" "$listing_status_file"
+        printf 'fatal: rebuilt initramfs listing exceeds its size limit\n' >&2
+        exit 1
+      fi
+      if ! IFS= read -r listing_status <"$listing_status_file" ||
+         [ "$listing_status" != 0 ]; then
+        rm -f -- "$listing" "$listing_status_file"
+        printf 'fatal: cannot verify rebuilt initramfs\n' >&2
+        exit 1
+      fi
+      rm -f -- "$listing_status_file"
+      if grep -E -q '(^|/)(90-installer-health|installer-health-common|health-(init-top|local-top|local-premount|local-bottom|init-bottom))$' "$listing"; then
+        rm -f -- "$listing"
+        printf 'fatal: rebuilt initramfs retains temporary health hooks\n' >&2
+        exit 1
+      fi
+      rm -f -- "$listing"
+      verified_images=$((verified_images + 1))
+    done
+    [ "$verified_images" -gt 0 ] || {
+      printf 'fatal: no rebuilt initramfs was available for verification\n' >&2
+      exit 1
+    }
+  fi
+  # The final PCR-bound token must be enrolled only after booting the image
+  # produced by this cleanup, not a soon-to-be-retired diagnostic initramfs.
+  if [ "$SECONDBOOT_ROOT" = / ] && [ -e "$crypto_config" ] &&
+     { [ "$initramfs_changed" -eq 1 ] || [ ! -e __INSTALLER_PATH_FILE_CRYPTO_BOOT_ARTIFACTS_CLEANED__ ]; }; then
+    __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tpm2-policy-check --mark-boot-artifacts
+  fi
+  if [ "$SECONDBOOT_ROOT" = / ] && [ "$initramfs_changed" -eq 1 ]; then
+    rm -f -- "$initramfs_pending"
+    sync -f "$(dirname "$initramfs_pending")"
+  fi
+}
+
+firstboot_complete=$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/complete)
+crypto_config=$(root_path __INSTALLER_PATH_FILE_CRYPTO_STATE_CONFIG__)
+crypto_install_passphrase=$(root_path __INSTALLER_PATH_FILE_CRYPTO_BOOTSTRAP_CREDENTIAL__)
+crypto_pending=$(root_path __INSTALLER_PATH_FILE_CRYPTO_PENDING__)
+crypto_complete=$(root_path __INSTALLER_PATH_FILE_CRYPTO_COMPLETE__)
+
+firstboot_marker_present=false
+if [ -e "$firstboot_complete" ] || [ -L "$firstboot_complete" ]; then
+  regular_file_exists "$firstboot_complete" || {
+    printf 'fatal: firstboot completion marker must be a regular non-symlink file: %s\n' "$firstboot_complete" >&2
+    exit 1
+  }
+  firstboot_marker_present=true
+fi
+
+# Enrollment helpers can finish independently of unrelated first-boot
+# diagnostics. Remove each completed bootstrap surface immediately; retain only
+# components that still lack their own completion marker.
+cleanup_crowdsec_bootstrap
+cleanup_tailscale_bootstrap
+cleanup_fruux_bootstrap
+
+if [ "$firstboot_marker_present" != true ]; then
+  log "removed completed bootstrap artifacts; retained first-boot artifacts until firstboot publishes completion"
+  exit 0
+fi
+
+if ! firstboot_completed_successfully "$firstboot_complete"; then
+  log "retained first-boot artifacts because firstboot did not complete successfully"
+  exit 0
+fi
+
+cleanup_tpm2_enrollment
+
+disable_remove_unit firstboot.service
+remove_initramfs_health_hooks
+
+rm -f -- \
+  "$(root_path __INSTALLER_PATH_FILE_FIRSTBOOT_HELPER__)"
+rm -rf -- \
+  "$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__)" \
+  "$(root_path __INSTALLER_PATH_DIR_RUN__/initramfs-health)" \
+  "$(root_path __INSTALLER_PATH_DIR_RUN__/initramfs/initramfs-health)"
+
+if [ "$cleanup_deferred" = true ]; then
+  log "removed completed first-boot artifacts; retained pending enrollment artifacts and secondboot retry service"
+  exit 0
+fi
+
+# Do not remove a source while apparmor-modes is applying it. Retain this
+# cleanup entrypoint and its retry units until the shared policy lock is free.
+if [ "$SECONDBOOT_ROOT" = / ] &&
+   { [ -e __INSTALLER_PATH_DIR_ETC__/apparmor/modes.conf ] || [ -L __INSTALLER_PATH_DIR_ETC__/apparmor/modes.conf ]; }; then
+  retirement_status=0
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apparmor-modes-run --retire-firstboot || retirement_status=$?
+  case "$retirement_status" in
+    0) ;;
+    75) log "deferred firstboot policy retirement until the policy writer exits"; exit 75 ;;
+    *) log "could not retire firstboot policy; retained cleanup retry artifacts"; exit 1 ;;
+  esac
+else
+  # Console installs have no managed mode writer or helper. An explicit
+  # fixture root never calls a management helper on the host either.
+  rm -f -- "$(root_path __INSTALLER_PATH_DIR_APPARMOR__/firstboot)"
+fi
+disable_remove_unit secondboot.path
+rm -f -- "$(root_path __INSTALLER_PATH_FILE_SECONDBOOT_HELPER__)"
+disable_remove_unit secondboot.service
+
+# No bootstrap credentials survive. Permanent TPM reenrollment and release evidence remain.
+rm -f -- "$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/complete)" "$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/lock)"
+rmdir "$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__)" "$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__)" "$(root_path __INSTALLER_PATH_DIR_FIRSTBOOT__)" 2>__INSTALLER_PATH_DIR_DEV__/null || true
+log "removed completed first-boot artifacts and retained installation diagnostics"

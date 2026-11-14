@@ -1,0 +1,22 @@
+#!/bin/sh
+
+runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+[ -r "$runtime/bootstrap/di.env" ] || exit 0
+# shellcheck disable=SC1090
+. "$runtime/bootstrap/di.env"
+
+dev=$1
+id=$2
+property=$3
+
+[ -f "$DIR_INSTALLER_VAR_LIB_PARTMAN/f2fs" ] || exit 0
+case $property in
+    formatable)
+        echo f2fs
+        ;;
+    existing)
+        [ -f "$id/detected_filesystem" ] || exit 0
+        fs=$(cat "$id/detected_filesystem")
+        [ "$fs" = f2fs ] && echo f2fs
+        ;;
+esac

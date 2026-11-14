@@ -1,0 +1,46 @@
+# Managed by unattended-installer.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+profile Discord __INSTALLER_PATH_DIR_OPT__/discord/Discord flags=(attach_disconnected) {
+  #include <abstractions/electron-application>
+  #include <abstractions/pipewire-audio>
+  include if exists <abstractions/user-tmp>
+
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network netlink raw,
+
+  owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+  __INSTALLER_PATH_DIR_DEV__/video* rw,
+  owner @{PROC}/[0-9]*/mem r,
+
+  __INSTALLER_PATH_DIR_OPT__/discord/ r,
+  __INSTALLER_PATH_DIR_OPT__/discord/** mrix,
+  __INSTALLER_PATH_DIR_OPT__/discord/Discord rix,
+
+  # Desktop clients must never bootstrap or update state as root. The managed
+  # command wrapper rejects root before reaching this profile; these explicit
+  # denies also cover a direct __INSTALLER_PATH_DIR_OPT__/discord/Discord invocation.
+  deny __INSTALLER_PATH_DIR_ROOT_HOME__/.cache/discord/ rw,
+  deny __INSTALLER_PATH_DIR_ROOT_HOME__/.cache/discord/** rwkl,
+  deny __INSTALLER_PATH_DIR_ROOT_HOME__/.config/discord/ rw,
+  deny __INSTALLER_PATH_DIR_ROOT_HOME__/.config/discord/** rwkl,
+  deny __INSTALLER_PATH_DIR_ROOT_HOME__/.local/share/discord/ rw,
+  deny __INSTALLER_PATH_DIR_ROOT_HOME__/.local/share/discord/** rwkl,
+
+  owner @{HOME}/.cache/discord/ rw,
+  owner @{HOME}/.cache/discord/** rwk,
+  owner @{HOME}/.config/discord/ rw,
+  owner @{HOME}/.config/discord/** rwkl,
+  owner @{HOME}/.local/share/discord/ rw,
+  owner @{HOME}/.local/share/discord/** rwkl,
+  owner @{HOME}/@{XDG_DOWNLOAD_DIR}/ rw,
+  owner @{HOME}/@{XDG_DOWNLOAD_DIR}/** rwkl,
+
+  include if exists <local/Discord>
+}

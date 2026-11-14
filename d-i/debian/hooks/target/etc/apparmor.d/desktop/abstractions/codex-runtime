@@ -1,0 +1,123 @@
+# Managed by unattended-installer.
+#
+# Codex payload access shared by direct execution and the Bubblewrap child
+# domain. This runtime also covers Chromium/Electron payloads launched by
+# Codex or ChatGPT after no_new_privs prevents a separate application-profile
+# transition.
+
+#include <abstractions/devops-toolchain-runtime>
+#include <abstractions/electron-runtime>
+include if exists <local/abstractions/codex-user-media>
+
+userns,
+
+# Selected project installation UUID only. Bubblewrap consumes this anonymous file
+# before starting the payload and exposes a disposable writable copy. Native
+# Codex opens installation_id read/write even when its UUID is already valid.
+/memfd:codex-installation-id rw,
+
+# Chromium-derived sandbox children request these only after entering an
+# unprivileged user namespace. AppArmor permission does not grant capabilities
+# that the process does not hold in its current namespace.
+capability sys_admin,
+capability sys_chroot,
+capability sys_ptrace,
+
+@{PROC}__INSTALLER_PATH_DIR_SYS__/kernel/osrelease r,
+@{PROC}__INSTALLER_PATH_DIR_SYS__/kernel/overflowgid r,
+@{PROC}__INSTALLER_PATH_DIR_SYS__/kernel/overflowuid r,
+@{PROC}__INSTALLER_PATH_DIR_SYS__/user/max_user_namespaces r,
+owner @{PROC}/[0-9]*/{gid_map,setgroups,uid_map} rw,
+
+__INSTALLER_PATH_DIR_DATA__/ r,
+__INSTALLER_PATH_DIR_DATA__/** mr,
+__INSTALLER_PATH_DIR_DATA__/** rix,
+__INSTALLER_PATH_DIR_DATA__/codex/ rw,
+__INSTALLER_PATH_DIR_DATA__/codex/** rwklm,
+__INSTALLER_PATH_DIR_DATA__/codex/** rix,
+# Persistent credential sources are copied by systemd before the service enters
+# the managed wrapper and payload domains. Neither domain may reopen them.
+deny __INSTALLER_PATH_DIR_DATA__/codex/credentials/ rwkl,
+deny __INSTALLER_PATH_DIR_DATA__/codex/credentials/** rwklm,
+# These deny rules remove only write, hard-link, and lock permissions inherited
+# from the broad storage rules. They do not deny execute permission; execution
+# remains controlled by the wrapper transition and release-binary rules below.
+deny __INSTALLER_PATH_DIR_DATA__/codex/.codex-release wkl,
+deny __INSTALLER_PATH_DIR_DATA__/codex/config.schema.json wkl,
+deny __INSTALLER_PATH_DIR_DATA__/codex/{lib,share}/ wkl,
+deny __INSTALLER_PATH_DIR_DATA__/codex/{lib,share}/** wkl,
+__INSTALLER_PATH_DIR_DATA__/codex/config.schema.json r,
+__INSTALLER_PATH_DIR_DATA__/codex/lib/ r,
+__INSTALLER_PATH_DIR_DATA__/codex/share/ r,
+__INSTALLER_PATH_DIR_DATA__/codex/share/bin/ r,
+__INSTALLER_PATH_DIR_DATA__/codex/share/bin/* mrix,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/ r,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/agents/ r,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/agents/** mrix,
+# Git metadata is mutable account state. The checked-out etc/ is account-owned;
+# deployed administrator policy under __INSTALLER_PATH_DIR_ETC__/codex remains root-owned.
+owner __INSTALLER_PATH_DIR_DATA__/codex/usr/.git/ rw,
+owner __INSTALLER_PATH_DIR_DATA__/codex/usr/.git/**/ rw,
+owner __INSTALLER_PATH_DIR_DATA__/codex/usr/.git/** rwklm,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/etc/ rw,
+# Prompts, model catalogs, and instruction fragments are nested and versioned.
+__INSTALLER_PATH_DIR_DATA__/codex/usr/instructions/ r,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/instructions/** r,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/skills/ r,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/skills/** mrix,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/home/ rw,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/home/** rwklm,
+__INSTALLER_PATH_DIR_DATA__/codex/usr/home/** rix,
+__INSTALLER_PATH_DIR_DATA__/codex/log/ rw,
+__INSTALLER_PATH_DIR_DATA__/codex/log/** rwklm,
+__INSTALLER_PATH_DIR_DATA__/codex/runtime/ rw,
+__INSTALLER_PATH_DIR_DATA__/codex/runtime/** rwklm,
+__INSTALLER_PATH_DIR_DATA__/codex/sqlite/ rw,
+__INSTALLER_PATH_DIR_DATA__/codex/sqlite/** rwklm,
+__INSTALLER_PATH_DIR_DATA__/downloads/ rw,
+__INSTALLER_PATH_DIR_DATA__/downloads/** rwklm,
+__INSTALLER_PATH_DIR_DATA__/downloads/** rix,
+__INSTALLER_PATH_DIR_OPT__/ r,
+deny __INSTALLER_PATH_DIR_ETC_OPT__/chrome/ w,
+deny __INSTALLER_PATH_DIR_OPT__/vivaldi/extensions/ w,
+__INSTALLER_PATH_DIR_RUN__/udev/data/c13:* r,
+__INSTALLER_PATH_DIR_USR__/ r,
+__INSTALLER_PATH_DIR_VAR_CACHE__/debconf/{config.dat,templates.dat} r,
+__INSTALLER_PATH_DIR_VAR__/opt/vivaldi/media-codecs-*/libffmpeg.so mr,
+# Package discovery is read-only and limited to the metadata observed from
+# dpkg-query and apt-cache inside the Codex payload domain.
+__INSTALLER_PATH_DIR_VAR_CACHE__/apt/pkgcache.bin r,
+__INSTALLER_PATH_DIR_VAR_LIB__/apt/extended_states r,
+__INSTALLER_PATH_DIR_VAR_LIB__/apt/lists/ r,
+__INSTALLER_PATH_DIR_VAR_LIB__/apt/lists/*_{InRelease,Release} r,
+__INSTALLER_PATH_DIR_VAR_LIB__/apt/lists/*_{Packages,Translation-*} r,
+__INSTALLER_PATH_DIR_VAR_LIB__/apt/lists/*_{Packages,Translation-*}.{gz,xz,lz4,zst} r,
+__INSTALLER_PATH_DIR_VAR_LIB__/dpkg/status r,
+__INSTALLER_PATH_DIR_VAR_LIB__/dpkg/diversions r,
+__INSTALLER_PATH_DIR_VAR_LIB__/dpkg/{arch,status-old,available} r,
+__INSTALLER_PATH_DIR_VAR_LIB__/dpkg/info/{,**} r,
+__INSTALLER_PATH_DIR_VAR_LIB__/dpkg/triggers/{File,Unincorp} r,
+__INSTALLER_PATH_DIR_VAR_LIB__/dpkg/updates/ r,
+__INSTALLER_PATH_DIR_VAR_LIB__/dpkg/updates/* r,
+__INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE__/repo/{Packages,.snapshots/*/Packages} r,
+__INSTALLER_PATH_DIR_RUN__/codex-synthetic-bin/ r,
+__INSTALLER_PATH_DIR_RUN__/codex-synthetic-bin/payload-launcher.py r,
+# Account-owned manager test state in the wrapper's private /run only. The
+# real system manager directory and sockets are root-owned and masked.
+owner __INSTALLER_PATH_DIR_RUN__/systemd/{,**} rwkl,
+
+# Private procfs is not overmounted: nested Codex/bwrap must be able to mount
+# a new instance. Namespace maps are writable only for same-UID processes.
+# No blanket __INSTALLER_PATH_DIR_PROC__/** write grant and no host sysctl-write authority.
+deny @{PROC}__INSTALLER_PATH_DIR_SYS__/** wklx,
+deny @{PROC}/{sysrq-trigger,kcore,keys,timer_list} rwklx,
+
+# Existing rootless operator API for stdio MCPs in private network namespaces.
+__INSTALLER_PATH_DIR_RUN__/podman-devops/ r,
+__INSTALLER_PATH_DIR_RUN__/podman-devops/podman.sock rw,
+# Codex app-server and MCP Unix endpoints are explicitly mounted into the
+# private Bubblewrap root. Keep the paths narrow even though the surrounding
+# managed storage policy remains available for application state.
+__INSTALLER_PATH_DIR_DATA__/codex/sockets/ r,
+__INSTALLER_PATH_DIR_DATA__/codex/sockets/{app-server-backend.sock,app-server-control.sock,codex-mcp.sock} rw,
+@{PROC}/@{pid}/net/{tcp,tcp6,udp,udp6} r,

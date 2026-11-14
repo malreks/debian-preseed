@@ -1,0 +1,16 @@
+[Unit]
+Description=Create the managed monthly Timeshift snapshot
+ConditionPathExists=__INSTALLER_PATH_DIR_USR__/bin/timeshift
+ConditionPathExists=__INSTALLER_PATH_DIR_ETC__/timeshift/timeshift.json
+After=local-fs.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=6h
+TimeoutStopSec=30s
+KillMode=control-group
+Nice=19
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+UMask=0077
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/timeshift-snapshot monthly

@@ -1,0 +1,33 @@
+[Unit]
+StartLimitBurst=5
+StartLimitIntervalSec=60s
+Description=Refresh Labwc output policy after DRM hotplug events
+ConditionEnvironment=LABWC_SESSION_OWNER=desktop
+ConditionEnvironment=WAYLAND_DISPLAY
+ConditionEnvironment=XDG_SESSION_TYPE=wayland
+After=labwc-compositor.service labwc-session.target
+Requisite=labwc-session.target
+PartOf=labwc-session.target
+
+[Service]
+TimeoutStartSec=60s
+KillMode=control-group
+Type=notify
+NotifyAccess=all
+Environment=PATH=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/bin:/bin
+EnvironmentFile=-__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf
+ExecCondition=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check session-ready
+# Keep the start job open until initial reconciliation finishes. Clients with
+# After=labwc-output-watch.service then connect after the bounded initial
+# reconciliation attempt; slow or rejected outputs remain event driven.
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-output-watch --session-watch
+Restart=always
+RestartSec=2s
+TimeoutStopSec=10s
+UMask=0077
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+#PrivateTmp=yes
+
+[Install]
+WantedBy=labwc-session.target

@@ -1,0 +1,295 @@
+#!/usr/bin/python3
+"""Offline publication of profile-owned physical uplinks; no service commands.
+
+Private installer input is bounded TSV, never shell source. All candidate bytes
+are validated before publication. The outer release-bound installer stage retains
+its running stamp on failure, so a partial publication cannot silently retry.
+"""
+from __future__ import annotations
+
+import configparser
+import fcntl
+import ipaddress
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+import uuid
+
+ETC = Path('__INSTALLER_PATH_DIR_ETC__')
+STATE = Path('__INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__')
+POLICY = Path('__INSTALLER_PATH_FILE_NETWORK_UPLINK_POLICY__')
+UUID_WIFI = '3f1b70be-cc3f-4e77-9e31-66f7a5e16994'
+FIELDS = {'format', 'family', 'mode', 'primary', 'wifi_enable', 'ethernet_iface',
+          'ethernet_mac', 'wifi_iface', 'wifi_mac', 'address', 'netmask', 'gateway',
+          'dns', 'ssid', 'security', 'passphrase', 'wifi_cidr', 'ipv6_enable',
+          'ipv6_address', 'ipv6_gateway', 'ipv6_dns', 'installer_ethernet_iface', 'installer_wifi_iface', 'dns_mode'}
+
+
+def protected_read(path: Path, *, private: bool = False, maximum: int = 65536) -> bytes:
+    for parent in path.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('untrusted network data ancestry')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                or info.st_mode & (0o077 if private else 0o022) or info.st_size > maximum):
+            raise ValueError('unsafe network data file')
+        data = stream.read(maximum + 1)
+    if len(data) != info.st_size or len(data) > maximum:
+        raise ValueError('network data changed while reading')
+    return data
+
+
+def private_input(path: Path) -> dict[str, str]:
+    if path.parent != STATE or not path.name.startswith('.network-input-'):
+        raise ValueError('network input must belong to the private installer state')
+    for parent in path.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('untrusted private input ancestry')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 32768):
+            raise ValueError('network input is not a bounded private regular file')
+        data = stream.read(32769)
+    if len(data) > 32768 or len(data) != info.st_size:
+        raise ValueError('network input changed or exceeds its bound')
+    values = {}
+    for line in data.decode('utf-8').splitlines():
+        key, separator, value = line.partition('\t')
+        if not separator or key in values or key not in FIELDS or any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError('invalid network input record')
+        values[key] = value
+    if set(values) != FIELDS or values['format'] != '1':
+        raise ValueError('network input fields differ from format 1')
+    return values
+
+
+def publish(path: Path, data: bytes, mode: int) -> None:
+    # Pin ancestry with directory descriptors, including newly created parents.
+    descriptor = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    temporary = None
+    try:
+        for part in path.parent.parts[1:]:
+            try:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptor)
+            except FileNotFoundError:
+                os.mkdir(part, 0o700 if part == 'system-connections' else 0o755, dir_fd=descriptor)
+                os.fsync(descriptor)
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptor)
+            info = os.fstat(child)
+            if info.st_uid or info.st_mode & 0o022:
+                os.close(child)
+                raise ValueError('untrusted network publication ancestry')
+            os.close(descriptor)
+            descriptor = child
+        try:
+            previous = os.stat(path.name, dir_fd=descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            previous = None
+        if previous is not None and (not stat.S_ISREG(previous.st_mode) or previous.st_uid
+                                     or previous.st_nlink != 1 or previous.st_mode & 0o022):
+            raise ValueError('untrusted network publication target')
+        temporary = '.network-' + os.urandom(16).hex()
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode, dir_fd=descriptor)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            os.fchmod(stream.fileno(), mode)
+            stream.flush()
+            os.fsync(stream.fileno())
+            identity = os.fstat(stream.fileno())
+        os.replace(temporary, path.name, src_dir_fd=descriptor, dst_dir_fd=descriptor)
+        temporary = None
+        os.fsync(descriptor)
+        after = os.stat(path.name, dir_fd=descriptor, follow_symlinks=False)
+        if (after.st_dev, after.st_ino) != (identity.st_dev, identity.st_ino):
+            raise RuntimeError('network publication outcome unknown; retain installer stage evidence')
+    finally:
+        try:
+            if temporary is not None:
+                os.unlink(temporary, dir_fd=descriptor)
+        finally:
+            os.close(descriptor)
+
+
+def escaped(value: str) -> str:
+    return value.replace('\\', '\\\\').replace(' ', '\\s')
+
+
+def candidates(values: dict[str, str]) -> tuple[dict[Path, tuple[bytes, int]], dict]:
+    family, mode = values['family'], values['mode']
+    if (family not in ('desktop', 'server') or mode not in ('dhcp', 'static')
+            or values['wifi_enable'] not in ('true', 'false') or values['ipv6_enable'] not in ('true', 'false')
+            or values['dns_mode'] not in ('global', 'link')):
+        raise ValueError('invalid network role family or policy')
+    names = [values['ethernet_iface'], values['wifi_iface']]
+    if len(set(names)) != 2 or any(re.fullmatch(r'[a-zA-Z0-9_-]{1,15}', name) is None or name == 'lo' for name in names):
+        raise ValueError('invalid or overlapping physical interface names')
+    if values['primary'] not in names:
+        raise ValueError('primary must name one of the managed adapters')
+    for name in ('installer_ethernet_iface', 'installer_wifi_iface'):
+        if values[name] and (re.fullmatch(r'[a-zA-Z0-9_.-]{1,15}', values[name]) is None
+                             or values[name] in ('.', '..', 'lo')):
+            raise ValueError('invalid installer adapter identity')
+    links = {}
+    for kind in ('ethernet', 'wifi'):
+        mac = values[kind + '_mac']
+        if not mac:
+            continue
+        if re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', mac) is None or mac == '00:00:00:00:00:00' or int(mac[:2], 16) & 1:
+            raise ValueError('invalid physical adapter MAC identity')
+        links[kind] = {'iface': values[kind + '_iface'], 'mac': mac,
+                       'metric': 100 if values[kind + '_iface'] == values['primary'] else 600}
+    if not links or values['primary'] not in {link['iface'] for link in links.values()}:
+        raise ValueError('the explicitly selected primary adapter is absent')
+    if values['wifi_enable'] == 'false' and any(values[key] for key in ('ssid', 'security', 'passphrase')):
+        raise ValueError('disabled AP preconfiguration must not receive private credentials')
+    if values['wifi_enable'] == 'true':
+        if 'wifi' not in links or not 1 <= len(values['ssid'].encode('utf-8')) <= 32 or values['security'] not in ('wpa', 'sae'):
+            raise ValueError('enabled Wi-Fi requires an explicit adapter, SSID and WPA2/3 policy')
+        password = values['passphrase']
+        if not (8 <= len(password) <= 63 or values['security'] == 'wpa' and re.fullmatch(r'[0-9A-Fa-f]{64}', password)):
+            raise ValueError('enabled Wi-Fi requires a valid private WPA2/3 credential')
+    addresses = {}
+    dns = []
+    if mode == 'static' or values['address']:
+        base = ipaddress.IPv4Interface(values['address'] + '/' + values['netmask'])
+        gateway = ipaddress.IPv4Address(values['gateway'])
+        dns = [ipaddress.IPv4Address(address) for address in values['dns'].split()]
+        if (gateway not in base.network or gateway in (base.network.network_address, base.network.broadcast_address)
+                or gateway.is_multicast or gateway.is_unspecified or not dns or len(dns) > 5
+                or any(address.is_multicast or address.is_unspecified for address in dns)):
+            raise ValueError('invalid static gateway or resolver policy')
+        for kind in links:
+            address = ipaddress.IPv4Address(int(base.ip) + (1 if kind == 'wifi' else 0))
+            if address not in base.network or address in (base.network.network_address, base.network.broadcast_address, gateway):
+                raise ValueError('static adapter address collides with the gateway or subnet boundary')
+            addresses[kind] = str(address) + '/' + str(base.network.prefixlen)
+            if kind == 'wifi' and values['wifi_cidr'] and address not in ipaddress.IPv4Network(values['wifi_cidr'], strict=False):
+                raise ValueError('Ethernet IPv4 +1 is outside the private Wi-Fi CIDR')
+    if values['wifi_enable'] == 'true' and 'wifi' not in addresses:
+        raise ValueError('paired Wi-Fi requires the Ethernet IPv4 installation address')
+    addresses6, dns6 = {}, []
+    if values['ipv6_enable'] == 'true':
+        base6 = ipaddress.IPv6Interface(values['ipv6_address'])
+        gateway6 = ipaddress.IPv6Address(values['ipv6_gateway'])
+        dns6 = [ipaddress.IPv6Address(address) for address in values['ipv6_dns'].split()]
+        if (not dns6 or len(dns6) > 5 or gateway6.is_multicast or gateway6.is_unspecified
+                or any(address.is_multicast or address.is_unspecified for address in dns6)):
+            raise ValueError('enabled IPv6 requires an explicit Ethernet address, gateway and DNS')
+        for kind in links:
+            address6 = ipaddress.IPv6Address(int(base6.ip) + (1 if kind == 'wifi' else 0))
+            if address6 not in base6.network or address6 == gateway6 or address6.is_multicast or address6.is_link_local:
+                raise ValueError('paired IPv6 address is outside the declared prefix or conflicts with its gateway')
+            addresses6[kind] = str(address6) + '/' + str(base6.network.prefixlen)
+    result = {}
+    for kind, link in links.items():
+        leaf = '10-ethernet.link' if kind == 'ethernet' else '11-wifi.link'
+        result[ETC / 'systemd/network' / leaf] = (
+            ('# Bound to the installer-selected physical adapter.\n[Match]\nMACAddress=' + link['mac']
+             + '\n\n[Link]\nNamePolicy=\nName=' + link['iface'] + '\n').encode(), 0o644)
+        # Static desktops keep the existing ifupdown + native managed Wi-Fi
+        # owner. DHCP desktops and servers use NM for both physical adapters.
+        if family == 'desktop' and mode == 'static':
+            continue
+        if kind == 'wifi' and values['wifi_enable'] != 'true':
+            continue
+        identity = UUID_WIFI if kind == 'wifi' else str(uuid.uuid5(uuid.NAMESPACE_OID, 'installer-ethernet-' + link['mac']))
+        content = ('[connection]\nid=Managed ' + kind + '\nuuid=' + identity + '\ntype=' + ('wifi' if kind == 'wifi' else 'ethernet')
+                   + '\ninterface-name=' + link['iface'] + '\nautoconnect=true\npermissions=\n\n')
+        if kind == 'wifi':
+            content += ('[wifi]\nmode=infrastructure\nmac-address=' + link['mac'] + '\nssid=' + escaped(values['ssid'])
+                        + '\n\n[wifi-security]\nkey-mgmt=' + ('sae' if values['security'] == 'sae' else 'wpa-psk')
+                        + '\npsk=' + escaped(values['passphrase']) + '\npsk-flags=0\n')
+            if values['security'] == 'sae':
+                content += 'pmf=3\n'
+        else:
+            content += '[ethernet]\nmac-address=' + link['mac'] + '\n'
+        manual = mode == 'static' or kind == 'wifi'
+        content += '\n[ipv4]\nmethod=' + ('manual' if manual else 'auto') + '\n'
+        if manual:
+            content += 'address1=' + addresses[kind] + '\ngateway=' + values['gateway'] + '\ndns=' + ';'.join(map(str, dns)) + ';\n'
+        content += 'route-metric=' + str(link['metric']) + '\n\n[ipv6]\nmethod=' + ('manual' if addresses6 else 'disabled') + '\n'
+        if addresses6:
+            content += 'address1=' + addresses6[kind] + '\ngateway=' + str(gateway6) + '\ndns=' + ';'.join(map(str, dns6)) + ';\n'
+        content += 'route-metric=' + str(link['metric']) + '\n'
+        parser = configparser.ConfigParser(interpolation=None, strict=True)
+        parser.read_string(content)
+        result[ETC / 'NetworkManager/system-connections' / (kind + '.nmconnection')] = (content.encode(), 0o600)
+    if family == 'server' or mode == 'dhcp':
+        # netcfg owns this fresh-install file. Keep unrelated stanzas and
+        # include directives; remove only the selected physical adapters.
+        path = ETC / 'network/interfaces'
+        existing = protected_read(path).decode('utf-8') if path.exists() or path.is_symlink() else ''
+        physical_names = set(names) | {values['installer_ethernet_iface'], values['installer_wifi_iface']}
+        kept, active = [], False
+        for line in existing.splitlines():
+            fields = line.split()
+            if fields and fields[0] in ('iface', 'mapping'):
+                active = len(fields) > 1 and fields[1] in physical_names
+            if fields and fields[0] in ('auto', 'allow-hotplug'):
+                retained = [name for name in fields[1:] if name not in physical_names]
+                if retained:
+                    kept.append(fields[0] + ' ' + ' '.join(retained))
+                continue
+            if not active or not line[:1].isspace() and fields and fields[0] in ('source', 'source-directory'):
+                kept.append(line)
+        if not any(line.split()[:2] == ['iface', 'lo'] for line in kept):
+            kept[:0] = ['auto lo', 'iface lo inet loopback']
+        result[path] = (('\n'.join(kept) + '\n').encode(), 0o644)
+    policy = {'format': 1, 'family': family, 'mode': mode, 'primary_iface': values['primary'],
+              'wifi_preconfigured': values['wifi_enable'] == 'true', 'ipv6_enabled': values['ipv6_enable'] == 'true',
+              'dns_mode': values['dns_mode'],
+              'links': links, 'addresses4': addresses, 'addresses6': addresses6,
+              'gateway4': values['gateway'], 'dns4': list(map(str, dns)),
+              'gateway6': values['ipv6_gateway'] if addresses6 else '', 'dns6': list(map(str, dns6))}
+    sysctl = '# Profile-owned physical uplinks; loopback and private job namespaces retain their own policy.\n'
+    for link in links.values():
+        name = link['iface']
+        sysctl += ('-net.ipv4.conf.' + name + '.ignore_routes_with_linkdown=1\n'
+                   + '-net.ipv6.conf.' + name + '.ignore_routes_with_linkdown=1\n'
+                   + '-net.ipv6.conf.' + name + '.disable_ipv6=' + ('0' if addresses6 else '1') + '\n')
+    result[ETC / 'sysctl.d/85-managed-uplinks.conf'] = (sysctl.encode(), 0o644)
+    # These connection defaults also cover an AP saved later by the operator.
+    # The dispatcher binds its addresses to the same public per-adapter policy.
+    nm_defaults = '# Physical adapter priority, independent of role and SSID.\n'
+    for kind, link in links.items():
+        nm_defaults += ('[connection-managed-' + kind + ']\nmatch-device=interface-name:' + link['iface']
+                        + '\nipv4.route-metric=' + str(link['metric'])
+                        + '\nipv6.route-metric=' + str(link['metric']) + '\n\n')
+    result[ETC / 'NetworkManager/conf.d/95-managed-uplinks.conf'] = (nm_defaults.encode(), 0o644)
+    result[POLICY] = ((json.dumps(policy, sort_keys=True, indent=2) + '\n').encode(), 0o644)
+    return result, policy
+
+
+def main() -> None:
+    if os.geteuid() or len(sys.argv) != 2:
+        raise ValueError('private offline installer input is required')
+    for parent in (STATE, *STATE.parents):
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('untrusted installer state ancestry')
+    fd = os.open(STATE / 'network-stage.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    with os.fdopen(fd, 'r+') as lock:
+        info = os.fstat(lock.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1 or info.st_mode & 0o077:
+            raise ValueError('unsafe network stage ownership lock')
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        outputs, _ = candidates(private_input(Path(sys.argv[1])))
+        for path, (data, mode) in outputs.items():
+            publish(path, data, mode)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, configparser.Error):
+        print('network profile staging failed; retain private input and installer stage evidence', file=sys.stderr)
+        raise SystemExit(1)

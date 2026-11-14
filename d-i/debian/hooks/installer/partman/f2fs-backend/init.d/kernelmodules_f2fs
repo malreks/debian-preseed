@@ -1,0 +1,29 @@
+#!/bin/sh
+
+runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+[ -r "$runtime/bootstrap/di.env" ] || exit 1
+# shellcheck disable=SC1090
+. "$runtime/bootstrap/di.env"
+
+mkdir -p "$DIR_INSTALLER_VAR_LIB_PARTMAN"
+rm -f "$DIR_INSTALLER_VAR_LIB_PARTMAN/f2fs"
+
+case "$(udpkg --print-os)" in
+  linux)
+    while read -r module_name _rest; do
+        if [ "$module_name" = f2fs ]; then
+            : >"$DIR_INSTALLER_VAR_LIB_PARTMAN/f2fs"
+        fi
+    done </proc/modules
+
+    if ! [ -f "$DIR_INSTALLER_VAR_LIB_PARTMAN/f2fs" ] && modprobe f2fs >/dev/null 2>/dev/null; then
+        : >"$DIR_INSTALLER_VAR_LIB_PARTMAN/f2fs"
+    fi
+
+    if ! [ -f "$DIR_INSTALLER_VAR_LIB_PARTMAN/f2fs" ] &&
+       [ -r /proc/filesystems ] &&
+       grep -qw f2fs /proc/filesystems; then
+        : >"$DIR_INSTALLER_VAR_LIB_PARTMAN/f2fs"
+    fi
+    ;;
+esac

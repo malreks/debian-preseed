@@ -1,0 +1,41 @@
+[Unit]
+Description=Managed Incus host bootstrap and reconciliation
+Documentation=man:incus(1)
+Requires=incus.service incus.socket incus-user.socket incus-startup.service apparmor.service
+Wants=network-online.target systemd-tmpfiles-setup.service
+After=incus.service incus.socket incus-user.socket incus-startup.service apparmor.service network-online.target systemd-tmpfiles-setup.service
+ConditionPathExists=__INSTALLER_PATH_DIR_ETC__/incus/host.conf
+RequiresMountsFor=__INSTALLER_PATH_DIR_POOL_INCUS__ __INSTALLER_PATH_DIR_POOL_QEMU__
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/incus-host
+Restart=no
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=incus-host
+TimeoutStartSec=240
+TimeoutStopSec=15
+KillMode=control-group
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+AppArmorProfile=incus-host
+PrivateNetwork=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native

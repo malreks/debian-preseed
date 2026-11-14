@@ -1,0 +1,220 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""User-only close requests and lock checks; no session capture or replay."""
+from __future__ import annotations
+import fcntl
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+import time
+
+TARGET = "labwc-session.target"
+MAX_STATE = 1024 * 1024
+POWER_SAVE_SECONDS = 10
+
+
+class Error(Exception):
+    pass
+
+
+class Cancelled(Error):
+    """An application kept a visible window open during logout."""
+
+
+def run(argv: list[str], *, timeout: float = 15, accepted: tuple[int, ...] = (0,), cwd: str | None = None) -> str:
+    result = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True,
+                            text=True, timeout=timeout, check=False, cwd=cwd)
+    if result.returncode not in accepted:
+        raise Error(f"{Path(argv[0]).name} failed ({result.returncode}): {result.stderr.strip()[:600]}")
+    if len(result.stdout) > 4 * MAX_STATE:
+        raise Error("session command output exceeds size limit")
+    return result.stdout
+
+
+def ctl(*args: str, **kwargs) -> str:
+    return run(["__INSTALLER_PATH_DIR_USR__/bin/systemctl", "--user", "--no-pager", *args], **kwargs)
+
+
+def notify(message: str, *, timeout: float = 5) -> None:
+    try:
+        run(["__INSTALLER_PATH_DIR_USR__/bin/notify-send", "--app-name=Desktop Power", "--urgency=critical",
+             "--", "Desktop session", message], timeout=timeout)
+    except (Error, OSError, subprocess.SubprocessError):
+        pass
+
+
+def checked_fd(path: Path, *, create: bool = False) -> int:
+    flags = os.O_RDWR if create else os.O_RDONLY
+    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK | (os.O_CREAT if create else 0), 0o600)
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o600 or st.st_nlink != 1 or st.st_size > MAX_STATE:
+        os.close(fd)
+        raise Error(f"unsafe session-state file: {path.name}")
+    return fd
+
+
+def windows(*, timeout: float = 5) -> str:
+    # Unlike repeated close commands, repeated list commands cannot dismiss a
+    # newly-created Save/Discard dialog. Failure is never treated as no windows.
+    deadline = time.monotonic() + timeout
+    visible = run(["__INSTALLER_PATH_DIR_USR__/bin/wlrctl", "toplevel", "list"], timeout=timeout).strip()
+    if visible:
+        return visible
+    # list omits handles without an app-id; find matches those too.
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Error("Wayland window inventory timed out")
+    probe = subprocess.run(["__INSTALLER_PATH_DIR_USR__/bin/wlrctl", "toplevel", "find"], stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, timeout=remaining, check=False)
+    if probe.returncode == 0:
+        return "(unidentified toplevel)"
+    if probe.returncode != 1 or probe.stderr.strip():
+        raise Error("cannot verify that all Wayland windows have closed")
+    return ""
+
+
+def clear_clipboard() -> None:
+    # Stop the history watcher before clearing, so it cannot repopulate history.
+    names = ctl("list-units", "--all", "--plain", "--no-legend", "--type=service", "*cliphist*")
+    watchers = [line.split()[0] for line in names.splitlines() if line.split()]
+    for unit in watchers:
+        if re.fullmatch(r"[A-Za-z0-9_.@-]+\.service", unit):
+            ctl("stop", unit)
+    run(["__INSTALLER_PATH_DIR_USR__/bin/wl-copy", "--clear"], timeout=5)
+    run(["__INSTALLER_PATH_DIR_USR__/bin/wl-copy", "--primary", "--clear"], timeout=5)
+    if Path("__INSTALLER_PATH_DIR_USR__/bin/cliphist").is_file():
+        run(["__INSTALLER_PATH_DIR_USR__/bin/cliphist", "wipe"], timeout=5)
+
+
+def close(runtime: Path) -> None:
+    # Ask applications once through Wayland. Their native Save/Discard dialogs
+    # own document state; a process name cannot identify unsaved work.
+    fd = checked_fd(runtime / "labwc-session-closing", create=True)
+    os.close(fd)
+    run(["__INSTALLER_PATH_DIR_USR__/bin/wlrctl", "toplevel", "close"], timeout=5, accepted=(0, 1))
+
+
+def wait_power(runtime: Path, action: str) -> None:
+    if action not in {"poweroff", "reboot"}:
+        raise Error("invalid save-window power action")
+    # Ask applications to quit before waiting, so their native Save/Discard
+    # dialogs appear. Terminals may close immediately, as explicitly requested.
+    # Never repeat close: doing so could dismiss a newly opened save dialog.
+    # One deadline covers the close command, inventory and notification too.
+    deadline = time.monotonic() + POWER_SAVE_SECONDS
+    try:
+        close(runtime)
+    except (Error, OSError, subprocess.SubprocessError) as exc:
+        raise Cancelled(f"application close request failed; no {action} performed") from exc
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Cancelled(f"application save window expired; no {action} performed")
+    try:
+        if not windows(timeout=min(1, remaining)):
+            return
+    except (Error, OSError, subprocess.SubprocessError) as exc:
+        raise Cancelled(f"application window state is unavailable; no {action} performed") from exc
+    verb = "Power off" if action == "poweroff" else "Reboot"
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Cancelled(f"application save window expired; no {action} performed")
+    try:
+        notify(f"{verb}: finish application save dialogs within 10 seconds. "
+               "The request is cancelled if any window remains when the save window expires.",
+               timeout=min(1, remaining))
+    except (Error, OSError, subprocess.SubprocessError) as exc:
+        raise Cancelled(f"save-window notification failed; no {action} performed") from exc
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise Cancelled(f"application save window expired; no {action} performed")
+        try:
+            if not windows(timeout=min(1, remaining)):
+                return
+        except (Error, OSError, subprocess.SubprocessError) as exc:
+            raise Cancelled(f"application window state became unavailable; no {action} performed") from exc
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.2, remaining))
+
+
+def prepare(runtime: Path, *, timeout: float = 120) -> None:
+    # Logout retains the application's normal close protocol. Poweroff/reboot
+    # use a bounded close/save window; only logout permits a save-dialog veto.
+    marker = runtime / "labwc-session-closing"
+    try:
+        ctl("--quiet", "is-active", TARGET)
+        close(runtime)
+        deadline = time.monotonic() + timeout
+        while windows():
+            if time.monotonic() >= deadline:
+                raise Cancelled("An application kept a window open. Complete its close dialog and retry logout.")
+            time.sleep(0.2)
+        try:
+            clear_clipboard()
+        except (Error, OSError, subprocess.SubprocessError) as exc:
+            print(f"session clipboard cleanup: {exc}", file=sys.stderr)
+    except BaseException:
+        marker.unlink(missing_ok=True)
+        raise
+
+
+def main(argv: list[str]) -> int:
+    if os.getuid() == 0 or os.geteuid() != os.getuid():
+        raise Error("session preparation must run as the invoking desktop user, never root")
+    if len(argv) != 1 or argv[0] not in {"prepare", "close", "cancel", "locked", "error", "waiting", "poweroff", "reboot"}:
+        raise Error("usage: labwc-session-state prepare|close|cancel|locked|error|waiting|poweroff|reboot")
+    os.umask(0o077)
+    runtime = Path(f"__INSTALLER_PATH_DIR_RUN_USER__/{os.getuid()}")
+    st = runtime.lstat()
+    if (os.environ.get("XDG_RUNTIME_DIR", str(runtime)) != str(runtime)
+            or not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid()
+            or stat.S_IMODE(st.st_mode) != 0o700):
+        raise Error("unsafe desktop runtime directory")
+    bus = runtime / "bus"
+    address = "unix:path=" + str(bus)
+    st = bus.lstat()
+    if (not stat.S_ISSOCK(st.st_mode) or st.st_uid != os.getuid()
+            or os.environ.get("DBUS_SESSION_BUS_ADDRESS", address) != address):
+        raise Error("unsafe desktop user bus")
+    os.environ["XDG_RUNTIME_DIR"] = str(runtime)
+    os.environ["DBUS_SESSION_BUS_ADDRESS"] = address
+    action = argv[0]
+    if action == "cancel":
+        (runtime / "labwc-session-closing").unlink(missing_ok=True)
+    elif action == "waiting":
+        notify("Waiting for software installation or unattended upgrades to finish before logout or suspend.")
+    elif action == "error":
+        notify("Logout or suspend failed. See journalctl -b -u 'labwc-admin-action@*'.")
+    elif action == "locked":
+        fd = checked_fd(runtime / "labwc-swaylock.lock")
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return 0
+            raise Error("screen-lock lifetime lock is not held; suspend cancelled")
+        finally:
+            os.close(fd)
+    elif action == "prepare":
+        prepare(runtime)
+    elif action in {"poweroff", "reboot"}:
+        wait_power(runtime, action)
+    else:
+        close(runtime)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except Cancelled as exc:
+        print(f"labwc-session-state: {exc}", file=sys.stderr)
+        notify(str(exc))
+        sys.exit(77)  # Logout cancellation only; poweroff/reboot never prepare.
+    except (Error, OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(f"labwc-session-state: {exc}", file=sys.stderr)
+        notify(str(exc))
+        sys.exit(1)

@@ -1,0 +1,50 @@
+# Fixed-purpose Polkit brokers. Include only in unattached named profiles;
+# never attach this abstraction globally to pkexec or grant an unconfined exec.
+#include <abstractions/wrapper-base>
+#include <abstractions/wrapper-terminal>
+#include <abstractions/dbus-strict>
+#include <abstractions/nameservice>
+
+capability setuid,
+capability setgid,
+capability audit_write,
+capability sys_resource,
+unix,
+signal (send, receive) peer=@{profile_name},
+signal (receive) peer=unconfined,
+__INSTALLER_PATH_DIR_USR__/bin/{pkexec,pkttyagent} rix,
+__INSTALLER_PATH_DIR_USR_SHARE_POLKIT__/ r,
+__INSTALLER_PATH_DIR_USR_SHARE_POLKIT__/** r,
+__INSTALLER_PATH_DIR_ETC__/polkit-1/{,**} r,
+__INSTALLER_PATH_DIR_ETC__/{environment,login.defs} r,
+__INSTALLER_PATH_DIR_ETC__/pam.d/{,**} r,
+__INSTALLER_PATH_DIR_ETC__/security/{,**} r,
+/{,usr/}lib/@{multiarch}/security/*.so mr,
+__INSTALLER_PATH_DIR_PROC__/ r,
+__INSTALLER_PATH_DIR_PROC__/[0-9]*/{stat,status,loginuid,cmdline} r,
+__INSTALLER_PATH_DIR_PROC__/[0-9]*/attr/current r,
+# pkexec inspects inherited authentication descriptors in every workflow.
+# Permit owned metadata only; this does not allow reading descriptor contents.
+owner @{PROC}/@{pid}/fdinfo/[0-9]* r,
+__INSTALLER_PATH_DIR_RUN__/ r,
+__INSTALLER_PATH_DIR_RUN_USER__/ r,
+__INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
+__INSTALLER_PATH_DIR_RUN__/systemd/{,**} r,
+__INSTALLER_PATH_DIR_RUN__/utmp r,
+__INSTALLER_PATH_DIR_VAR__/run/utmp r,
+__INSTALLER_PATH_DIR_VAR_LOG__/{btmp,wtmp,lastlog} rwk,
+__INSTALLER_PATH_DIR_VAR_LOG__/ r,
+__INSTALLER_PATH_DIR_VAR__/ r,
+__INSTALLER_PATH_DIR_VAR_LIB__/ r,
+/ r,
+__INSTALLER_PATH_DIR_HOME__/ r,
+@{HOME}/ r,
+# pkexec normally changes to the target account's home before exec. This is
+# traversal only; it does not authorize reading root's files or running a shell.
+__INSTALLER_PATH_DIR_ROOT_HOME__/ r,
+
+# The daemon performs authentication; the broker can only request its declared
+# action and relay the agent conversation over the system bus.
+dbus (send, receive) bus=system peer=(name=org.freedesktop.PolicyKit1),
+dbus (send, receive) bus=system peer=(name=org.freedesktop.DBus),
+dbus (receive) bus=system interface=org.freedesktop.PolicyKit1.AuthenticationAgent,

@@ -1,0 +1,1317 @@
+#!/usr/bin/python3
+"""Headless service status and explicit DNS maintenance.
+
+This target-only program is never imported or executed by the source build.
+Updates acquire pinned data without running vendor setup. Services remain
+pending until the operator explicitly supplies private configuration.
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import contextlib
+import fcntl
+import grp
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path, PurePosixPath
+import pwd
+import re
+import selectors
+import signal
+import shutil
+import stat
+import struct
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.parse
+
+STATE = Path('__INSTALLER_PATH_DIR_SERVER_STATE__')
+RELEASES = Path('__INSTALLER_PATH_DIR_SERVER_RELEASES__')
+CATALOG = Path('__INSTALLER_PATH_FILE_SERVER_ARTIFACTS__')
+SYSTEMD = Path('__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__')
+ETC = Path('__INSTALLER_PATH_DIR_ETC__')
+RUN = Path('__INSTALLER_PATH_DIR_RUN__')
+POOL_ROOT = Path('__INSTALLER_PATH_DIR_POOL__')
+RECEIPT = Path('__INSTALLER_PATH_FILE_INSTALLER_CLASSES__')
+UPLINK_POLICY = Path('__INSTALLER_PATH_FILE_NETWORK_UPLINK_POLICY__')
+DNS_RESOLVED = Path('__INSTALLER_PATH_FILE_SERVER_DNS_RESOLVED__')
+DNS_POLICY = Path('__INSTALLER_PATH_FILE_SERVER_DNS_POLICY__')
+DNS_FORWARDING_CANDIDATE = Path('__INSTALLER_PATH_FILE_SERVER_DNS_FORWARDING_CANDIDATE__')
+DNS_FORWARDING = Path('__INSTALLER_PATH_FILE_SYSCTL_DNS_FORWARDING__')
+DNS_BACKUPS = Path('__INSTALLER_PATH_DIR_SERVER_DNS_BACKUPS__')
+DNS_CONFIGURATION = Path('__INSTALLER_PATH_FILE_SERVER_DNS_CONFIGURATION_TRANSACTION__')
+ROLES = {
+    'server/github-actions': ('ci-github', 2101, Path('__INSTALLER_PATH_DIR_SERVER_GITHUB__'), 'ci-github.service'),
+    'server/gitlab-cicd': ('ci-gitlab', 2102, Path('__INSTALLER_PATH_DIR_SERVER_GITLAB__'), 'ci-gitlab.service'),
+    'server/technitium': ('technitium', 2103, Path('__INSTALLER_PATH_DIR_SERVER_DNS__'), 'technitium.service'),
+    'server/devops': ('srv-devops', 2104, Path('__INSTALLER_PATH_DIR_SERVER_DEVOPS__'), ''),
+}
+WORK_ROOTS = {
+    'server/github-actions': Path('__INSTALLER_PATH_DIR_SERVER_GITHUB_WORK__'),
+    'server/gitlab-cicd': Path('__INSTALLER_PATH_DIR_SERVER_GITLAB_WORK__'),
+    'server/devops': Path('__INSTALLER_PATH_DIR_SERVER_DEVOPS_WORK__'),
+}
+DEADLINE = 0.0
+
+
+class OutcomeUnknown(RuntimeError):
+    """A mutation may have completed; preserve evidence and prohibit retry."""
+
+
+def trusted_directory(path: Path, info, uid: int = 0) -> bool:
+    # The canonical root:devops mode-3775 data partition is deliberately
+    # shared. Its sticky bit protects root-owned children from replacement.
+    # No other writable ancestor receives this exception.
+    shared_pool = path == POOL_ROOT and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o3775
+    return (stat.S_ISDIR(info.st_mode) and info.st_uid in (0, uid)
+            and (not info.st_mode & 0o022 or shared_pool))
+
+
+def require_pool_mount() -> None:
+    mounted = command(['/usr/bin/findmnt', '-n', '-o', 'TARGET', '--mountpoint', str(POOL_ROOT)])
+    if mounted.strip() != str(POOL_ROOT).encode():
+        raise ValueError('the dedicated data pool is not mounted; no root-filesystem fallback')
+
+
+def json_document(data):
+    """Bounded callers supply bytes; reject duplicate/private ambiguous fields."""
+    def pairs(items):
+        value = {}
+        for name, item in items:
+            if name in value:
+                raise ValueError('duplicate JSON field')
+            value[name] = item
+        return value
+    def constant(_):
+        raise ValueError('non-finite JSON value')
+    return json.loads(data, object_pairs_hook=pairs, parse_constant=constant)
+
+
+def regular(path: Path, *, private: bool = False, maximum: int = 1048576, owner: int = 0) -> bytes:
+    if private:
+        for parent in path.parents:
+            info = parent.lstat()
+            if not trusted_directory(parent, info, owner):
+                raise ValueError('private input has untrusted ancestry')
+    # A substituted FIFO must fail its type check without blocking the owner.
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != owner
+                or info.st_mode & (0o077 if private else 0o022) or info.st_size > maximum):
+            raise ValueError('unsafe protected input')
+        with os.fdopen(os.dup(fd), 'rb') as stream:
+            data = stream.read(maximum + 1)
+        after, named = os.fstat(fd), path.lstat()
+        def identity(value):
+            return (value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+                    value.st_uid, value.st_gid, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        if (len(data) > maximum or len(data) != info.st_size
+                or identity(info) != identity(after) or identity(after) != identity(named)):
+            raise ValueError('input changed or exceeds byte bound')
+        return data
+    finally:
+        os.close(fd)
+
+
+def protected_directory(path: Path, mode: int = 0o700) -> None:
+    if not path.is_absolute() or '..' in path.parts:
+        raise ValueError('unsafe managed directory')
+    for parent in reversed((path, *path.parents)):
+        if parent == Path('/'):
+            continue
+        if not parent.exists():
+            parent.mkdir(mode=mode)
+        info = parent.lstat()
+        if not trusted_directory(parent, info):
+            raise ValueError('managed ancestry is not trusted')
+
+
+def sync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def write(path: Path, data: bytes, mode: int = 0o600, uid: int = 0) -> None:
+    # Pin each directory while walking from the immutable filesystem root.
+    # Service-owned stores must not redirect a privileged writer through a
+    # renamed parent, symlink or a different account's private directory.
+    if not path.is_absolute() or any(part in ('.', '..') for part in path.parts):
+        raise ValueError('unsafe publication path')
+    directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    temporary = None
+    try:
+        current = Path('/')
+        for part in path.parent.parts[1:]:
+            current /= part
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory)
+            info = os.fstat(child)
+            if not trusted_directory(current, info, uid):
+                os.close(child)
+                raise ValueError('unsafe publication ancestry')
+            os.close(directory)
+            directory = child
+        try:
+            info = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid not in (0, uid):
+                raise ValueError('refusing unsafe publication target')
+        temporary = '.candidate-' + os.urandom(16).hex()
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=directory)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            os.fchmod(stream.fileno(), mode)
+            os.fchown(stream.fileno(), uid, uid)
+            stream.flush(); os.fsync(stream.fileno())
+            published = os.fstat(stream.fileno())
+        os.replace(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+        temporary = None
+        os.fsync(directory)
+        current = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+        if (current.st_dev, current.st_ino, current.st_uid, stat.S_IMODE(current.st_mode)) != (published.st_dev, published.st_ino, uid, mode):
+            raise OutcomeUnknown('publication identity changed; retain recovery state')
+    finally:
+        try:
+            if temporary is not None:
+                # Remove only this operation's still-owned regular candidate.
+                try:
+                    candidate = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
+                    if candidate.st_uid == os.geteuid() and stat.S_ISREG(candidate.st_mode):
+                        os.unlink(temporary, dir_fd=directory)
+                except FileNotFoundError:
+                    pass
+        finally:
+            os.close(directory)
+
+
+@contextlib.contextmanager
+def ownership_lock():
+    protected_directory(STATE, 0o755)
+    os.chmod(STATE, 0o755)
+    fd = os.open(STATE / 'ownership.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != 0 or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_mode & 0o077:
+            raise ValueError('unsafe ownership lock')
+        end = min(DEADLINE, time.monotonic() + 30)
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= end:
+                    raise TimeoutError('service state already has an owner') from None
+                time.sleep(0.1)
+        yield
+    finally:
+        os.close(fd)
+
+
+def command(argv: list[str], *, user: str | None = None, cwd: Path | None = None,
+            extra: dict[str, str] | None = None, timeout: int = 120) -> bytes:
+    env = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8'}
+    options = {}
+    if user:
+        account = pwd.getpwnam(user)
+        options.update(user=account.pw_uid, group=account.pw_gid, extra_groups=[], umask=0o077)
+        env.update(HOME=account.pw_dir, USER=user, LOGNAME=user)
+    if extra:
+        env.update(extra)
+    remaining = min(timeout, DEADLINE - time.monotonic())
+    if remaining <= 0:
+        raise TimeoutError('operation deadline expired')
+    if not hasattr(os, 'pidfd_open') or not hasattr(signal, 'pidfd_send_signal'):
+        raise ValueError('the selected target runtime cannot pin child identities')
+    # Drain a bounded pipe, without writing vendor output or tokens to a log.
+    # A pinned leader owns this new session. Uncertain termination is distinct
+    # from an ordinary failure and never triggers an automatic mutation retry.
+    end = time.monotonic() + remaining
+    process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               start_new_session=True, **options)
+    pinned = None
+    output = bytearray()
+    selector = selectors.DefaultSelector()
+    try:
+        try:
+            pinned = os.pidfd_open(process.pid)
+        except OSError:
+            # No verified identity means no numeric-PID/group fallback. The
+            # caller retains its uncertainty marker for operator recovery.
+            raise OutcomeUnknown('unable to pin child identity; retained state requires review') from None
+        selector.register(process.stdout, selectors.EVENT_READ)
+        while selector.get_map():
+            if time.monotonic() >= end:
+                raise TimeoutError('headless operation deadline expired')
+            for key, _ in selector.select(min(0.25, max(0, end - time.monotonic()))):
+                block = os.read(key.fileobj.fileno(), 65536)
+                if not block:
+                    selector.unregister(key.fileobj)
+                    break
+                if len(output) + len(block) > 2097152:
+                    raise ValueError('headless operation output bound exceeded')
+                output.extend(block)
+        result = process.wait(timeout=max(0.01, end - time.monotonic()))
+        if result:
+            raise RuntimeError(f'headless operation failed (status={result})')
+        return bytes(output)
+    except BaseException as error:
+        # An unreaped leader pins the numeric session identity. A direct-child
+        # reap cannot account for detached descendants after cancellation.
+        # Preserve enrollment-uncertain and stop if ownership cannot be proved.
+        interrupted = process.returncode is None
+        if interrupted and pinned is not None:
+            try:
+                signal.pidfd_send_signal(pinned, 0)
+                if os.getsid(process.pid) != process.pid or os.getpgid(process.pid) != process.pid:
+                    raise OutcomeUnknown('child session identity changed')
+                os.killpg(process.pid, signal.SIGTERM)
+                # Keep the leader unreaped throughout group cleanup, including
+                # when TERM makes it exit before its descendants finish.
+                time.sleep(0.25)
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                raise OutcomeUnknown('child termination cannot be proved') from None
+        if interrupted or isinstance(error, (TimeoutError, KeyboardInterrupt)):
+            raise OutcomeUnknown('child tree completion cannot be proved; retained state requires review') from error
+        raise
+    finally:
+        selector.close()
+        process.stdout.close()
+        if pinned is not None:
+            os.close(pinned)
+
+
+def acquire(record: dict, arch: str, destination: Path) -> str:
+    artifact = record['architectures'][arch]
+    algorithm = 'sha512' if 'sha512' in artifact else 'sha256'
+    expected = artifact[algorithm]
+    if re.fullmatch('[0-9a-f]{' + str(hashlib.new(algorithm).digest_size * 2) + '}', expected) is None:
+        raise ValueError('artifact has no reviewed content identity')
+    # One shared HTTP owner validates every hop before requesting it and bounds
+    # streaming/retries/final waits. Its stdout may contain a signed URL and is
+    # consumed privately, never passed to diagnostics or a receipt.
+    command(['__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/installer-artifact-fetch',
+             artifact['url'], str(destination), str(record['minimum_bytes']),
+             str(record['maximum_bytes']), 'artifact', ' '.join(record['hosts'])], timeout=900)
+    descriptor = os.open(destination, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    digest = hashlib.new(algorithm)
+    size = 0
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                or info.st_mode & 0o077 or not record['minimum_bytes'] <= info.st_size <= record['maximum_bytes']):
+            raise ValueError('artifact file identity or size differs from its policy')
+        while block := stream.read(65536):
+            if time.monotonic() >= DEADLINE:
+                raise TimeoutError('artifact verification deadline expired')
+            size += len(block)
+            if size > record['maximum_bytes']:
+                raise ValueError('artifact exceeds byte bound')
+            digest.update(block)
+    if size != info.st_size or digest.hexdigest() != expected:
+        raise ValueError('artifact size or digest differs from the release pin')
+    return digest.hexdigest()
+
+
+def relative(name: str) -> str:
+    while name.startswith('./'):
+        name = name[2:]
+    if (not name or len(name) > 240 or name.startswith('/') or '\\' in name
+            or any(x in ('', '.', '..') for x in name.split('/')) or any(ord(x) < 32 for x in name)):
+        raise ValueError('unsafe archive member')
+    return name
+
+
+def extract(archive: Path, target: Path, record: dict) -> None:
+    members, links, total = {}, {}, 0
+    with tarfile.open(archive, 'r:gz') as source:
+        for member in source:
+            if time.monotonic() >= DEADLINE:
+                raise TimeoutError('extraction deadline expired')
+            if member.name in ('.', './') and member.isdir():
+                continue
+            name = relative(member.name.rstrip('/') if member.isdir() else member.name)
+            if name in members or len(members) >= record['maximum_members']:
+                raise ValueError('duplicate or excessive archive members')
+            if not (member.isfile() or member.isdir() or member.issym()) or member.mode & 0o7000:
+                raise ValueError('unsafe archive member type or privilege bits')
+            total += member.size
+            if member.size > 256000000 or total > record['expanded_bytes']:
+                raise ValueError('expanded archive bound exceeded')
+            if member.issym():
+                if not any(name.startswith(prefix) for prefix in record['relative_link_prefixes']):
+                    raise ValueError('symlink outside the approved vendor subtree')
+                parts = list(PurePosixPath(name).parent.parts)
+                if member.linkname.startswith('/') or '\\' in member.linkname:
+                    raise ValueError('absolute vendor link')
+                for part in member.linkname.split('/'):
+                    if part in ('', '.'):
+                        continue
+                    if part == '..':
+                        if not parts:
+                            raise ValueError('escaping vendor link')
+                        parts.pop()
+                    else:
+                        parts.append(part)
+                links[name] = '/'.join(parts)
+            members[name] = member
+        for name in members:
+            if any(str(parent) in links for parent in PurePosixPath(name).parents):
+                raise ValueError('archive writes through a symlink parent')
+        for name in links:
+            current, seen = name, set()
+            while current in links:
+                if current in seen or len(seen) >= 32:
+                    raise ValueError('cyclic or excessive vendor link chain')
+                seen.add(current)
+                current = links[current]
+            if current not in members or not members[current].isfile():
+                raise ValueError('vendor link does not resolve to one regular member')
+        # Manual extraction never invokes archive code or retains ownership.
+        for name, member in members.items():
+            path = target / name
+            path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+            if member.isdir():
+                path.mkdir(mode=0o755, exist_ok=True)
+            elif member.isfile():
+                stream = source.extractfile(member)
+                if stream is None:
+                    raise ValueError('archive member data is absent')
+                with stream, path.open('xb') as output:
+                    copied = 0
+                    while block := stream.read(65536):
+                        copied += len(block)
+                        if copied > member.size or time.monotonic() >= DEADLINE:
+                            raise ValueError('member changed or extraction deadline expired')
+                        output.write(block)
+                    if copied != member.size:
+                        raise ValueError('archive member truncated')
+                    output.flush(); os.fsync(output.fileno())
+                path.chmod(0o755 if member.mode & 0o111 else 0o644)
+        for name in links:
+            os.symlink(members[name].linkname, target / name)
+
+
+def elf(path: Path, arch: str) -> None:
+    with path.open('rb') as stream:
+        header = stream.read(64)
+    if (len(header) != 64 or header[:6] != b'\x7fELF\x02\x01'
+            or struct.unpack_from('<H', header, 18)[0] != {'amd64': 62, 'arm64': 183}[arch]
+            or struct.unpack_from('<H', header, 16)[0] not in (2, 3)):
+        raise ValueError('artifact ELF identity does not match the selected architecture')
+
+
+def artifact_members(tree: Path, record: dict) -> dict:
+    """Bind reuse to current regular-file bytes, link identity and modes."""
+    pending, result, total = [tree], {}, 0
+    while pending:
+        parent = pending.pop()
+        with os.scandir(parent) as entries:
+            for entry in entries:
+                path = Path(entry.path)
+                name = str(path.relative_to(tree))
+                if name == 'artifact.json':
+                    continue
+                info = entry.stat(follow_symlinks=False)
+                if len(result) >= record['maximum_members'] or time.monotonic() >= DEADLINE:
+                    raise ValueError('artifact verification bound exceeded')
+                if info.st_uid != 0 or (not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o6022):
+                    raise ValueError('artifact is writable or has unsafe ownership')
+                if stat.S_ISDIR(info.st_mode):
+                    result[name] = ['directory', stat.S_IMODE(info.st_mode)]
+                    pending.append(path)
+                elif stat.S_ISLNK(info.st_mode):
+                    link = os.readlink(path)
+                    resolved = path.resolve(strict=True)
+                    if not resolved.is_relative_to(tree) or not resolved.is_file():
+                        raise ValueError('artifact link escaped its immutable tree')
+                    result[name] = ['link', link]
+                elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                    total += info.st_size
+                    if total > record['expanded_bytes']:
+                        raise ValueError('artifact verification byte bound exceeded')
+                    digest = hashlib.sha256()
+                    with path.open('rb') as stream:
+                        while block := stream.read(65536):
+                            if time.monotonic() >= DEADLINE:
+                                raise TimeoutError('artifact verification deadline expired')
+                            digest.update(block)
+                    after = path.lstat()
+                    if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+                        raise ValueError('artifact changed during verification')
+                    result[name] = ['file', stat.S_IMODE(info.st_mode), info.st_size, digest.hexdigest()]
+                else:
+                    raise ValueError('artifact contains an unsafe member')
+    return result
+
+
+def artifact(name: str, arch: str) -> Path:
+    record = json_document(regular(CATALOG))['artifacts'][name]
+    if arch not in record['architectures']:
+        raise ValueError('no qualified artifact for the selected architecture')
+    identity = record['architectures'][arch].get('sha256', record['architectures'][arch].get('sha512'))
+    protected_directory(RELEASES, 0o755)
+    destination = RELEASES / (name + '-' + identity)
+    if destination.exists():
+        receipt = json_document(regular(destination / 'artifact.json', maximum=8388608))
+        expected = {'format': 1, 'artifact': name, 'architecture': arch, 'digest': identity,
+                    'members': artifact_members(destination, record)}
+        if receipt != expected:
+            raise ValueError('existing artifact identity differs')
+        return destination
+    work = Path(tempfile.mkdtemp(prefix='.artifact-', dir=RELEASES))
+    # Keep failed work and its exact path for inspection; never sweep siblings.
+    archive = work / 'download'
+    acquire(record, arch, archive)
+    tree = work / 'tree'
+    tree.mkdir(mode=0o755)
+    if record['kind'] in ('elf', 'file'):
+        shutil.copyfile(archive, tree / record['entry'])
+        (tree / record['entry']).chmod(0o755 if record['kind'] == 'elf' else 0o644)
+    else:
+        extract(archive, tree, record)
+    entry = tree / record['entry']
+    if not entry.is_file() or entry.is_symlink():
+        raise ValueError('pinned artifact entry is absent or a link')
+    if record['kind'] == 'elf' or name in ('github-actions', 'dotnet', 'whisper'):
+        elf(entry, arch)
+    receipt = {'format': 1, 'artifact': name, 'architecture': arch, 'digest': identity,
+               'members': artifact_members(tree, record)}
+    write(tree / 'artifact.json', json.dumps(receipt, sort_keys=True).encode(), 0o644)
+    for directory, names, files in os.walk(tree, topdown=False, followlinks=False):
+        sync_directory(Path(directory))
+    os.rename(tree, destination)
+    sync_directory(RELEASES)
+    archive.unlink()
+    work.rmdir()
+    return destination
+
+
+def status(home: Path, value: str) -> None:
+    write(home / 'status.json', json.dumps({'format': 1, 'state': value, 'online': False}).encode(), 0o644)
+
+
+
+
+
+
+
+
+
+
+    # Do not start a manager or any service while installing an offline target.
+
+
+
+
+
+
+def publish_link(path: Path, destination: Path) -> None:
+    protected_directory(path.parent, 0o755)
+    if path.exists() or path.is_symlink():
+        if not path.is_symlink() or not path.resolve().is_relative_to(RELEASES):
+            raise ValueError('refusing an unmanaged release pointer')
+    candidate = path.with_name('.' + path.name + '.candidate')
+    candidate.symlink_to(destination)
+    os.replace(candidate, path)
+    descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def dns_bundle(arch: str) -> Path:
+    application, runtime = artifact('technitium', arch), artifact('dotnet', arch)
+    identity = hashlib.sha256((application.name + '\n' + runtime.name).encode()).hexdigest()
+    bundle = RELEASES / ('dns-bundle-' + identity)
+    if not bundle.exists():
+        bundle.mkdir(mode=0o755)
+        (bundle / 'release').symlink_to(application)
+        (bundle / 'dotnet').symlink_to(runtime)
+        write(bundle / 'bundle.json', json.dumps({'application': application.name, 'dotnet': runtime.name}, sort_keys=True).encode(), 0o644)
+    if ((bundle / 'release').resolve() != application or (bundle / 'dotnet').resolve() != runtime
+            or json_document(regular(bundle / 'bundle.json')) != {'application': application.name, 'dotnet': runtime.name}):
+        raise ValueError('DNS bundle identity differs')
+    return bundle
+
+
+def validate_dns_bundle(bundle: Path) -> None:
+    """Validate a retained bundle against its own immutable member receipts."""
+    if bundle.parent != RELEASES or not bundle.is_dir() or bundle.is_symlink():
+        raise ValueError('retained DNS bundle is unavailable')
+    protected_directory(bundle, 0o755)
+    if set(path.name for path in bundle.iterdir()) != {'release', 'dotnet', 'bundle.json'}:
+        raise ValueError('DNS bundle member set changed')
+    identity = json_document(regular(bundle / 'bundle.json'))
+    if (not isinstance(identity, dict) or set(identity) != {'application', 'dotnet'}
+            or any(not isinstance(value, str) for value in identity.values())):
+        raise ValueError('DNS bundle receipt is invalid')
+    expected = hashlib.sha256((identity['application'] + '\n' + identity['dotnet']).encode()).hexdigest()
+    if bundle.name != 'dns-bundle-' + expected:
+        raise ValueError('DNS bundle content identity changed')
+    catalog = json_document(regular(CATALOG))['artifacts']
+    for link, field, name in (('release', 'application', 'technitium'), ('dotnet', 'dotnet', 'dotnet')):
+        leaf = identity[field]
+        if not isinstance(leaf, str) or re.fullmatch(name + r'-[0-9a-f]{64}(?:[0-9a-f]{64})?', leaf) is None:
+            raise ValueError('DNS bundle artifact name is invalid')
+        tree = RELEASES / leaf
+        if not tree.is_dir() or tree.is_symlink():
+            raise ValueError('retained DNS artifact is unavailable')
+        protected_directory(tree, 0o755)
+        pointer = bundle / link
+        if not pointer.is_symlink() or pointer.readlink() != tree:
+            raise ValueError('DNS bundle artifact pointer changed')
+        receipt = json_document(regular(tree / 'artifact.json', maximum=8388608))
+        if (receipt.get('format') != 1 or receipt.get('artifact') != name
+                or receipt.get('architecture') != 'amd64' or leaf != name + '-' + receipt.get('digest', '')
+                or receipt.get('members') != artifact_members(tree, catalog[name])):
+            raise ValueError('retained DNS artifact no longer matches its verified member receipt')
+        if name == 'dotnet':
+            elf(tree / catalog[name]['entry'], 'amd64')
+
+
+
+
+def dns_workload():
+    """Load only a root-owned private snapshot of the fixed servicing module."""
+    source = Path('__INSTALLER_PATH_FILE_SERVER_DNS_INCUS__')
+    for parent in source.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('untrusted DNS servicing module ancestry')
+    snapshot = regular(source, maximum=1048576)
+    namespace = {'__name__': '_trusted_dns_workload', '__file__': str(source)}
+    exec(compile(snapshot, str(source), 'exec'), namespace)
+    return namespace['Workload']({
+        'regular': regular, 'write': write, 'json_document': json_document,
+        'protected_directory': protected_directory, 'command': command,
+        'sync_directory': sync_directory, 'validate_dns_bundle': validate_dns_bundle,
+        'OutcomeUnknown': OutcomeUnknown, 'CATALOG': CATALOG, 'deadline': lambda: DEADLINE})
+
+
+def dns_policy_snapshot(path: Path) -> dict:
+    """Capture policy bytes or absence before any configuration publication."""
+    for parent in path.parents:
+        try:
+            info = parent.lstat()
+        except FileNotFoundError:
+            continue
+        if not trusted_directory(parent, info):
+            raise ValueError('untrusted DNS policy ancestry')
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return {'present': False}
+    data = regular(path)
+    after = path.lstat()
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+                              value.st_uid, value.st_gid, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+    if identity(info) != identity(after):
+        raise ValueError('DNS policy changed during capture')
+    return {'present': True, 'identity': identity(after), 'mode': stat.S_IMODE(after.st_mode),
+            'uid': after.st_uid, 'gid': after.st_gid, 'data': data}
+
+
+def dns_resolver_plan(home: Path) -> dict:
+    """Inspect the resolver handover without changing files or live state."""
+    path = ETC / 'resolv.conf'
+    info = path.lstat()
+    native = RUN / 'systemd/resolve/resolv.conf'
+    stub = RUN / 'systemd/resolve/stub-resolv.conf'
+    if not stat.S_ISLNK(info.st_mode) or info.st_uid or path.resolve() not in (native, stub):
+        raise ValueError('host resolver has a different owner; explicit operator handover is required')
+    expected = b'# Technitium owns host port 53; resolved retains the uplink resolver.\n[Resolve]\nDNSStubListener=no\n'
+    previous = dns_policy_snapshot(DNS_RESOLVED)
+    if previous['present'] and previous['data'] != expected:
+        raise ValueError('resolver drop-in has a competing owner')
+    evidence = home / 'private/resolver-previous.json'
+    if evidence.exists() or evidence.is_symlink():
+        raise ValueError('resolver handover evidence already exists; inspect before retry')
+    candidate = ETC / '.technitium-resolv.candidate'
+    if candidate.exists() or candidate.is_symlink():
+        raise ValueError('resolver candidate already requires review')
+    return {'previous_link': str(path.readlink()), 'next_link': str(native),
+            'identity': (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns),
+            'dropin': expected, 'previous_dropin': previous}
+
+
+def dns_resolver_handover(home: Path, plan: dict) -> None:
+    """Publish the captured non-stub resolver; keep its exact prior identity."""
+    path = ETC / 'resolv.conf'
+    evidence = home / 'private/resolver-previous.json'
+    now = path.lstat()
+    if ((now.st_dev, now.st_ino, now.st_mtime_ns, now.st_ctime_ns) != plan['identity']
+            or str(path.readlink()) != plan['previous_link']
+            or dns_policy_snapshot(DNS_RESOLVED) != plan['previous_dropin']):
+        raise OutcomeUnknown('resolver changed after configuration capture; evidence retained')
+    previous_link, native = plan['previous_link'], Path(plan['next_link'])
+    write(evidence, json.dumps({'format': 1, 'previous_link': previous_link,
+                               'next_link': str(native), 'state': 'prepared'}).encode())
+    protected_directory(DNS_RESOLVED.parent, 0o755)
+    write(DNS_RESOLVED, plan['dropin'], 0o644)
+    candidate = ETC / '.technitium-resolv.candidate'
+    candidate.symlink_to(native)
+    now = path.lstat()
+    if ((now.st_dev, now.st_ino, now.st_mtime_ns, now.st_ctime_ns) != plan['identity']
+            or str(path.readlink()) != previous_link):
+        raise OutcomeUnknown('resolver identity changed; handover evidence retained')
+    os.replace(candidate, path)
+    sync_directory(ETC)
+    if not path.is_symlink() or path.readlink() != native:
+        raise OutcomeUnknown('resolver handover outcome unknown; evidence retained')
+    write(evidence, json.dumps({'format': 1, 'previous_link': previous_link,
+                               'next_link': str(native), 'state': 'staged; resolver-restart-pending'}).encode())
+
+
+def dns_configuration_ready() -> None:
+    """Partial private configuration cannot authorize activation or maintenance."""
+    try:
+        record = json_document(regular(DNS_CONFIGURATION, private=True, maximum=65536))
+        home = ROLES['server/technitium'][2]
+        if (not isinstance(record, dict) or record.get('format') != 1
+                or record.get('state') != 'configured-activation-pending'
+                or regular(home / 'configured', private=True) != b'private-configuration-staged\n'):
+            raise ValueError('configuration is not complete')
+    except (OSError, ValueError) as error:
+        raise OutcomeUnknown('DNS configuration is incomplete; inspect its private recovery journal') from error
+
+
+def configure_dns(private: dict) -> None:
+    user, uid, home, unit = ROLES['server/technitium']
+    require_stopped('server/technitium')
+    # Upstream reads these initialization variables only for a new config.
+    # Changing env after first activation must never claim to rotate a password
+    # or alter an existing server's recursion policy.
+    if any((home / 'config').iterdir()):
+        raise ValueError('existing DNS configuration requires authenticated application administration')
+    if (DNS_CONFIGURATION.exists() or DNS_CONFIGURATION.is_symlink()
+            or (home / 'configured').exists() or (home / 'configured').is_symlink()):
+        raise ValueError('DNS configuration already exists or requires recovery; no automatic retry')
+    if not isinstance(private, dict) or set(private) != {'dns_ownership', 'recursion_cidrs'}:
+        raise ValueError('DNS configuration requires exact non-secret ownership and recursion fields')
+    # Credentials were captured from initrd during unattended installation;
+    # this maintenance request never introduces another secret input channel.
+    password = regular(home / 'private/admin-password', private=True, maximum=1024).decode('utf-8')
+    web_user = regular(home / 'private/web-username', private=True, maximum=256).decode('utf-8')
+    web_password = regular(home / 'private/web-password', private=True, maximum=1024).decode('utf-8')
+    if (re.fullmatch(r'[a-zA-Z0-9_.@-]{1,64}', web_user) is None or not 16 <= len(web_password) <= 256
+            or not 16 <= len(password) <= 256):
+        raise ValueError('DNS administration remains pending complete initrd web credentials')
+    if private['dns_ownership'] != 'dedicated-port53;resolved-uplink-resolver':
+        raise ValueError('DNS listener/resolver ownership must be explicit')
+    if (not isinstance(private['recursion_cidrs'], list)
+            or not 1 <= len(private['recursion_cidrs']) <= 32
+            or any(not isinstance(value, str) for value in private['recursion_cidrs'])):
+        raise ValueError('recursion ACL must be a list')
+    networks = [ipaddress.ip_network(x, strict=True) for x in private['recursion_cidrs']]
+    if not networks or len(networks) > 32 or any(x.prefixlen == 0 or x.is_multicast for x in networks):
+        raise ValueError('recursion ACL must name bounded explicit networks')
+    uplinks = json_document(regular(UPLINK_POLICY))
+    if (not isinstance(uplinks, dict) or uplinks.get('format') != 1 or uplinks.get('family') != 'server'
+            or not isinstance(uplinks.get('links'), dict) or not 1 <= len(uplinks['links']) <= 2
+            or any(not isinstance(link, dict) or not isinstance(link.get('iface'), str)
+                   for link in uplinks['links'].values())
+            or type(uplinks.get('ipv6_enabled')) is not bool):
+        raise ValueError('DNS configuration requires the staged physical-uplink policy')
+    interfaces = [link['iface'] for link in uplinks['links'].values()]
+    if (len(interfaces) != len(set(interfaces))
+            or any(re.fullmatch(r'[A-Za-z0-9_-]{1,15}', name) is None for name in interfaces)):
+        raise ValueError('invalid DNS physical-uplink identity')
+    if not uplinks['ipv6_enabled'] and any(network.version == 6 for network in networks):
+        raise ValueError('IPv6 DNS recursion conflicts with the disabled profile policy')
+    firewall = ETC / 'nftables.d/70-managed-server.nft'
+    firewall_before = dns_policy_snapshot(firewall)
+    if not firewall_before['present']:
+        raise ValueError('server firewall is absent')
+    rules = firewall_before['data'].decode()
+    begin, end = '    # BEGIN private DNS ACL\n', '    # END private DNS ACL\n'
+    if rules.count(begin) != 1 or rules.count(end) != 1:
+        raise ValueError('server firewall has no unique DNS policy owner')
+    before, remaining = rules.split(begin)
+    _, after = remaining.split(end)
+    acl = ''
+    for network in networks:
+        family = 'ip' if network.version == 4 else 'ip6'
+        for interface in interfaces:
+            acl += f'    iifname "{interface}" {family} saddr {network} udp dport 53 accept\n    iifname "{interface}" {family} saddr {network} tcp dport 53 accept\n'
+    rules = before + begin + acl + end + after
+    # Owned DNAT preserves DNS client identity. Its packets use forwarding,
+    # so input ACLs alone cannot enforce the private recursion boundary.
+    workload = dns_workload()
+    dns_container = workload.policy
+    if dns_container['ipv6_enabled'] != uplinks['ipv6_enabled']:
+        raise ValueError('DNS guest and physical uplink IPv6 policies disagree')
+    # The native bridge is the layer-3 input/output identity for routed guest
+    # packets. Incus separately binds the exact veth host name in its receipt.
+    bridge = dns_container['bridge']
+    ingress = '    ct state established,related accept\n'
+    if rules.count(ingress) != 1:
+        raise ValueError('server firewall lacks its unique ingress boundary')
+    guest_ingress = ''
+    if dns_container['ipv6_enabled']:
+        # IPv6 neighbour discovery is local to this owned bridge. It is needed
+        # for the guest's gateway while unrelated host services stay closed.
+        guest_ingress = (f'    iifname "{bridge}" ip6 hoplimit 255 '
+                         + 'icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } accept\n')
+    rules = rules.replace(ingress, ingress + guest_ingress + f'    iifname "{bridge}" drop\n', 1)
+    bridge_networks = [ipaddress.ip_interface(dns_container['ipv4_cidr']).network]
+    if dns_container['ipv6_enabled']:
+        bridge_networks.append(ipaddress.ip_interface(dns_container['ipv6_cidr']).network)
+    for field in ('addresses4', 'addresses6'):
+        for address in uplinks.get(field, {}).values():
+            network = ipaddress.ip_interface(address).network
+            if any(network.version == private_network.version and network.overlaps(private_network)
+                   for private_network in bridge_networks):
+                raise ValueError('DNS private bridge overlaps a physical uplink')
+    forward = (f'    iifname "{bridge}" ip saddr != {dns_container["ipv4_address"]} drop\n'
+               + (f'    iifname "{bridge}" ip6 saddr != {dns_container["ipv6_address"]} drop\n'
+                  if dns_container['ipv6_enabled'] else f'    iifname "{bridge}" meta nfproto ipv6 drop\n')
+               + f'    iifname "{bridge}" ct state established,related accept\n'
+               + f'    oifname "{bridge}" ct state established,related accept\n')
+    for network in networks:
+        family = 'ip' if network.version == 4 else 'ip6'
+        for interface in interfaces:
+            for protocol in ('tcp', 'udp'):
+                forward += (f'    iifname "{interface}" oifname "{bridge}" {family} saddr {network} '
+                            + f'{protocol} dport 53 accept\n')
+    for family, private_ranges in (('ip', '0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4'),
+                                    ('ip6', '::/128, ::1/128, fc00::/7, fe80::/10, ff00::/8')):
+        forward += f'    iifname "{bridge}" {family} daddr {{ {private_ranges} }} drop\n'
+    for interface in interfaces:
+        forward += (f'    iifname "{bridge}" oifname "{interface}" udp dport 53 accept\n'
+                    + f'    iifname "{bridge}" oifname "{interface}" tcp dport {{ 53, 443, 853 }} accept\n')
+    forward += f'    iifname "{bridge}" drop\n    oifname "{bridge}" drop\n'
+    # Native nftables owns the port-53 translation and private-guest egress.
+    # This needs neither an Incus DNS/DHCP server nor wildcard host proxy binds.
+    prerouting, postrouting = '', ''
+    for interface in interfaces:
+        for family in (4, 6):
+            if family == 6 and not dns_container['ipv6_enabled']:
+                continue
+            protocol_family = 'ip' if family == 4 else 'ip6'
+            address = dns_container['ipv' + str(family) + '_address']
+            for protocol in ('tcp', 'udp'):
+                prerouting += (f'    iifname "{interface}" meta nfproto ipv{family} fib daddr type local '
+                               + f'{protocol} dport 53 dnat {protocol_family} to {address}\n')
+            postrouting += f'    oifname "{interface}" {protocol_family} saddr {address} masquerade\n'
+    fingerprint = hashlib.sha256((forward + prerouting + postrouting).encode()).hexdigest()
+    chain = ('  chain technitium_forward {\n    type filter hook forward priority -5; policy accept;\n'
+             + '    comment "managed-technitium:' + fingerprint + '"\n' + forward + '  }\n'
+             + '  chain technitium_prerouting {\n    type nat hook prerouting priority dstnat; policy accept;\n'
+             + prerouting + '  }\n'
+             + '  chain technitium_postrouting {\n    type nat hook postrouting priority srcnat; policy accept;\n'
+             + postrouting + '  }\n')
+    marker = '# Managed Technitium forwarding; private configuration owns this chain.\n'
+    if marker in rules:
+        raise ValueError('DNS forwarding policy is already configured; inspect before retry')
+    if not rules.endswith('}\n'):
+        raise ValueError('server firewall terminal table boundary differs')
+    rules = (rules[:-2] + '  ' + marker + chain + '}\n').encode()
+    bundle = (home / 'current').resolve(strict=True)
+    validate_dns_bundle(bundle)
+    resolver = dns_resolver_plan(home)
+    candidates = (
+        (home / 'private/admin-password', password.encode(), 0o600),
+        (home / 'private/recursion-acl', (','.join(map(str, networks)) + '\n').encode(), 0o600),
+        (DNS_POLICY, ('[Unit]\nConditionPathExists=' + str(home / 'private/incus-instance.json') + '\n').encode(), 0o644),
+        (firewall, rules, 0o600),
+        (home / 'private/firewall.json', json.dumps({'format': 1, 'sha256': fingerprint}).encode(), 0o600),
+        (DNS_FORWARDING, regular(DNS_FORWARDING_CANDIDATE), 0o644),
+    )
+    snapshots = {path: dns_policy_snapshot(path) for path, _, _ in candidates}
+    if snapshots[firewall] != firewall_before:
+        raise ValueError('server firewall changed before configuration')
+    for path, _, _ in candidates:
+        if path.parent == home / 'private' and snapshots[path]['present']:
+            raise ValueError('private DNS state already exists; inspect before retry')
+    snapshots[DNS_RESOLVED] = resolver['previous_dropin']
+    # All policy data is now validated. Retain exact previous bytes/modes or
+    # absence before the first publication, and never auto-retry partial work.
+    workspace = Path(tempfile.mkdtemp(prefix='.configuration-', dir=home))
+    previous = []
+    for index, (path, snapshot) in enumerate(snapshots.items()):
+        record = {'path': str(path), 'present': snapshot['present']}
+        if snapshot['present']:
+            saved = workspace / (str(index) + '.previous')
+            write(saved, snapshot['data'])
+            record.update(backup=str(saved), mode=snapshot['mode'], uid=snapshot['uid'], gid=snapshot['gid'],
+                          sha256=hashlib.sha256(snapshot['data']).hexdigest())
+        previous.append(record)
+    transaction = {'format': 1, 'state': 'prepared', 'workspace': str(workspace),
+                   'resolver': {key: resolver[key] for key in ('previous_link', 'next_link')},
+                   'previous': previous, 'published': []}
+    try:
+        write(DNS_CONFIGURATION, json.dumps(transaction, sort_keys=True).encode())
+        for path, data, mode in candidates:
+            if dns_policy_snapshot(path) != snapshots[path]:
+                raise OutcomeUnknown('DNS policy changed after capture; recovery evidence retained')
+            protected_directory(path.parent, 0o755)
+            write(path, data, mode)
+            transaction['published'].append(str(path))
+            write(DNS_CONFIGURATION, json.dumps(transaction, sort_keys=True).encode())
+        workload.prepare(bundle)
+        transaction['state'] = 'guest-prepared; resolver-handover-pending'
+        write(DNS_CONFIGURATION, json.dumps(transaction, sort_keys=True).encode())
+        dns_resolver_handover(home, resolver)
+        write(home / 'configured', b'private-configuration-staged\n', 0o600)
+        status(home, 'configured-activation-pending')
+        transaction['state'] = 'configured-activation-pending'
+        write(DNS_CONFIGURATION, json.dumps(transaction, sort_keys=True).encode())
+    except BaseException as error:
+        raise OutcomeUnknown('DNS configuration outcome unknown; private journal and previous files retained') from error
+
+
+
+
+def require_stopped(role: str) -> None:
+    unit = ROLES[role][3]
+    if not unit:
+        raise ValueError('this role has no maintained DNS service')
+    value = command(['/usr/bin/systemctl', 'show', unit, '--property=ActiveState', '--value'], timeout=15)
+    if value.strip() not in (b'inactive', b'failed'):
+        raise ValueError('stop the selected service before update, backup or restore')
+    leader = command(['/usr/bin/systemctl', 'show', unit, '--property=MainPID', '--value'], timeout=15)
+    if leader.strip() != b'0':
+        raise OutcomeUnknown('stopped service still owns a process')
+    if role == 'server/technitium':
+        dns_workload().stopped()
+
+
+BACKUP_MAGIC = b'TDNSBKUP\x00\x03'
+
+
+def backup_cipher(header: bytes, tag: bytes | None = None, password: bytes | None = None):
+    # Native Debian python3-cryptography supplies the reviewed cipher/KDF;
+    # parameters are fixed by this format, never chosen by an input archive.
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+    if len(header) != len(BACKUP_MAGIC) + 28 or not header.startswith(BACKUP_MAGIC):
+        raise ValueError('unsupported encrypted DNS backup header')
+    home = ROLES['server/technitium'][2]
+    if password is None:
+        password = regular(home / 'private/backup-passphrase', private=True, maximum=1024)
+    if not 16 <= len(password) <= 1024:
+        raise ValueError('DNS backup remains pending its private initrd passphrase')
+    salt = header[len(BACKUP_MAGIC):len(BACKUP_MAGIC) + 16]
+    nonce = header[-12:]
+    key = Scrypt(salt=salt, length=32, n=32768, r=8, p=1).derive(password)
+    if tag is None:
+        context = Cipher(algorithms.AES(key), modes.GCM(nonce)).encryptor()
+    else:
+        context = Cipher(algorithms.AES(key), modes.GCM(nonce, tag)).decryptor()
+    context.authenticate_additional_data(header)
+    return context
+
+
+class EncryptedBackupWriter:
+    """Stream compressed tar bytes directly to authenticated ciphertext."""
+    def __init__(self, stream, password):
+        header = BACKUP_MAGIC + os.urandom(16) + os.urandom(12)
+        self.context = backup_cipher(header, password=password)
+        self.stream, self.total = stream, 0
+        stream.write(header)
+
+    def write(self, data):
+        self.total += len(data)
+        if self.total > 135266304 or time.monotonic() >= DEADLINE:
+            raise ValueError('encrypted backup byte/deadline bound exceeded')
+        self.stream.write(self.context.update(data))
+        return len(data)
+
+    def finish(self):
+        self.stream.write(self.context.finalize())
+        self.stream.write(self.context.tag)
+
+
+@contextlib.contextmanager
+def decrypted_backup(stream):
+    from cryptography.exceptions import InvalidTag
+    header = stream.read(len(BACKUP_MAGIC) + 28)
+    size = os.fstat(stream.fileno()).st_size
+    if size < len(header) + 16:
+        raise ValueError('encrypted backup is truncated')
+    stream.seek(-16, os.SEEK_END)
+    tag = stream.read(16)
+    context = backup_cipher(header, tag)
+    remaining = size - len(header) - 16
+    stream.seek(len(header))
+    # Authenticate the entire stream before tar parsing or target mutation.
+    # Plaintext has no published pathname and its descriptor closes on error.
+    with tempfile.TemporaryFile(mode='w+b', dir=DNS_BACKUPS) as plain:
+        while remaining:
+            if time.monotonic() >= DEADLINE:
+                raise TimeoutError('backup authentication deadline expired')
+            block = stream.read(min(65536, remaining))
+            if not block:
+                raise ValueError('encrypted backup changed during authentication')
+            remaining -= len(block)
+            plain.write(context.update(block))
+        try:
+            plain.write(context.finalize())
+        except InvalidTag:
+            raise ValueError('backup authentication failed; no restore was attempted') from None
+        plain.seek(0)
+        yield plain
+
+
+def backup(role: str) -> Path:
+    if role != 'server/technitium':
+        raise ValueError('this backup format owns Technitium configuration only')
+    dns_configuration_ready()
+    require_stopped(role)
+    _, _, home, _ = ROLES[role]
+    # Refuse before snapshot/export if the encryption input is unavailable.
+    password = regular(home / 'private/backup-passphrase', private=True, maximum=1024)
+    if not 16 <= len(password) <= 1024:
+        raise ValueError('DNS backup remains pending its private initrd passphrase')
+    backup_dir = DNS_BACKUPS
+    dns_workload().pool_driver()
+    protected_directory(backup_dir)
+    identity = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + os.urandom(8).hex()
+    destination = backup_dir / (identity + '.tar.gz.aesgcm')
+    workload = dns_workload()
+    snapshot = workload.snapshot(identity)
+    workload.export_config(identity)
+    total = 0
+    paths, pending = [], []
+    for name in ('config', 'private'):
+        pending.append(home / name)
+    while pending:
+        directory = pending.pop()
+        if not stat.S_ISDIR(directory.lstat().st_mode):
+            raise ValueError('backup directory identity is unsafe')
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                info = entry.stat(follow_symlinks=False)
+                if len(paths) + len(pending) >= 10000 or time.monotonic() >= DEADLINE:
+                    raise ValueError('backup member or deadline bound exceeded')
+                path = Path(entry.path)
+                if path in (Path('__INSTALLER_PATH_FILE_SERVER_DNS_MANAGEMENT_SOCKET__'), home / 'private/backup-passphrase'):
+                    continue
+                if stat.S_ISDIR(info.st_mode):
+                    pending.append(path)
+                    continue
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid not in (0, ROLES[role][1]):
+                    raise ValueError('backup contains an unsafe file')
+                total += info.st_size
+                if total > 134217728:
+                    raise ValueError('backup aggregate byte bound exceeded')
+                paths.append((str(path.relative_to(home)), path, info))
+    for name, path in (
+        ('policy/server.nft', ETC / 'nftables.d/70-managed-server.nft'),
+        ('policy/dns-policy.conf', DNS_POLICY),
+        ('policy/resolved.conf', DNS_RESOLVED),
+        ('policy/forwarding.conf', DNS_FORWARDING),
+    ):
+        data = regular(path, private=name.endswith('.nft'), maximum=1048576)
+        info = path.lstat()
+        total += len(data)
+        paths.append((name, path, info))
+    fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'wb') as stream:
+        encrypted = EncryptedBackupWriter(stream, password)
+        with tarfile.open(fileobj=encrypted, mode='w|gz') as archive:
+            for name, path, info in sorted(paths):
+                member = tarfile.TarInfo(name)
+                member.size, member.mode = info.st_size, 0o600
+                descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                with os.fdopen(descriptor, 'rb') as source:
+                    opened = os.fstat(source.fileno())
+                    if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) != (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns):
+                        raise ValueError('backup source identity changed')
+                    archive.addfile(member, source)
+                    after = os.fstat(source.fileno())
+                    if (after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns):
+                        raise ValueError('backup source changed during capture')
+        encrypted.finish()
+        stream.flush(); os.fsync(stream.fileno())
+    with destination.open('rb') as archive_stream:
+        digest = hashlib.file_digest(archive_stream, 'sha256').hexdigest()
+    current = home / 'current'
+    if not current.is_symlink() or not current.resolve().is_relative_to(RELEASES):
+        raise ValueError('DNS release pointer is not owned')
+    validate_dns_bundle(current.resolve(strict=True))
+    write(backup_dir / (identity + '.json'), json.dumps({
+        'format': 3, 'archive': destination.name, 'sha256': digest, 'incus_snapshot': snapshot,
+        'encryption': 'AES-256-GCM; scrypt N=32768 r=8 p=1; private initrd passphrase',
+        'bundle': current.resolve().name, 'files': len(paths), 'bytes': total,
+    }, sort_keys=True).encode())
+    return backup_dir / (identity + '.json')
+
+
+def update_dns(arch: str) -> None:
+    role = 'server/technitium'
+    dns_configuration_ready()
+    require_stopped(role)
+    home = ROLES[role][2]
+    candidate = dns_bundle(arch)
+    old = (home / 'current').resolve(strict=True)
+    if candidate == old:
+        status(home, 'pinned-release-current; activation-pending')
+        return
+    evidence = backup(role)
+    transaction = home / 'update.json'
+    if transaction.exists():
+        raise ValueError('an update transaction already requires operator review')
+    record = {'format': 1, 'state': 'prepared', 'previous': old.name,
+              'candidate': candidate.name, 'backup': evidence.name}
+    write(transaction, json.dumps(record, sort_keys=True).encode())
+    dns_workload().prepare(candidate)
+    # One pointer binds application and .NET. No service restart or automatic
+    # retry follows the switch. Retain every old release and private backup.
+    publish_link(home / 'current', candidate)
+    record['state'] = 'switched; activation-and-health-pending'
+    write(transaction, json.dumps(record, sort_keys=True).encode())
+    status(home, 'updated-activation-pending')
+
+
+def restore_dns(backup_name: str) -> None:
+    role = 'server/technitium'
+    dns_configuration_ready()
+    require_stopped(role)
+    _, uid, home, _ = ROLES[role]
+    if re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}\.json', backup_name) is None:
+        raise ValueError('restore requires an explicit private backup receipt name')
+    backup_dir = DNS_BACKUPS
+    dns_workload().pool_driver()
+    receipt = json_document(regular(backup_dir / backup_name, private=True))
+    if receipt.get('format') != 3 or receipt.get('incus_snapshot') != backup_name.removesuffix('.json'):
+        raise ValueError('backup lacks its owned stopped Incus snapshot')
+    archive_name = backup_name.removesuffix('.json') + '.tar.gz.aesgcm'
+    if receipt['archive'] != archive_name or re.fullmatch(r'dns-bundle-[0-9a-f]{64}', receipt['bundle']) is None:
+        raise ValueError('backup identity is invalid')
+    archive = backup_dir / archive_name
+    descriptor = os.open(archive, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077 or info.st_nlink != 1 or info.st_size > 135266368:
+            raise ValueError('unsafe private backup archive')
+        if hashlib.file_digest(stream, 'sha256').hexdigest() != receipt['sha256']:
+            raise ValueError('backup digest differs from its private receipt')
+        # Work from the pinned archive identity, not a reopened mutable name.
+        stream.seek(0)
+        work = Path(tempfile.mkdtemp(prefix='.restore-', dir=home))
+        count = total = 0
+        with decrypted_backup(stream) as authenticated, tarfile.open(fileobj=authenticated, mode='r:gz') as source:
+            for member in source:
+                name = relative(member.name)
+                if (not member.isfile() or not name.startswith(('config/', 'private/', 'policy/'))
+                        or name in ('private/backup-passphrase', 'private/management.sock')
+                        or name.startswith('policy/') and name not in (
+                            'policy/server.nft', 'policy/dns-policy.conf', 'policy/resolved.conf', 'policy/forwarding.conf')):
+                    raise ValueError('backup has an unsafe member')
+                count += 1; total += member.size
+                if count > 10000 or total > 134217728 or member.size > 134217728 or time.monotonic() >= DEADLINE:
+                    raise ValueError('restore aggregate bound exceeded')
+                path = work / name
+                path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                data = source.extractfile(member)
+                if data is None:
+                    raise ValueError('backup member is missing')
+                with data, path.open('xb') as output:
+                    copied = 0
+                    while block := data.read(65536):
+                        copied += len(block)
+                        if copied > member.size or time.monotonic() >= DEADLINE:
+                            raise ValueError('restore member exceeds its bound')
+                        output.write(block)
+                    if copied != member.size:
+                        raise ValueError('truncated backup member')
+                    os.fchmod(output.fileno(), 0o600)
+                    os.fsync(output.fileno())
+        if count != receipt['files'] or total != receipt['bytes']:
+            raise ValueError('backup members differ from the receipt')
+    bundle = RELEASES / receipt['bundle']
+    validate_dns_bundle(bundle)
+    for name in ('config', 'private'):
+        (work / name).mkdir(mode=0o700, exist_ok=True)
+    # The decryption key is installation input, never restored from its own
+    # encrypted archive or replaced by an application rollback.
+    write(work / 'private/backup-passphrase',
+          regular(home / 'private/backup-passphrase', private=True, maximum=1024), 0o600)
+    for parent, directories, files in os.walk(work / 'config'):
+        os.chown(parent, uid, uid)
+        for name in files:
+            os.chown(Path(parent) / name, uid, uid)
+    # Capture the pre-restore configuration too. Each rename is recorded so a
+    # power loss leaves exact retained paths, never a false rollback success.
+    before = backup(role)
+    recovery = home / 'restore.json'
+    if recovery.exists():
+        raise ValueError('a restore transaction requires operator review')
+    record = {'format': 1, 'state': 'prepared', 'requested': backup_name,
+              'previous': before.name, 'bundle': bundle.name, 'workspace': str(work), 'renamed': []}
+    write(recovery, json.dumps(record, sort_keys=True).encode())
+    for name in ('config', 'private'):
+        os.rename(home / name, work / ('previous-' + name))
+        sync_directory(home); sync_directory(work)
+        record['renamed'].append(name + ':previous-retained')
+        write(recovery, json.dumps(record, sort_keys=True).encode())
+        os.rename(work / name, home / name)
+        sync_directory(home); sync_directory(work)
+        record['renamed'].append(name + ':restored')
+        write(recovery, json.dumps(record, sort_keys=True).encode())
+    write(ETC / 'nftables.d/70-managed-server.nft', regular(work / 'policy/server.nft', private=True), 0o600)
+    write(DNS_POLICY, regular(work / 'policy/dns-policy.conf', private=True), 0o644)
+    write(DNS_RESOLVED, regular(work / 'policy/resolved.conf', private=True), 0o644)
+    write(DNS_FORWARDING, regular(work / 'policy/forwarding.conf', private=True), 0o644)
+    dns_workload().restore_snapshot(receipt['incus_snapshot'])
+    publish_link(home / 'current', bundle)
+    record['state'] = 'restored; activation-and-health-pending'
+    write(recovery, json.dumps(record, sort_keys=True).encode())
+    status(home, 'restored-activation-pending')
+
+
+def acknowledge_dns(transaction: str) -> None:
+    """Archive terminal evidence after explicit operator review; never resume."""
+    role = 'server/technitium'
+    require_stopped(role)
+    home = ROLES[role][2]
+    if transaction not in ('update.json', 'restore.json'):
+        raise ValueError('acknowledge requires one exact DNS transaction name')
+    path = home / transaction
+    data = regular(path, private=True, maximum=16384)
+    record = json_document(data)
+    terminal = {'update.json': 'switched; activation-and-health-pending',
+                'restore.json': 'restored; activation-and-health-pending'}[transaction]
+    bundle = (home / 'current').resolve(strict=True)
+    if (record.get('format') != 1 or record.get('state') != terminal
+            or bundle.name != record.get('candidate' if transaction == 'update.json' else 'bundle')):
+        raise ValueError('interrupted or changed DNS state requires manual recovery; it cannot be acknowledged')
+    validate_dns_bundle(bundle)
+    history = home / 'transactions'
+    protected_directory(history)
+    name = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + os.urandom(8).hex() + '-' + transaction
+    write(history / name, data)
+    # The global ownership lock prevents competing writers/cleanup. Retain
+    # the original receipt bytes before removing the active terminal journal.
+    if regular(path, private=True, maximum=16384) != data:
+        raise OutcomeUnknown('DNS transaction changed during acknowledgement')
+    path.unlink(); sync_directory(home)
+
+
+def dns_account_identity() -> None:
+    record = json_document(regular(Path('__INSTALLER_PATH_FILE_SERVER_DNS_IDENTITY__'), private=True))
+    if (not isinstance(record, dict) or set(record) != {'format', 'username', 'uid', 'gid', 'locked', 'shell'}
+            or record['format'] != 1 or record['uid'] != 2103 or record['gid'] != 2103
+            or record['locked'] is not True or record['shell'] != '/usr/sbin/nologin'
+            or not isinstance(record['username'], str)
+            or re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', record['username']) is None):
+        raise ValueError('invalid dedicated Technitium identity')
+    user, uid, home, unit = ROLES['server/technitium']
+    user = record['username']
+    account = pwd.getpwnam(user)
+    if (account.pw_uid, account.pw_gid, account.pw_dir, account.pw_shell) != (uid, uid, str(home), '/usr/sbin/nologin'):
+        raise ValueError('native Technitium identity differs from the private installation receipt')
+    if any(user in group.gr_mem and group.gr_gid != uid for group in grp.getgrall()):
+        raise ValueError('Technitium account has unrelated supplementary authority')
+    shadow = [line.split(':') for line in regular(ETC / 'shadow').decode().splitlines() if line.split(':', 1)[0] == user]
+    if len(shadow) != 1 or len(shadow[0]) != 9 or not shadow[0][1].startswith(('!', '*')):
+        raise ValueError('Technitium service account is not locked')
+    ROLES['server/technitium'] = (user, uid, home, unit)
+
+
+def selected_server_roles() -> list[str]:
+    for parent in RECEIPT.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('untrusted runtime receipt ancestry')
+    records = regular(RECEIPT, maximum=65536).decode().splitlines()
+    if records.count('format\t2') != 1 or records.count('family\tserver') != 1:
+        raise ValueError('unsupported server class receipt')
+    roles = [line.removeprefix('role\t') for line in records if line.startswith('role\t')]
+    if not roles or len(roles) != len(set(roles)) or any(role not in ROLES for role in roles):
+        raise ValueError('invalid server role selection in runtime receipt')
+    classes = {line.removeprefix('class\t') for line in records if line.startswith('class\t')}
+    if {ref for ref in classes if ref.startswith('role/')} != {'role/' + role for role in roles}:
+        raise ValueError('runtime roles and physical classes disagree')
+    return roles
+
+
+def record_failure(operation: str, role: str, code: int) -> Path | None:
+    try:
+        with ownership_lock():
+            destination = STATE / 'last-failure.json'
+            write(destination, json.dumps({'format': 1, 'operation': operation, 'role': role,
+                'result': 'outcome-unknown' if code == 75 else 'failed', 'status': code,
+                'recovery': 'retain service state, enrollment-uncertain and transaction journals; no automatic retry'},
+                sort_keys=True).encode(), 0o600)
+            return destination
+    except (OSError, ValueError, TimeoutError):
+        return None
+
+
+def main() -> int:
+    global DEADLINE
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('operation', choices=('start-dns', 'stop-dns', 'configure-dns', 'backup', 'update', 'rollback', 'acknowledge', 'status'))
+    parser.add_argument('role', choices=('server', *ROLES))
+    parser.add_argument('argument', nargs='?')
+    args = parser.parse_args()
+    if os.geteuid() != 0:
+        parser.error('service administration requires root; jobs receive no authority to this helper')
+    DEADLINE = time.monotonic() + 1800
+    try:
+        roles = selected_server_roles()
+        if 'server/technitium' in roles:
+            dns_account_identity()
+        if args.role not in roles:
+            raise ValueError('service role is absent from the runtime class receipt')
+        with ownership_lock():
+            if args.operation == 'configure-dns' and args.role == 'server/technitium':
+                private = json_document(regular(Path(args.argument or ''), private=True, maximum=16384))
+                if not isinstance(private, dict):
+                    raise ValueError('private service configuration must be a JSON object')
+                configure_dns(private)
+            elif args.operation == 'backup':
+                print(backup(args.role))
+            elif args.operation == 'update' and args.role == 'server/technitium':
+                update_dns(args.argument or '')
+            elif args.operation == 'rollback' and args.role == 'server/technitium':
+                restore_dns(args.argument or '')
+            elif args.operation == 'acknowledge' and args.role == 'server/technitium':
+                acknowledge_dns(args.argument or '')
+            elif args.operation in ('start-dns', 'stop-dns') and args.role == 'server/technitium':
+                if args.operation == 'start-dns':
+                    dns_configuration_ready()
+                dns_workload().transition('start' if args.operation == 'start-dns' else 'stop')
+            elif args.operation == 'status':
+                if args.role == 'server/technitium' and (DNS_CONFIGURATION.exists() or DNS_CONFIGURATION.is_symlink()):
+                    dns_configuration_ready()
+                    print(json.dumps(dns_workload().state(), sort_keys=True))
+                else:
+                    print(regular(ROLES[args.role][2] / 'status.json').decode())
+            else:
+                raise ValueError('operation does not belong to the selected role')
+        return 0
+    except OutcomeUnknown:
+        evidence = record_failure(args.operation, args.role, 75)
+        print('headless operation outcome unknown; preserve retained state and do not retry', file=sys.stderr)
+        if evidence:
+            print('protected recovery evidence: ' + str(evidence), file=sys.stderr)
+        return 75
+    except (OSError, ValueError, KeyError, RuntimeError, TimeoutError, subprocess.TimeoutExpired):
+        evidence = record_failure(args.operation, args.role, 1)
+        # Do not expose vendor output, URLs with credentials, or private input.
+        print('headless operation failed; retained service state requires review', file=sys.stderr)
+        if evidence:
+            print('protected recovery evidence: ' + str(evidence), file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

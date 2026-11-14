@@ -1,0 +1,70 @@
+# Managed by unattended-installer.
+#
+# Shared filesystem/network state for developer tools and trusted launchers.
+# Broad package execution is kept in devops-toolchain-runtime so
+# launchers can select profile transitions instead of inheriting every tool.
+
+#include <abstractions/wrapper-desktop>
+include if exists <abstractions/nameservice-strict>
+include if exists <abstractions/ssl_certs>
+include if exists <abstractions/user-tmp>
+
+unix,
+network inet stream,
+network inet6 stream,
+network inet dgram,
+network inet6 dgram,
+network netlink dgram,
+network netlink raw,
+
+/ r,
+__INSTALLER_PATH_DIR_HOME__/ r,
+
+
+
+__INSTALLER_PATH_DIR_ETC__/ r,
+__INSTALLER_PATH_DIR_ETC__/** r,
+__INSTALLER_PATH_DIR_DEV__/ r,
+__INSTALLER_PATH_DIR_DEV__/** rw,
+__INSTALLER_PATH_DIR_PROC__/ r,
+__INSTALLER_PATH_DIR_PROC__/** r,
+__INSTALLER_PATH_DIR_SYS__/ r,
+__INSTALLER_PATH_DIR_SYS__/** r,
+__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/bazelisk/ r,
+__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/bazelisk/** mr,
+__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/bazelisk/** rix,
+__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/rustup/ r,
+__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/rustup/** mr,
+__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/rustup/** rix,
+__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/node-{22,24,26}/ r,
+__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/node-{22,24,26}/** mr,
+__INSTALLER_PATH_DIR_USR_LOCAL_LIB__/node-{22,24,26}/** rix,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ rw,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/** rwkl,
+owner @{HOME}/ r,
+owner @{HOME}/** rwklm,
+owner @{HOME}/** rix,
+__INSTALLER_PATH_DIR_POOL__/ rw,
+__INSTALLER_PATH_DIR_POOL__/** rwklm,
+__INSTALLER_PATH_DIR_POOL__/** rix,
+__INSTALLER_PATH_DIR_TMP__/ rw,
+__INSTALLER_PATH_DIR_TMP__/** rwklm,
+__INSTALLER_PATH_DIR_TMP__/** rix,
+__INSTALLER_PATH_DIR_VAR__/tmp/ rw,
+__INSTALLER_PATH_DIR_VAR__/tmp/** rwklm,
+__INSTALLER_PATH_DIR_VAR__/tmp/** rix,
+
+# Shared work directories used by the managed DevOps environment. Root-owned
+# releases remain read-only; package manager downloads/installs live in /pool.
+__INSTALLER_PATH_DIR_DATA__/ r,
+__INSTALLER_PATH_DIR_DATA__/downloads/ rw,
+__INSTALLER_PATH_DIR_DATA__/downloads/** rwklmix,
+__INSTALLER_PATH_DIR_DATA__/tmp/ rw,
+__INSTALLER_PATH_DIR_DATA__/tmp/** rwklmix,
+# Process-local controls used by runtimes and namespace constructors. This
+# does not grant writes to kernel-global __INSTALLER_PATH_DIR_PROC__/sys controls or other users.
+owner @{PROC}/[0-9]*/{comm,coredump_filter,oom_score_adj} rw,
+owner @{PROC}/[0-9]*/task/[0-9]*/comm rw,
+
+__INSTALLER_PATH_DIR_USR__/** mr,
+__INSTALLER_PATH_DIR_OPT__/** mr,

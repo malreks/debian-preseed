@@ -1,0 +1,3 @@
+#!/bin/sh
+# The helper uses directory descriptors and atomic, durable state replacement.
+exec __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wallpaper-control save "$@"

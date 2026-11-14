@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Labwc
+Comment=Labwc Wayland session
+Exec=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-session
+Type=Application
+DesktopNames=labwc

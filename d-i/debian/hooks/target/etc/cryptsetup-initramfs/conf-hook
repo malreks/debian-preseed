@@ -1,0 +1,2 @@
+# Managed from explicit host-profile LUKS2 policy.
+CRYPTSETUP=y

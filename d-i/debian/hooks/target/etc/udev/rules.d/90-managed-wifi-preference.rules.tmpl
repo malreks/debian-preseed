@@ -1,0 +1,3 @@
+# Reconcile managed Wi-Fi when the configured Ethernet carrier changes.
+# The interface name is supplied by MANAGED_NETWORK_ETHERNET_IFACE.
+ACTION=="change", SUBSYSTEM=="net", KERNEL=="__INSTALLER_MANAGED_NETWORK_ETHERNET_IFACE__", ATTR{carrier}=="[01]", TAG+="systemd", ENV{SYSTEMD_WANTS}+="network-wifi-carrier@%k.service"

@@ -1,0 +1,28 @@
+[Unit]
+Description=Refresh the managed GRUB BTRFS snapshot menu
+ConditionPathExists=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/grub-btrfs-refresh
+ConditionPathExists=__INSTALLER_PATH_DIR_ETC__/default/grub-profiles
+ConditionPathExists=__INSTALLER_PATH_DIR_ETC__/default/grub-btrfs/config
+After=local-fs.target
+RequiresMountsFor=__INSTALLER_PATH_DIR_BOOT__
+# Keep the activation budget independent of the target manager defaults.
+StartLimitIntervalSec=10s
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+TimeoutStartSec=3m
+TimeoutStopSec=15s
+KillMode=control-group
+UMask=0077
+Nice=19
+IOSchedulingClass=idle
+PrivateMounts=yes
+RuntimeDirectory=grub-btrfs-refresh
+RuntimeDirectoryMode=0700
+Environment=SKIP_MOK_SIGNING=1
+# Path events, backup hooks and completion hooks can arrive together on resume.
+# Coalesce them while this oneshot is activating, before acquiring either lock.
+# Even deferred refreshes then stay below the finite start-rate limit above.
+ExecStartPre=__INSTALLER_PATH_DIR_USR__/bin/sleep 5
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/grub-btrfs-refresh

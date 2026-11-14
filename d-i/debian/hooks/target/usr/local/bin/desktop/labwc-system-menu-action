@@ -1,0 +1,408 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Run one reviewed Waybar system-menu action inside its transient service."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import subprocess
+import sys
+
+WAYLAND_APP = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app'
+TERMINAL = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal'
+NOTIFY_SEND = '__INSTALLER_PATH_DIR_USR__/bin/notify-send'
+TIMEOUT = '__INSTALLER_PATH_DIR_USR__/bin/timeout'
+HELP = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-help'
+
+
+class MenuError(Exception):
+    pass
+
+
+def desktop_environment() -> dict[str, str]:
+    uid = os.getuid()
+    if uid == 0 or os.geteuid() != uid or os.environ.get('LABWC_SESSION_OWNER') != 'desktop':
+        raise MenuError('system menu requires the ordinary desktop account')
+    home = Path(pwd.getpwuid(uid).pw_dir)
+    runtime = Path('__INSTALLER_PATH_DIR_RUN_USER__') / str(uid)
+    info = runtime.lstat()
+    bus = runtime / 'bus'
+    bus_info = bus.lstat()
+    display = os.environ.get('WAYLAND_DISPLAY', '')
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or (info.st_mode & 0o077)
+            or not stat_is_socket(bus_info.st_mode) or bus_info.st_uid != uid
+            or bus_info.st_nlink != 1 or not re.fullmatch(r'wayland-[0-9]+', display)):
+        raise MenuError('owned desktop runtime is unavailable')
+    return {
+        'PATH': '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/bin:/bin',
+        'HOME': str(home),
+        'LANG': 'C.UTF-8',
+        'LC_ALL': 'C.UTF-8',
+        'XDG_RUNTIME_DIR': str(runtime),
+        'DBUS_SESSION_BUS_ADDRESS': f'unix:path={runtime}/bus',
+        'XDG_CONFIG_HOME': str(home / '.config'),
+        'XDG_DATA_HOME': str(home / '.local/share'),
+        'WAYLAND_DISPLAY': display,
+        'XDG_SESSION_TYPE': 'wayland',
+        'GDK_BACKEND': 'wayland',
+        'LABWC_SESSION_OWNER': 'desktop',
+        'NO_AT_BRIDGE': '1',
+        'GTK_A11Y': 'none',
+    }
+
+
+def stat_is_socket(mode: int) -> bool:
+    return (mode & 0o170000) == 0o140000
+
+
+def wayland(*argv: str) -> tuple[str, ...]:
+    return (WAYLAND_APP, 'auto', '--', *argv)
+
+
+def terminal(*argv: str) -> tuple[str, ...]:
+    return (TERMINAL, *argv)
+
+
+def notify(env: dict[str, str], summary: str, body: str) -> None:
+    """Best-effort low urgency feedback; never change the action result."""
+    if not os.access(NOTIFY_SEND, os.X_OK) or not os.access(TIMEOUT, os.X_OK):
+        return
+    if not env.get('DBUS_SESSION_BUS_ADDRESS'):
+        return
+    try:
+        subprocess.run(
+            [TIMEOUT, '--kill-after=1s', '3s', NOTIFY_SEND,
+             '--app-name=Labwc desktop', '--urgency=low',
+             '--category=desktop.toggle', '--', summary, body],
+            env=env, cwd=env['HOME'], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            check=False, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def dnd_state(env: dict[str, str]) -> bool | None:
+    try:
+        result = subprocess.run(
+            ['__INSTALLER_PATH_DIR_USR__/bin/makoctl', 'mode'], env=env, cwd=env['HOME'],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, encoding='utf-8',
+            errors='replace', check=False, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return 'do-not-disturb' in result.stdout.splitlines()
+
+
+def audio_muted(env: dict[str, str], target: str) -> bool | None:
+    try:
+        result = subprocess.run(
+            ['__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'get-volume', target], env=env, cwd=env['HOME'],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, encoding='utf-8',
+            errors='replace', check=False, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return '[MUTED]' in result.stdout.split()
+
+
+def wlsunset_state(env: dict[str, str]) -> bool | None:
+    try:
+        result = subprocess.run(
+            ['__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', 'is-active', '--quiet',
+             'labwc-wlsunset.service'], env=env, cwd=env['HOME'],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, check=False, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.returncode == 0
+
+
+def notify_success(action: str, env: dict[str, str]) -> None:
+    """Report only actions whose state is known here and not in their owner."""
+    if action == 'audio_mute':
+        state = audio_muted(env, '@DEFAULT_AUDIO_SINK@')
+        body = ('Audio output is now muted.' if state else
+                'Audio output is now unmuted.' if state is False else
+                'Audio output mute changed; the current state could not be read.')
+        notify(env, 'Audio output mute changed', body)
+    elif action == 'audio_mic_mute':
+        state = audio_muted(env, '@DEFAULT_AUDIO_SOURCE@')
+        body = ('Microphone is now muted.' if state else
+                'Microphone is now unmuted.' if state is False else
+                'Microphone mute changed; the current state could not be read.')
+        notify(env, 'Microphone mute changed', body)
+    elif action in {'notifications_dnd', 'notifications_dnd_on', 'notifications_dnd_off'}:
+        state = dnd_state(env)
+        body = ('Do not disturb is enabled.' if state else
+                'Do not disturb is disabled.' if state is False else
+                'Do not disturb changed; the current state could not be read.')
+        notify(env, 'Notification mode changed', body)
+    elif action in {'display_night_light_enable', 'display_night_light_disable',
+                    'display_wlsunset_toggle'}:
+        state = wlsunset_state(env)
+        if action == 'display_night_light_enable':
+            body = ('Night Light is enabled.' if state else
+                    'Night Light enable request completed; the service is not active yet.'
+                    if state is False else
+                    'Night Light enable request completed; the service state could not be read.')
+        elif action == 'display_night_light_disable':
+            body = ('Night Light is disabled.' if state is False else
+                    'Night Light disable request completed; the service state could not be confirmed.')
+        else:
+            body = ('Night Light is enabled.' if state else
+                    'Night Light is disabled.' if state is False else
+                    'Night Light toggle completed; the service state could not be read.')
+        notify(env, 'Night Light state changed', body)
+
+
+COMMANDS: dict[str, tuple[str, ...]] = {
+    'session_idle_toggle': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-idle-toggle',),
+    'session_idle_status': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'idle-status'),
+    'session_lock': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-lock',),
+    'session_logout': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-logout',),
+    'session_reconfigure': ('__INSTALLER_PATH_DIR_USR__/bin/labwc', '--reconfigure'),
+    'session_restart_waybar': ('__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', '--no-block', 'restart', 'waybar.service'),
+    'session_restart_dock': ('__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', '--no-block', 'restart', 'crystal-dock.service'),
+    'session_sync_launchers': ('__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', '--no-block', 'start', 'labwc-sync-application-launchers.service'),
+    'session_system_overview': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'system-overview'),
+    'connectivity_network_status': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'network-overview'),
+    'connectivity_network_connections': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'connections'),
+    'connectivity_network_scan': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-scan-menu',),
+    'connectivity_vpn': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'vpn'),
+    'connectivity_wireguard': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'wireguard'),
+    'connectivity_dns': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'dns'),
+    'connectivity_start_filen_private': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/filenmnt', '--private'),
+    'connectivity_start_filen_offsec': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/filenmnt', '--offsec'),
+    'connectivity_mount_nfs': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/nfsmnt',),
+    'connectivity_unmount_nfs': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/nfsmnt',),
+    'connectivity_nfs_clients': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-sharing',),
+    'connectivity_nfs_sharing': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-sharing',),
+    'connectivity_network_namespace': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'network-namespace'),
+    'connectivity_remote_desktop': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-remote-desktop',),
+    'audio_mixer': wayland('__INSTALLER_PATH_DIR_USR__/bin/pavucontrol'),
+    'audio_mute': ('__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'set-mute', '@DEFAULT_AUDIO_SINK@', 'toggle'),
+    'audio_mic_mute': ('__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'set-mute', '@DEFAULT_AUDIO_SOURCE@', 'toggle'),
+    'audio_volume_25': ('__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '25%'),
+    'audio_volume_50': ('__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '50%'),
+    'audio_volume_75': ('__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '75%'),
+    'audio_volume_100': ('__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '100%'),
+    'audio_sink_selector': wayland('__INSTALLER_PATH_DIR_USR__/bin/pavucontrol'),
+    'audio_source_selector': wayland('__INSTALLER_PATH_DIR_USR__/bin/pavucontrol'),
+    'audio_restart': ('__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', '--no-block', 'restart', 'pipewire.service', 'pipewire-pulse.service', 'wireplumber.service'),
+    'display_config': wayland('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-display-configuration'),
+    'display_refresh': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-output-watch', '--refresh'),
+    'display_wlsunset_settings': terminal('-e', '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wlsunset', 'check'),
+    'display_wallpaper': wayland('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/waypaper'),
+    'display_appearance': wayland('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-desktop-appearance', '--gtk'),
+    'display_color_picker': ('__INSTALLER_PATH_DIR_USR__/bin/hyprpicker', '--autocopy'),
+    'input_layout_toggle': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-keyboard-layout', 'toggle'),
+    'input_layout_status': terminal('-e', '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-keyboard-layout', 'current'),
+    'input_bluetooth_menu': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth', 'menu'),
+    'input_bluetooth_scan': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth', 'scan'),
+    'input_bluetooth_power': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth', 'power-toggle'),
+    'input_bluetooth_manage': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth', 'manage'),
+    'android_device_menu': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-adb-menu',),
+    'android_adb_server': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-adb-menu', 'server'),
+    'android_devices': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-adb-menu', 'devices'),
+    'android_scrcpy_mirror': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-adb-menu', 'scrcpy'),
+    'android_files': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-adb-menu', 'files'),
+    'android_diagnostics': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-adb-menu', 'diagnostics'),
+    'android_wireless_debugging': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-adb-menu', 'wireless'),
+    'android_recovery': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-adb-menu', 'recovery'),
+    'android_fastboot': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-adb-menu', 'fastboot'),
+    'reminder_new_event': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-actions', 'event-create'),
+    'reminder_new_task': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-actions', 'task-create'),
+    'reminder_new_local': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-new-local-reminder',),
+    'reminder_manager': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager',),
+    'reminder_calendar': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-calendar',),
+    'reminder_agenda': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-agenda',),
+    'reminder_tasks': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-calendar-actions', 'tasks-pending'),
+    'reminder_retry_credentials': ('__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', '--no-block', 'restart', 'labwc-calendar-credentials.service'),
+    'reminder_test_sound': terminal('-e', '__INSTALLER_PATH_DIR_USR__/bin/paplay', '__INSTALLER_PATH_DIR_USR_SHARE__/sounds/freedesktop/stereo/alarm-clock-elapsed.oga'),
+    'notifications_center': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'center'),
+    'notifications_dnd_toggle': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'dnd'),
+    'notifications_dnd_on': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'dnd-on'),
+    'notifications_dnd_off': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'dnd-off'),
+    'notifications_dismiss': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'dismiss'),
+    'notifications_clear': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'clear'),
+    'notifications_restore': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'restore'),
+    'capture_screenshot_full': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'screenshot-full'),
+    'capture_screenshot_box': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'screenshot-box'),
+    'capture_annotate_full': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'annotate-full'),
+    'capture_record_full': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'record-full'),
+    'capture_record_box': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'record-box'),
+    'capture_stop': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'stop'),
+    'capture_ocr': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'ocr-capture'),
+    'health_system': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'system-overview'),
+    'health_memory': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'memory-overview'),
+    'health_network': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'network-overview'),
+    'health_package': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'package-health'),
+    'health_failed_units': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'failed-system-units'),
+    'health_timers': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'show-timers'),
+    'health_pipewire': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'pipewire-status'),
+    'health_wireplumber': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'wireplumber-status'),
+    'health_restart_pipewire': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'restart-pipewire', 'confirmed-system-action'),
+    'health_restart_wireplumber': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'restart-wireplumber', 'confirmed-system-action'),
+    'health_mako_test': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'test-mako-notification'),
+    'health_waybar_refresh': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'refresh-waybar-custom-module'),
+    'packages_pending': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'pending-upgrades'),
+    'packages_upgradable': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'upgradeable-packages'),
+    'packages_refresh_index': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-maintenance-menu', 'system'),
+    'packages_integrity': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'package-health'),
+    'storage_usage': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'storage-overview'),
+    'storage_df': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'btrfs-df'),
+    'storage_btrfs_usage': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'btrfs-usage'),
+    'storage_btrfs_scrub': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'btrfs-scrub-status'),
+    'storage_external_drives': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-external-drives',),
+    'help_main_menu': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu', '--search'),
+    'help_terminal': (TERMINAL,),
+    'help_files': wayland('__INSTALLER_PATH_DIR_USR__/bin/thunar'),
+    'help_help': (HELP, '--topic', 'desktop.labwc'),
+    'help_computer_management': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-computer-management', '--graphical'),
+    'help_shortcuts': terminal('-e', '__INSTALLER_PATH_DIR_USR__/bin/man', 'labwc'),
+    'help_diagnostics': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'session-diagnostics'),
+}
+
+# Labels in the XML stay descriptive while aliases reuse the same reviewed
+# argv vectors. Keeping this table in Python makes the XML data-only.
+COMMANDS.update({
+    'quick_search_applications': COMMANDS['help_main_menu'],
+    'quick_open_terminal': COMMANDS['help_terminal'],
+    'quick_open_files': COMMANDS['help_files'],
+    'quick_notifications': COMMANDS['notifications_center'],
+    'quick_local_reminder': COMMANDS['reminder_new_local'],
+    'quick_computer_management': COMMANDS['help_computer_management'],
+    'quick_system_overview': COMMANDS['health_system'],
+    'session_show_idle_dpms': COMMANDS['session_idle_status'],
+    'session_refresh_dock_launchers': COMMANDS['session_sync_launchers'],
+    'connectivity_current_interface': COMMANDS['connectivity_network_status'],
+    'connectivity_addresses': COMMANDS['connectivity_network_status'],
+    'connectivity_default_route': COMMANDS['connectivity_network_status'],
+    'connectivity_dns_state': COMMANDS['connectivity_dns'],
+    'connectivity_ethernet_wifi_preference': COMMANDS['connectivity_network_status'],
+    'connectivity_wireguard_activate': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'wireguard-activate'),
+    'connectivity_wireguard_deactivate': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'wireguard-deactivate'),
+    'connectivity_wireguard_import': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'wireguard-import'),
+    'connectivity_dns_status': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'dns-status'),
+    'connectivity_dns_restore': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'dns-restore'),
+    'connectivity_dns_flush': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'dns-flush'),
+    'connectivity_dns_custom': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-network-control-menu', 'dns-custom'),
+    'connectivity_listening_ports': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'network-listening'),
+    'connectivity_lan_discovery': COMMANDS['connectivity_network_scan'],
+    'connectivity_wireshark_workflow': terminal('-e', '__INSTALLER_PATH_DIR_USR__/bin/tshark', '--help'),
+    'connectivity_veth_lease': COMMANDS['connectivity_network_namespace'],
+    'connectivity_namespace_status': COMMANDS['connectivity_network_namespace'],
+    'connectivity_policy_summary': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'network-policy'),
+    'audio_volume_40': ('__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '40%'),
+    'audio_volume_60': ('__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '60%'),
+    'audio_volume_80': ('__INSTALLER_PATH_DIR_USR__/bin/wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '80%'),
+    'display_night_light_enable': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wlsunset', 'start'),
+    'display_night_light_disable': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wlsunset', 'stop'),
+    'display_open_wlsunset_settings': COMMANDS['display_wlsunset_settings'],
+    'display_labwc_tweaks': wayland('__INSTALLER_PATH_DIR_USR__/bin/labwc-tweaks'),
+    'display_qt6_settings': wayland('__INSTALLER_PATH_DIR_USR__/bin/qt6ct'),
+    'input_keyboard_us': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-keyboard-layout', 'set', 'us'),
+    'input_keyboard_swedish': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-keyboard-layout', 'set', 'se'),
+    'input_bluetooth_pair': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth', 'pair-menu'),
+    'input_bluetooth_connect': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth', 'connect'),
+    'input_bluetooth_disconnect': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth', 'disconnect'),
+    'input_bluetooth_adapter': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-bluetooth', 'adapter'),
+    'reminder_upcoming': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--upcoming'),
+    'reminder_overdue': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--overdue'),
+    'reminder_mark_selected_complete': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--complete-selected'),
+    'reminder_edit_selected': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--edit-selected'),
+    'reminder_delete_selected': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--delete-selected'),
+    'reminder_pause_all_local': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--pause-local'),
+    'reminder_pause_all_phone': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--pause-phone'),
+    'reminder_resume_local': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--resume-local'),
+    'reminder_resume_phone': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--resume-phone'),
+    'reminder_clear_expired': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-reminder-manager', '--clear-expired'),
+    'reminder_test_notification': terminal('-e', '__INSTALLER_PATH_DIR_USR__/bin/notify-send', 'Reminder test', 'Local reminders are working'),
+    'notifications_dnd_15m': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'dnd-15m'),
+    'notifications_dnd_1h': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'dnd-1h'),
+    'notifications_dnd_4h': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'dnd-4h'),
+    'notifications_dnd_tomorrow': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications', 'dnd-tomorrow'),
+    'notifications_test_mako': COMMANDS['health_mako_test'],
+    'notifications_settings': wayland('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-desktop-appearance', '--gtk'),
+    'capture_open_annotation': COMMANDS['capture_annotate_full'],
+    'capture_ocr_last': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'ocr-last'),
+    'capture_open_folder': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'open-folder'),
+    'capture_copy_last_path': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-capture', 'copy-last-path'),
+    'system_cpu_load': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'cpu-load'),
+    'system_disk_usage': COMMANDS['storage_usage'],
+    'system_battery_power': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'battery-power'),
+    'system_boot_performance': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'boot-performance'),
+    'system_kernel_warnings': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'kernel-warnings'),
+    'system_recent_errors': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'recent-errors'),
+    'system_failed_system_units': COMMANDS['health_failed_units'],
+    'system_failed_user_units': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'failed-user-units'),
+    'system_timers': COMMANDS['health_timers'],
+    'packages_unattended_status': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'unattended-status'),
+    'storage_overview': COMMANDS['storage_usage'],
+    'storage_external_manager': COMMANDS['storage_external_drives'],
+    'storage_nvme_health': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-maintenance-menu', 'system', 'nvme-smart-health'),
+    'storage_nvme_firmware': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-maintenance-menu', 'system', 'nvme-firmware-slots'),
+    'storage_nvme_identity': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-maintenance-menu', 'system', 'nvme-identify-data'),
+    'storage_btrfs_df': COMMANDS['storage_df'],
+    'storage_btrfs_last_scrub': COMMANDS['storage_btrfs_scrub'],
+    'storage_timeshift_snapshot': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-maintenance-menu', 'recovery', 'create-timeshift-snapshot'),
+    'help_keyboard_shortcuts': COMMANDS['help_shortcuts'],
+    'help_labwc_diagnostics': COMMANDS['help_diagnostics'],
+    'help_wayland_output_info': terminal('-e', '__INSTALLER_PATH_DIR_USR__/bin/wlr-randr'),
+    'help_waybar_status': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'waybar-status'),
+    'help_crystal_dock_status': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action', 'dock-status'),
+    'help_user_journal': terminal('-e', '__INSTALLER_PATH_DIR_USR__/bin/journalctl', '--user', '-b'),
+    'help_system_journal': terminal('-e', '__INSTALLER_PATH_DIR_USR__/bin/journalctl', '-b'),
+    'help_test_audio': COMMANDS['reminder_test_sound'],
+    'help_test_display': COMMANDS['display_config'],
+    'help_test_notification': COMMANDS['health_mako_test'],
+    'help_documentation': COMMANDS['help_shortcuts'],
+    'help_reload_waybar': ('__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', '--no-block', 'reload', 'waybar.service'),
+})
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 1 or (argv[0] not in COMMANDS and argv[0] != 'display_wlsunset_toggle'):
+        raise MenuError('unsupported system menu action')
+    env = desktop_environment()
+    if argv[0] == 'display_wlsunset_toggle':
+        active = subprocess.run(['__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', 'is-active', '--quiet',
+                                 'labwc-wlsunset.service'], env=env, check=False,
+                                stdin=subprocess.DEVNULL, timeout=15).returncode == 0
+        command = ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wlsunset', 'stop' if active else 'start')
+        result = subprocess.run(command, env=env, cwd=env['HOME'], stdin=subprocess.DEVNULL,
+                                check=False, timeout=60)
+        if result.returncode == 0:
+            notify_success(argv[0], env)
+        return result.returncode
+    # Interactive delegates keep the transient service as their lifecycle
+    # owner. Replacing the dispatcher avoids an arbitrary timeout closing a
+    # reminder editor or a picker while the user is still using it.
+    if argv[0] not in {'audio_mute', 'audio_mic_mute', 'notifications_dnd_on',
+                       'notifications_dnd_off', 'display_night_light_enable',
+                       'display_night_light_disable'}:
+        os.chdir(env['HOME'])
+        os.execvpe(COMMANDS[argv[0]][0], COMMANDS[argv[0]], env)
+    process = subprocess.run(COMMANDS[argv[0]], env=env, cwd=env['HOME'],
+                             stdin=subprocess.DEVNULL, check=False, timeout=30)
+    if process.returncode == 0:
+        notify_success(argv[0], env)
+    return process.returncode
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (MenuError, OSError, subprocess.SubprocessError) as error:
+        print('labwc-system-menu-action: ' + str(error), file=sys.stderr)
+        raise SystemExit(1)

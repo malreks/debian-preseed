@@ -1,0 +1,6 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, '__INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__')
+from labwc_compz.worker import main
+raise SystemExit(main())

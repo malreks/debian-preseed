@@ -1,0 +1,15 @@
+#!/bin/sh
+# Terminal entry point for the installed, profile-controlled NFS client.
+set -eu
+if [ "$#" -eq 1 ] && [ "$1" = --help ]; then
+  printf '%s\n' 'Usage: nfsmnt' \
+    'Mount the configured NFS share when disconnected; unmount it when connected.' \
+    'The persistent Sharing home view receives the mount automatically.' \
+    'Run as the configured operator; systemd requires administrator authentication.'
+  exit 0
+fi
+if [ "$#" -ne 0 ]; then
+  printf '%s\n' 'Usage: nfsmnt [--help]' >&2
+  exit 2
+fi
+exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/network-sharing --toggle

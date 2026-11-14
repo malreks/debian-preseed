@@ -1,0 +1,12 @@
+[Unit]
+Description=Fallback watcher for Timeshift runtime state and the GRUB snapshot menu
+ConditionPathExists=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/grub-btrfs-refresh
+
+[Path]
+# Runtime PID directories are created/removed even when Timeshift uses mounts.
+# A level-triggered PathExistsGlob would restart this service continuously.
+PathChanged=__INSTALLER_PATH_DIR_RUN__/timeshift
+Unit=grub-btrfs-refresh.service
+
+[Install]
+WantedBy=multi-user.target

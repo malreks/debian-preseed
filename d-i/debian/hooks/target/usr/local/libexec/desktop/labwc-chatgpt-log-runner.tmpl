@@ -1,0 +1,437 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/perl
+use strict;
+use warnings;
+
+use Errno qw(EINTR);
+use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK O_RDONLY O_WRONLY O_CREAT O_EXCL O_NOFOLLOW O_DIRECTORY LOCK_EX LOCK_NB F_SETFD FD_CLOEXEC);
+use IO::Select;
+use IPC::Open3 qw(open3);
+use JSON::PP qw(encode_json decode_json);
+use POSIX qw(WNOHANG);
+use Socket qw(AF_UNIX SOCK_DGRAM sockaddr_un);
+use Symbol qw(gensym);
+use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
+
+use constant {
+    CHILD_EXECUTABLE        => '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app',
+    LOG_PRIORITY_ERROR      => 11,
+    LOG_PRIORITY_INFO       => 14,
+    LOG_PRIORITY_WARNING    => 12,
+    MAXIMUM_ARGUMENTS       => 128,
+    MAXIMUM_ARGUMENT_BYTES  => 16_384,
+    MAXIMUM_LINE_BYTES      => 1_800,
+    READ_CHUNK_BYTES        => 8_192,
+    SESSION_EXECUTABLE      => '__INSTALLER_PATH_DIR_USR__/bin/setsid',
+    SOCKET_PATH             => '__INSTALLER_LOG_CHATGPT_SOCKET__',
+    SYSLOG_TAG              => 'openai-chatgpt',
+    TERMINATION_GRACE_SECS  => 5,
+    TERMINATION_KILL_SECS   => 2,
+    OUTPUT_DRAIN_SECS      => 0.2,
+    CHILD_POLL_SECS        => 0.1,
+};
+
+open STDOUT, '>', '__INSTALLER_PATH_DIR_DEV__/null' or exit 70;
+open STDERR, '>', '__INSTALLER_PATH_DIR_DEV__/null' or exit 70;
+
+my $log_socket;
+my $diagnostic_output;
+my $diagnostic_deadline = 0;
+my $diagnostic_remaining = 256 * 1024;
+
+sub _diagnostic_open {
+    my $session = $ENV{LABWC_DEBUG_SESSION} // q{};
+    return if $session !~ /\A[0-9a-f]{24}\z/ || $< == 0 || $< != $>;
+    # Optional user-owned output copy. Every parent is private, the final
+    # directory is pinned, and no diagnostic error may alter app lifetime.
+    eval {
+        my $root = '__INSTALLER_PATH_DIR_RUN_USER__/' . $<;
+        for my $path ($root, "$root/labwc-debug", "$root/labwc-debug/$session") {
+            my @meta = lstat $path;
+            die "unsafe diagnostic directory\n" unless @meta && -d _ && !-l _
+                && $meta[4] == $< && ($meta[2] & 07777) == 0700;
+        }
+        sysopen my $directory, "$root/labwc-debug/$session", O_RDONLY | O_DIRECTORY | O_NOFOLLOW
+            or die "diagnostic directory unavailable\n";
+        my $pinned = '__INSTALLER_PATH_DIR_PROC__/self/fd/' . fileno($directory);
+        sysopen my $request, "$pinned/request.json", O_RDONLY | O_NONBLOCK | O_NOFOLLOW
+            or die "diagnostic request unavailable\n";
+        my @meta = stat $request;
+        die "unsafe diagnostic request\n" unless @meta && -f $request && $meta[4] == $<
+            && $meta[3] == 1 && ($meta[2] & 07777) == 0600 && $meta[7] <= 4096;
+        my $raw = q{};
+        sysread($request, $raw, 4097);
+        close $request;
+        my $request_data = decode_json($raw);
+        my $seconds = $request_data->{expires_at} - time();
+        die "expired diagnostic request\n" unless $request_data->{session} eq $session
+            && $seconds > 0 && $seconds <= 180;
+        sysopen my $lock, "$pinned/capture.lock", O_RDONLY | O_NONBLOCK | O_NOFOLLOW
+            or die "diagnostic lock unavailable\n";
+        @meta = stat $lock;
+        die "unsafe diagnostic lock\n" unless @meta && -f $lock && $meta[4] == $<
+            && $meta[3] == 1 && ($meta[2] & 07777) == 0600;
+        flock($lock, LOCK_EX | LOCK_NB) or die "diagnostic capture busy\n";
+        opendir my $entries, $pinned or die "diagnostic inventory unavailable\n";
+        my ($count, $captures) = (0, 0);
+        while (defined(my $name = readdir $entries)) {
+            die "diagnostic inventory limit\n" if ++$count > 64;
+            ++$captures if $name =~ /\Acapture-/;
+        }
+        closedir $entries;
+        die "diagnostic capture limit\n" if $captures >= 4;
+        sysopen $diagnostic_output, "$pinned/capture-chatgpt-$$.jsonl",
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600
+            or die "diagnostic output unavailable\n";
+        fcntl($diagnostic_output, F_SETFD, FD_CLOEXEC);
+        $diagnostic_deadline = _monotonic() + $seconds;
+        close $lock;
+        close $directory;
+        1;
+    } or do {
+        close $diagnostic_output if defined $diagnostic_output;
+        undef $diagnostic_output;
+    };
+}
+
+sub _diagnostic_record {
+    my ($stream, $message) = @_;
+    return if !defined $diagnostic_output;
+    $message =~ s/\b(authorization|cookie|set-cookie)\s*[:=].*/$1=[REDACTED]/ig;
+    $message =~ s/\b((?:access_token|refresh_token|id_token|token|password|passwd|secret|api[_-]?key)\s*[:=]\s*)[^\s&;"']+/$1 . '[REDACTED]'/ige;
+    my $raw = encode_json({event => 'output', time => time(), identifier => SYSLOG_TAG,
+                           stream => $stream, message => $message}) . "\n";
+    if (_monotonic() >= $diagnostic_deadline || length($raw) > $diagnostic_remaining - 1024) {
+        my $marker = encode_json({event => 'capture-limit', reason => 'time-or-byte-limit',
+                                  maximum_bytes => 256 * 1024}) . "\n";
+        syswrite($diagnostic_output, $marker) if length($marker) <= $diagnostic_remaining;
+        close $diagnostic_output;
+        undef $diagnostic_output;
+        return;
+    }
+    my $written = syswrite($diagnostic_output, $raw);
+    if (!defined $written || $written != length($raw)) {
+        close $diagnostic_output;
+        undef $diagnostic_output;
+        return;
+    }
+    $diagnostic_remaining -= $written;
+}
+
+sub _exit_status {
+    my ($status) = @_;
+
+    return 255 if !defined($status) || $status == -1;
+    return 128 + ($status & 127) if $status & 127;
+    return $status >> 8;
+}
+
+sub _sanitize_bytes {
+    my ($value) = @_;
+
+    $value = q{} if !defined $value;
+    $value =~ s/([^\x20-\x7e])/sprintf('\x%02X', ord($1))/ge;
+    return $value;
+}
+
+sub _syslog_timestamp {
+    my @months = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
+    my @time = localtime();
+
+    return sprintf(
+        '%s %2d %02d:%02d:%02d',
+        $months[$time[4]],
+        $time[3],
+        $time[2],
+        $time[1],
+        $time[0],
+    );
+}
+
+sub _open_log_socket {
+    socket($log_socket, AF_UNIX, SOCK_DGRAM, 0)
+        or die "cannot create the managed ChatGPT log socket\n";
+
+    my $flags = fcntl($log_socket, F_GETFL, 0);
+    defined($flags)
+        or die "cannot inspect the managed ChatGPT log socket\n";
+    fcntl($log_socket, F_SETFL, $flags | O_NONBLOCK)
+        or die "cannot make the managed ChatGPT log socket nonblocking\n";
+    return;
+}
+
+sub _send_syslog {
+    my ($priority, $message) = @_;
+
+    defined($log_socket)
+        or die "managed ChatGPT log transport is not open\n";
+    my $packet = sprintf(
+        '<%d>%s %s[%d]: %s' . "\n\0",
+        $priority,
+        _syslog_timestamp(),
+        SYSLOG_TAG,
+        $$,
+        $message,
+    );
+    # Resolve the private socket path for every datagram so a collector restart
+    # needs no reconnect. A failed nonblocking send drops only this record;
+    # logging must not block or terminate the application.
+    send($log_socket, $packet, 0, sockaddr_un(SOCKET_PATH));
+    return;
+}
+
+sub _write_syslog_line {
+    my ($stream, $line) = @_;
+
+    my $priority = LOG_PRIORITY_INFO;
+    if ($line =~ /\A<([0-7])>/) {
+        $priority = 8 + $1;
+    } elsif (substr($line, 0, 160) =~ /(?:\A|[\s\[:=])(?:ERROR|FATAL|CRITICAL)(?:\z|[\s\]:])/i) {
+        $priority = LOG_PRIORITY_ERROR;
+    } elsif (substr($line, 0, 160) =~ /(?:\A|[\s\[:=])WARN(?:ING)?(?:\z|[\s\]:])/i) {
+        $priority = LOG_PRIORITY_WARNING;
+    } elsif ($stream eq 'stderr' &&
+             substr($line, 0, 160) !~ /(?:\A|[\s\[:=])(?:INFO|NOTICE|DEBUG|TRACE)(?:\z|[\s\]:])/i) {
+        $priority = LOG_PRIORITY_WARNING;
+    }
+    $line = _sanitize_bytes($line);
+    $line = '(empty line)' if $line eq q{};
+    _diagnostic_record($stream, $line);
+
+    my $prefix = "stream=$stream message=";
+    my $continuation = ' continued=true';
+    my $available = MAXIMUM_LINE_BYTES - length($prefix);
+    my $chunk_bytes = $available - length($continuation);
+    $chunk_bytes > 0 or die "managed ChatGPT log line limit is too small\n";
+
+    while (length($line) > $available) {
+        my $chunk = substr($line, 0, $chunk_bytes, q{});
+        _send_syslog(
+            $priority,
+            "${prefix}${chunk}${continuation}",
+        );
+    }
+    _send_syslog($priority, "${prefix}${line}");
+    return;
+}
+
+sub _flush_complete_lines {
+    my ($stream, $buffer_ref, $flush_all) = @_;
+
+    while ($$buffer_ref =~ s/\A([^\n]*)\n//) {
+        my $line = $1;
+        $line =~ s/\r\z//;
+        _write_syslog_line($stream, $line);
+    }
+    if ($flush_all && $$buffer_ref ne q{}) {
+        my $line = $$buffer_ref;
+        $line =~ s/\r\z//;
+        _write_syslog_line($stream, $line);
+        $$buffer_ref = q{};
+    }
+    while (length($$buffer_ref) > MAXIMUM_LINE_BYTES) {
+        my $chunk = substr(
+            $$buffer_ref,
+            0,
+            MAXIMUM_LINE_BYTES,
+            q{},
+        );
+        _write_syslog_line($stream, $chunk);
+    }
+    return;
+}
+
+sub _monotonic {
+    return clock_gettime(CLOCK_MONOTONIC);
+}
+
+sub _terminate_child {
+    my ($pid) = @_;
+
+    kill 'TERM', $pid;
+    for my $grace (TERMINATION_GRACE_SECS, TERMINATION_KILL_SECS) {
+        my $deadline = _monotonic() + $grace;
+        while (_monotonic() < $deadline) {
+            my $waited = waitpid($pid, WNOHANG);
+            return if $waited == $pid || ($waited == -1 && $! != EINTR);
+            select undef, undef, undef, CHILD_POLL_SECS;
+        }
+        kill 'KILL', $pid;
+    }
+    return;
+}
+
+sub _validate_arguments {
+    my (@arguments) = @_;
+
+    @arguments >= 1 or die "managed ChatGPT launch mode is missing\n";
+    @arguments <= MAXIMUM_ARGUMENTS + 1
+        or die "managed ChatGPT argument count exceeds the limit\n";
+
+    my $mode = shift @arguments;
+    $mode =~ /\A(?:auto|launch|intel|nvidia)\z/
+        or die "managed ChatGPT launch mode is invalid\n";
+    for my $argument (@arguments) {
+        defined($argument) or die "managed ChatGPT argument is undefined\n";
+        length($argument) <= MAXIMUM_ARGUMENT_BYTES
+            or die "managed ChatGPT argument exceeds the size limit\n";
+    }
+    return ($mode, @arguments);
+}
+
+my $status;
+my $logger_ready = 0;
+my $child_pid;
+my $error = q{};
+
+eval {
+    my ($mode, @extra_arguments) = _validate_arguments(@ARGV);
+    _diagnostic_open();
+    _open_log_socket();
+    $logger_ready = 1;
+    _send_syslog(LOG_PRIORITY_INFO, "event=started mode=$mode");
+
+    my ($stdin, $stdout);
+    my $stderr = gensym();
+    $child_pid = open3(
+        $stdin,
+        $stdout,
+        $stderr,
+        SESSION_EXECUTABLE,
+        CHILD_EXECUTABLE,
+        $mode,
+        'chatgpt',
+        @extra_arguments,
+    );
+    close $stdin or die "cannot close managed ChatGPT child input\n";
+    undef $stdin;
+
+    my $selector = IO::Select->new($stdout, $stderr);
+    my %stream_for = (
+        fileno($stdout) => 'stdout',
+        fileno($stderr) => 'stderr',
+    );
+    my %buffer_for = (
+        stdout => q{},
+        stderr => q{},
+    );
+    my $termination_deadline;
+    my $kill_deadline;
+    my $drain_deadline;
+    my $raw_status;
+    local $SIG{PIPE} = 'IGNORE';
+    local $SIG{HUP} = sub {
+        kill 'HUP', $child_pid if defined $child_pid;
+        $termination_deadline //= _monotonic() + TERMINATION_GRACE_SECS;
+    };
+    local $SIG{INT} = sub {
+        kill 'INT', $child_pid if defined $child_pid;
+        $termination_deadline //= _monotonic() + TERMINATION_GRACE_SECS;
+    };
+    local $SIG{TERM} = sub {
+        kill 'TERM', $child_pid if defined $child_pid;
+        $termination_deadline //= _monotonic() + TERMINATION_GRACE_SECS;
+    };
+
+    # A descendant retaining stdout/stderr must not outlive the application by
+    # holding this supervisor open. Reap the direct child independently of EOF
+    # and drain only briefly afterwards. The user unit owns final cgroup cleanup.
+    while ($selector->count() || defined($child_pid)) {
+        if (defined($child_pid)) {
+            my $waited = waitpid($child_pid, WNOHANG);
+            if ($waited == $child_pid) {
+                $raw_status = $?;
+                undef $child_pid; # Never signal a PID after it has been reaped.
+                $drain_deadline = _monotonic() + OUTPUT_DRAIN_SECS;
+            } elsif ($waited == -1 && $! != EINTR) {
+                die "cannot inspect managed ChatGPT child\n";
+            }
+        }
+        if (defined($drain_deadline) && _monotonic() >= $drain_deadline) {
+            for my $handle ($selector->handles()) {
+                my $stream = $stream_for{fileno($handle)};
+                $selector->remove($handle);
+                close $handle or die "cannot close managed ChatGPT output\n";
+                _flush_complete_lines($stream, \$buffer_for{$stream}, 1);
+            }
+            last;
+        }
+        if (
+            defined($termination_deadline)
+            && _monotonic() >= $termination_deadline
+            && defined($child_pid)
+        ) {
+            kill 'KILL', $child_pid;
+            undef $termination_deadline;
+            $kill_deadline = _monotonic() + TERMINATION_KILL_SECS;
+        }
+        die "managed ChatGPT child did not exit after termination\n"
+            if defined($kill_deadline) && defined($child_pid)
+                && _monotonic() >= $kill_deadline;
+        if (!$selector->count()) {
+            select undef, undef, undef, CHILD_POLL_SECS;
+            next;
+        }
+        for my $handle ($selector->can_read(CHILD_POLL_SECS)) {
+            my $file_descriptor = fileno($handle);
+            defined($file_descriptor)
+                or die "managed ChatGPT output descriptor is unavailable\n";
+            my $stream = $stream_for{$file_descriptor};
+            defined($stream)
+                or die "managed ChatGPT output stream is unknown\n";
+
+            my $chunk = q{};
+            my $bytes = sysread($handle, $chunk, READ_CHUNK_BYTES);
+            if (!defined $bytes) {
+                next if $! == EINTR;
+                die "cannot read managed ChatGPT output\n";
+            }
+            if ($bytes == 0) {
+                $selector->remove($handle);
+                close $handle
+                    or die "cannot close managed ChatGPT output\n";
+                $stdout = undef if $stream eq 'stdout';
+                $stderr = undef if $stream eq 'stderr';
+                _flush_complete_lines(
+                    $stream,
+                    \$buffer_for{$stream},
+                    1,
+                );
+                next;
+            }
+            $buffer_for{$stream} .= $chunk;
+            _flush_complete_lines(
+                $stream,
+                \$buffer_for{$stream},
+                0,
+            );
+        }
+    }
+
+    $status = _exit_status($raw_status);
+    _send_syslog(
+        $status == 0
+            ? LOG_PRIORITY_INFO
+            : LOG_PRIORITY_WARNING,
+        "event=completed status=$status",
+    );
+    1;
+} or $error = $@ || "managed ChatGPT execution failed\n";
+
+if (defined $child_pid) {
+    _terminate_child($child_pid);
+    undef $child_pid;
+}
+if ($error ne q{} && $logger_ready) {
+    eval {
+        _send_syslog(LOG_PRIORITY_ERROR, 'event=failed');
+        1;
+    };
+}
+eval {
+    close $log_socket if defined $log_socket;
+    close $diagnostic_output if defined $diagnostic_output;
+    1;
+};
+
+exit 70 if $error ne q{};
+exit(defined($status) ? $status : 70);

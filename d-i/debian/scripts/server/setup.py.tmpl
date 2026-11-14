@@ -1,0 +1,1716 @@
+#!/usr/bin/python3
+"""Installation-only headless provisioning, removed after unattended setup.
+
+Accounts, initial artifacts and private runner configuration are installer-owned.
+This program does not load or dispatch through the installed server controller.
+General I/O/acquisition contracts are statically checked against maintenance.
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import contextlib
+import fcntl
+import grp
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path, PurePosixPath
+import pwd
+import re
+import selectors
+import signal
+import shutil
+import stat
+import struct
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.parse
+
+STATE = Path('__INSTALLER_PATH_DIR_SERVER_STATE__')
+RELEASES = Path('__INSTALLER_PATH_DIR_SERVER_RELEASES__')
+CATALOG = Path('__INSTALLER_PATH_FILE_SERVER_ARTIFACTS__')
+SYSTEMD = Path('__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__')
+ETC = Path('__INSTALLER_PATH_DIR_ETC__')
+RUN = Path('__INSTALLER_PATH_DIR_RUN__')
+POOL_ROOT = Path('__INSTALLER_PATH_DIR_POOL__')
+RECEIPT = Path('__INSTALLER_PATH_FILE_INSTALLER_CLASSES__')
+UPLINK_POLICY = Path('__INSTALLER_PATH_FILE_NETWORK_UPLINK_POLICY__')
+DNS_RESOLVED = Path('__INSTALLER_PATH_FILE_SERVER_DNS_RESOLVED__')
+DNS_POLICY = Path('__INSTALLER_PATH_FILE_SERVER_DNS_POLICY__')
+DNS_FORWARDING_CANDIDATE = Path('__INSTALLER_PATH_FILE_SERVER_DNS_FORWARDING_CANDIDATE__')
+DNS_FORWARDING = Path('__INSTALLER_PATH_FILE_SYSCTL_DNS_FORWARDING__')
+DNS_BACKUPS = Path('__INSTALLER_PATH_DIR_SERVER_DNS_BACKUPS__')
+DNS_CONFIGURATION = Path('__INSTALLER_PATH_FILE_SERVER_DNS_CONFIGURATION_TRANSACTION__')
+ROLES = {
+    'server/github-actions': ('ci-github', 2101, Path('__INSTALLER_PATH_DIR_SERVER_GITHUB__'), 'ci-github.service'),
+    'server/gitlab-cicd': ('ci-gitlab', 2102, Path('__INSTALLER_PATH_DIR_SERVER_GITLAB__'), 'ci-gitlab.service'),
+    'server/technitium': ('technitium', 2103, Path('__INSTALLER_PATH_DIR_SERVER_DNS__'), 'technitium.service'),
+    'server/devops': ('srv-devops', 2104, Path('__INSTALLER_PATH_DIR_SERVER_DEVOPS__'), ''),
+}
+WORK_ROOTS = {
+    'server/github-actions': Path('__INSTALLER_PATH_DIR_SERVER_GITHUB_WORK__'),
+    'server/gitlab-cicd': Path('__INSTALLER_PATH_DIR_SERVER_GITLAB_WORK__'),
+    'server/devops': Path('__INSTALLER_PATH_DIR_SERVER_DEVOPS_WORK__'),
+}
+DEADLINE = 0.0
+
+
+class OutcomeUnknown(RuntimeError):
+    """A mutation may have completed; preserve evidence and prohibit retry."""
+
+
+def trusted_directory(path: Path, info, uid: int = 0) -> bool:
+    # The canonical root:devops mode-3775 data partition is deliberately
+    # shared. Its sticky bit protects root-owned children from replacement.
+    # No other writable ancestor receives this exception.
+    shared_pool = path == POOL_ROOT and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o3775
+    return (stat.S_ISDIR(info.st_mode) and info.st_uid in (0, uid)
+            and (not info.st_mode & 0o022 or shared_pool))
+
+
+def require_pool_mount() -> None:
+    mounted = command(['/usr/bin/findmnt', '-n', '-o', 'TARGET', '--mountpoint', str(POOL_ROOT)])
+    if mounted.strip() != str(POOL_ROOT).encode():
+        raise ValueError('the dedicated data pool is not mounted; no root-filesystem fallback')
+
+
+def json_document(data):
+    """Bounded callers supply bytes; reject duplicate/private ambiguous fields."""
+    def pairs(items):
+        value = {}
+        for name, item in items:
+            if name in value:
+                raise ValueError('duplicate JSON field')
+            value[name] = item
+        return value
+    def constant(_):
+        raise ValueError('non-finite JSON value')
+    return json.loads(data, object_pairs_hook=pairs, parse_constant=constant)
+
+
+def regular(path: Path, *, private: bool = False, maximum: int = 1048576, owner: int = 0) -> bytes:
+    if private:
+        for parent in path.parents:
+            info = parent.lstat()
+            if not trusted_directory(parent, info, owner):
+                raise ValueError('private input has untrusted ancestry')
+    # A substituted FIFO must fail its type check without blocking the owner.
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != owner
+                or info.st_mode & (0o077 if private else 0o022) or info.st_size > maximum):
+            raise ValueError('unsafe protected input')
+        with os.fdopen(os.dup(fd), 'rb') as stream:
+            data = stream.read(maximum + 1)
+        after, named = os.fstat(fd), path.lstat()
+        def identity(value):
+            return (value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+                    value.st_uid, value.st_gid, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        if (len(data) > maximum or len(data) != info.st_size
+                or identity(info) != identity(after) or identity(after) != identity(named)):
+            raise ValueError('input changed or exceeds byte bound')
+        return data
+    finally:
+        os.close(fd)
+
+
+def protected_directory(path: Path, mode: int = 0o700) -> None:
+    if not path.is_absolute() or '..' in path.parts:
+        raise ValueError('unsafe managed directory')
+    for parent in reversed((path, *path.parents)):
+        if parent == Path('/'):
+            continue
+        if not parent.exists():
+            parent.mkdir(mode=mode)
+        info = parent.lstat()
+        if not trusted_directory(parent, info):
+            raise ValueError('managed ancestry is not trusted')
+
+
+def sync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def podman_private_store(path: Path, uid: int) -> None:
+    """Create one provider-owned persistent store below /pool/podman."""
+    if (not path.is_absolute() or any(part in {'.', '..'} for part in path.parts)
+            or path.parts[:3] != ('/', 'pool', 'podman') or len(path.parts) < 4):
+        raise ValueError('Podman persistent store must remain below /pool/podman')
+    parent = path.parent
+    protected_directory(parent, 0o750)
+    parent_info = parent.lstat()
+    if (not stat.S_ISDIR(parent_info.st_mode) or parent_info.st_uid != 0
+            or parent_info.st_mode & 0o022):
+        raise ValueError('Podman store parent is not root-owned and private')
+    os.chown(parent, 0, uid)
+    os.chmod(parent, 0o750)
+    if path.exists() or path.is_symlink():
+        info = path.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_gid != uid
+                or info.st_mode & 0o077):
+            raise ValueError('existing Podman store identity differs; no reset')
+    else:
+        path.mkdir(mode=0o700)
+        os.chown(path, uid, uid)
+    sync_directory(parent)
+    sync_directory(path)
+
+
+def write(path: Path, data: bytes, mode: int = 0o600, uid: int = 0) -> None:
+    # Pin each directory while walking from the immutable filesystem root.
+    # Service-owned stores must not redirect a privileged writer through a
+    # renamed parent, symlink or a different account's private directory.
+    if not path.is_absolute() or any(part in ('.', '..') for part in path.parts):
+        raise ValueError('unsafe publication path')
+    directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    temporary = None
+    try:
+        current = Path('/')
+        for part in path.parent.parts[1:]:
+            current /= part
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory)
+            info = os.fstat(child)
+            if not trusted_directory(current, info, uid):
+                os.close(child)
+                raise ValueError('unsafe publication ancestry')
+            os.close(directory)
+            directory = child
+        try:
+            info = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid not in (0, uid):
+                raise ValueError('refusing unsafe publication target')
+        temporary = '.candidate-' + os.urandom(16).hex()
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=directory)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            os.fchmod(stream.fileno(), mode)
+            os.fchown(stream.fileno(), uid, uid)
+            stream.flush(); os.fsync(stream.fileno())
+            published = os.fstat(stream.fileno())
+        os.replace(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+        temporary = None
+        os.fsync(directory)
+        current = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+        if (current.st_dev, current.st_ino, current.st_uid, stat.S_IMODE(current.st_mode)) != (published.st_dev, published.st_ino, uid, mode):
+            raise OutcomeUnknown('publication identity changed; retain recovery state')
+    finally:
+        try:
+            if temporary is not None:
+                # Remove only this operation's still-owned regular candidate.
+                try:
+                    candidate = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
+                    if candidate.st_uid == os.geteuid() and stat.S_ISREG(candidate.st_mode):
+                        os.unlink(temporary, dir_fd=directory)
+                except FileNotFoundError:
+                    pass
+        finally:
+            os.close(directory)
+
+
+@contextlib.contextmanager
+def ownership_lock():
+    protected_directory(STATE, 0o755)
+    os.chmod(STATE, 0o755)
+    fd = os.open(STATE / 'ownership.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != 0 or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_mode & 0o077:
+            raise ValueError('unsafe ownership lock')
+        end = min(DEADLINE, time.monotonic() + 30)
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= end:
+                    raise TimeoutError('service state already has an owner') from None
+                time.sleep(0.1)
+        yield
+    finally:
+        os.close(fd)
+
+
+def command(argv: list[str], *, user: str | None = None, cwd: Path | None = None,
+            extra: dict[str, str] | None = None, timeout: int = 120,
+            input_data: bytes | None = None) -> bytes:
+    env = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8'}
+    options = {}
+    if user:
+        account = pwd.getpwnam(user)
+        options.update(user=account.pw_uid, group=account.pw_gid, extra_groups=[], umask=0o077)
+        env.update(HOME=account.pw_dir, USER=user, LOGNAME=user)
+    if extra:
+        env.update(extra)
+    remaining = min(timeout, DEADLINE - time.monotonic())
+    if remaining <= 0:
+        raise TimeoutError('operation deadline expired')
+    if not hasattr(os, 'pidfd_open') or not hasattr(signal, 'pidfd_send_signal'):
+        raise ValueError('the selected target runtime cannot pin child identities')
+    # Drain a bounded pipe, without writing vendor output or tokens to a log.
+    # A pinned leader owns this new session. Uncertain termination is distinct
+    # from an ordinary failure and never triggers an automatic mutation retry.
+    end = time.monotonic() + remaining
+    private_input = None
+    try:
+        if input_data is not None:
+            if not isinstance(input_data, bytes) or len(input_data) > 65536:
+                raise ValueError('native private input exceeds its bound')
+            private_input = tempfile.TemporaryFile(mode='w+b')
+            private_input.write(input_data)
+            private_input.seek(0)
+        process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=private_input or subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   start_new_session=True, **options)
+    finally:
+        if private_input is not None:
+            private_input.close()
+    pinned = None
+    output = bytearray()
+    selector = selectors.DefaultSelector()
+    try:
+        try:
+            pinned = os.pidfd_open(process.pid)
+        except OSError:
+            # No verified identity means no numeric-PID/group fallback. The
+            # caller retains its uncertainty marker for operator recovery.
+            raise OutcomeUnknown('unable to pin child identity; retained state requires review') from None
+        selector.register(process.stdout, selectors.EVENT_READ)
+        while selector.get_map():
+            if time.monotonic() >= end:
+                raise TimeoutError('headless operation deadline expired')
+            for key, _ in selector.select(min(0.25, max(0, end - time.monotonic()))):
+                block = os.read(key.fileobj.fileno(), 65536)
+                if not block:
+                    selector.unregister(key.fileobj)
+                    break
+                if len(output) + len(block) > 2097152:
+                    raise ValueError('headless operation output bound exceeded')
+                output.extend(block)
+        result = process.wait(timeout=max(0.01, end - time.monotonic()))
+        if result:
+            raise RuntimeError(f'headless operation failed (status={result})')
+        return bytes(output)
+    except BaseException as error:
+        # An unreaped leader pins the numeric session identity. A direct-child
+        # reap cannot account for detached descendants after cancellation.
+        # Preserve enrollment-uncertain and stop if ownership cannot be proved.
+        interrupted = process.returncode is None
+        if interrupted and pinned is not None:
+            try:
+                signal.pidfd_send_signal(pinned, 0)
+                if os.getsid(process.pid) != process.pid or os.getpgid(process.pid) != process.pid:
+                    raise OutcomeUnknown('child session identity changed')
+                os.killpg(process.pid, signal.SIGTERM)
+                # Keep the leader unreaped throughout group cleanup, including
+                # when TERM makes it exit before its descendants finish.
+                time.sleep(0.25)
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                raise OutcomeUnknown('child termination cannot be proved') from None
+        if interrupted or isinstance(error, (TimeoutError, KeyboardInterrupt)):
+            raise OutcomeUnknown('child tree completion cannot be proved; retained state requires review') from error
+        raise
+    finally:
+        selector.close()
+        process.stdout.close()
+        if pinned is not None:
+            os.close(pinned)
+
+
+def target_architecture() -> str:
+    value = command(['/usr/bin/dpkg', '--print-architecture']).decode('ascii').strip()
+    if value not in {'amd64', 'arm64'}:
+        raise ValueError('unsupported runner target architecture')
+    return value
+
+
+def acquire(record: dict, arch: str, destination: Path) -> str:
+    artifact = record['architectures'][arch]
+    algorithm = 'sha512' if 'sha512' in artifact else 'sha256'
+    expected = artifact[algorithm]
+    if re.fullmatch('[0-9a-f]{' + str(hashlib.new(algorithm).digest_size * 2) + '}', expected) is None:
+        raise ValueError('artifact has no reviewed content identity')
+    # One shared HTTP owner validates every hop before requesting it and bounds
+    # streaming/retries/final waits. Its stdout may contain a signed URL and is
+    # consumed privately, never passed to diagnostics or a receipt.
+    command(['__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/installer-artifact-fetch',
+             artifact['url'], str(destination), str(record['minimum_bytes']),
+             str(record['maximum_bytes']), 'artifact', ' '.join(record['hosts'])], timeout=900)
+    descriptor = os.open(destination, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    digest = hashlib.new(algorithm)
+    size = 0
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                or info.st_mode & 0o077 or not record['minimum_bytes'] <= info.st_size <= record['maximum_bytes']):
+            raise ValueError('artifact file identity or size differs from its policy')
+        while block := stream.read(65536):
+            if time.monotonic() >= DEADLINE:
+                raise TimeoutError('artifact verification deadline expired')
+            size += len(block)
+            if size > record['maximum_bytes']:
+                raise ValueError('artifact exceeds byte bound')
+            digest.update(block)
+    if size != info.st_size or digest.hexdigest() != expected:
+        raise ValueError('artifact size or digest differs from the release pin')
+    return digest.hexdigest()
+
+
+def relative(name: str) -> str:
+    while name.startswith('./'):
+        name = name[2:]
+    if (not name or len(name) > 240 or name.startswith('/') or '\\' in name
+            or any(x in ('', '.', '..') for x in name.split('/')) or any(ord(x) < 32 for x in name)):
+        raise ValueError('unsafe archive member')
+    return name
+
+
+def extract(archive: Path, target: Path, record: dict) -> None:
+    members, links, total = {}, {}, 0
+    with tarfile.open(archive, 'r:gz') as source:
+        for member in source:
+            if time.monotonic() >= DEADLINE:
+                raise TimeoutError('extraction deadline expired')
+            if member.name in ('.', './') and member.isdir():
+                continue
+            name = relative(member.name.rstrip('/') if member.isdir() else member.name)
+            if name in members or len(members) >= record['maximum_members']:
+                raise ValueError('duplicate or excessive archive members')
+            if not (member.isfile() or member.isdir() or member.issym()) or member.mode & 0o7000:
+                raise ValueError('unsafe archive member type or privilege bits')
+            total += member.size
+            if member.size > 256000000 or total > record['expanded_bytes']:
+                raise ValueError('expanded archive bound exceeded')
+            if member.issym():
+                if not any(name.startswith(prefix) for prefix in record['relative_link_prefixes']):
+                    raise ValueError('symlink outside the approved vendor subtree')
+                parts = list(PurePosixPath(name).parent.parts)
+                if member.linkname.startswith('/') or '\\' in member.linkname:
+                    raise ValueError('absolute vendor link')
+                for part in member.linkname.split('/'):
+                    if part in ('', '.'):
+                        continue
+                    if part == '..':
+                        if not parts:
+                            raise ValueError('escaping vendor link')
+                        parts.pop()
+                    else:
+                        parts.append(part)
+                links[name] = '/'.join(parts)
+            members[name] = member
+        for name in members:
+            if any(str(parent) in links for parent in PurePosixPath(name).parents):
+                raise ValueError('archive writes through a symlink parent')
+        for name in links:
+            current, seen = name, set()
+            while current in links:
+                if current in seen or len(seen) >= 32:
+                    raise ValueError('cyclic or excessive vendor link chain')
+                seen.add(current)
+                current = links[current]
+            if current not in members or not members[current].isfile():
+                raise ValueError('vendor link does not resolve to one regular member')
+        # Manual extraction never invokes archive code or retains ownership.
+        for name, member in members.items():
+            path = target / name
+            path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+            if member.isdir():
+                path.mkdir(mode=0o755, exist_ok=True)
+            elif member.isfile():
+                stream = source.extractfile(member)
+                if stream is None:
+                    raise ValueError('archive member data is absent')
+                with stream, path.open('xb') as output:
+                    copied = 0
+                    while block := stream.read(65536):
+                        copied += len(block)
+                        if copied > member.size or time.monotonic() >= DEADLINE:
+                            raise ValueError('member changed or extraction deadline expired')
+                        output.write(block)
+                    if copied != member.size:
+                        raise ValueError('archive member truncated')
+                    output.flush(); os.fsync(output.fileno())
+                path.chmod(0o755 if member.mode & 0o111 else 0o644)
+        for name in links:
+            os.symlink(members[name].linkname, target / name)
+
+
+def elf(path: Path, arch: str) -> None:
+    with path.open('rb') as stream:
+        header = stream.read(64)
+    if (len(header) != 64 or header[:6] != b'\x7fELF\x02\x01'
+            or struct.unpack_from('<H', header, 18)[0] != {'amd64': 62, 'arm64': 183}[arch]
+            or struct.unpack_from('<H', header, 16)[0] not in (2, 3)):
+        raise ValueError('artifact ELF identity does not match the selected architecture')
+
+
+def artifact_members(tree: Path, record: dict) -> dict:
+    """Bind reuse to current regular-file bytes, link identity and modes."""
+    pending, result, total = [tree], {}, 0
+    while pending:
+        parent = pending.pop()
+        with os.scandir(parent) as entries:
+            for entry in entries:
+                path = Path(entry.path)
+                name = str(path.relative_to(tree))
+                if name == 'artifact.json':
+                    continue
+                info = entry.stat(follow_symlinks=False)
+                if len(result) >= record['maximum_members'] or time.monotonic() >= DEADLINE:
+                    raise ValueError('artifact verification bound exceeded')
+                if info.st_uid != 0 or (not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o6022):
+                    raise ValueError('artifact is writable or has unsafe ownership')
+                if stat.S_ISDIR(info.st_mode):
+                    result[name] = ['directory', stat.S_IMODE(info.st_mode)]
+                    pending.append(path)
+                elif stat.S_ISLNK(info.st_mode):
+                    link = os.readlink(path)
+                    resolved = path.resolve(strict=True)
+                    if not resolved.is_relative_to(tree) or not resolved.is_file():
+                        raise ValueError('artifact link escaped its immutable tree')
+                    result[name] = ['link', link]
+                elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                    total += info.st_size
+                    if total > record['expanded_bytes']:
+                        raise ValueError('artifact verification byte bound exceeded')
+                    digest = hashlib.sha256()
+                    with path.open('rb') as stream:
+                        while block := stream.read(65536):
+                            if time.monotonic() >= DEADLINE:
+                                raise TimeoutError('artifact verification deadline expired')
+                            digest.update(block)
+                    after = path.lstat()
+                    if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+                        raise ValueError('artifact changed during verification')
+                    result[name] = ['file', stat.S_IMODE(info.st_mode), info.st_size, digest.hexdigest()]
+                else:
+                    raise ValueError('artifact contains an unsafe member')
+    return result
+
+
+def artifact(name: str, arch: str) -> Path:
+    record = json_document(regular(CATALOG))['artifacts'][name]
+    if arch not in record['architectures']:
+        raise ValueError('no qualified artifact for the selected architecture')
+    identity = record['architectures'][arch].get('sha256', record['architectures'][arch].get('sha512'))
+    protected_directory(RELEASES, 0o755)
+    destination = RELEASES / (name + '-' + identity)
+    if destination.exists():
+        receipt = json_document(regular(destination / 'artifact.json', maximum=8388608))
+        expected = {'format': 1, 'artifact': name, 'architecture': arch, 'digest': identity,
+                    'members': artifact_members(destination, record)}
+        if receipt != expected:
+            raise ValueError('existing artifact identity differs')
+        return destination
+    work = Path(tempfile.mkdtemp(prefix='.artifact-', dir=RELEASES))
+    # Keep failed work and its exact path for inspection; never sweep siblings.
+    archive = work / 'download'
+    acquire(record, arch, archive)
+    tree = work / 'tree'
+    tree.mkdir(mode=0o755)
+    if record['kind'] in ('elf', 'file'):
+        shutil.copyfile(archive, tree / record['entry'])
+        (tree / record['entry']).chmod(0o755 if record['kind'] == 'elf' else 0o644)
+    else:
+        extract(archive, tree, record)
+    entry = tree / record['entry']
+    if not entry.is_file() or entry.is_symlink():
+        raise ValueError('pinned artifact entry is absent or a link')
+    if record['kind'] == 'elf' or name in ('github-actions', 'dotnet'):
+        elf(entry, arch)
+    receipt = {'format': 1, 'artifact': name, 'architecture': arch, 'digest': identity,
+               'members': artifact_members(tree, record)}
+    write(tree / 'artifact.json', json.dumps(receipt, sort_keys=True).encode(), 0o644)
+    for directory, names, files in os.walk(tree, topdown=False, followlinks=False):
+        sync_directory(Path(directory))
+    os.rename(tree, destination)
+    sync_directory(RELEASES)
+    archive.unlink()
+    work.rmdir()
+    return destination
+
+
+def status(home: Path, value: str) -> None:
+    write(home / 'status.json', json.dumps({'format': 1, 'state': value, 'online': False}).encode(), 0o644)
+
+
+
+
+
+
+
+
+
+
+    # Do not start a manager or any service while installing an offline target.
+
+
+
+
+
+
+def publish_link(path: Path, destination: Path) -> None:
+    protected_directory(path.parent, 0o755)
+    if path.exists() or path.is_symlink():
+        if not path.is_symlink() or not path.resolve().is_relative_to(RELEASES):
+            raise ValueError('refusing an unmanaged release pointer')
+    candidate = path.with_name('.' + path.name + '.candidate')
+    candidate.symlink_to(destination)
+    os.replace(candidate, path)
+    descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def dns_bundle(arch: str) -> Path:
+    application, runtime = artifact('technitium', arch), artifact('dotnet', arch)
+    identity = hashlib.sha256((application.name + '\n' + runtime.name).encode()).hexdigest()
+    bundle = RELEASES / ('dns-bundle-' + identity)
+    if not bundle.exists():
+        bundle.mkdir(mode=0o755)
+        (bundle / 'release').symlink_to(application)
+        (bundle / 'dotnet').symlink_to(runtime)
+        write(bundle / 'bundle.json', json.dumps({'application': application.name, 'dotnet': runtime.name}, sort_keys=True).encode(), 0o644)
+    if ((bundle / 'release').resolve() != application or (bundle / 'dotnet').resolve() != runtime
+            or json_document(regular(bundle / 'bundle.json')) != {'application': application.name, 'dotnet': runtime.name}):
+        raise ValueError('DNS bundle identity differs')
+    return bundle
+
+
+def validate_dns_bundle(bundle: Path) -> None:
+    """Validate a retained bundle against its own immutable member receipts."""
+    if bundle.parent != RELEASES or not bundle.is_dir() or bundle.is_symlink():
+        raise ValueError('retained DNS bundle is unavailable')
+    protected_directory(bundle, 0o755)
+    if set(path.name for path in bundle.iterdir()) != {'release', 'dotnet', 'bundle.json'}:
+        raise ValueError('DNS bundle member set changed')
+    identity = json_document(regular(bundle / 'bundle.json'))
+    if (not isinstance(identity, dict) or set(identity) != {'application', 'dotnet'}
+            or any(not isinstance(value, str) for value in identity.values())):
+        raise ValueError('DNS bundle receipt is invalid')
+    expected = hashlib.sha256((identity['application'] + '\n' + identity['dotnet']).encode()).hexdigest()
+    if bundle.name != 'dns-bundle-' + expected:
+        raise ValueError('DNS bundle content identity changed')
+    catalog = json_document(regular(CATALOG))['artifacts']
+    for link, field, name in (('release', 'application', 'technitium'), ('dotnet', 'dotnet', 'dotnet')):
+        leaf = identity[field]
+        if not isinstance(leaf, str) or re.fullmatch(name + r'-[0-9a-f]{64}(?:[0-9a-f]{64})?', leaf) is None:
+            raise ValueError('DNS bundle artifact name is invalid')
+        tree = RELEASES / leaf
+        if not tree.is_dir() or tree.is_symlink():
+            raise ValueError('retained DNS artifact is unavailable')
+        protected_directory(tree, 0o755)
+        pointer = bundle / link
+        if not pointer.is_symlink() or pointer.readlink() != tree:
+            raise ValueError('DNS bundle artifact pointer changed')
+        receipt = json_document(regular(tree / 'artifact.json', maximum=8388608))
+        if (receipt.get('format') != 1 or receipt.get('artifact') != name
+                or receipt.get('architecture') != 'amd64' or leaf != name + '-' + receipt.get('digest', '')
+                or receipt.get('members') != artifact_members(tree, catalog[name])):
+            raise ValueError('retained DNS artifact no longer matches its verified member receipt')
+        if name == 'dotnet':
+            elf(tree / catalog[name]['entry'], 'amd64')
+
+
+
+
+def dns_workload():
+    """Load only a root-owned private snapshot of the fixed servicing module."""
+    source = Path('__INSTALLER_PATH_FILE_SERVER_DNS_INCUS__')
+    for parent in source.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('untrusted DNS servicing module ancestry')
+    snapshot = regular(source, maximum=1048576)
+    namespace = {'__name__': '_trusted_dns_workload', '__file__': str(source)}
+    exec(compile(snapshot, str(source), 'exec'), namespace)
+    return namespace['Workload']({
+        'regular': regular, 'write': write, 'json_document': json_document,
+        'protected_directory': protected_directory, 'command': command,
+        'sync_directory': sync_directory, 'validate_dns_bundle': validate_dns_bundle,
+        'OutcomeUnknown': OutcomeUnknown, 'CATALOG': CATALOG, 'deadline': lambda: DEADLINE})
+
+
+@contextlib.contextmanager
+def inhibit_package_activation(recovery: Path):
+    """Keep the exact policy backup until package children complete normally."""
+    policy = Path('__INSTALLER_PATH_DIR_USR_SBIN__/policy-rc.d')
+    protected_directory(policy.parent, 0o755)
+    backup_dir = Path(tempfile.mkdtemp(prefix='.managed-package-policy-', dir=policy.parent))
+    backup = backup_dir / 'original'
+    original = policy.exists() or policy.is_symlink()
+    identity = None
+    unknown = False
+    try:
+        if original:
+            os.rename(policy, backup)
+            sync_directory(policy.parent)
+            sync_directory(backup_dir)
+        write(recovery, json.dumps({'format': 1, 'policy': str(policy), 'backup': str(backup),
+                                  'original_present': original, 'state': 'service-activation-inhibited'}, sort_keys=True).encode())
+        write(policy, b'#!/bin/sh\nexit 101\n', 0o755)
+        info = policy.lstat()
+        identity = (info.st_dev, info.st_ino)
+        yield
+    except OutcomeUnknown:
+        unknown = True
+        raise
+    finally:
+        if not unknown:
+            try:
+                current = policy.lstat() if policy.exists() or policy.is_symlink() else None
+                if identity is not None and (current is None or (current.st_dev, current.st_ino) != identity):
+                    raise OutcomeUnknown('package service policy identity changed; backup retained')
+                if identity is None and current is not None:
+                    raise OutcomeUnknown('package service policy has a competing owner; backup retained')
+                if original:
+                    if not backup.exists() and not backup.is_symlink():
+                        raise OutcomeUnknown('original package service policy disappeared; recovery is required')
+                    os.replace(backup, policy)
+                elif identity is not None:
+                    policy.unlink()
+                sync_directory(policy.parent)
+                backup_dir.rmdir()
+                recovery.unlink(missing_ok=True)
+                sync_directory(recovery.parent)
+            except OSError as error:
+                raise OutcomeUnknown('package service policy restoration is incomplete; backup retained') from error
+
+
+def install_profile_packages(arch: str) -> None:
+    """Install the profile's digest-pinned scheduler without role/GUI coupling."""
+    catalog = json_document(regular(CATALOG))
+    packages = catalog['profile_packages']
+    if not packages:
+        return
+    if arch != 'amd64' or set(packages) != {'scx', 'scx-loader'}:
+        raise ValueError('no qualified scheduler packages for the selected architecture')
+    directory = STATE / 'profile-packages'
+    protected_directory(directory)
+    running = directory / 'running.json'
+    receipt = directory / 'scx.json'
+    if running.exists() or running.is_symlink() or receipt.exists() or receipt.is_symlink():
+        raise ValueError('scheduler installation state already exists; review the retained transaction before any retry')
+    write(running, json.dumps({'format': 1, 'state': 'preparing', 'architecture': arch}).encode())
+    identities = []
+    archives = []
+    for name in ('scx', 'scx-loader'):
+        record = packages[name]
+        archive = directory / (name + '.deb')
+        digest = acquire(record, arch, archive)
+        fields = command(['/usr/bin/dpkg-deb', '--field', str(archive), 'Package', 'Version', 'Architecture']).decode('utf-8')
+        parsed = dict(line.split(': ', 1) for line in fields.splitlines() if ': ' in line)
+        if parsed.get('Package') != name or parsed.get('Architecture') != arch:
+            raise ValueError('scheduler Debian package identity differs from its trusted profile')
+        version = parsed.get('Version', '')
+        if re.fullmatch(r'[0-9A-Za-z.+:~\-]{1,128}', version) is None:
+            raise ValueError('scheduler Debian package has an invalid version')
+        command(['/usr/bin/dpkg', '--validate-version', version])
+        identities.append({'package': name, 'version': version, 'architecture': arch, 'sha256': digest})
+        archives.append(str(archive))
+    # Pin each reviewed version and reject replacement candidates from other
+    # repositories. Maintenance requires a new profile pin and a reviewed APT
+    # transaction; merely adding a vendor source cannot replace these bytes.
+    pins = ''.join('Package: ' + row['package'] + '\nPin: version ' + row['version']
+                   + '\nPin-Priority: 1001\n\nPackage: ' + row['package']
+                   + '\nPin: version *\nPin-Priority: -1\n\n' for row in identities)
+    preferences = Path('__INSTALLER_PATH_DIR_APT_PREFERENCES_D__')
+    protected_directory(preferences, 0o755)
+    write(preferences / '97-profile-scx.pref', pins.encode(), 0o644)
+    write(running, json.dumps({'format': 1, 'state': 'installing', 'packages': identities}, sort_keys=True).encode())
+    with inhibit_package_activation(directory / 'service-policy-recovery.json'):
+        command(['/usr/bin/apt-get', '-qq', '-y', '-o', 'DPkg::Lock::Timeout=60',
+                 '-o', 'DPkg::Use-Pty=0', '-o', 'Acquire::Retries=2',
+                 '-o', 'Acquire::http::Timeout=45', '-o', 'Acquire::https::Timeout=45',
+                 '--no-install-recommends', '--no-install-suggests', 'install', *archives],
+                extra={'DEBIAN_FRONTEND': 'noninteractive', 'DEBCONF_NONINTERACTIVE_SEEN': 'true',
+                       'NEEDRESTART_SUSPEND': '1', 'SYSTEMD_OFFLINE': '1'}, timeout=900)
+    for row in identities:
+        installed = command(['/usr/bin/dpkg-query', '-W', '-f=${Status}|${Version}|${Architecture}', row['package']]).decode()
+        if installed != 'install ok installed|' + row['version'] + '|' + arch:
+            raise ValueError('scheduler package is not completely configured')
+    for binary in ('scx_rusty', 'scx_flash', 'scx_loader', 'scxctl'):
+        elf(Path('__INSTALLER_PATH_DIR_USR_BIN__') / binary, arch)
+    write(receipt, json.dumps({'format': 1, 'packages': identities, 'activation': 'profile-selected; offline staged',
+                              'trust': 'profile content digest; no vendor-signature claim'}, sort_keys=True).encode(), 0o644)
+    running.unlink()
+    sync_directory(directory)
+
+
+def preflight_subordinate_ids(roles: list[str], planned: dict[str, tuple[int, int]]) -> None:
+    """Validate both native databases before any selected service identity/store."""
+    selected = {ROLES[role][0]: planned[role] for role in roles if role in planned}
+    for name in ('subuid', 'subgid'):
+        path = ETC / name
+        if path.is_symlink():
+            raise ValueError('subordinate identity database is indirect')
+        contents = regular(path).decode('ascii') if path.exists() else ''
+        seen_selected = set()
+        for line in contents.splitlines():
+            if not line or line.startswith('#'):
+                continue
+            fields = line.split(':')
+            if (len(fields) != 3 or re.fullmatch(r'[A-Za-z0-9_-]+', fields[0]) is None
+                    or not fields[1].isdecimal() or not fields[2].isdecimal()):
+                raise ValueError('subordinate identity database is malformed')
+            start, count = int(fields[1]), int(fields[2])
+            if count < 1 or start + count > 4294967295:
+                raise ValueError('subordinate identity database range is invalid')
+            owner = fields[0]
+            for user, (wanted, size) in selected.items():
+                if owner == user:
+                    if user in seen_selected or (start, count) != (wanted, size):
+                        raise ValueError('existing managed subordinate IDs differ or repeat; no reset')
+                    seen_selected.add(user)
+                elif start < wanted + size and wanted < start + count:
+                    raise ValueError('selected service subordinate IDs overlap an existing account')
+    # Do not delegate an ID that already denotes a real native account/group.
+    for records, attribute in ((pwd.getpwall(), 'pw_uid'), (grp.getgrall(), 'gr_gid')):
+        for record in records:
+            identity = getattr(record, attribute)
+            if any(start <= identity < start + count for start, count in selected.values()):
+                raise ValueError('selected subordinate range contains an existing native identity')
+
+
+def foundation_identity(role: str, subordinate_ids: dict[str, tuple[int, int]], podman_policy: dict[str, tuple[str, ...]]) -> None:
+    user, uid, home, unit = ROLES[role]
+    if (home / 'status.json').exists() or (home / 'status.json').is_symlink():
+        raise ValueError('server foundation is already installed; existing identities and stores are never reset')
+    protected_directory(home)
+    try:
+        group = grp.getgrnam(user)
+        if group.gr_gid != uid or set(group.gr_mem) - {user}:
+            raise ValueError('reserved service group identity or membership differs')
+    except KeyError:
+        try:
+            grp.getgrgid(uid)
+        except KeyError:
+            command(['/usr/sbin/groupadd', '--system', '--gid', str(uid), user])
+        else:
+            raise ValueError('reserved service GID is already owned') from None
+    try:
+        account = pwd.getpwnam(user)
+        if (account.pw_uid != uid or account.pw_gid != uid or account.pw_dir != str(home)
+                or account.pw_shell != '/usr/sbin/nologin'):
+            raise ValueError('existing service identity differs; no identity reset is allowed')
+    except KeyError:
+        try:
+            pwd.getpwuid(uid)
+        except KeyError:
+            command(['/usr/sbin/useradd', '--system', '--uid', str(uid), '--gid', str(uid), '--no-user-group',
+                     '--password', '!', '--home-dir', str(home), '--shell', '/usr/sbin/nologin', user])
+        else:
+            raise ValueError('reserved service UID is already owned') from None
+    os.chmod(home, 0o750)
+    os.chown(home, 0, uid)
+    if role in WORK_ROOTS:
+        require_pool_mount()
+    for name in ('build', 'cache', 'containers', 'tmp', 'config', 'logs'):
+        path = home / name
+        if role in WORK_ROOTS and name in ('build', 'cache', 'tmp'):
+            work = WORK_ROOTS[role]
+            protected_directory(work, 0o750)
+            os.chown(work, 0, uid)
+            store = work / name
+            if store.exists() or store.is_symlink():
+                info = store.lstat()
+                if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_mode & 0o077:
+                    raise ValueError('existing pool store identity differs; no reset')
+            else:
+                store.mkdir(mode=0o700)
+                os.chown(store, uid, uid)
+                sync_directory(work)
+            if path.exists() or path.is_symlink():
+                if not path.is_symlink() or path.readlink() != store:
+                    raise ValueError('role store has a competing path owner')
+            else:
+                path.symlink_to(store)
+                sync_directory(home)
+            continue
+        if role in WORK_ROOTS and name == 'containers':
+            graphroot = Path(podman_policy[role][1])
+            image_copy_tmp = Path(podman_policy[role][3])
+            podman_private_store(graphroot, uid)
+            podman_private_store(image_copy_tmp, uid)
+            if path.exists() or path.is_symlink():
+                if not path.is_symlink() or path.readlink() != graphroot:
+                    raise ValueError('role container store has a competing path owner')
+            else:
+                path.symlink_to(graphroot)
+                sync_directory(home)
+            continue
+        if path.exists():
+            info = path.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_mode & 0o077:
+                raise ValueError('existing service store is unsafe; no reset is permitted')
+        else:
+            path.mkdir(mode=0o700)
+            os.chown(path, uid, uid)
+    protected_directory(home / 'private')
+    if role != 'server/technitium':
+        # Each provider has its own subordinate IDs, persistent store and user
+        # socket. The service account never receives the system Docker socket.
+        start, count = subordinate_ids[role]
+        for name in ('subuid', 'subgid'):
+            path = ETC / name
+            data = regular(path).decode() if path.exists() else ''
+            expected = f'{user}:{start}:{count}'
+            present = False
+            for line in data.splitlines():
+                if not line or line.startswith('#'):
+                    continue
+                fields = line.split(':')
+                if len(fields) != 3 or not fields[1].isdecimal() or not fields[2].isdecimal():
+                    raise ValueError('subordinate identity file is malformed')
+                low, high = int(fields[1]), int(fields[1]) + int(fields[2])
+                if fields[0] == user:
+                    if line != expected:
+                        raise ValueError('existing subordinate IDs differ; no reset')
+                    present = True
+                elif low < start + count and start < high:
+                    raise ValueError('subordinate identity ranges overlap')
+            if not present:
+                write(path, (data.rstrip('\n') + ('\n' if data else '') + expected + '\n').encode(), 0o644)
+        config = home / '.config'
+        config.mkdir(mode=0o700, exist_ok=True)
+        os.chown(config, uid, uid)
+        containers = config / 'containers'
+        containers.mkdir(mode=0o700, exist_ok=True)
+        os.chown(containers, uid, uid)
+        driver, graphroot, runroot, image_copy_tmp = podman_policy[role]
+        if driver not in {'overlay', 'btrfs'}:
+            raise ValueError('unsupported profile Podman storage driver')
+        for value in (graphroot, image_copy_tmp):
+            if not str(value).startswith('/pool/') or '..' in str(value) or '//' in str(value):
+                raise ValueError('profile Podman storage path must remain under /pool')
+        if runroot != f'/run/user/{uid}/containers':
+            raise ValueError('profile Podman runroot does not match the locked service identity')
+        write(containers / 'storage.conf', ('[storage]\ndriver="' + driver + '"\ngraphroot="'
+              + graphroot + '"\nrunroot="' + runroot
+              + '"\n[storage.options.overlay]\nmount_program="/usr/bin/fuse-overlayfs"\n').encode(), 0o600, uid)
+        write(containers / 'containers.conf', ('[engine]\nimage_copy_tmp_dir="'
+              + image_copy_tmp + '"\n').encode(), 0o600, uid)
+        # Debian's user manager owns the runtime directory and Podman socket.
+        # Linger is staged as data; no live logind/systemd call occurs here.
+        linger = Path('__INSTALLER_PATH_DIR_VAR_LIB__') / 'systemd/linger'
+        protected_directory(linger, 0o755)
+        write(linger / user, b'', 0o644)
+        wants = config / 'systemd/user/sockets.target.wants'
+        wants.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for parent in (config / 'systemd', config / 'systemd/user', wants):
+            os.chown(parent, uid, uid)
+        socket = wants / 'podman.socket'
+        vendor_socket = Path('__INSTALLER_PATH_DIR_SYSTEMD_USER_LIB__') / 'podman.socket'
+        if socket.exists() or socket.is_symlink():
+            if not socket.is_symlink() or socket.readlink() != vendor_socket:
+                raise ValueError('rootless socket activation is owned by another configuration')
+        else:
+            socket.symlink_to(vendor_socket)
+    status(home, 'installed-but-pending')
+
+
+def dns_account_identity() -> None:
+    record = json_document(regular(Path('__INSTALLER_PATH_FILE_SERVER_DNS_IDENTITY__'), private=True))
+    if (not isinstance(record, dict) or set(record) != {'format', 'username', 'uid', 'gid', 'locked', 'shell'}
+            or record['format'] != 1 or record['uid'] != 2103 or record['gid'] != 2103
+            or record['locked'] is not True or record['shell'] != '/usr/sbin/nologin'
+            or not isinstance(record['username'], str)
+            or re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', record['username']) is None):
+        raise ValueError('invalid dedicated Technitium identity')
+    user, uid, home, unit = ROLES['server/technitium']
+    user = record['username']
+    account = pwd.getpwnam(user)
+    if (account.pw_uid, account.pw_gid, account.pw_dir, account.pw_shell) != (uid, uid, str(home), '/usr/sbin/nologin'):
+        raise ValueError('native Technitium identity differs from the private installation receipt')
+    if any(user in group.gr_mem and group.gr_gid != uid for group in grp.getgrall()):
+        raise ValueError('Technitium account has unrelated supplementary authority')
+    shadow = [line.split(':') for line in regular(ETC / 'shadow').decode().splitlines() if line.split(':', 1)[0] == user]
+    if len(shadow) != 1 or len(shadow[0]) != 9 or not shadow[0][1].startswith(('!', '*')):
+        raise ValueError('Technitium service account is not locked')
+    ROLES['server/technitium'] = (user, uid, home, unit)
+
+
+def dns_private_inputs(path: str, human_users: list[str]) -> dict[str, str]:
+    if not path:
+        raise ValueError('Technitium requires its designated initrd service-account input')
+    fields = regular(Path(path), private=True, maximum=8192).split(b'\0')
+    if len(fields) != 7 or fields[-1] != b'':
+        raise ValueError('invalid private Technitium input frame')
+    values = [field.decode('utf-8') for field in fields[:-1]]
+    if any(len(value) > 256 or any(ord(character) < 32 or ord(character) == 127 for character in value) for value in values):
+        raise ValueError('invalid bounded Technitium credential data')
+    user, password, web_user, web_password, tls_password, backup_password = values
+    if (re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', user) is None
+            or user in {'root', 'nobody', 'daemon', 'ci-github', 'ci-gitlab', 'srv-devops', *human_users}):
+        raise ValueError('Technitium requires a distinct designated service-account name')
+    if web_user and re.fullmatch(r'[a-zA-Z0-9_.@-]{1,64}', web_user) is None:
+        raise ValueError('invalid explicit Technitium web account')
+    for value in (password, web_password, tls_password, backup_password):
+        if value and len(value) < 16:
+            raise ValueError('provided Technitium passwords require at least 16 characters')
+    _, uid, home, unit = ROLES['server/technitium']
+    ROLES['server/technitium'] = (user, uid, home, unit)
+    return dict(zip(('username', 'password', 'web-username', 'web-password', 'tls-passphrase', 'backup-passphrase'), values))
+
+
+def stage_dns_credentials(values: dict[str, str]) -> None:
+    user, uid, home, _ = ROLES['server/technitium']
+    if values['password']:
+        hashed = command(['/usr/bin/mkpasswd', '--method=yescrypt', '--stdin'],
+                         input_data=(values['password'] + '\n').encode()).decode('ascii').strip()
+        if re.fullmatch(r'\$y\$[A-Za-z0-9./$]{20,512}', hashed) is None:
+            raise ValueError('native yescrypt output is invalid')
+        # chpasswd consumes a locked hash through a private stdin descriptor.
+        # Neither the clear password nor its hash enters argv or diagnostics.
+        command(['/usr/sbin/chpasswd', '--encrypted'], input_data=(user + ':!' + hashed + '\n').encode())
+    else:
+        command(['/usr/bin/passwd', '--lock', user])
+    identity = {'format': 1, 'username': user, 'uid': uid, 'gid': uid,
+                'locked': True, 'shell': '/usr/sbin/nologin'}
+    write(Path('__INSTALLER_PATH_FILE_SERVER_DNS_IDENTITY__'), json.dumps(identity, sort_keys=True).encode())
+    dns_account_identity()
+    for key in ('web-username', 'web-password', 'tls-passphrase', 'backup-passphrase'):
+        if values[key]:
+            write(home / 'private' / key, values[key].encode(), 0o600)
+    # Vendor initialization still creates its built-in account. It receives a
+    # separate random credential, never the OS or requested web-user password.
+    bootstrap_password = (values['web-password'].encode() if values['web-username'] == 'admin' and values['web-password']
+                          else base64.urlsafe_b64encode(os.urandom(48)))
+    write(home / 'private/admin-password', bootstrap_password, 0o600)
+    write(home / 'private/credentials.json', json.dumps({
+        'format': 1, 'source': 'private initrd credential snapshot',
+        'web': 'staged' if values['web-username'] and values['web-password'] else 'pending-missing-private-input',
+        'tls': 'passphrase-staged-certificate-required' if values['tls-passphrase'] else 'pending-private-input',
+        'backup': 'staged' if values['backup-passphrase'] else 'pending-private-input',
+        'os_account': 'locked; nologin; no SSH keys or supplementary groups'
+    }, sort_keys=True).encode())
+
+
+def foundation(roles: list[str], policy: str, private_input: str = '') -> None:
+    fields = policy.split('|')
+    if len(fields) != 32:
+        raise ValueError('headless foundation requires the complete profile policy')
+    enabled, port, users, github_ids, gitlab_ids, devops_ids = fields[:6]
+    podman_identities = {
+        'server/github-actions': (fields[25], fields[26]),
+        'server/gitlab-cicd': (fields[27], fields[28]),
+        'server/devops': (fields[29], fields[30]),
+    }
+    operator_username = fields[31]
+    if fields[15] != str(POOL_ROOT / 'podman' / 'devops') or fields[18] != str(POOL_ROOT / 'podman' / 'devops'):
+        raise ValueError('DevOps Podman persistent roots must be /pool/podman/devops')
+    if (re.fullmatch(r'[A-Za-z0-9_-]{1,32}', fields[16]) is None
+            or re.fullmatch(r'[A-Za-z0-9_-]{1,32}', fields[19]) is None):
+        raise ValueError('invalid DevOps Podman persistent store suffix')
+    podman_policy = {
+        'server/github-actions': tuple(fields[6:10]),
+        'server/gitlab-cicd': tuple(fields[10:14]),
+        'server/devops': (fields[14], str(Path(fields[15]) / fields[16]),
+                          str(Path(fields[17]) / '2104' / 'containers'),
+                          str(Path(fields[18]) / fields[19])),
+    }
+    if enabled not in {'true', 'false'}:
+        raise ValueError('SSH activation policy must be boolean')
+    subordinate_ids = {}
+    for role, raw in zip(('server/github-actions', 'server/gitlab-cicd', 'server/devops'), (github_ids, gitlab_ids, devops_ids)):
+        if re.fullmatch(r'[0-9]{6,10}:[0-9]{5,7}', raw) is None:
+            raise ValueError('invalid profile subordinate identity range')
+        start, count = map(int, raw.split(':'))
+        if start < 100000 or count < 65536 or start + count > 4294967295:
+            raise ValueError('subordinate identity range exceeds its bounds')
+        for previous_start, previous_count in subordinate_ids.values():
+            if previous_start < start + count and start < previous_start + previous_count:
+                raise ValueError('profile subordinate identity ranges overlap')
+        subordinate_ids[role] = (start, count)
+    allowed_users = users.split()
+    if not port.isdecimal() or not 30000 <= int(port) <= 40000:
+        raise ValueError('SSH port violates the selected profile policy')
+    if (not allowed_users or len(allowed_users) > 16
+            or len(set(allowed_users)) != len(allowed_users)
+            or any(re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', name) is None or name == 'root' for name in allowed_users)):
+        raise ValueError('invalid explicit SSH user policy')
+    if (re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', operator_username) is None
+            or operator_username == 'root' or operator_username not in allowed_users):
+        raise ValueError('invalid primary server operator identity')
+    operator = pwd.getpwnam(operator_username)
+    if (operator.pw_uid < 1000 or operator.pw_uid in {row[1] for row in ROLES.values()}
+            or Path(operator.pw_dir) != Path('__INSTALLER_PATH_DIR_HOME__') / operator_username
+            or operator.pw_shell not in ('/bin/bash', '/usr/bin/bash')):
+        raise ValueError('primary server operator must be the explicit human account')
+    for role, (profile_user, profile_group) in podman_identities.items():
+        expected_user = ROLES[role][0]
+        if profile_user != expected_user or profile_group != expected_user:
+            raise ValueError('profile Podman identity does not match the locked role identity')
+    for name in allowed_users:
+        if pwd.getpwnam(name).pw_uid < 1000:
+            raise ValueError('SSH allow-list must name explicit human accounts')
+    dns_inputs = dns_private_inputs(private_input, allowed_users) if 'server/technitium' in roles else None
+    preflight_subordinate_ids(roles, subordinate_ids)
+    # Provider enrollment tokens are separate private initrd inputs. Service
+    # accounts never inherit the primary user's password, SSH key or groups.
+    shadows = {}
+    for line in regular(ETC / 'shadow', maximum=1048576).decode('ascii').splitlines():
+        fields = line.split(':')
+        if len(fields) != 9 or fields[0] in shadows:
+            raise ValueError('invalid account lock database')
+        shadows[fields[0]] = fields[1]
+    service_groups = grp.getgrall()
+    # Preflight every selected identity before mutating any of them. An
+    # interrupted foundation retains its per-role state for operator review.
+    for role in roles:
+        home = ROLES[role][2]
+        if (home / 'status.json').exists() or (home / 'status.json').is_symlink():
+            raise ValueError('existing server foundation must not be reset')
+        user, uid, _, _ = ROLES[role]
+        try:
+            account = pwd.getpwnam(user)
+        except KeyError:
+            try:
+                pwd.getpwuid(uid)
+            except KeyError:
+                pass
+            else:
+                raise ValueError('reserved service UID is already owned') from None
+        else:
+            if (account.pw_uid, account.pw_gid, account.pw_dir, account.pw_shell) != (uid, uid, str(home), '/usr/sbin/nologin'):
+                raise ValueError('existing service account differs from its role identity')
+            if not shadows.get(user, '').startswith(('!', '*')):
+                raise ValueError('existing service password is not locked; no implicit identity reset')
+        if any(user in group.gr_mem and group.gr_gid != uid for group in service_groups):
+            raise ValueError('service identity has supplementary access; no shared operator authority')
+        try:
+            group = grp.getgrnam(user)
+        except KeyError:
+            try:
+                grp.getgrgid(uid)
+            except KeyError:
+                pass
+            else:
+                raise ValueError('reserved service GID is already owned') from None
+        else:
+            if group.gr_gid != uid or set(group.gr_mem) - {user}:
+                raise ValueError('existing service group differs from its role identity')
+    for role in roles:
+        foundation_identity(role, subordinate_ids, podman_policy)
+    if {'server/github-actions', 'server/gitlab-cicd'}.intersection(roles):
+        operator_profile(operator, '72-ci-runners-srv.sh')
+        runner_admin_policy(operator)
+    if dns_inputs is not None:
+        stage_dns_credentials(dns_inputs)
+    ssh = ETC / 'ssh/sshd_config.d/70-managed-server.conf'
+    ssh.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    write(ssh, (f'Port {port}\nPermitRootLogin no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nPubkeyAuthentication yes\nAllowTcpForwarding local\nAllowUsers '
+                + ' '.join(allowed_users) + '\n').encode(), 0o644)
+    # Stage only owned rules; do not flush unrelated administrator tables.
+    firewall = ETC / 'nftables.d'
+    firewall.mkdir(mode=0o755, exist_ok=True)
+    write(firewall / '70-managed-server.nft', (
+        'table inet managed_server {\n chain ingress { type filter hook input priority -5; policy accept;\n'
+        ' iifname "lo" accept\n ct state established,related accept\n'
+        ' tcp dport { 5380, 53443 } drop\n'
+        + ' udp dport 53 drop\n tcp dport 53 drop\n'
+        + ' }\n}\n').encode(), 0o600)
+    # The role's nftables unit drop-in loads this owned file directly. Do not
+    # edit the administrator's main configuration or activate unrelated tables.
+    service_names = ['nftables.service', 'rsyslog.service', 'auditd.service', 'systemd-timesyncd.service']
+    if enabled == 'true':
+        service_names.append('ssh.service')
+    else:
+        for name in ('ssh.service', 'ssh.socket'):
+            mask = SYSTEMD / name
+            if mask.is_symlink():
+                if os.readlink(mask) != '__INSTALLER_PATH_DIR_DEV__/null':
+                    raise ValueError('SSH activation has a competing override')
+            elif mask.exists():
+                raise ValueError('SSH activation override is not a mask')
+            else:
+                mask.symlink_to('__INSTALLER_PATH_DIR_DEV__/null')
+            for target in sorted(SYSTEMD.iterdir()):
+                if target.name.endswith(('.wants', '.requires')):
+                    protected_directory(target, 0o755)
+                    link = target / name
+                    if link.is_symlink():
+                        link.unlink()
+                    elif link.exists():
+                        raise ValueError('SSH activation link has a competing owner')
+    for name in service_names:
+        vendor = Path('__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LIB__') / name
+        if not vendor.is_file():
+            raise ValueError('required packaged server service is missing')
+        wants = SYSTEMD / 'multi-user.target.wants'
+        protected_directory(wants, 0o755)
+        link = wants / name
+        if link.is_symlink():
+            if link.resolve() != vendor.resolve():
+                raise ValueError('server service has a competing activation owner')
+        elif link.exists():
+            raise ValueError('server service activation is not a symlink')
+        else:
+            link.symlink_to(vendor)
+
+
+def account_skeleton(username: str) -> None:
+    """Publish only the four declared Bash files to the selected human account."""
+    if re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', username) is None:
+        raise ValueError('invalid server operator identity')
+    account = pwd.getpwnam(username)
+    if account.pw_uid < 1000 or account.pw_shell not in ('/bin/bash', '/usr/bin/bash'):
+        raise ValueError('server operator requires an explicit non-root Bash account')
+    home = Path(account.pw_dir)
+    if not home.is_absolute() or home.parent != Path('__INSTALLER_PATH_DIR_HOME__'):
+        raise ValueError('server operator home is outside the configured human-account root')
+    descriptor = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(descriptor)
+        if info.st_uid != account.pw_uid or info.st_mode & 0o022:
+            raise ValueError('server operator home has unsafe ownership or mode')
+        for forbidden in ('.zshrc', '.zprofile', '.zshenv', '.config/starship.toml', '.config/labwc'):
+            if (home / forbidden).exists() or (home / forbidden).is_symlink():
+                raise ValueError('server home contains desktop/zsh state; no automatic cleanup is permitted')
+        for name in ('.bashrc', '.bash_aliases', '.bash_profile', '.profile'):
+            data = regular(Path('__INSTALLER_PATH_DIR_ETC_SKEL_SERVER__') / name, maximum=16384)
+            # Use the pinned home descriptor, never a path through user-controlled parents.
+            temporary = '.installer-' + name.removeprefix('.')
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=descriptor)
+            try:
+                with os.fdopen(fd, 'wb') as stream:
+                    stream.write(data); stream.flush()
+                    os.fchown(stream.fileno(), account.pw_uid, account.pw_gid)
+                    os.fsync(stream.fileno())
+                os.replace(temporary, name, src_dir_fd=descriptor, dst_dir_fd=descriptor)
+                os.fsync(descriptor)
+            finally:
+                try:
+                    os.unlink(temporary, dir_fd=descriptor)
+                except FileNotFoundError:
+                    pass
+    finally:
+        os.close(descriptor)
+
+
+def operator_pool_directory(parent: Path, parts: tuple[str, ...], account) -> Path:
+    """Create private account children without following account-owned links."""
+    require_pool_mount()
+    protected_directory(parent, 0o755)
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        for name in (account.pw_name, *parts):
+            try:
+                os.mkdir(name, 0o700, dir_fd=descriptor)
+                created = True
+            except FileExistsError:
+                created = False
+            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptor)
+            try:
+                if created:
+                    os.fchown(child, account.pw_uid, account.pw_gid)
+                    os.fchmod(child, 0o700)
+                    os.fsync(child); os.fsync(descriptor)
+                info = os.fstat(child)
+                if (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) != (account.pw_uid, account.pw_gid, 0o700):
+                    raise ValueError('existing operator pool storage differs; no reset permitted')
+            except BaseException:
+                os.close(child)
+                raise
+            os.close(descriptor)
+            descriptor = child
+    finally:
+        os.close(descriptor)
+    return parent / account.pw_name / Path(*parts)
+
+
+def operator_profile(account: pwd.struct_passwd, filename: str) -> None:
+    if filename not in {'71-devops-srv.sh', '72-ci-runners-srv.sh', '99-codex-srv.sh'}:
+        raise ValueError('unregistered operator login fragment')
+    home = Path(account.pw_dir)
+    source = Path('__INSTALLER_PATH_DIR_ETC_SKEL_SERVER__') / ('.profile.d/' + filename)
+    data = regular(source, maximum=16384)
+    descriptor = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(descriptor)
+        if info.st_uid != account.pw_uid or info.st_mode & 0o022:
+            raise ValueError('unsafe DevOps home identity')
+        try:
+            os.mkdir('.profile.d', 0o700, dir_fd=descriptor)
+        except FileExistsError:
+            pass
+        directory = os.open('.profile.d', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptor)
+        try:
+            info = os.fstat(directory)
+            if info.st_uid not in (0, account.pw_uid) or info.st_mode & 0o077:
+                raise ValueError('unsafe DevOps profile directory')
+            os.fchown(directory, account.pw_uid, account.pw_gid)
+            try:
+                current = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory)
+            except FileNotFoundError:
+                current = None
+            if current is not None:
+                try:
+                    info = os.fstat(current)
+                    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                            or info.st_uid != account.pw_uid or stat.S_IMODE(info.st_mode) != 0o600
+                            or info.st_size != len(data) or os.read(current, len(data) + 1) != data):
+                        raise ValueError('existing operator login fragment differs; no implicit replacement')
+                finally:
+                    os.close(current)
+                return
+            temporary = '.installer-profile-' + os.urandom(12).hex()
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+            try:
+                with os.fdopen(fd, 'wb') as stream:
+                    stream.write(data); stream.flush()
+                    os.fchown(stream.fileno(), account.pw_uid, account.pw_gid); os.fsync(stream.fileno())
+                # A no-replace publication cannot overwrite a concurrent owner.
+                os.link(temporary, filename, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+                try:
+                    os.unlink(temporary, dir_fd=directory)
+                    os.fsync(directory)
+                except OSError as error:
+                    raise OutcomeUnknown('operator login fragment was published; durability needs review') from error
+            finally:
+                try:
+                    os.unlink(temporary, dir_fd=directory)
+                except FileNotFoundError:
+                    pass
+        finally:
+            os.close(directory)
+    finally:
+        os.close(descriptor)
+
+
+def runner_admin_policy(account: pwd.struct_passwd) -> None:
+    """Publish the non-secret primary-UID gate for the runner control command."""
+    directory = ETC / 'ci-runners'
+    protected_directory(directory, 0o700)
+    policy = f'format=1\nprimary_uid={account.pw_uid}\n'.encode('ascii')
+    write(directory / 'admin.conf', policy, 0o644)
+
+
+def codex_account(username: str) -> None:
+    records = regular(RECEIPT, maximum=65536).decode().splitlines()
+    if records.count('codex_enable\ttrue') != 1:
+        raise ValueError('Codex account configuration is absent from the frozen plan')
+    if re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', username) is None:
+        raise ValueError('invalid Codex operator identity')
+    account = pwd.getpwnam(username)
+    if (account.pw_uid < 1000 or account.pw_uid in {row[1] for row in ROLES.values()}
+            or Path(account.pw_dir) != Path('__INSTALLER_PATH_DIR_HOME__') / username):
+        raise ValueError('Codex requires the explicit human account')
+    for root in ('__INSTALLER_PATH_DIR_POOL_BUILD__', '__INSTALLER_PATH_DIR_POOL_CACHE__', '__INSTALLER_PATH_DIR_POOL_DB__'):
+        operator_pool_directory(Path(root), (), account)
+    operator_pool_directory(Path('__INSTALLER_PATH_DIR_POOL_BUILD__'), ('tmp',), account)
+    operator_profile(account, '99-codex-srv.sh')
+
+
+def devops_account(argument: str) -> None:
+    """Add the DevOps fragment to the explicit human account, using pinned fds."""
+    fields = argument.split('|')
+    if len(fields) != 12:
+        raise ValueError('DevOps account requires the complete profile Podman policy')
+    username = fields[0]
+    podman_driver, graphroot_root, graphroot_subdir, runroot_base, image_tmp_root, image_tmp_subdir = fields[1:7]
+    service_cpu, service_io, service_tasks, service_memory_high, service_memory_max = fields[7:12]
+    if re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', username) is None:
+        raise ValueError('invalid DevOps operator identity')
+    account = pwd.getpwnam(username)
+    home = Path(account.pw_dir)
+    if (account.pw_uid < 1000 or account.pw_uid in {row[1] for row in ROLES.values()}
+            or home != Path('__INSTALLER_PATH_DIR_HOME__') / username):
+        raise ValueError('DevOps operator must be the explicit human account')
+    build = operator_pool_directory(Path('__INSTALLER_PATH_DIR_POOL_BUILD__'), (), account)
+    cache = operator_pool_directory(Path('__INSTALLER_PATH_DIR_POOL_CACHE__'), (), account)
+    database = operator_pool_directory(Path('__INSTALLER_PATH_DIR_POOL_DB__'), (), account)
+    operator_pool_directory(build.parent, ('tmp',), account)
+    if podman_driver not in {'overlay', 'btrfs'}:
+        raise ValueError('unsupported profile DevOps Podman storage driver')
+    graphroot = Path(graphroot_root) / account.pw_name / graphroot_subdir
+    image_copy_tmp = Path(image_tmp_root) / account.pw_name / image_tmp_subdir
+    podman_config = Path(graphroot_root) / account.pw_name / 'config'
+    runroot = Path(runroot_base) / str(account.pw_uid) / 'containers'
+    for value in (graphroot, image_copy_tmp, podman_config):
+        if (not str(value).startswith('/pool/podman/') or '..' in value.parts
+                or '//' in str(value)):
+            raise ValueError('profile DevOps Podman storage path must remain under /pool/podman')
+    graphroot = operator_pool_directory(Path(graphroot_root), (graphroot_subdir,), account)
+    image_copy_tmp = operator_pool_directory(Path(image_tmp_root), (image_tmp_subdir,), account)
+    podman_config = operator_pool_directory(Path(graphroot_root), ('config',), account)
+    if runroot != Path('/run/user') / str(account.pw_uid) / 'containers':
+        raise ValueError('profile DevOps Podman runroot does not match the operator identity')
+    storage_policy = ('[storage]\ndriver="' + podman_driver + '"\ngraphroot="' + str(graphroot)
+                      + '"\nrunroot="' + str(runroot)
+                      + '"\n[storage.options.overlay]\nmount_program="/usr/bin/fuse-overlayfs"\n')
+    engine_policy = '[engine]\nimage_copy_tmp_dir="' + str(image_copy_tmp) + '"\n'
+    for name, policy in (('storage.conf', storage_policy), ('containers.conf', engine_policy)):
+        path = podman_config / name
+        if path.exists() or path.is_symlink():
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                info = os.fstat(descriptor)
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != account.pw_uid
+                        or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size != len(policy.encode())
+                        or os.read(descriptor, 16385) != policy.encode()):
+                    raise ValueError('existing operator container policy differs; no implicit migration')
+            finally:
+                os.close(descriptor)
+        else:
+            write(path, policy.encode(), 0o600, account.pw_uid)
+    operator_profile(account, '71-devops-srv.sh')
+    # The shared non-GUI tools stage owns Bazelisk and the complete rendered
+    # account Bazel policy. Do not create a competing minimal configuration.
+    # Debian useradd owns the human account's subordinate range. Preserve it
+    # and fail rather than silently assigning overlapping or replacement IDs.
+    for name in ('subuid', 'subgid'):
+        rows = [line.split(':') for line in regular(ETC / name).decode().splitlines() if line]
+        selected = [row for row in rows if row[0] == username]
+        if len(selected) != 1 or len(selected[0]) != 3 or not all(x.isdecimal() for x in selected[0][1:]):
+            raise ValueError('human rootless subordinate identity is not explicitly configured')
+        low, count = map(int, selected[0][1:])
+        if count < 65536:
+            raise ValueError('human subordinate range is too small')
+        for row in rows:
+            if len(row) != 3 or not all(x.isdecimal() for x in row[1:]):
+                raise ValueError('malformed subordinate identity record')
+            if row[0] != username and int(row[1]) < low + count and low < int(row[1]) + int(row[2]):
+                raise ValueError('human rootless subordinate range overlaps another identity')
+
+
+def install(role: str, arch: str) -> None:
+    user, uid, home, unit = ROLES[role]
+    if role == 'server/technitium':
+        bundle = dns_bundle(arch)
+        publish_link(home / 'current', bundle)
+        dns_workload().image(bundle)
+        status(home, 'installed-but-pending-private-incus-configuration')
+        return
+    if role == 'server/devops':
+        catalog = json_document(regular(CATALOG))
+        policy = catalog['devops']
+        for artifact_name, commands in (('buildbuddy', ('buildbuddy',)),):
+            tree = artifact(artifact_name, arch)
+            entry = tree / catalog['artifacts'][artifact_name]['entry']
+            elf(entry, arch)
+            for binary in commands:
+                publish_link(Path('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__') / binary, entry)
+        state = Path('__INSTALLER_PATH_DIR_SERVER_BUILDBUDDY_STATE__')
+        parent = os.open(state.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            info = os.fstat(parent)
+            if info.st_uid or info.st_mode & 0o022:
+                raise ValueError('unsafe build cache store parent')
+            try:
+                os.mkdir(state.name, 0o700, dir_fd=parent)
+                os.chown(state.name, uid, uid, dir_fd=parent, follow_symlinks=False)
+                os.fsync(parent)
+            except FileExistsError:
+                pass
+            descriptor = os.open(state.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            try:
+                info = os.fstat(descriptor)
+                if info.st_uid != uid or info.st_gid != uid or info.st_mode & 0o077:
+                    raise ValueError('existing build cache identity differs; no reset')
+            finally:
+                os.close(descriptor)
+        finally:
+            os.close(parent)
+        config = ('storage:\n  ttl_seconds: ' + str(policy['DEVOPS_BUILDBUDDY_STORAGE_TTL_SECONDS'])
+                  + '\n  disk:\n    root_directory: ' + str(state / 'storage')
+                  + '\n  tempdir: ' + str(state / 'tmp')
+                  + '\ncache:\n  max_size_bytes: ' + str(policy['DEVOPS_BUILDBUDDY_CACHE_BYTES'])
+                  + '\n  disk:\n    root_directory: ' + str(state / 'cache') + '\n')
+        write(Path('__INSTALLER_PATH_FILE_SERVER_BUILDBUDDY_CONFIG__'), config.encode(), 0o644)
+        write(home / 'devops.json', json.dumps({
+            'format': 1,
+            'toolchains': policy['toolchains'], 'bazel_policy': policy,
+            'buildbuddy': 'installed disabled; loopback-only; explicit operator activation',
+            'containers': 'rootless; no host management socket',
+            'incus': 'restricted user socket; root-owned bootstrap; local-only API and NAT bridge; CI identities excluded',
+            'ch341a': 'CLI tools installed; physical-device authorization is manual',
+            'service_activation': 'no listening AI or container service is enabled by login'
+        }, sort_keys=True).encode(), 0o644)
+        status(home, 'installed; operator-managed-cli-tools')
+        return
+    name = role.split('/')[1]
+    release = artifact(name, arch)
+    if role.endswith('/github-actions'):
+        runner = home / 'runner'
+        if runner.exists():
+            raise ValueError('runner state exists; use an explicit reviewed update')
+        shutil.copytree(release, runner, symlinks=True)
+        for directory, names, files in os.walk(runner, followlinks=False):
+            os.chown(directory, uid, uid)
+            for leaf in (*names, *files):
+                os.chown(Path(directory) / leaf, uid, uid, follow_symlinks=False)
+        # Runner configuration lives beside its executable; only this identity
+        # may write it. No system-wide Docker socket or sudo is granted.
+        status(home, 'installed-but-pending-enrollment')
+    else:
+        link = home / 'release'
+        if link.exists() or link.is_symlink():
+            if not link.is_symlink() or link.resolve() != release:
+                raise ValueError('selected release already has a different identity')
+        else:
+            link.symlink_to(release)
+        status(home, 'installed-but-pending-enrollment')
+
+
+def selected_server_roles() -> list[str]:
+    for parent in RECEIPT.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('untrusted runtime receipt ancestry')
+    records = regular(RECEIPT, maximum=65536).decode().splitlines()
+    if records.count('format\t2') != 1 or records.count('family\tserver') != 1:
+        raise ValueError('unsupported server class receipt')
+    roles = [line.removeprefix('role\t') for line in records if line.startswith('role\t')]
+    if not roles or len(roles) != len(set(roles)) or any(role not in ROLES for role in roles):
+        raise ValueError('invalid server role selection in runtime receipt')
+    classes = {line.removeprefix('class\t') for line in records if line.startswith('class\t')}
+    if {ref for ref in classes if ref.startswith('role/')} != {'role/' + role for role in roles}:
+        raise ValueError('runtime roles and physical classes disagree')
+    return roles
+
+
+def runner_job_policy(role: str, policy: dict) -> list[str]:
+    """Publish cache configuration for job images, without host toolchains."""
+    _, uid, home, _ = ROLES[role]
+    work = WORK_ROOTS[role]
+    # /__w and /cache are the native provider's container mount interfaces.
+    # Their backing directories are always on this provider's dedicated pool.
+    cache = '/__w/.ci-cache' if role == 'server/github-actions' else '/cache'
+    store = work / 'build/.ci-cache' if role == 'server/github-actions' else work / 'cache'
+    for leaf in ('', 'tmp', 'cargo', 'cargo-target', 'rustup', 'go', 'go-build',
+                 'go-mod', 'pip', 'uv', 'bazelisk', 'bazel-output', 'bazel-disk',
+                 'bazel-repository', 'sccache', 'ccache'):
+        directory = store / leaf
+        if directory.exists() or directory.is_symlink():
+            info = directory.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != uid
+                    or info.st_gid != uid or info.st_mode & 0o077):
+                raise ValueError('existing provider cache identity differs; no reset')
+        else:
+            directory.mkdir(mode=0o700)
+            os.chown(directory, uid, uid)
+    bazel = ('startup --output_user_root=' + cache + '/bazel-output\n'
+             'startup --max_idle_secs=300\n'
+             'build --disk_cache=' + cache + '/bazel-disk\n'
+             'common --repository_cache=' + cache + '/bazel-repository\n')
+    remote = policy['bazel']
+    if not isinstance(remote, dict) or set(remote) != {'remote_cache', 'bes_backend', 'bes_results_url'}:
+        raise ValueError('invalid job-image Bazel policy')
+    for key in ('remote_cache', 'bes_backend', 'bes_results_url'):
+        value = remote[key]
+        if value:
+            parsed = urllib.parse.urlsplit(value)
+            schemes = {'https', 'grpcs'} if key == 'remote_cache' else ({'grpcs'} if key == 'bes_backend' else {'https'})
+            if (len(value) > 2048 or parsed.scheme not in schemes or not parsed.hostname
+                    or parsed.username or parsed.password or parsed.query or parsed.fragment
+                    or re.search(r'[^\x21-\x7e]', value)):
+                raise ValueError('invalid job-image remote endpoint')
+            bazel += 'build --' + key + '=' + value + '\n'
+    bazelrc = (Path('__INSTALLER_PATH_FILE_SERVER_GITHUB_JOB_BAZELRC__') if role == 'server/github-actions'
+               else Path('__INSTALLER_PATH_FILE_SERVER_GITLAB_JOB_BAZELRC__'))
+    write(bazelrc, bazel.encode(), 0o644)
+    environment = {'TMPDIR': cache + '/tmp', 'CARGO_HOME': cache + '/cargo',
+                   'CARGO_TARGET_DIR': cache + '/cargo-target', 'RUSTUP_HOME': cache + '/rustup',
+                   'GOPATH': cache + '/go', 'GOCACHE': cache + '/go-build', 'GOMODCACHE': cache + '/go-mod',
+                   'GOTMPDIR': cache + '/tmp', 'PIP_CACHE_DIR': cache + '/pip', 'UV_CACHE_DIR': cache + '/uv',
+                   'BAZELISK_HOME': cache + '/bazelisk', 'SCCACHE_DIR': cache + '/sccache',
+                   'CCACHE_DIR': cache + '/ccache'}
+    values = [key + '=' + value for key, value in environment.items()]
+    if role == 'server/github-actions':
+        write(Path('__INSTALLER_PATH_FILE_SERVER_GITHUB_JOB_ENV__'), ('\n'.join(values) + '\n').encode(), 0o644)
+    sync_directory(store)
+    return values
+
+
+def verify_gitlab_credentials(url: str, token: str, home: Path, uid: int) -> None:
+    # .runner_system_id and /api/v4/runners/verify are native GitLab interfaces.
+    # Its CLI can return zero after a network error; require a structured server
+    # acknowledgement before publishing an enrollment receipt or activation link.
+    system_id = regular(Path('__INSTALLER_PATH_DIR_SERVER_GITLAB_CONFIG__') / '.runner_system_id',
+                        private=True, maximum=128, owner=uid).decode('ascii').strip()
+    if re.fullmatch(r'[rs]_[A-Za-z0-9]{12,64}', system_id) is None:
+        raise ValueError('native GitLab manager identity is unavailable')
+    body = urllib.parse.urlencode({'token': token, 'system_id': system_id}).encode()
+    result = command(['/usr/bin/curl', '--disable', '--silent', '--show-error', '--fail',
+                      '--proto', '=https', '--proto-redir', '=https', '--max-redirs', '0',
+                      '--connect-timeout', '10', '--max-time', '30', '--max-filesize', '65536',
+                      '--request', 'POST', '--header', 'Content-Type: application/x-www-form-urlencoded',
+                      '--data-binary', '@-', '--write-out', '\n%{http_code}',
+                      '--url', url.rstrip('/') + '/api/v4/runners/verify'],
+                     input_data=body, timeout=45)
+    data, separator, status_code = result.rpartition(b'\n')
+    if not separator or status_code != b'200' or len(data) > 65536:
+        raise ValueError('GitLab did not acknowledge the configured runner credentials')
+    response = json_document(data)
+    if not isinstance(response, dict) or type(response.get('id')) is not int or response['id'] < 1:
+        raise ValueError('GitLab returned no authenticated runner identity')
+    write(home / 'verification.json', json.dumps({'format': 1, 'runner_id': response['id'],
+          'system_id': system_id, 'credentials_verified': True, 'online': False}, sort_keys=True).encode())
+
+
+def configure_runner(role: str, input_path: str) -> None:
+    """Consume only this provider's initrd token during unattended setup."""
+    if role not in ('server/github-actions', 'server/gitlab-cicd'):
+        raise ValueError('private runner setup requires a registered provider role')
+    user, uid, home, unit = ROLES[role]
+    for name in ('enrolled', 'enrollment-uncertain'):
+        if (home / name).exists() or (home / name).is_symlink():
+            raise ValueError('existing enrollment state requires review; no reset or automatic retry')
+    policy = json_document(regular(CATALOG))['runners'][role.removeprefix('server/')]
+    if policy.get('job_trust') != 'dedicated-private-project;protected-refs;no-public-forks':
+        raise ValueError('explicit private-job trust policy is required')
+    environment = runner_job_policy(role, policy)
+    url = policy['url']
+    parsed = urllib.parse.urlsplit(url)
+    if url and (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
+                or parsed.port not in (None, 443) or parsed.query or parsed.fragment
+                or re.fullmatch(r'(?:/[A-Za-z0-9_.~-]+)*/?', parsed.path) is None
+                or any(part in ('.', '..') for part in parsed.path.split('/'))):
+        raise ValueError('invalid public provider URL')
+    token = regular(Path(input_path), private=True, maximum=4096).decode('ascii') if input_path else ''
+    if not token or not url:
+        status(home, 'installed-but-pending-enrollment')
+        return
+    if re.fullmatch(r'[A-Za-z0-9_.-]{16,2048}', token) is None:
+        raise ValueError('invalid provider authentication token')
+    work = WORK_ROOTS[role]
+    uncertain = home / 'enrollment-uncertain'
+    write(uncertain, json.dumps({'format': 1, 'role': role, 'state': 'configuring',
+                                'online': False, 'recovery': 'review native provider and local state; no automatic retry'}, sort_keys=True).encode())
+    try:
+        if role == 'server/github-actions':
+            runner = home / 'runner'
+            for leaf in ('.runner', '.credentials', '.credentials_rsaparams'):
+                if (runner / leaf).exists() or (runner / leaf).is_symlink():
+                    raise ValueError('native GitHub configuration already exists')
+            command([str(runner / 'config.sh'), '--unattended', '--url', url,
+                     '--name', user, '--work', str(work / 'build'),
+                     '--labels', 'private-project,rootless-containers', '--disableupdate'],
+                    user=user, cwd=runner, extra={'ACTIONS_RUNNER_INPUT_TOKEN': token}, timeout=300)
+            for leaf in ('.runner', '.credentials'):
+                document = json_document(regular(runner / leaf, private=True, owner=uid))
+                if not isinstance(document, dict) or not document:
+                    raise ValueError('native GitHub configuration was not produced')
+            native_key = runner / '.credentials_rsaparams'
+            if native_key.exists() or native_key.is_symlink():
+                regular(native_key, private=True, owner=uid)
+        else:
+            if not token.startswith('glrt-'):
+                raise ValueError('GitLab requires a runner authentication token')
+            if policy['executor'] != 'docker' or policy['pull_policy'] not in {'if-not-present', 'always'}:
+                raise ValueError('invalid rootless GitLab executor policy')
+            architecture = target_architecture()
+            helper_images = policy.get('helper_images')
+            if (policy['helper_flavor'] != 'ubuntu' or not isinstance(helper_images, dict)
+                    or set(helper_images) != {'amd64', 'arm64'} or not helper_images.get(architecture)):
+                raise ValueError('explicit Debian-derived GitLab helper policy is required')
+            helper_image = helper_images[architecture]
+            quote = lambda value: json.dumps(value, ensure_ascii=True)
+            # /builds, /cache and /etc/bazel.bazelrc are native executor/Bazel
+            # interfaces inside each chosen image. Only provider-owned pool
+            # directories and this public read-only configuration are mounted.
+            volumes = [str(work / 'build') + ':/builds:rw', str(work / 'cache') + ':/cache:rw',
+                       '__INSTALLER_PATH_FILE_SERVER_GITLAB_JOB_BAZELRC__:/etc/bazel.bazelrc:ro']
+            config = ('concurrent = 1\ncheck_interval = 3\nshutdown_timeout = 60\nlog_format = "json"\n\n'
+                      '[[runners]]\n  name = ' + quote(user) + '\n  url = ' + quote(url)
+                      + '\n  token = ' + quote(token) + '\n  executor = "docker"\n'
+                      '  builds_dir = "/builds"\n  cache_dir = "/cache"\n'
+                      '  environment = ' + quote(environment) + '\n'
+                      '  [runners.docker]\n    host = ' + quote('unix://' + policy['podman_socket'])
+                      + '\n    image = ' + quote(policy['default_image'])
+                      + '\n    privileged = false\n    services_privileged = false\n'
+                      '    cap_drop = ["ALL"]\n    security_opt = ["no-new-privileges:true"]\n'
+                      '    pull_policy = ' + quote(policy['pull_policy'])
+                      + '\n    allowed_pull_policies = [' + quote(policy['pull_policy']) + ']\n'
+                      '    helper_image_flavor = ' + quote(policy['helper_flavor'])
+                      + '\n    volumes = ' + quote(volumes) + '\n')
+            if helper_image:
+                config += '    helper_image = ' + quote(helper_image) + '\n'
+            # Native Runner writes .runner_system_id beside this file and
+            # may rotate its own credentials. Root-owned receipts stay outside
+            # that one private runner-owned directory.
+            path = Path('__INSTALLER_PATH_FILE_SERVER_GITLAB_CONFIG__')
+            if path.exists() or path.is_symlink():
+                raise ValueError('native GitLab configuration already exists')
+            write(path, config.encode(), 0o600, uid)
+            # Native verify consumes the private config, never a token argv.
+            command([str(home / 'release/gitlab-runner'), 'verify', '--config', str(path)],
+                    user=user, cwd=home, timeout=120)
+            verify_gitlab_credentials(url, token, home, uid)
+        wants = SYSTEMD / 'multi-user.target.wants'
+        protected_directory(wants, 0o755)
+        link = wants / unit
+        if link.exists() or link.is_symlink():
+            raise ValueError('runner activation already has an owner')
+        link.symlink_to(SYSTEMD / unit)
+        sync_directory(wants)
+        write(home / 'enrolled', json.dumps({'format': 1, 'role': role,
+              'state': 'enrolled-activation-pending', 'online': False}, sort_keys=True).encode())
+        status(home, 'enrolled-activation-pending')
+        uncertain.unlink()
+        sync_directory(home)
+    except (OSError, ValueError, KeyError, RuntimeError, TimeoutError) as error:
+        raise OutcomeUnknown('runner enrollment/configuration may have changed; retained evidence requires review') from error
+
+
+def setup_main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('operation', choices=('foundation', 'profile-packages', 'account', 'devops-account', 'codex-account', 'install', 'configure-runner'))
+    parser.add_argument('role', choices=('server', *ROLES))
+    parser.add_argument('argument', nargs='?')
+    parser.add_argument('private_input', nargs='?')
+    args = parser.parse_args()
+    if os.geteuid() != 0:
+        parser.error('offline server setup requires target root')
+    global DEADLINE
+    DEADLINE = time.monotonic() + 1800
+    try:
+        roles = selected_server_roles()
+        if 'server/technitium' in roles and args.operation != 'foundation':
+            dns_account_identity()
+        family_operation = args.operation in ('foundation', 'profile-packages', 'account', 'codex-account')
+        if (family_operation and args.role != 'server') or (not family_operation and args.role not in roles):
+            raise ValueError('setup role is absent from the frozen class receipt')
+        with ownership_lock():
+            if args.operation == 'foundation':
+                foundation(roles, args.argument or '', args.private_input or '')
+            elif args.operation == 'profile-packages':
+                install_profile_packages(args.argument or '')
+            elif args.operation == 'account':
+                account_skeleton(args.argument or '')
+            elif args.operation == 'codex-account':
+                codex_account(args.argument or '')
+            elif args.operation == 'devops-account':
+                devops_account(args.argument or '')
+            elif args.operation == 'configure-runner':
+                configure_runner(args.role, args.argument or '')
+            else:
+                install(args.role, args.argument or '')
+        return 0
+    except OutcomeUnknown:
+        print('server setup outcome unknown; recovery evidence retained; do not retry automatically', file=sys.stderr)
+        return 75
+    except (OSError, ValueError, KeyError, RuntimeError, TimeoutError):
+        print('server setup failed; retained stage and target records require review', file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(setup_main())

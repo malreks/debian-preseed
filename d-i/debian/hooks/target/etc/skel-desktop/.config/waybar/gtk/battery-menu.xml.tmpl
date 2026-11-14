@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<interface>
+  <object class="GtkAccelGroup" id="menu_accel_group" />
+  <object class="GtkMenu" id="menu">
+    <property name="accel-group">menu_accel_group</property>
+    <property name="reserve-toggle-size">False</property>
+    <child><object class="GtkMenuItem" id="battery_power"><property name="visible">True</property><property name="label">Battery and power status</property></object></child>
+    <child><object class="GtkMenuItem" id="battery_lock"><property name="visible">True</property><property name="label">Lock session</property></object></child>
+    <child><object class="GtkMenuItem" id="battery_suspend"><property name="visible">True</property><property name="label">Suspend</property></object></child>
+  </object>
+</interface>

@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "execution": "unexecuted source fixture; static inspection only",
+  "cases": [
+    {"id": "ordinary-make", "argv": ["make", "build", "MESSAGE=two words $literal"], "expected": "one synchronous user scope in build.slice; exact argv, cwd and terminal retained; only the declared compiler scratch/output environment is replaced with canonical per-account pool paths"},
+    {"id": "nested-compiler", "parent": "build.slice scope", "argv": ["c++", "source.cc"], "expected": "inherits existing scope; no new scope or marker-based bypass"},
+    {"id": "devops-shell", "argv": ["bash", "-i"], "expected": "nested shell and all directly forked compilers enter build.slice; activation caller and terminal remain outside"},
+    {"id": "missing-user-manager", "expected_status": 69, "expected": "no compiler runs and no unconfined fallback"},
+    {"id": "missing-build-policy", "expected_status": 69, "expected": "no automatic unlimited build.slice"},
+    {"id": "root-refused", "expected_status": 77, "expected": "no system manager or privilege fallback"},
+    {"id": "child-failure", "child_status": 37, "expected_status": 37},
+    {"id": "foreground-interrupt", "signal": "SIGINT", "expected_status": 130, "expected": "scope owns descendants; stop cleanup budget 15 seconds"},
+    {"id": "concurrent-builds", "scope_count": 2, "expected": "independent unit identities share the aggregate build.slice memory and task limits"},
+    {"id": "desktop-ownership", "session_slice": ["labwc-compositor", "waybar", "crystal-dock", "mako", "pipewire"], "application_slice": "app.slice", "build_slice": "build.slice"},
+    {"id": "aggregate-emergency-budget", "work_max_pages": 8192, "writeback_available": true, "expected": "all recompression tiers together request at most 4096 pages; recompression plus writeback request at most 8192 pages; no compaction"},
+    {"id": "emergency-no-writeback", "work_max_pages": 8192, "writeback_available": false, "expected": "all recompression tiers together request at most 8192 pages"},
+    {"id": "io-pressure-emergency", "work_max_pages": 8192, "writeback_max_pages": 2048, "batch_size": 8, "expected": "fresh pre-I/O PSI and remaining daily budget can only reduce the admitted work"},
+    {"id": "oscillating-pressure", "emergency_completed_at": 100, "next_pressure_at": 101, "next_emergency_at": 102, "cooldown_seconds": 90, "expected": "emergency remains suppressed until time 190 despite intervening states"},
+    {"id": "independent-pressure-gates", "expected": "available-memory, PSI-some and PSI-full remain OR triggers; zram, PSI monitoring and normal maintenance remain enabled"},
+    {"id": "invalid-build-limits", "memory_high": "80%", "memory_max": "75%", "expected": "profile rejected by pure plan compiler before publication and before any installer disk operation"},
+    {"id": "invalid-emergency-envelope", "work_max_pages": 0, "expected": "profile rejected by pure plan compiler and runtime configuration parser; zero never disables the work bound"},
+    {"id": "pressure-below-new-emergency-threshold", "pressure_work_max_pages": 16384, "expected": "all recompression plus writeback requests stay within one pressure envelope; no device-wide compaction tail"},
+    {"id": "reversed-work-envelopes", "pressure_work_max_pages": 8192, "emergency_work_max_pages": 16384, "expected": "profile rejected before publication; emergency must not exceed pressure"},
+    {"id": "ordinary-build-without-devops", "environment": {"USER": "spoofed", "TMPDIR": "/tmp", "CARGO_TARGET_DIR": "/home/user/project/target"}, "expected": "native non-root account identity selects installed mode-2770 pool build root and mode-0700 scratch directory; TMPDIR/TMP/TEMP/GOTMPDIR and Cargo target output use that account's pool directories before command execution"},
+    {"id": "unmounted-build-pool", "expected_status": 69, "expected": "no command, scope or substitute root-filesystem directory is created"},
+    {"id": "indirect-build-storage", "replaced": ["pool root", "pool build parent", "account build directory", "private scratch directory"], "expected_status": 69, "expected": "each indirect or missing path is rejected before invoking the user manager or command"},
+    {"id": "foreign-build-storage", "expected_status": 77, "expected": "wrong account owner or unexpected account/scratch modes are rejected without chmod, recursive ownership change or automatic migration"},
+    {"id": "nested-build-storage", "parent": "build.slice scope", "environment": {"TMPDIR": "/tmp"}, "expected": "canonical pool scratch/output policy is applied before the existing-scope fast path; no additional scope or broad DevOps activation"},
+    {"id": "canonical-audio-dropins", "units": ["pipewire.service", "pipewire.socket", "pipewire-pulse.service", "pipewire-pulse.socket"], "expected": "installer staging resolves every unit through the registered runtime drop-in map; offline and firstboot verification check the same canonical path placeholders, without reconstructing a unit directory. Exact negative checks for native numeric-UID systemd instance names retain their separate read-only interface."}
+  ]
+}

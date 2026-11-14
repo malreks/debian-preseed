@@ -1,0 +1,5 @@
+# Managed SCX loader defaults. scx_loader starts this scheduler when its
+# systemd unit reaches multi-user.target. Keep the default general-purpose and
+# long-running; workload-specific shells switch through the D-Bus client.
+default_sched = "__INSTALLER_HARDWARE_CPU_SCHEDULER_SCX_WORKER_NORMAL__"
+default_mode = "Auto"

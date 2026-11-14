@@ -1,0 +1,44 @@
+[Unit]
+Description=Primary operator Codex app server
+Documentation=https://developers.openai.com/codex/app-server
+ConditionFileIsExecutable=__INSTALLER_DEVOPS_CODEX_WRAPPER_PATH__
+ConditionFileIsExecutable=__INSTALLER_DEVOPS_CODEX_BINARY_PATH__
+ConditionFileIsExecutable=__INSTALLER_DEVOPS_CODEX_APP_SERVER_READY_HELPER__
+ConditionPathIsDirectory=__INSTALLER_DEVOPS_CODEX_HOME__
+ConditionPathIsDirectory=__INSTALLER_DEVOPS_CODEX_SOCKETS_ROOT__
+ConditionPathIsDirectory=__INSTALLER_DEVOPS_CODEX_APP_SERVER_CONTROL_DIR__
+ConditionPathIsDirectory=__INSTALLER_DEVOPS_CODEX_HOME__/app-server-daemon
+PartOf=codex-app-server.socket
+StopWhenUnneeded=no
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+Environment=HOME=%h USER=%u LOGNAME=%u XDG_RUNTIME_DIR=%t
+Environment=CODEX_HOME=__INSTALLER_DEVOPS_CODEX_HOME__
+Environment=XDG_CONFIG_HOME=%h/.config XDG_CACHE_HOME=%h/.cache
+Environment=XDG_DATA_HOME=%h/.local/share XDG_STATE_HOME=%h/.local/state
+Environment=CODEX_APP_SERVER_SECRET_ENV_NAMES=CODEX_MCP_API_KEY
+EnvironmentFile=-__INSTALLER_DEVOPS_CODEX_APP_SERVER_ENVIRONMENT__
+LoadCredential=codex-mcp.env:__INSTALLER_DEVOPS_CODEX_CREDENTIALS_ROOT__/mcp.env
+WorkingDirectory=%h/Workspace
+ExecStartPre=__INSTALLER_PATH_DIR_USR_BIN__/rm -f -- __INSTALLER_DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET__
+ExecStart=__INSTALLER_DEVOPS_CODEX_WRAPPER_PATH__ app-server --listen unix://__INSTALLER_DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET__
+ExecStartPost=__INSTALLER_DEVOPS_CODEX_APP_SERVER_READY_HELPER__
+ExecStopPost=__INSTALLER_PATH_DIR_USR_BIN__/rm -f -- __INSTALLER_DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET__
+SuccessExitStatus=143 SIGTERM
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+TimeoutStopSec=30s
+KillMode=control-group
+UMask=0077
+# Bubblewrap owns the nested namespaces and drops capabilities before exec.
+NoNewPrivileges=no
+LimitCORE=0
+# Native Codex logs use its private configured log directory. No desktop
+# logging supervisor, bus, agent or session is required on the server.
+StandardOutput=null
+StandardError=null
+SyslogIdentifier=codex-app-server

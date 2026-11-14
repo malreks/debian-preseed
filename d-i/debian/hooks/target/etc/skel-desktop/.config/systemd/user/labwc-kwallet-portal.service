@@ -1,0 +1,26 @@
+[Unit]
+StartLimitBurst=5
+StartLimitIntervalSec=60s
+Description=KWallet Secret Service backend for the Labwc session
+ConditionEnvironment=LABWC_SESSION_OWNER=desktop
+ConditionEnvironment=WAYLAND_DISPLAY
+ConditionEnvironment=XDG_SESSION_TYPE=wayland
+After=labwc-compositor.service labwc-session.target
+Requisite=labwc-session.target
+PartOf=labwc-session.target
+
+[Service]
+TimeoutStartSec=30s
+KillMode=control-group
+Type=dbus
+BusName=org.freedesktop.secrets
+ExecCondition=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check session-ready
+# Let Labwc, Waybar and the portal stack settle before KWallet can prompt.
+ExecStartPre=__INSTALLER_PATH_DIR_USR__/bin/sleep 5s
+Environment=QT_QPA_PLATFORM=wayland
+Environment=QT_NO_XDG_DESKTOP_PORTAL=1
+ExecStart=__INSTALLER_PATH_DIR_USR__/bin/ksecretd
+ExecStartPost=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check kwallet-ready
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=5s

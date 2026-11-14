@@ -1,0 +1,25 @@
+[DEFAULT]
+cleanup = automatic
+db_url = sqlite:///__INSTALLER_PATH_DIR_VAR_LIB__/fangfrisch/db.sqlite
+integrity_check = sha256
+local_directory = __INSTALLER_PATH_DIR_VAR_LIB__/clamav
+log_level = INFO
+log_method = console
+log_format = %(levelname)s: %(message)s
+max_size = 40MB
+on_update_exec = /bin/true
+on_update_timeout = 5
+
+[sanesecurity]
+enabled = yes
+prefix = __INSTALLER_FANGFRISCH_SANESECURITY_PREFIX__
+
+[urlhaus]
+# The installer always publishes this configuration and any supplied Auth-Key.
+# FANGFRISCH_URLHAUS_ENABLE controls provider enablement and URL materialization.
+enabled = no
+auth_key =
+interval = 10m
+url_urlhaus = __INSTALLER_FANGFRISCH_URLHAUS_URL__
+filename_urlhaus = urlhaus_clamav.ndb
+max_size = 40MB

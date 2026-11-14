@@ -1,0 +1,9 @@
+[Unit]
+After=labwc-session.target
+Requisite=labwc-session.target
+Description=Lifetime leases for intel performance tuning
+PartOf=labwc-session.target
+StopWhenUnneeded=yes
+# Keep the lifetime request active when the lease fails. Its service owns
+# bounded retries; application Upholds= must not restart a failed target loop.
+Wants=hardware-tuning-intel-performance.service

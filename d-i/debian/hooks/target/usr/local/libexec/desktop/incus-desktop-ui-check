@@ -1,0 +1,57 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Bounded desktop-only Web UI readiness over the native private Incus socket."""
+import grp
+import http.client
+import os
+from pathlib import Path
+import signal
+import socket
+import stat
+import sys
+
+# Package-owned Incus socket interface; never a host TCP management endpoint.
+SOCKET = Path('__INSTALLER_PATH_DIR_VAR_LIB__/incus/unix.socket')
+
+
+class UnixHTTP(http.client.HTTPConnection):
+    def __init__(self):
+        super().__init__('localhost', timeout=10)
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(10)
+        self.sock.connect(str(SOCKET))
+
+
+def main():
+    if os.geteuid() != 0 or len(sys.argv) != 1:
+        raise ValueError('registered desktop UI service operation requires root')
+    for parent in reversed(SOCKET.parents):
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ValueError('untrusted native Incus socket ancestry')
+    info = SOCKET.lstat()
+    if (not stat.S_ISSOCK(info.st_mode) or info.st_uid
+            or info.st_gid != grp.getgrnam('incus-admin').gr_gid
+            or stat.S_IMODE(info.st_mode) != 0o660):
+        raise ValueError('native Incus socket identity differs')
+    connection = UnixHTTP()
+    try:
+        connection.request('GET', '/ui/')
+        response = connection.getresponse()
+        if response.status != 200:
+            raise ValueError('desktop Incus Web UI readiness check failed')
+    finally:
+        connection.close()
+
+
+if __name__ == '__main__':
+    def expired(_number, _frame):
+        raise TimeoutError('desktop UI readiness deadline expired')
+    signal.signal(signal.SIGALRM, expired)
+    signal.alarm(25)
+    try:
+        main()
+    except (OSError, ValueError, KeyError, http.client.HTTPException):
+        print('incus-desktop-ui-check: private desktop UI readiness failed', file=sys.stderr)
+        sys.exit(1)

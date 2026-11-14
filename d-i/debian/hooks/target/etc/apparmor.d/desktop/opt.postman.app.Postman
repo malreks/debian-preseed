@@ -1,0 +1,90 @@
+# Managed by unattended-installer.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+profile postman __INSTALLER_PATH_DIR_OPT__/postman/app/{Postman,postman} flags=(attach_disconnected) {
+  #include <abstractions/electron-application>
+  #include <abstractions/user-documents>
+  include if exists <abstractions/user-tmp>
+
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network netlink raw,
+
+  # Postman's interactive shell uses the managed zsh startup stack. Keep the
+  # observed helper set explicit rather than granting a broad command glob.
+  __INSTALLER_PATH_DIR_DEV__/tty rw,
+  /{,usr/}bin/{bash,dash,sh} rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{dircolors,env,git,id,run-parts,ssh-agent,starship,zsh} rix,
+  /{,usr/}bin/{curl,date,gzip,tar} rix,
+  __INSTALLER_PATH_DIR_ETC__/profile r,
+  __INSTALLER_PATH_DIR_ETC__/profile.d/ r,
+  __INSTALLER_PATH_DIR_ETC__/profile.d/** r,
+  __INSTALLER_PATH_DIR_ETC__/terminfo/ r,
+  __INSTALLER_PATH_DIR_ETC__/zsh/ r,
+  __INSTALLER_PATH_DIR_ETC__/zsh/** r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/terminfo/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/terminfo/** r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/doc/fzf/examples/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/doc/fzf/examples/** r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zsh/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zsh/** r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zsh-autosuggestions/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zsh-autosuggestions/** r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zsh-syntax-highlighting/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zsh-syntax-highlighting/** r,
+  __INSTALLER_PATH_DIR_OPT__/postman/ r,
+  __INSTALLER_PATH_DIR_OPT__/postman/app/{,**} mrix,
+  owner __INSTALLER_PATH_DIR_OPT__/postman/Postman-[0-9]*.tar.gz rw,
+
+  # The managed zsh profile has bounded, user-owned state for completion,
+  # prompt rendering, dircolors, and its optional per-user SSH agent.
+  owner @{HOME}/.cache/starship/ rw,
+  owner @{HOME}/.cache/starship/** rwk,
+  owner @{HOME}/.cache/zsh/ rw,
+  owner @{HOME}/.cache/zsh/** rwk,
+  owner @{HOME}/.config/fzf/ r,
+  owner @{HOME}/.config/fzf/default-opts r,
+  owner @{HOME}/.config/starship.toml r,
+  owner @{HOME}/.dircolors r,
+  owner @{HOME}/.profile r,
+  owner @{HOME}/.profile.d/ r,
+  owner @{HOME}/.profile.d/** r,
+  owner @{HOME}/.ssh/ rw,
+  owner @{HOME}/.ssh/agent/ rw,
+  owner @{HOME}/.ssh/agent/** rw,
+  owner @{HOME}/.zlogout r,
+  owner @{HOME}/.zprofile r,
+  owner @{HOME}/.zsh_aliases r,
+  owner @{HOME}/.zshenv r,
+  owner @{HOME}/.zshrc r,
+
+  # Postman's GPU renderer probes the primary DRM card. Restrict that access
+  # to card nodes, plus the exact process and executable directories observed.
+  __INSTALLER_PATH_DIR_DEV__/dri/card[0-9]* rw,
+  __INSTALLER_PATH_DIR_PROC__/[0-9]*/loginuid r,
+  __INSTALLER_PATH_DIR_USR__/bin/ r,
+  __INSTALLER_PATH_DIR_USR__/sbin/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/ r,
+  owner @{HOME}/.cache/Postman/ rw,
+  owner @{HOME}/.cache/Postman/** rwk,
+  owner @{HOME}/.config/Postman/ rw,
+  owner @{HOME}/.config/Postman/** rwkl,
+  owner @{HOME}/.local/share/Postman/ rw,
+  owner @{HOME}/.local/share/Postman/** rwkl,
+  owner @{HOME}/.local/bin/ rw,
+  owner @{HOME}/.local/bin/postman rwklmrix,
+  owner @{HOME}/Postman/ rw,
+  owner @{HOME}/Postman/** rwkl,
+  owner @{HOME}/@{XDG_DOCUMENTS_DIR}/ rw,
+  owner @{HOME}/@{XDG_DOCUMENTS_DIR}/** rwkl,
+  owner @{HOME}/@{XDG_DOWNLOAD_DIR}/ rw,
+  owner @{HOME}/@{XDG_DOWNLOAD_DIR}/** rwkl,
+
+  include if exists <local/opt.postman.app.Postman>
+}

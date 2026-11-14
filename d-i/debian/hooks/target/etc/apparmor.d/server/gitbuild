@@ -1,0 +1,169 @@
+# Managed by unattended-installer.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+# Headless terminal client and credential-bearing publisher. The worker has
+# a separate policy; no compositor or graphical authentication agent is used.
+profile gitbuild __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitbuild flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/wrapper-terminal>
+  / r,
+  __INSTALLER_PATH_DIR_HOME__/ r,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_USR__/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/{lib,share}/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_LOCAL__/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/{managed_workflows,gitbuild}/{,**} r,
+  __INSTALLER_PATH_DIR_VAR__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/ r,
+  owner @{HOME}/ r,
+  signal (send, receive) peer=@{profile_name},
+  signal (receive) peer=unconfined,
+  include <abstractions/dbus-session-strict>
+  unix,
+  __INSTALLER_PATH_DIR_USR__/bin/{systemctl,systemd-run} rix,
+  __INSTALLER_PATH_DIR_RUN__/ r,
+  __INSTALLER_PATH_DIR_RUN_USER__/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/{,**} rw,
+  dbus (send, receive) bus=session peer=(name=org.freedesktop.systemd1),
+  __INSTALLER_PATH_DIR_POOL__/ r,
+  __INSTALLER_PATH_DIR_POOL__/{build,cache,db}/ r,
+  owner __INSTALLER_PATH_DIR_POOL__/{build,cache,db}/*/ r,
+  owner __INSTALLER_PATH_DIR_POOL__/{build,cache,db}/*/gitbuild/{,**} rwkl,
+  owner @{HOME}/Workspace/{,**/} rw,
+  owner @{HOME}/Workspace/** r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitbuild rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{git,fzf,dpkg,dpkg-deb} rix,
+  __INSTALLER_PATH_DIR_USR__/lib/git-core/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{git-core,git,terminfo}/{,**} r,
+  /{,usr/}lib/terminfo/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/terminfo/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/{gitconfig,subuid,subgid} r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/gitbuild/{,**} r,
+  owner @{HOME}/Workspace/{,**/}debian/{,**} rwkl,
+  owner @{HOME}/Workspace/{,**/}.gitbuild-debian-*/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_POOL__/db/*/aptly/{,aptly.conf} r,
+  __INSTALLER_PATH_DIR_USR__/bin/pkexec rPx -> gitbuild-auth,
+  signal (send, receive) peer=gitbuild-auth,
+  signal (receive) peer=gitbuild-worker,
+  signal (receive) peer=gitbuild-publish,
+}
+
+profile gitbuild-auth flags=(attach_disconnected) {
+  #include <abstractions/workflow-auth>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/gitbuild-import-local rPx -> gitbuild-import-local,
+  signal (send, receive) peer=gitbuild,
+  signal (send, receive) peer=gitbuild-import-local,
+}
+
+profile gitbuild-import-local __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/gitbuild-import-local flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/wrapper-terminal>
+  / r,
+  __INSTALLER_PATH_DIR_HOME__/ r,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_USR__/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/{lib,share}/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_LOCAL__/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/{managed_workflows,gitbuild}/{,**} r,
+  __INSTALLER_PATH_DIR_VAR__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/ r,
+  # Authenticated root opens the caller-owned HOME directory, not its files.
+  @{HOME}/ r,
+  signal (send, receive) peer=@{profile_name},
+  signal (receive) peer=unconfined,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/gitbuild-import-local rix,
+  # Root must read a user-owned artifact. The helper pins every component with
+  # O_NOFOLLOW, verifies ownership, and copies it to root-only staging first.
+  __INSTALLER_PATH_DIR_POOL__/ r,
+  __INSTALLER_PATH_DIR_POOL_BUILD__/ r,
+  __INSTALLER_PATH_DIR_POOL_BUILD__/*/ r,
+  __INSTALLER_PATH_DIR_POOL_BUILD__/*/gitbuild/{,repo-*/,repo-*/*/,repo-*/*/artifacts/} r,
+  __INSTALLER_PATH_DIR_POOL_BUILD__/*/gitbuild/repo-*/*/artifacts/*.deb r,
+  __INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE__/ rw,
+  __INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE__/.gitbuild-incoming/{,**} rwkl,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/apt-repo-init rPx -> apt-repo-local,
+  signal (send, receive) peer=gitbuild-auth,
+  signal (send, receive) peer=apt-repo-local,
+}
+
+profile gitbuild-publish __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/gitbuild-publish flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/wrapper-terminal>
+  / r,
+  __INSTALLER_PATH_DIR_HOME__/ r,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_USR__/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/{lib,share}/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_LOCAL__/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/{managed_workflows,gitbuild}/{,**} r,
+  __INSTALLER_PATH_DIR_VAR__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/ r,
+  owner @{HOME}/ r,
+  signal (send, receive) peer=@{profile_name},
+  signal (receive) peer=unconfined,
+  __INSTALLER_PATH_DIR_POOL__/ r,
+  __INSTALLER_PATH_DIR_POOL__/{build,cache,db}/ r,
+  owner __INSTALLER_PATH_DIR_POOL__/{build,cache,db}/*/ r,
+  owner __INSTALLER_PATH_DIR_POOL__/{build,cache,db}/*/gitbuild/{,**} rwkl,
+  owner @{HOME}/Workspace/{,**/} rw,
+  owner @{HOME}/Workspace/** r,
+  # Native Wayland pinentry only; this adds no X11/Xwayland access.
+  #include <abstractions/nameservice>
+  unix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/gitbuild-publish rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{debsign,gpg,gpg2,gpgconf,gpg-agent,pinentry,pinentry-qt,pinentry-qt5,pinentry-gnome3,pinentry-gtk-2,pinentry-curses,pinentry-tty,perl,sed,cat,cp,mv,rm,mktemp,basename,dirname,readlink} rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{md5sum,sha1sum,sha256sum,wc,grep,egrep,fgrep,awk,gawk,mawk,cut,tr,head,tail,sort,uniq,mkdir,rmdir,chmod,date,touch,dpkg,dpkg-parsechangelog,which,getopt} rix,
+  __INSTALLER_PATH_DIR_USR_SHARE__/perl{,5}/{,**} r,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/perl{,5}/{,**} mr,
+  __INSTALLER_PATH_DIR_USR__/lib/gnupg{,2}/{,**} mr,
+  __INSTALLER_PATH_DIR_USR__/lib/gnupg{,2}/{gpg-preset-passphrase,gpg-protect-tool,keyboxd} rix,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{gnupg,gnupg2,perl5}/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/gnupg/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/alternatives/ r,
+  __INSTALLER_PATH_DIR_TMP__/ rw,
+  owner __INSTALLER_PATH_DIR_TMP__/{debsign*,gpg-*,tmp.*}/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_TMP__/{debsign*,gpg-*,tmp.*} rwkl,
+  owner @{HOME}/.gnupg/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/gnupg/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
+  owner __INSTALLER_PATH_DIR_POOL__/db/*/{aptly,osc}/{,**} r,
+  owner __INSTALLER_PATH_DIR_POOL__/build/*/osc/ r,
+  owner __INSTALLER_PATH_DIR_POOL__/build/*/osc/gitbuild/{,**} rwkl,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/aptly-publishing-bin/aptly-publish-local rPx -> devops-publishing,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/obs-publishing-bin/osc rPx -> devops-publishing,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/obs-publishing-bin/obs-publish-source rPx -> devops-publishing,
+  signal (send, receive) peer=devops-publishing,
+  signal (receive) peer=gitbuild,
+}
+
+# Explicit terminal-only publication. Root-owned wrappers validate the account
+# paths and private pending credentials before any remote operation.
+profile devops-publishing __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/{aptly-publishing,aptly-publishing-bin/{aptly,aptly-publish-local,dpkg-buildpackage},obs-publishing,obs-publishing-bin/{obs-checkout-source,obs-publish-source,osc}} flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/wrapper-terminal>
+  #include <abstractions/nameservice>
+  #include <abstractions/ssl_certs>
+  / r,
+  __INSTALLER_PATH_DIR_ETC__/{gitconfig,gnupg/**} r,
+  __INSTALLER_PATH_DIR_USR__/{,**} mrix,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/managed_workflows/{,**} r,
+  owner @{HOME}/ r,
+  owner @{HOME}/Workspace/{,**} rwkl,
+  owner @{HOME}/.gnupg/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_POOL__/{build,cache,db}/*/{,**} rwklix,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/gnupg/{,**} rwkl,
+  network inet stream,
+  network inet6 stream,
+  unix,
+  signal (send,receive) peer=gitbuild-publish,
+  signal (send,receive) peer=@{profile_name},
+  signal (receive) peer=unconfined,
+}

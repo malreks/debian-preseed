@@ -1,0 +1,7 @@
+# Managed by the installer apt-setup preferences generator.
+# The signed OBS Cramerz archive is indexed early but remains opt-in unless
+# a package is explicitly requested from its Debian_Unstable release.
+
+Package: *
+Pin: release o=obs://build.opensuse.org/home:cramerz:debian/Debian_Unstable,l=home:cramerz:debian,n=Debian_Unstable
+Pin-Priority: -1

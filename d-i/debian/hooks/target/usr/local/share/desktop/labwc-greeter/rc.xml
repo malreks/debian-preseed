@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<labwc_config>
+  <core>
+    <decoration>client</decoration>
+    <!-- Initialize Labwc's output layout before the selector checks for a
+         no-op. A DRM head can report Enabled: yes without a scene output
+         when autoEnableOutputs is disabled, leaving gtkgreet no monitor. -->
+    <autoEnableOutputs>yes</autoEnableOutputs>
+    <primarySelection>no</primarySelection>
+  </core>
+  <keyboard>
+    <keybind key="A-F4" />
+    <keybind key="F10">
+      <action name="Execute" command="__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/greetd-power-action reboot" />
+    </keybind>
+    <keybind key="F12">
+      <action name="Execute" command="__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/greetd-power-action poweroff" />
+    </keybind>
+  </keyboard>
+  <mouse>
+    <context name="Root">
+      <mousebind button="Right" action="Press" />
+    </context>
+  </mouse>
+</labwc_config>

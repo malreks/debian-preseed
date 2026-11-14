@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# sudo's login mode, not an inherited developer/root shell environment.
+if [ "$(__INSTALLER_PATH_DIR_USR__/bin/id -u)" -ne 0 ]; then
+  exec __INSTALLER_PATH_DIR_USR__/bin/sudo -i -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/debugsys "$@"
+fi
+exec __INSTALLER_PATH_DIR_USR__/bin/python3 -I -B __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/debugsys.py "$@"

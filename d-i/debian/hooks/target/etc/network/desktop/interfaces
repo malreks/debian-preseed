@@ -1,0 +1,5 @@
+# Generated during d-i late_command.
+auto lo
+iface lo inet loopback
+
+source __INSTALLER_PATH_DIR_ETC__/network/interfaces.d/*

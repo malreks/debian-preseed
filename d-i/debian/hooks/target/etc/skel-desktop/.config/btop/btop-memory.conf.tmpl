@@ -1,0 +1,32 @@
+# RAM/ZRAM focused btop profile for the managed Waybar memory action.
+# Missing ZRAM, swap, or backing-device data is handled by btop's normal empty
+# device state; no host-specific device path is embedded in this profile.
+color_theme = "__THEME_BTOP_THEME__"
+theme_background = __THEME_BTOP_THEME_BACKGROUND_ENABLED__
+truecolor = True
+rounded_corners = True
+graph_symbol = "braille"
+graph_symbol_mem = "default"
+graph_symbol_proc = "default"
+shown_boxes = "mem proc"
+update_ms = 2000
+proc_sorting = "memory"
+proc_reversed = False
+proc_tree = False
+proc_colors = True
+proc_gradient = True
+proc_per_core = False
+proc_mem_bytes = True
+proc_cpu_graphs = False
+mem_graphs = True
+show_swap = True
+swap_disk = True
+show_disks = True
+only_physical = True
+use_fstab = True
+zfs_hide_datasets = False
+background_update = True
+show_battery = True
+selected_battery = "Auto"
+show_battery_watts = True
+log_level = "WARNING"

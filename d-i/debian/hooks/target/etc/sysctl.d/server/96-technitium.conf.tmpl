@@ -1,0 +1,5 @@
+# Dedicated DNS bridge routing. Installed under sysctl.d only after private
+# configuration; startup checks the applied values before starting the guest.
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.forwarding = 1
+net.ipv6.conf.all.forwarding = __INSTALLER_TECHNITIUM_IPV6_FORWARDING__

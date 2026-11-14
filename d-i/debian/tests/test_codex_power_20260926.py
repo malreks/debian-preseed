@@ -1,0 +1,332 @@
+"""Focused regressions; no host power, user-manager, or mount operations."""
+from __future__ import annotations
+
+# Refuse host execution before importing runtime helpers or creating fixtures.
+from pathlib import Path as _IsolationPath
+import sys as _isolation_sys
+_isolation_sys.path.insert(0, str(_IsolationPath(__file__).resolve().parents[3] / 'tools'))
+# Copied checker/GUI fixtures still use the verified private checkout gate.
+_isolation_sys.path.insert(0, '/workspace/repository/tools')
+from isolation import require_test_isolation as _require_test_isolation
+_isolation_sys.path.pop(0)
+_require_test_isolation()
+
+from power_handoff_fixture import handoff_argv, is_handoff
+import contextlib
+import io
+import json
+import os
+from pathlib import Path
+import socket
+import sys
+import tempfile
+import unittest
+from unittest import mock
+import test_desktop_sandbox as desktop
+import test_power_runtime_20260920 as power_tests
+from payload_fixture import read_text, python_library
+
+sys.path.insert(0, str(python_library(desktop.DESKTOP / 'usr/local/lib/python3/dist-packages')))
+from labwc_managed_app import network_client
+
+
+class WrapperRegressionTests(unittest.TestCase):
+    def setUp(self):
+        self.c = desktop.load_script(desktop.DESKTOP / 'data/codex/lib/codex', 'codex_regression')
+        policy = mock.patch.object(network_client, 'network_enabled', return_value=True)
+        policy.start()
+        self.addCleanup(policy.stop)
+
+    def test_wrapper_flags_are_only_a_prefix(self):
+        for argv in (['exec', '--no-bwrap'], ['--', '--isolated-network'],
+                     ['exec', '--', '--no-bwrap'], ['a prompt', '--isolated-network']):
+            with self.subTest(argv=argv):
+                enabled, actual = self.c.codex_parse_arguments(argv)
+                self.assertTrue(enabled)
+                self.assertEqual(actual, argv)
+                self.assertTrue(self.c.CODEX_ISOLATED_NETWORK)
+
+    def test_default_and_explicit_isolated_network(self):
+        enabled, actual = self.c.codex_parse_arguments(['--isolated-network', 'exec', 'hello'])
+        self.assertTrue(enabled and self.c.CODEX_ISOLATED_NETWORK)
+        self.assertEqual(actual, ['exec', 'hello'])
+        self.c.codex_parse_arguments([])
+        self.assertTrue(self.c.CODEX_ISOLATED_NETWORK)
+
+    def test_incompatible_modes_are_rejected(self):
+        for argv in (['--isolated-network', '--no-bwrap'],
+                     ['--no-bwrap', '--isolated-network'],
+                     ['--no-bwrap', *self.c.CODEX_APP_SERVER_ARGUMENTS]):
+            with self.subTest(argv=argv), self.assertRaises(self.c.CodexError):
+                self.c.codex_parse_arguments(argv)
+
+    def test_native_log_setting_selects_managed_sink_for_each_execution_mode(self):
+        for prefix, destination in (([], self.c.CODEX_LOG_ROOT),
+                                    (['--no-bwrap'], self.c.CODEX_HOST_LOG_ROOT)):
+            with self.subTest(prefix=prefix):
+                self.c.codex_parse_arguments([*prefix, 'exec', '--', 'literal log_dir=prompt'])
+                argv = self.c.codex_payload_argv()
+                self.assertEqual(argv[:2], [self.c.CODEX_RAW_BINARY, '--config'])
+                self.assertEqual(json.loads(argv[2].split('=', 1)[1]), destination)
+                self.assertEqual(argv[3:], ['exec', '--', 'literal log_dir=prompt'])
+                self.assertEqual(self.c.codex_log_directory(), destination)
+
+    def test_mount_plan_keeps_isolation_without_default_network_namespace(self):
+        fixture = desktop.CodexTests()
+        fixture.codex = self.c
+        for isolated in (False, True):
+            self.c.CODEX_ISOLATED_NETWORK = isolated
+            args = fixture.bwrap_arguments()
+            self.assertEqual(args.count('--unshare-net'), int(isolated))
+            for flag in ('--unshare-user', '--unshare-pid', '--unshare-ipc', '--unshare-uts'):
+                self.assertIn(flag, args)
+            self.assertIn('/data/codex/usr/home/installation_id', args)
+
+    def test_kernel_network_releases_payload_and_reaps_supervision(self):
+        self._check_kernel_network(True)
+
+    def test_disabled_network_keeps_payload_supervision_without_acquiring_a_lease(self):
+        self._check_kernel_network(False)
+
+    def _check_kernel_network(self, online):
+            with tempfile.TemporaryDirectory() as tmp:
+                self.c.CODEX_CONTROL_DIR = tmp
+                self.c.CODEX_ISOLATED_NETWORK = True
+                self.c.CODEX_ARGS = ['exec', 'hello']
+                process = mock.Mock()
+                process.poll.return_value = None
+                process.wait.return_value = 0
+                events = []
+                lease = mock.Mock()
+                lease.close.side_effect = lambda: events.append('lease-close')
+                pidfd = os.open('/dev/null', os.O_RDONLY)
+                with mock.patch.object(self.c, 'codex_prepare_control_state'), \
+                     mock.patch.object(network_client, 'network_enabled', return_value=online), \
+                     mock.patch.object(self.c, 'codex_prepare_identity_files'), \
+                     mock.patch.object(self.c, 'codex_build_bwrap_args', return_value=['bwrap']), \
+                     mock.patch.object(self.c, 'codex_clear_app_server_environment') as clear, \
+                     mock.patch.object(self.c, '_read_json_fd', return_value=b'{"child-pid":4321}'), \
+                     mock.patch.object(network_client, 'pin_sandbox_init', return_value=pidfd), \
+                     mock.patch.object(network_client.Lease, 'for_pid', return_value=lease) as acquire, \
+                     mock.patch.object(self.c.signal, 'pidfd_send_signal', side_effect=lambda *args: events.append('namespace-stop')) as stop, \
+                     mock.patch.object(self.c.os, 'write', return_value=1) as release, \
+                     mock.patch.object(self.c.subprocess, 'Popen', return_value=process) as spawn:
+                    self.assertEqual(self.c.codex_run_sandboxed(123), 0)
+                    self.assertEqual(spawn.call_count, 1)
+                    self.assertIn(123, spawn.call_args.kwargs['pass_fds'])
+                    if online:
+                        acquire.assert_called_once_with(4321, 'codex')
+                    else:
+                        acquire.assert_not_called()
+                    clear.assert_called_once()
+                    self.assertEqual(release.call_count, 2)
+                    self.assertTrue(all(call.args[1] == b'1' for call in release.call_args_list))
+                    self.assertEqual(spawn.call_args_list[0].args[0][-2:], ['exec', 'hello'])
+                self.assertIsNone(self.c.CODEX_BWRAP_PROCESS)
+                self.assertEqual(events, ['namespace-stop', 'namespace-stop', 'lease-close'] if online else ['namespace-stop', 'namespace-stop'])
+                self.assertEqual(stop.call_args_list, [mock.call(pidfd, self.c.signal.SIGTERM), mock.call(pidfd, self.c.signal.SIGKILL)])
+                self.assertIsNone(self.c.CODEX_NETWORK_LEASE)
+                self.assertIsNone(self.c.CODEX_SANDBOX_PIDFD)
+                with self.assertRaises(OSError): os.fstat(pidfd)
+
+    def test_signal_cleanup_stops_namespace_before_releasing_network_lease(self):
+        events = []
+        self.c.CODEX_NETWORK_LEASE = mock.Mock()
+        self.c.CODEX_NETWORK_LEASE.close.side_effect = lambda: events.append('lease-close')
+        with mock.patch.object(self.c, 'codex_clear_app_server_environment'), \
+                mock.patch.object(self.c, '_signal_sandbox', side_effect=lambda sig: events.append(sig)), \
+                mock.patch.object(self.c, '_terminate_process', return_value=True), \
+                mock.patch.object(self.c, '_close_fd'):
+            self.c.codex_cleanup()
+        self.assertEqual(events, [self.c.signal.SIGTERM, self.c.signal.SIGKILL, 'lease-close'])
+        self.assertIsNone(self.c.CODEX_NETWORK_LEASE)
+
+    def test_client_environment_is_explicit_bounded_and_not_loader_environment(self):
+        allowed = {'RUST_LOG': 'debug', 'TERM': 'xterm-256color',
+                   'HTTPS_PROXY': 'http://127.0.0.1:3128', 'NO_PROXY': 'localhost'}
+        with mock.patch.dict(os.environ, {**allowed, 'LD_PRELOAD': '/tmp/bad.so',
+                                         'PYTHONPATH': '/tmp', 'UNRELATED': 'secret'}, clear=True):
+            self.assertEqual(self.c.codex_client_environment(), allowed)
+        for value in ('x' * 65537, 'debug\nsecret', 'debug\rsecret', '\udcff'):
+            with mock.patch.dict(os.environ, {'RUST_LOG': value}, clear=True), \
+                 self.assertRaises(self.c.CodexError):
+                self.c.codex_client_environment()
+
+    def test_uncertain_cleanup_retains_control_and_network_ownership(self):
+        with tempfile.TemporaryDirectory(prefix='codex-retained-') as temporary:
+            self.c.CODEX_CONTROL_DIR = temporary
+            self.c.CODEX_BWRAP_PROCESS = mock.Mock()
+            lease = self.c.CODEX_NETWORK_LEASE = mock.Mock()
+            with mock.patch.object(self.c, '_signal_sandbox'), \
+                    mock.patch.object(self.c, '_terminate_process', return_value=False), \
+                    mock.patch.object(self.c, '_close_fd') as close_fd, \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertFalse(self.c.codex_cleanup())
+                self.assertFalse(self.c.codex_cleanup())
+            lease.close.assert_not_called()
+            close_fd.assert_not_called()
+            self.assertEqual(self.c.CODEX_CONTROL_DIR, temporary)
+            self.assertTrue(Path(temporary).is_dir())
+
+    def test_signal_permission_failure_blocks_cleanup_retry(self):
+        with tempfile.TemporaryDirectory(prefix='codex-signal-failed-') as temporary:
+            self.c.CODEX_CONTROL_DIR = temporary
+            self.c.CODEX_BWRAP_PROCESS = mock.Mock()
+            lease = self.c.CODEX_NETWORK_LEASE = mock.Mock()
+            with mock.patch.object(self.c, '_signal_sandbox'), \
+                    mock.patch.object(self.c, '_terminate_process', side_effect=PermissionError('fixture')) as terminate, \
+                    mock.patch.object(self.c, '_close_fd') as close_fd, \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertFalse(self.c.codex_cleanup())
+                self.assertFalse(self.c.codex_cleanup())
+            terminate.assert_called_once()
+            lease.close.assert_not_called()
+            close_fd.assert_not_called()
+            self.assertTrue(Path(temporary).is_dir())
+
+    def test_total_client_environment_size_is_bounded(self):
+        values = {name: 'x' * 65536 for name in sorted(self.c.CLIENT_ENVIRONMENT_NAMES)[:5]}
+        with mock.patch.dict(os.environ, values, clear=True), self.assertRaises(self.c.CodexError):
+            self.c.codex_client_environment()
+
+    def test_client_environment_survives_managed_profile_reconstruction(self):
+        def profile():
+            os.environ.clear()
+            os.environ.update(HOME='/home/desktop', USER='desktop', PATH='/usr/bin:/bin')
+        with mock.patch.dict(os.environ, {'RUST_LOG': 'debug', 'TERM': 'screen'}, clear=True), \
+             mock.patch.object(self.c, 'codex_activate_devops_environment', side_effect=profile), \
+             mock.patch.object(self.c, 'codex_sanitize_path'):
+            self.c.codex_prepare_environment()
+            self.assertEqual(os.environ['RUST_LOG'], 'debug')
+            self.assertEqual(os.environ['TERM'], 'screen')
+            self.assertEqual(os.environ['CODEX_HOME'], self.c.CODEX_RUNTIME_HOME)
+
+    def test_client_values_do_not_enter_bubblewrap_argv(self):
+        with mock.patch.dict(os.environ, {'RUST_LOG': 'debug', 'HTTPS_PROXY': 'secret-proxy'}, clear=True):
+            self.assertEqual(self.c._managed_environment_names(dict(os.environ)), [])
+
+    def test_resolver_uses_host_snapshot_only_for_host_network(self):
+        for isolated in (False, True):
+            with self.subTest(isolated=isolated), tempfile.TemporaryDirectory() as tmp, \
+                 mock.patch.object(self.c, 'codex_control_root', return_value=tmp), \
+                 mock.patch.dict(os.environ, HOME='/home/desktop'), \
+                 mock.patch.object(self.c, 'codex_generate_uuid', return_value='12345678-1234-1234-1234-123456789abc'), \
+                 mock.patch.object(self.c, 'codex_veth_resolver_configuration', return_value=b'nameserver 10.0.2.3\nsearch lan.example\n'), \
+                 mock.patch.object(self.c, '_read_bounded_text', return_value='nameserver 127.0.0.53') as read:
+                self.c.CODEX_ISOLATED_NETWORK = isolated
+                directory = Path(self.c.codex_prepare_identity_files(os.getuid(), os.getgid()))
+                expected = b'nameserver 10.0.2.3\nsearch lan.example\n' if isolated else b'nameserver 127.0.0.53\n'
+                self.assertEqual((directory/'resolv.conf').read_bytes(), expected)
+                self.assertFalse((directory/'installation_id').exists())
+                self.assertEqual(read.call_count, int(not isolated))
+
+
+class BackendReadinessTests(unittest.TestCase):
+    def setUp(self):
+        self.ready = desktop.load_script(desktop.DESKTOP/'usr/local/libexec/codex-app-server-wait-ready', 'ready_regression')
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name)/'backend.sock'
+        self.ready.BACKEND_SOCKET = str(self.path)
+        self.ready.READY_TIMEOUT_SECONDS = 0.025
+        self.ready.POLL_INTERVAL_SECONDS = 0.005
+
+    def test_bound_but_not_listening_endpoint_is_not_ready(self):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(str(self.path)); self.path.chmod(0o600)
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(self.ready.main([]), 1)
+
+    def test_owned_private_listening_endpoint_is_ready(self):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(str(self.path)); self.path.chmod(0o600); listener.listen(1)
+            self.assertEqual(self.ready.main([]), 0)
+
+    def test_symlinks_and_public_sockets_are_not_ready(self):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(str(self.path)); listener.listen(1); self.path.chmod(0o666)
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(self.ready.main([]), 1)
+            self.path.chmod(0o600)
+            link = self.path.with_name('link'); link.symlink_to(self.path)
+            self.ready.BACKEND_SOCKET = str(link)
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(self.ready.main([]), 1)
+
+
+class PowerRegressionTests(unittest.TestCase):
+    def setUp(self):
+        self.p = power_tests.module()
+
+    def test_greeter_properties_use_separate_loginctl_filters(self):
+        fields = {'User': '989', 'Name': '_greetd', 'Class': 'user-light',
+                  'Active': 'yes', 'Remote': 'no', 'Service': 'greetd-greeter',
+                  'Leader': '10113'}
+        with mock.patch.object(self.p, 'run', return_value=''.join(
+                f'{key}={value}\n' for key, value in fields.items())) as run:
+            self.assertEqual(self.p.Worker.session_properties('5'), fields)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[:4], ['/usr/bin/loginctl', 'show-session', '5', '--all'])
+        self.assertEqual(argv[4:], ['--property=' + key for key in fields])
+        with mock.patch.object(self.p, 'run', return_value='User=989\n'):
+            with self.assertRaisesRegex(self.p.Error, 'incomplete greeter'):
+                self.p.Worker.session_properties('5')
+
+    def test_typed_session_list_and_exact_transport(self):
+        raw = json.dumps({'type': 'a(susso)', 'data': [[['c1', 1000, 'desktop', 'seat0',
+                          '/org/freedesktop/login1/session/c1']]]})
+        with mock.patch.object(self.p, 'run', return_value=raw) as run:
+            self.assertEqual(self.p.login_sessions(), [('c1', 1000)])
+        self.assertEqual(run.call_args.args[0][-1], 'ListSessions')
+        self.assertEqual(run.call_args.kwargs['max_output'], 131072)
+
+    def test_session_parser_rejects_malformed_or_ambiguous_records(self):
+        good = ['c1', 1000, 'desktop', 'seat0', '/org/freedesktop/login1/session/c1']
+        malformed = ['null', '{', '[]', json.dumps({'type':'s','data':[[]]})]
+        for row in ([True, *good[1:]], [good[0], True, *good[2:]],
+                    [good[0], -1, *good[2:]], [*good[:4], '/wrong/path'],
+                    ['bad;id', *good[1:]], good[:-1]):
+            malformed.append(json.dumps({'type':'a(susso)', 'data':[[row]]}))
+        malformed.append(json.dumps({'type':'a(susso)', 'data':[[good, good]]}))
+        malformed.append(' ' * 131073)
+        for raw in malformed:
+            with self.subTest(raw=raw[:80]), mock.patch.object(self.p, 'run', return_value=raw), \
+                 self.assertRaises(self.p.Error):
+                self.p.login_sessions()
+
+    def test_final_power_request_has_no_package_or_drive_preflight_gate(self):
+        worker = self.p.Worker(1000, 'desktop', 'reboot')
+        with mock.patch.object(self.p, 'run') as run, contextlib.redirect_stderr(io.StringIO()):
+            worker.final_power_action()
+            with self.assertRaises(self.p.Error):
+                worker.final_power_action()
+        run.assert_called_once_with(handoff_argv('reboot'), timeout=25, max_output=4096)
+
+    def test_sync_cleanup_failure_cannot_skip_final_submission(self):
+        worker = self.p.Worker(1000, 'desktop', 'poweroff')
+        calls = []
+        def command(argv, **kwargs):
+            calls.append(argv)
+            if argv == ['/usr/bin/sync']:
+                raise self.p.Error('sync timed out')
+            return ''
+        with (
+            mock.patch.object(worker, 'helper'),
+            mock.patch.object(self.p, 'ready'),
+            mock.patch.object(self.p, 'hold_reservation'),
+            mock.patch.object(self.p, 'sharing_stop_groups', return_value=[]),
+            mock.patch.object(self.p, 'run', side_effect=command),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            worker.execute()
+        self.assertEqual(calls[-1], handoff_argv('poweroff'))
+        self.assertEqual(sum('--force' in c for c in calls), 1)
+
+    def test_preflight_failure_diagnostics_are_in_journal(self):
+        unit = read_text(desktop.DESKTOP/'etc/systemd/system/labwc-admin-action@.service')
+        self.assertIn('StandardError=journal', unit)
+        self.assertNotIn('StandardError=inherit', unit)
+
+
+if __name__ == '__main__':
+    unittest.main()

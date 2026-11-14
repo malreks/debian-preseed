@@ -1,0 +1,11 @@
+[Unit]
+Description=Publish completed local Debian package inbox entries
+
+[Path]
+PathExistsGlob=__INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE__/inbox/*.deb
+Unit=apt-repo-local-inbox.service
+MakeDirectory=true
+DirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

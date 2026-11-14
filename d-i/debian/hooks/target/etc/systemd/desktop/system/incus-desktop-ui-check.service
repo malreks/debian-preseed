@@ -1,0 +1,28 @@
+[Unit]
+Description=Verify the desktop Incus Web UI on its private local socket
+Requires=incus-host.service apparmor.service
+After=incus-host.service apparmor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/incus-desktop-ui-check
+User=root
+Group=root
+AppArmorProfile=incus-desktop-ui
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+UMask=0077
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+TimeoutStartSec=30
+TimeoutStopSec=5
+KillMode=control-group

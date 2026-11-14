@@ -1,0 +1,11 @@
+apiVersion: cybops.nftables/v1
+kind: NftablesServiceOverlay
+metadata:
+  name: qbittorrent
+  description: qBittorrent peer ingress is owned by the active app-veth lease; no host INPUT allowances.
+  merge_priority: 50
+  applies_to_profiles:
+  - desktop
+# Keep the supported NFT_SERVICES name inert, including explicit selections.
+# Peer packets are DNATed into the private veth and use FORWARD, never INPUT.
+services: {}

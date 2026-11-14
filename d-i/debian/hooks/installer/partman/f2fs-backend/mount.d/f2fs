@@ -1,0 +1,25 @@
+#!/bin/sh
+
+runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+[ -r "$runtime/bootstrap/di.env" ] || exit 1
+. "$runtime/bootstrap/di.env"
+[ -n "${TARGET_ROOT:-}" ] || exit 1
+
+set -- $1
+
+fs=$1
+mp=$2
+type=$3
+options=$4
+dump=$5
+pass=$6
+
+case $type in
+    f2fs)
+        mount -t f2fs ${options:+-o "$options"} "$fs" "${TARGET_ROOT}${mp}" || exit 1
+        echo "umount ${TARGET_ROOT}${mp}"
+        exit 0
+        ;;
+esac
+
+exit 1

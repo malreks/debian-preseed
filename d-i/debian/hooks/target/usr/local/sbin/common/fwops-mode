@@ -1,0 +1,115 @@
+#!/bin/sh
+set -eu
+
+PATH=__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__:__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin
+export PATH
+
+fwops_mode_fatal() {
+  printf 'fwops-mode: %s\n' "$*" >&2
+  exit 1
+}
+
+fwops_mode_info() {
+  printf 'fwops-mode: %s\n' "$*" >&2
+}
+
+fwops_mode_warn() {
+  printf 'fwops-mode: warning: %s\n' "$*" >&2
+}
+
+fwops_mode_module_is_loaded() {
+  case "$#" in
+    1) ;;
+    *) return 64 ;;
+  esac
+  [ -d "__INSTALLER_PATH_DIR_SYS__/module/$1" ]
+}
+
+fwops_mode_load_required_module() {
+  case "$#" in
+    1) ;;
+    *) return 64 ;;
+  esac
+
+  __INSTALLER_PATH_DIR_USR_BIN__/timeout --signal=TERM --kill-after=5 30 __INSTALLER_PATH_DIR_USR_SBIN__/modprobe "$1" ||
+    fwops_mode_fatal "required kernel module could not be loaded: $1"
+}
+
+fwops_mode_load_optional_module() {
+  case "$#" in
+    1) ;;
+    *) return 64 ;;
+  esac
+
+  if __INSTALLER_PATH_DIR_USR_BIN__/timeout --signal=TERM --kill-after=5 30 __INSTALLER_PATH_DIR_USR_SBIN__/modprobe "$1"; then
+    return 0
+  fi
+  fwops_mode_warn "optional kernel module is unavailable: $1"
+  return 0
+}
+
+fwops_mode_unload_spi_controller() {
+  if ! fwops_mode_module_is_loaded spi_ch341; then
+    fwops_mode_info 'spi_ch341 is not loaded; direct USB ownership is already available'
+    return 0
+  fi
+
+  __INSTALLER_PATH_DIR_USR_BIN__/timeout --signal=TERM --kill-after=5 30 __INSTALLER_PATH_DIR_USR_SBIN__/modprobe -r spi_ch341 ||
+    fwops_mode_fatal 'spi_ch341 is busy; close kernel SPI users before selecting direct USB mode'
+  fwops_mode_info 'direct USB mode prepared; spi_ch341 is unloaded'
+}
+
+fwops_mode_prepare_kernel_spi() {
+  # Linux drivers/base/bus.c bind_store resolves a device name again at write
+  # time. It accepts no held device fd or expected generation. Writing a
+  # global bind path after driver_override cannot preserve hotplug identity.
+  # Never mutate either interface or load modules before this availability gate.
+  # Native, already-bound SPI devices remain usable by the normal SPI tools.
+  fwops_mode_seen=0
+  for fwops_mode_device_dir in __INSTALLER_PATH_DIR_SYS__/bus/spi/devices/spi*; do
+    [ -d "$fwops_mode_device_dir" ] || continue
+    [ -r "$fwops_mode_device_dir/modalias" ] || continue
+    fwops_mode_modalias=$(cat "$fwops_mode_device_dir/modalias") || return 69
+    case "$fwops_mode_modalias" in spi:spi-ch341a|spi-ch341a) ;; *) continue ;; esac
+    fwops_mode_seen=$((fwops_mode_seen + 1))
+    fwops_mode_driver=$(readlink -f "$fwops_mode_device_dir/driver") || {
+      fwops_mode_warn 'kernel SPI unavailable: the device has no native bound driver; no rebinding or module change was performed'
+      return 69
+    }
+    case "$fwops_mode_driver" in
+      __INSTALLER_PATH_DIR_SYS__/bus/spi/drivers/spidev) ;;
+      *)
+        fwops_mode_warn 'kernel SPI unavailable: native spidev ownership is required; no rebinding or module change was performed'
+        return 69
+        ;;
+    esac
+  done
+  [ "$fwops_mode_seen" -gt 0 ] || {
+    fwops_mode_warn 'kernel SPI unavailable: no native spidev-bound CH341 device; identity-safe automatic bind is not provided by the kernel interface'
+    return 69
+  }
+  fwops_mode_info 'native kernel SPI ownership is already present; no driver or device mutation was performed'
+}
+
+fwops_mode_prepare_uart() {
+  fwops_mode_load_required_module usbserial
+  fwops_mode_load_required_module ch341
+  fwops_mode_info 'UART drivers are loaded; the adapter must enumerate in a UART personality before __INSTALLER_PATH_DIR_DEV__/ttyUSB* can appear'
+}
+
+case "$#" in
+  1) ;;
+  *) fwops_mode_fatal 'usage: fwops-mode {usb|modules|uart}' ;;
+esac
+
+fwops_mode_uid=$(__INSTALLER_PATH_DIR_USR__/bin/id -u 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+[ "$fwops_mode_uid" = 0 ] || fwops_mode_fatal 'root privileges are required'
+[ -x __INSTALLER_PATH_DIR_USR_SBIN__/modprobe ] || fwops_mode_fatal 'native modprobe is unavailable'
+[ -x __INSTALLER_PATH_DIR_USR_BIN__/timeout ] || fwops_mode_fatal 'bounded module operation support is unavailable'
+
+case "$1" in
+  usb) fwops_mode_unload_spi_controller ;;
+  modules) fwops_mode_prepare_kernel_spi ;;
+  uart) fwops_mode_prepare_uart ;;
+  *) fwops_mode_fatal 'usage: fwops-mode {usb|modules|uart}' ;;
+esac

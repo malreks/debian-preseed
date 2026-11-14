@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+# The Tomat break surface owns the keyboard while its private marker exists.
+# Check before dispatching the configured launcher so compositor hotkeys cannot
+# open Fuzzel through this compatibility entry point during a break.
+case "${XDG_RUNTIME_DIR:-}" in
+  __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*)
+    if [ -f "$XDG_RUNTIME_DIR/labwc-tomat/break-overlay.active" ]; then
+      exit 0
+    fi
+    ;;
+esac
+
+if [ -r __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf ]; then
+  # shellcheck disable=SC1091
+  . __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf
+fi
+
+launcher_command=${LABWC_LAUNCHER_COMMAND:-labwc-main-menu --search}
+case "$launcher_command" in
+  ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@%=:,/\ -]*)
+    printf 'fatal: invalid LABWC_LAUNCHER_COMMAND: %s\n' "$launcher_command" >&2
+    exit 1
+    ;;
+esac
+
+launcher_binary=${launcher_command%% *}
+if ! command -v "$launcher_binary" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+  printf 'fatal: launcher command is not installed: %s\n' "$launcher_binary" >&2
+  exit 1
+fi
+
+set -f
+# The validated command string intentionally contains only simple argv tokens.
+set -- $launcher_command
+set +f
+exec "$@"

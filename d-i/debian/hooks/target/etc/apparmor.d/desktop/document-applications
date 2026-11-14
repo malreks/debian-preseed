@@ -1,0 +1,72 @@
+# Managed by unattended-installer. Separate labels, state, and executable rights.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+profile zathura __INSTALLER_PATH_DIR_USR__/bin/zathura flags=(attach_disconnected, mediate_deleted) {
+  __INSTALLER_PATH_DIR_ETC__/magic r,
+  #include <abstractions/document-runtime>
+  __INSTALLER_PATH_DIR_USR__/bin/zathura mr,
+  owner @{PROC}/@{pid}/{cmdline,stat} r,
+  __INSTALLER_PATH_DIR_USR__/lib{,/@{multiarch}}/zathura/ r,
+  __INSTALLER_PATH_DIR_USR__/lib{,/@{multiarch}}/zathura/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zathura/** r,
+  __INSTALLER_PATH_DIR_ETC__/zathurarc r,
+  owner @{HOME}/.config/zathura/ rw,
+  owner @{HOME}/.config/zathura/** rwkl,
+  owner @{HOME}/.cache/zathura/ rw,
+  owner @{HOME}/.cache/zathura/** rwkl,
+  owner @{HOME}/.local/share/zathura/ rw,
+  owner @{HOME}/.local/share/zathura/** rwkl,
+  # History/bookmarks use SQLite -wal/-shm/-journal and file locks.
+  __INSTALLER_PATH_DIR_USR__/bin/{lp,lpr} rix,
+  include if exists <local/usr.bin.zathura>
+}
+
+profile focuswriter __INSTALLER_PATH_DIR_USR__/bin/focuswriter flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/document-runtime>
+  __INSTALLER_PATH_DIR_USR__/bin/focuswriter mr,
+  # Native Qt single-instance sockets/locks shared by its transient launches.
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-focuswriter-tmp/{,**} rwk,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-digital-assets.*/ rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-digital-assets.*/** rwkl,
+  # Qt single-instance checks and the selected qt6ct colour scheme.
+  owner @{PROC}/[0-9]*/{cmdline,stat} r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/qt6ct/colors/{,*.conf} r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/focuswriter/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/focuswriter/** r,
+  owner @{HOME}/.{config,cache}/GottCode/ rw,
+  owner @{HOME}/.{config,cache}/GottCode/** rwklm,
+  owner @{HOME}/.local/share/GottCode/ rw,
+  owner @{HOME}/.local/share/GottCode/** rwklm,
+  # Older Qt/Hunspell dictionary and portable session locations.
+  owner @{HOME}/.hunspell_* rwkl,
+  __INSTALLER_PATH_DIR_USR_SHARE__/enchant/** r,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/enchant-*/*.so mr,
+  include if exists <local/usr.bin.focuswriter>
+}
+
+profile focuswriter-import __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-focuswriter-import flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  include if exists <abstractions/dbus-session-strict>
+  # No network and no ZIP extraction, converters, macros, or shell execution.
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-focuswriter-import r,
+  __INSTALLER_PATH_DIR_USR__/bin/focuswriter rPx -> focuswriter,
+  __INSTALLER_PATH_DIR_USR__/bin/notify-send rix,
+  __INSTALLER_PATH_DIR_ETC__/passwd r,
+  owner @{HOME}/ r,
+  owner @{HOME}/** r,
+  __INSTALLER_PATH_DIR_DATA__/downloads/** r,
+  __INSTALLER_PATH_DIR_POOL__/** r,
+  /{media,mnt}/** r,
+  __INSTALLER_PATH_DIR_RUN__/media/{,**} r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{doc,gvfs}/** r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/bus rw,
+  owner @{HOME}/Documents/ rw,
+  owner @{HOME}/Documents/FocusWriter-import-*/ rw,
+  owner @{HOME}/Documents/FocusWriter-import-*/{text-copy.txt,IMPORT-NOTICE.txt} rw,
+  signal (send, receive) peer=focuswriter,
+  include if exists <local/usr.local.bin.labwc-focuswriter-import>
+  # The editor belongs to its own transient user service, not the importer.
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app rPx -> labwc-generic-app,
+
+}

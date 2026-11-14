@@ -1,0 +1,1811 @@
+#!/bin/sh
+# Shared late_command grub helpers. This file is sourced, not executed.
+
+set_optional_path() {
+  var_name=$1
+  enabled=$2
+
+  case "$var_name" in
+    [A-Z_][A-Z0-9_]*) ;;
+    *) installer_fatal "invalid optional path variable name: ${var_name}" ;;
+  esac
+
+  if [ "$enabled" = true ]; then
+    quoted_value=$(shell_single_quote "$3")
+    eval "$var_name=$quoted_value"
+  else
+    eval "$var_name="
+  fi
+}
+
+grub_profile_label() {
+  case "$1" in
+    "${BOOTPROFILE_DEFAULT}") printf 'Balanced\n' ;;
+    "${BOOTPROFILE_HARDENED}") printf 'Hardened\n' ;;
+    "${BOOTPROFILE_PERFORMANCE}") printf 'Performance\n' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+grub_cmdline_has_token_prefix() (
+  grub_cmdline=$1
+  grub_prefix=$2
+
+  set -f
+  for grub_token in $grub_cmdline; do
+    case "$grub_token" in
+      "${grub_prefix}"*)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+)
+
+grub_cmdline_replace_token_prefix() (
+  grub_cmdline=$1
+  grub_prefix=$2
+  replacement=$3
+  normalized=
+
+  set -f
+  for grub_token in $grub_cmdline; do
+    case "$grub_token" in
+      "${grub_prefix}"*) continue ;;
+    esac
+    normalized="${normalized}${normalized:+ }${grub_token}"
+  done
+  normalized="${normalized}${normalized:+ }${replacement}"
+  printf '%s\n' "$normalized"
+)
+
+grub_root_uses_btrfs() {
+  grub_cmdline_has_token_prefix "${GRUB_ROOT_FLAGS:-}" "rootfstype=btrfs"
+}
+
+grub_root_uses_f2fs() {
+  grub_cmdline_has_token_prefix "${GRUB_ROOT_FLAGS:-}" "rootfstype=f2fs"
+}
+
+apply_btrfs_root_initramfs_fsck_policy() {
+  grub_root_uses_btrfs || return 0
+  GRUB_INITRAMFS_FLAGS=$(
+    grub_cmdline_replace_token_prefix \
+      "${GRUB_INITRAMFS_FLAGS:-}" \
+      "fsck.mode=" \
+      "fsck.mode=skip"
+  )
+}
+
+apply_f2fs_root_initramfs_fsck_policy() {
+  grub_root_uses_f2fs || return 0
+  GRUB_INITRAMFS_FLAGS=$(
+    grub_cmdline_replace_token_prefix \
+      "${GRUB_INITRAMFS_FLAGS:-}" \
+      "fsck.mode=" \
+      "fsck.mode=skip"
+  )
+}
+
+apply_root_initramfs_fsck_policy() {
+  apply_btrfs_root_initramfs_fsck_policy
+  apply_f2fs_root_initramfs_fsck_policy
+}
+
+grub_os_prober_placeholder_map() {
+  write_shell_config_var GRUB_DISABLE_OS_PROBER "${GRUB_OS_PROBER_DISABLED:-true}"
+}
+
+grub_display_placeholder_map() {
+  write_shell_config_var GRUB_TERMINAL_INPUT "${GRUB_DISPLAY_TERMINAL_INPUT}"
+  write_shell_config_var GRUB_TERMINAL_OUTPUT "${GRUB_DISPLAY_TERMINAL_OUTPUT}"
+  write_shell_config_var GRUB_GFXMODE "${GRUB_DISPLAY_GFXMODE}"
+  write_shell_config_var GRUB_GFXPAYLOAD_LINUX "${GRUB_DISPLAY_GFXPAYLOAD_LINUX}"
+  write_shell_config_var GRUB_PRELOAD_MODULES "$(managed_grub_display_preload_modules)"
+}
+
+grub_shared_target_path() {
+  installer_repo_asset_path DIR_HOOKS_TARGET "$1"
+}
+
+render_target_grub_dropin() {
+  template_name=$1
+  target_path=$2
+
+  render_target_asset "$(grub_shared_target_path "etc/default/grub.d/${template_name}")" "$target_path" 0644
+}
+
+render_target_grub_dropin_with_placeholder_map() {
+  template_name=$1
+  target_path=$2
+  placeholder_map=$3
+
+  render_target_asset_with_placeholder_map \
+    "$(grub_shared_target_path "etc/default/grub.d/${template_name}")" \
+    "$target_path" \
+    0644 \
+    "$placeholder_map"
+}
+
+sync_optional_target_grub_dropin() {
+  flag_value=$1
+  template_name=$2
+  target_path=$3
+
+  if [ -n "$flag_value" ]; then
+    render_target_grub_dropin "$template_name" "$target_path"
+  else
+    remove_target_asset "$target_path"
+  fi
+}
+
+path_mounted_fat_device_uuid() {
+  path_value=$1
+  best_source=
+  best_mount=
+  best_source_fstype=
+
+  [ -n "$path_value" ] || return 1
+  [ -e "$path_value" ] || return 1
+  while IFS=' ' read -r mount_source mount_point _mount_fstype _mount_options _mount_rest || [ -n "${mount_source:-}" ]; do
+    mount_point=$(printf '%s' "$mount_point" | sed 's/\\040/ /g')
+    case "$path_value" in
+      "$mount_point"|"$mount_point"/*)
+        if [ "${#mount_point}" -gt "${#best_mount}" ]; then
+          best_source=$mount_source
+          best_mount=$mount_point
+          best_source_fstype=$(blkid -s TYPE -o value "$mount_source" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+        fi
+        ;;
+    esac
+  done <__INSTALLER_PATH_DIR_PROC__/mounts
+
+  case "$best_source" in
+    __INSTALLER_PATH_DIR_DEV__/*) ;;
+    *) return 1 ;;
+  esac
+  case "$best_source_fstype" in
+    vfat|fat|fat12|fat16|fat32)
+      blkid -s UUID -o value "$best_source" 2>__INSTALLER_PATH_DIR_DEV__/null
+      return 0
+      ;;
+  esac
+
+  first_partition_source=$(installer_usb_first_partition "$best_source" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+  case "$first_partition_source" in
+    __INSTALLER_PATH_DIR_DEV__/*)
+      case "$(blkid -s TYPE -o value "$first_partition_source" 2>__INSTALLER_PATH_DIR_DEV__/null || true)" in
+        vfat|fat|fat12|fat16|fat32)
+          best_source=$first_partition_source
+          ;;
+      esac
+      ;;
+  esac
+
+  blkid -s UUID -o value "$best_source" 2>__INSTALLER_PATH_DIR_DEV__/null
+}
+
+installer_usb_first_partition() {
+  device_path=$1
+  efi_partition=
+  parent_disk=$(lsblk -nrpo PKNAME -- "$device_path" 2>__INSTALLER_PATH_DIR_DEV__/null | sed -n '/./{p;q;}')
+  case "$parent_disk" in
+    '') return 1 ;;
+    __INSTALLER_PATH_DIR_DEV__/*) ;;
+    *) parent_disk="__INSTALLER_PATH_DIR_DEV__/$parent_disk" ;;
+  esac
+  [ -b "$parent_disk" ] || return 1
+
+  if command -v fdisk >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    efi_partition=$(
+      LC_ALL=C fdisk -l -o Device,Type -- "$parent_disk" 2>__INSTALLER_PATH_DIR_DEV__/null |
+        awk '
+          $1 ~ /^\__INSTALLER_PATH_DIR_DEV__\// && index($0, "EFI System") {
+            print $1
+            exit
+          }
+        '
+    )
+    case "$efi_partition" in
+      __INSTALLER_PATH_DIR_DEV__/*)
+        printf '%s\n' "$efi_partition"
+        return 0
+        ;;
+    esac
+  fi
+
+  first_partition=$(
+    lsblk -nrpo PATH,TYPE,PARTN -- "$parent_disk" 2>__INSTALLER_PATH_DIR_DEV__/null |
+      awk '$2 == "part" && $3 == "1" { print $1; exit }'
+  )
+  case "$first_partition" in
+    __INSTALLER_PATH_DIR_DEV__/*)
+      printf '%s\n' "$first_partition"
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+managed_grub_display_preload_modules() {
+  seen_modules=
+  normalized_modules=
+
+  add_module() {
+    module_name=$1
+    [ -n "$module_name" ] || return 0
+    case "$module_name" in
+      *[!A-Za-z0-9_+-]*)
+        installer_fatal "unsupported GRUB preload module name: ${module_name}"
+        ;;
+    esac
+    case " $seen_modules " in
+      *" $module_name "*) return 0 ;;
+    esac
+    seen_modules="${seen_modules}${seen_modules:+ }${module_name}"
+    normalized_modules="${normalized_modules}${normalized_modules:+ }${module_name}"
+  }
+
+  case "${INSTALLER_GRUB_EFI_TARGET:-}" in
+    *efi)
+      for module_name in ${GRUB_DISPLAY_PRELOAD_MODULES:-}; do
+        case "$module_name" in
+          all_video|efi_uga|video_bochs|video_cirrus)
+            continue
+            ;;
+        esac
+        add_module "$module_name"
+      done
+      add_module efi_gop
+      if [ "${GRUB_DISPLAY_TERMINAL_OUTPUT:-}" = gfxterm ]; then
+        add_module gfxterm
+      fi
+      ;;
+    *)
+      for module_name in ${GRUB_DISPLAY_PRELOAD_MODULES:-}; do
+        add_module "$module_name"
+      done
+      ;;
+  esac
+
+  printf '%s\n' "$normalized_modules"
+}
+
+normalize_target_grub_video_stack() {
+  case "${INSTALLER_GRUB_EFI_TARGET:-}" in
+    x86_64-efi|arm64-efi) ;;
+    *) return 0 ;;
+  esac
+
+  # shellcheck disable=SC2016
+  run_in_target "normalize GRUB EFI video module loading for signed boot" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+header=__INSTALLER_PATH_DIR_ETC__/grub.d/00_header
+[ -r "$header" ] || exit 0
+[ -w "$header" ] || exit 0
+
+tmp=$(mktemp)
+trap "rm -f \"$tmp\"" EXIT HUP INT TERM
+
+sed \
+  -e "s/^\([[:space:]]*\)insmod all_video$/\1insmod efi_gop/" \
+  -e "s/^\([[:space:]]*\)insmod efi_uga$/\1: # managed: skip legacy EFI UGA video module/" \
+  -e "s/^\([[:space:]]*\)insmod video_bochs$/\1: # managed: skip legacy bochs video module/" \
+  -e "s/^\([[:space:]]*\)insmod video_cirrus$/\1: # managed: skip legacy cirrus video module/" \
+  "$header" >"$tmp"
+
+if ! cmp -s "$header" "$tmp"; then
+  install -m 0755 "$tmp" "$header"
+fi
+
+grep -F -q "insmod efi_gop" "$header"
+! grep -F -q "insmod all_video" "$header"
+' sh
+}
+
+installer_rescue_usb_search_uuid() {
+  if [ -n "${INSTALLER_RESCUE_USB_SEARCH_UUID:-}" ]; then
+    printf '%s\n' "$INSTALLER_RESCUE_USB_SEARCH_UUID"
+    return 0
+  fi
+
+  for candidate_path in \
+    "${INSTALLER_SEED_FILE_BASE:-}" \
+    "${SEED_FILE_BASE:-}" \
+    "${INSTALLER_SEED_BASE:-}" \
+    "${SEED_BASE:-}" \
+    /media/usb \
+    /cdrom
+  do
+    [ -n "$candidate_path" ] || continue
+    case "$candidate_path" in
+      /*) ;;
+      *) continue ;;
+    esac
+    rescue_uuid=$(path_mounted_fat_device_uuid "$candidate_path" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+    [ -n "$rescue_uuid" ] || continue
+    INSTALLER_RESCUE_USB_SEARCH_UUID=$rescue_uuid
+    printf '%s\n' "$rescue_uuid"
+    return 0
+  done
+
+  INSTALLER_RESCUE_USB_SEARCH_UUID=
+  printf '\n'
+}
+
+secure_boot_config_placeholder_map() {
+  write_shell_config_var SECURE_BOOT_MODE "$secure_boot_state_mode"
+  write_shell_config_var SECURE_BOOT_STATE_MODE "$secure_boot_state_mode"
+  write_shell_config_var SECURE_BOOT_STATE_MOUNTPOINT "${DIR_VAR_LIB_SHSIGNED}"
+  write_shell_config_var SECURE_BOOT_STATE_DIR "${DIR_SECURE_BOOT_STATE}"
+  write_shell_config_var SECURE_BOOT_LUKS_DEVICE "$secure_boot_luks_device"
+  write_shell_config_var SECURE_BOOT_LUKS_NAME "$secure_boot_luks_name"
+  write_shell_config_var SECURE_BOOT_LUKS_MAPPER "$secure_boot_luks_mapper"
+  write_shell_config_var SECURE_BOOT_STATE_MOUNT_OPTS "$secure_boot_state_mount_opts"
+  write_shell_config_var SECURE_BOOT_MOK_KEY "${FILE_SECURE_BOOT_MOK_KEY}"
+  write_shell_config_var SECURE_BOOT_MOK_CERT_PEM "${FILE_SECURE_BOOT_MOK_CERT_PEM}"
+  write_shell_config_var SECURE_BOOT_MOK_CERT_DER "${FILE_SECURE_BOOT_MOK_CERT_DER}"
+  write_shell_config_var SECURE_BOOT_MOK_ENROLLMENT_DIR "${DIR_SECURE_BOOT_ENROLLMENT_ESP}"
+  write_shell_config_var SECURE_BOOT_MOK_ENROLLMENT_CERT "${FILE_SECURE_BOOT_MOK_CERT_DER_ESP}"
+  write_shell_config_var SECURE_BOOT_OPENSSL_CONFIG "${FILE_SECURE_BOOT_OPENSSL_CONFIG}"
+  write_shell_config_var SECURE_BOOT_MOK_COMMON_NAME "${SECURE_BOOT_MOK_COMMON_NAME}"
+  write_shell_config_var SECURE_BOOT_MOK_COUNTRY "${SECURE_BOOT_MOK_COUNTRY}"
+  write_shell_config_var SECURE_BOOT_MOK_STATE "${SECURE_BOOT_MOK_STATE}"
+  write_shell_config_var SECURE_BOOT_MOK_LOCALITY "${SECURE_BOOT_MOK_LOCALITY}"
+  write_shell_config_var SECURE_BOOT_MOK_ORGANIZATION "${SECURE_BOOT_MOK_ORGANIZATION}"
+  write_shell_config_var SECURE_BOOT_MOK_ORG_UNIT "${SECURE_BOOT_MOK_ORG_UNIT}"
+  write_shell_config_var SECURE_BOOT_MOK_EMAIL "${SECURE_BOOT_MOK_EMAIL}"
+  write_shell_config_var SECURE_BOOT_MOK_RSA_BITS "${SECURE_BOOT_MOK_RSA_BITS}"
+  write_shell_config_var SECURE_BOOT_MOK_VALID_DAYS "${SECURE_BOOT_MOK_VALID_DAYS}"
+  write_shell_config_var ACCOUNT_USERNAME "${ACCOUNT_USERNAME}"
+  write_shell_config_var SECURE_BOOT_DKMS_CONF "${FILE_DKMS_FRAMEWORK_SECURE_BOOT}"
+}
+
+write_target_grub_dropins() {
+  apply_root_initramfs_fsck_policy
+  render_target_grub_dropin 05-bootprofiles.cfg.tmpl "${DIR_GRUB_DEFAULT}/05-bootprofiles.cfg"
+  render_target_grub_dropin_with_placeholder_map 07-display.cfg.tmpl "${FILE_GRUB_DISPLAY_CFG}" grub_display_placeholder_map
+  if [ "${DUALBOOT_ENABLED:-false}" = "true" ]; then
+    GRUB_OS_PROBER_DISABLED=false
+  else
+    GRUB_OS_PROBER_DISABLED=true
+  fi
+  render_target_grub_dropin_with_placeholder_map 50-os-prober.cfg.tmpl "${DIR_GRUB_DEFAULT}/50-os-prober.cfg" grub_os_prober_placeholder_map
+  unset GRUB_OS_PROBER_DISABLED
+  render_target_grub_dropin 10-rootfs.cfg.tmpl "${DIR_GRUB_DEFAULT}/10-rootfs.cfg"
+  render_target_grub_dropin 15-initramfs.cfg.tmpl "${DIR_GRUB_DEFAULT}/15-initramfs.cfg"
+  sync_optional_target_grub_dropin "${GRUB_NVME_FLAGS:-}" 20-nvme.cfg.tmpl "${DIR_GRUB_DEFAULT}/20-nvme.cfg"
+  sync_optional_target_grub_dropin "${GRUB_SYSTEMD_MASK_FLAGS:-}" 25-systemd-mask.cfg.tmpl "${DIR_GRUB_DEFAULT}/25-systemd-mask.cfg"
+  render_target_grub_dropin 30-cgroup.cfg.tmpl "${DIR_GRUB_DEFAULT}/30-cgroup.cfg"
+  render_target_grub_dropin 35-security-core.cfg.tmpl "${DIR_GRUB_DEFAULT}/35-security-core.cfg"
+  sync_optional_target_grub_dropin "${GRUB_BLACKLIST_FLAGS:-}" 40-blacklist.cfg.tmpl "${DIR_GRUB_DEFAULT}/40-blacklist.cfg"
+  sync_optional_target_grub_dropin "${GRUB_VFIO_FLAGS:-}" 42-vfio.cfg.tmpl "${DIR_GRUB_DEFAULT}/42-vfio.cfg"
+  render_target_grub_dropin 45-memory-core.cfg.tmpl "${DIR_GRUB_DEFAULT}/45-memory-core.cfg"
+  render_target_grub_dropin 60-hardening.cfg.tmpl "${DIR_GRUB_DEFAULT}/60-hardening.cfg"
+  sync_optional_target_grub_dropin "${GRUB_ASPM_FLAGS:-}" 70-aspm.cfg.tmpl "${DIR_GRUB_DEFAULT}/70-aspm.cfg"
+}
+
+install_target_bootprofile_assets() {
+  render_target_template "$TMP_ENV_DIR/bootprofile-apply.tmpl" "${TARGET_ROOT}${FILE_BOOTPROFILE_APPLY}" 0755
+  render_target_template "$TMP_ENV_DIR/bootprofile-apply.service.tmpl" "${TARGET_ROOT}${FILE_BOOTPROFILE_SERVICE}" 0644
+
+  # Asset installation owns enablement; storage setup must not enable it again.
+  stage_target_systemd_unit_enabled "$(basename "${FILE_BOOTPROFILE_SERVICE}")" system
+}
+
+
+set_target_grub_default_entry() {
+  # shellcheck disable=SC2016
+  run_in_target "set GRUB defaults in __INSTALLER_PATH_DIR_ETC__/default/grub" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+file=__INSTALLER_PATH_DIR_ETC__/default/grub
+grub_default=$1
+tmp=$(mktemp)
+trap "rm -f \"$tmp\"" EXIT HUP INT TERM
+
+if [ -f "$file" ]; then
+  default_updated=0
+  timeout_style_updated=0
+  timeout_updated=0
+  recordfail_timeout_updated=0
+  disable_recovery_updated=0
+  disable_submenu_updated=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      GRUB_DEFAULT=*)
+        [ "$default_updated" -eq 0 ] && printf '\''GRUB_DEFAULT="%s"\n'\'' "$grub_default"
+        default_updated=1
+        continue
+        ;;
+      GRUB_TIMEOUT_STYLE=*)
+        [ "$timeout_style_updated" -eq 0 ] && printf '\''GRUB_TIMEOUT_STYLE=menu\n'\''
+        timeout_style_updated=1
+        continue
+        ;;
+      GRUB_TIMEOUT=*)
+        [ "$timeout_updated" -eq 0 ] && printf '\''GRUB_TIMEOUT=-1\n'\''
+        timeout_updated=1
+        continue
+        ;;
+      GRUB_RECORDFAIL_TIMEOUT=*)
+        [ "$recordfail_timeout_updated" -eq 0 ] && printf '\''GRUB_RECORDFAIL_TIMEOUT=500\n'\''
+        recordfail_timeout_updated=1
+        continue
+        ;;
+      GRUB_DISABLE_RECOVERY=*)
+        [ "$disable_recovery_updated" -eq 0 ] && printf '\''GRUB_DISABLE_RECOVERY=true\n'\''
+        disable_recovery_updated=1
+        continue
+        ;;
+      GRUB_DISABLE_SUBMENU=*)
+        [ "$disable_submenu_updated" -eq 0 ] && printf '\''GRUB_DISABLE_SUBMENU=y\n'\''
+        disable_submenu_updated=1
+        continue
+        ;;
+    esac
+    printf '\''%s\n'\'' "$line"
+  done <"$file" >"$tmp"
+  [ "$default_updated" -eq 1 ] || printf '\''GRUB_DEFAULT="%s"\n'\'' "$grub_default" >>"$tmp"
+  [ "$timeout_style_updated" -eq 1 ] || printf '\''GRUB_TIMEOUT_STYLE=menu\n'\'' >>"$tmp"
+  [ "$timeout_updated" -eq 1 ] || printf '\''GRUB_TIMEOUT=-1\n'\'' >>"$tmp"
+  [ "$recordfail_timeout_updated" -eq 1 ] || printf '\''GRUB_RECORDFAIL_TIMEOUT=500\n'\'' >>"$tmp"
+  [ "$disable_recovery_updated" -eq 1 ] || printf '\''GRUB_DISABLE_RECOVERY=true\n'\'' >>"$tmp"
+  [ "$disable_submenu_updated" -eq 1 ] || printf '\''GRUB_DISABLE_SUBMENU=y\n'\'' >>"$tmp"
+else
+  {
+    printf "GRUB_DEFAULT=\"%s\"\n" "$grub_default"
+    printf "GRUB_TIMEOUT_STYLE=menu\n"
+    printf "GRUB_TIMEOUT=-1\n"
+    printf "GRUB_RECORDFAIL_TIMEOUT=500\n"
+    printf "GRUB_DISABLE_RECOVERY=true\n"
+    printf "GRUB_DISABLE_SUBMENU=y\n"
+  } >"$tmp"
+fi
+
+install -m 0644 "$tmp" "$file"
+' sh "${GRUB_DEFAULT_ENTRY}"
+}
+
+disable_stock_kernel_menu() {
+  target_grub_dir="${TARGET_ROOT}${DIR_GRUB_SCRIPTS}"
+  [ -d "$target_grub_dir" ] || return 0
+
+  for path in "$target_grub_dir"/*; do
+    [ -e "$path" ] || continue
+    script_name=${path##*/}
+    case "$script_name" in
+      00_header|40_custom|README)
+        continue
+        ;;
+      30_os-prober)
+        [ "${DUALBOOT_ENABLED:-false}" = "true" ] && continue
+        ;;
+    esac
+    if [ -f "$path" ] && [ -x "$path" ]; then
+      chmod 0644 "$path"
+    fi
+  done
+
+  if [ -e "${target_grub_dir}/40_custom" ] && [ ! -x "${target_grub_dir}/40_custom" ]; then
+    installer_fatal "managed GRUB 40_custom generator is not executable"
+  fi
+  for script_name in 05_debian_theme 10_linux 20_linux_xen 25_bli 30_os-prober 30_uefi-firmware 41_custom 41_snapshots-btrfs; do
+    if [ "$script_name" = 30_os-prober ] && [ "${DUALBOOT_ENABLED:-false}" = "true" ]; then
+      continue
+    fi
+    if [ -e "${target_grub_dir}/${script_name}" ] && [ -x "${target_grub_dir}/${script_name}" ]; then
+      installer_fatal "unmanaged GRUB generator is still executable: ${DIR_GRUB_SCRIPTS}/${script_name}"
+    fi
+  done
+}
+
+target_efivars_are_available() {
+  test_in_target __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+[ -d __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars ]
+grep -qs " __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars efivarfs " __INSTALLER_PATH_DIR_PROC__/mounts
+' sh
+}
+
+ensure_installer_secure_boot_install_tool() {
+  if [ "${INSTALLER_SECURE_BOOT_BRIDGE_READY:-0}" = 1 ]; then
+    return 0
+  fi
+
+  INSTALLER_SECURE_BOOT_TARGET_ROOT=${TARGET_ROOT}
+  INSTALLER_SECURE_BOOT_TARGET_TOOL=${FILE_SECURE_BOOT_TOOL}
+  INSTALLER_SECURE_BOOT_TARGET_CONFIG=${FILE_SECURE_BOOT_CONFIG}
+
+  case "$INSTALLER_SECURE_BOOT_TARGET_ROOT" in
+    ${TARGET_ROOT}) ;;
+    ${TARGET_ROOT}/*) installer_fatal "refusing nested Secure Boot target root: $INSTALLER_SECURE_BOOT_TARGET_ROOT" ;;
+    /*) ;;
+    *) installer_fatal "Secure Boot target root must be absolute: ${INSTALLER_SECURE_BOOT_TARGET_ROOT:-unset}" ;;
+  esac
+  case "$INSTALLER_SECURE_BOOT_TARGET_TOOL" in
+    /*) ;;
+    *) installer_fatal "Secure Boot target tool path must be absolute: ${INSTALLER_SECURE_BOOT_TARGET_TOOL:-unset}" ;;
+  esac
+  case "$INSTALLER_SECURE_BOOT_TARGET_CONFIG" in
+    /*) ;;
+    *) installer_fatal "Secure Boot target config path must be absolute: ${INSTALLER_SECURE_BOOT_TARGET_CONFIG:-unset}" ;;
+  esac
+
+  [ -d "$INSTALLER_SECURE_BOOT_TARGET_ROOT" ] || installer_fatal "Secure Boot target root is missing: $INSTALLER_SECURE_BOOT_TARGET_ROOT"
+  [ -x "${INSTALLER_SECURE_BOOT_TARGET_ROOT}${INSTALLER_SECURE_BOOT_TARGET_TOOL}" ] || \
+    installer_fatal "Secure Boot target tool is not executable: ${INSTALLER_SECURE_BOOT_TARGET_ROOT}${INSTALLER_SECURE_BOOT_TARGET_TOOL}"
+  [ -r "${INSTALLER_SECURE_BOOT_TARGET_ROOT}${INSTALLER_SECURE_BOOT_TARGET_CONFIG}" ] || \
+    installer_fatal "Secure Boot target config is not readable: ${INSTALLER_SECURE_BOOT_TARGET_ROOT}${INSTALLER_SECURE_BOOT_TARGET_CONFIG}"
+  [ -x "${INSTALLER_SECURE_BOOT_TARGET_ROOT}__INSTALLER_PATH_DIR_BIN__/sh" ] || \
+    installer_fatal "target POSIX shell is unavailable; base-installer must provide __INSTALLER_PATH_DIR_BIN__/sh before Secure Boot preparation"
+  if ! command -v in-target >__INSTALLER_PATH_DIR_DEV__/null 2>&1 && ! command -v chroot >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    installer_fatal "neither in-target nor chroot is available for the Secure Boot installer bridge"
+  fi
+
+  INSTALLER_SECURE_BOOT_BRIDGE_READY=1
+}
+
+run_installer_secure_boot_install_tool() {
+  ensure_installer_secure_boot_install_tool
+  # The root-owned target configuration already supplies ACCOUNT_USERNAME.
+  # The reset password goes through the tool's stdin, never command arguments.
+  if command -v chroot >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    env SECURE_BOOT_HOST_MOUNT_PREFIX="$INSTALLER_SECURE_BOOT_TARGET_ROOT" \
+      chroot "$INSTALLER_SECURE_BOOT_TARGET_ROOT" "$INSTALLER_SECURE_BOOT_TARGET_TOOL" "$@"
+    return
+  fi
+  in-target __INSTALLER_PATH_DIR_USR_BIN__/env SECURE_BOOT_HOST_MOUNT_PREFIX="$INSTALLER_SECURE_BOOT_TARGET_ROOT" \
+    "$INSTALLER_SECURE_BOOT_TARGET_TOOL" "$@"
+}
+
+prepare_target_secure_boot_mok_reset() (
+  # Bridge preflight normally records a mandatory installation failure. This
+  # firmware operation is optional: confine that handler to warning + exit,
+  # without publishing the installer's persistent first-failure sentinel.
+  installer_fatal() { installer_warn "$*"; exit 1; }
+  target_sys=${TARGET_ROOT}${DIR_SYS}
+
+  if [ ! -d __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars ]; then
+    installer_error "EFI variable access is unavailable in the installer; skipping Secure Boot MOK reset"
+    return 1
+  fi
+  if [ ! -d __INSTALLER_PATH_DIR_SYS__ ]; then
+    installer_error "installer __INSTALLER_PATH_DIR_SYS__ is unavailable before binding into target; skipping Secure Boot MOK reset"
+    return 1
+  fi
+  # d-i need not mount efivarfs before pkgsel. Directory existence alone does
+  # not provide EFI variable access, and binding an empty directory cannot fix it.
+  if ! grep -qs ' __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars efivarfs ' __INSTALLER_PATH_DIR_PROC__/mounts; then
+    if ! mount -t efivarfs efivarfs __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars; then
+      installer_warn "cannot mount installer efivarfs; continuing without a MOK reset request"
+      return 1
+    fi
+  fi
+
+  install -d -m 0755 "$target_sys" || return 1
+  if ! target_mount_source "$target_sys" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    installer_info "binding installer __INSTALLER_PATH_DIR_SYS__ into ${target_sys} for Secure Boot MOK reset"
+    if ! mount --rbind __INSTALLER_PATH_DIR_SYS__ "$target_sys"; then
+      installer_error "failed to bind installer __INSTALLER_PATH_DIR_SYS__ into ${target_sys}; skipping Secure Boot MOK reset"
+      return 1
+    fi
+  fi
+  if ! mount --make-rslave "$target_sys"; then
+    installer_error "failed to mark ${target_sys} as rslave after binding installer __INSTALLER_PATH_DIR_SYS__; skipping Secure Boot MOK reset"
+    return 1
+  fi
+  if ! target_efivars_are_available; then
+    # An existing target sysfs mount may not share the installer's submounts.
+    if ! mount --bind __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars "$target_sys/firmware/efi/efivars" ||
+       ! target_efivars_are_available; then
+      installer_error "target efivarfs is unavailable; continuing without a MOK reset request"
+      return 1
+    fi
+  fi
+  if ! run_installer_secure_boot_install_tool reset-preflight; then
+    installer_error "Secure Boot MOK reset prerequisites are unavailable; no reset was attempted"
+    return 1
+  fi
+
+  return 0
+)
+
+reset_target_secure_boot_mok_state_attempt() (
+  installer_fatal() { installer_warn "$*"; exit 1; }
+  run_installer_secure_boot_install_tool reset-moks
+)
+
+installer_usb_efi_device_from_seed_context() {
+  best_source=
+  best_mount=
+  best_source_fstype=
+
+  for candidate_path in \
+    "${INSTALLER_SEED_FILE_BASE:-}" \
+    "${SEED_FILE_BASE:-}" \
+    "${INSTALLER_SEED_BASE:-}" \
+    "${SEED_BASE:-}" \
+    /media/usb \
+    /cdrom
+  do
+    [ -n "$candidate_path" ] || continue
+    case "$candidate_path" in
+      /*) ;;
+      *) continue ;;
+    esac
+    while IFS=' ' read -r mount_source mount_point _mount_fstype _mount_options _mount_rest || [ -n "${mount_source:-}" ]; do
+      mount_point=$(printf '%s' "$mount_point" | sed 's/\\040/ /g')
+      case "$candidate_path" in
+        "$mount_point"|"$mount_point"/*)
+          case "$mount_source" in
+            __INSTALLER_PATH_DIR_DEV__/*) ;;
+            *) continue ;;
+          esac
+          if [ "${#mount_point}" -gt "${#best_mount}" ]; then
+            best_source=$mount_source
+            best_mount=$mount_point
+            best_source_fstype=$(blkid -s TYPE -o value "$mount_source" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+          fi
+          ;;
+      esac
+    done <__INSTALLER_PATH_DIR_PROC__/mounts
+  done
+
+  case "$best_source" in
+    __INSTALLER_PATH_DIR_DEV__/*) ;;
+    *) return 1 ;;
+  esac
+  case "$best_source_fstype" in
+    vfat|fat|fat12|fat16|fat32)
+      printf '%s\n' "$best_source"
+      return 0
+      ;;
+  esac
+
+  installer_usb_first_partition "$best_source"
+}
+
+installer_usb_mountpoint_for_device() {
+  installer_usb_device=$1
+
+  while IFS=' ' read -r mount_source mount_point _mount_fstype _mount_options _mount_rest || [ -n "${mount_source:-}" ]; do
+    case "$mount_source" in
+      __INSTALLER_PATH_DIR_DEV__/*) ;;
+      *) continue ;;
+    esac
+    if installer_same_device_path "$mount_source" "$installer_usb_device"; then
+      printf '%s\n' "$(printf '%s' "$mount_point" | sed 's/\\040/ /g')"
+      return 0
+    fi
+  done <__INSTALLER_PATH_DIR_PROC__/mounts
+
+  return 1
+}
+
+installer_mountpoint_is_writable() {
+  installer_mountpoint=$1
+  installer_probe="${installer_mountpoint}/.sb-mok-write-test.$$"
+
+  if : >"$installer_probe" 2>__INSTALLER_PATH_DIR_DEV__/null; then
+    rm -f "$installer_probe"
+    return 0
+  fi
+  return 1
+}
+
+sync_target_secure_boot_bundle_to_installer_usb() {
+  installer_usb_device=$(installer_usb_efi_device_from_seed_context 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+  case "$installer_usb_device" in
+    __INSTALLER_PATH_DIR_DEV__/*) ;;
+    *)
+      warn "no installer USB EFI partition was detected for SB_MOK sync"
+      return 0
+      ;;
+  esac
+
+  installer_usb_fstype=$(blkid -s TYPE -o value "$installer_usb_device" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+  case "$installer_usb_fstype" in
+    vfat|fat|fat12|fat16|fat32) ;;
+    *)
+      warn "installer USB EFI candidate is not a FAT filesystem: ${installer_usb_device} (${installer_usb_fstype:-unknown})"
+      return 0
+      ;;
+  esac
+
+  secure_boot_state_dir="${TARGET_ROOT}${DIR_SECURE_BOOT_STATE}"
+  [ -d "$secure_boot_state_dir" ] || installer_fatal "Secure Boot state directory is missing before SB_MOK sync: ${secure_boot_state_dir}"
+
+  for required_file in MOK.pem MOK.der; do
+    [ -r "${secure_boot_state_dir}/${required_file}" ] || \
+      installer_fatal "Secure Boot state file is missing before SB_MOK sync: ${secure_boot_state_dir}/${required_file}"
+  done
+
+  installer_usb_mountpoint=$(installer_usb_mountpoint_for_device "$installer_usb_device" || true)
+  installer_usb_mount_ours=false
+  if [ -n "$installer_usb_mountpoint" ]; then
+    if ! installer_mountpoint_is_writable "$installer_usb_mountpoint"; then
+      if ! mount -o remount,rw "$installer_usb_mountpoint" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
+         ! installer_mountpoint_is_writable "$installer_usb_mountpoint"
+      then
+        installer_fatal "installer USB EFI partition is mounted but not writable: ${installer_usb_mountpoint}"
+      fi
+    fi
+  else
+    installer_usb_mountpoint="${RUNTIME_DIR}/mnt/usb-efi"
+    install -d -m 0700 "$installer_usb_mountpoint"
+    if ! mount "$installer_usb_device" "$installer_usb_mountpoint" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
+       ! installer_mountpoint_is_writable "$installer_usb_mountpoint"
+    then
+      [ "$installer_usb_mount_ours" = false ] || umount "$installer_usb_mountpoint" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || true
+      installer_fatal "failed to mount writable installer USB EFI partition ${installer_usb_device} for SB_MOK sync"
+    fi
+    installer_usb_mount_ours=true
+  fi
+
+  installer_sb_mok_dir="${installer_usb_mountpoint}/SB_MOK"
+  install -d -m 0700 "$installer_sb_mok_dir"
+  # FAT modes cannot protect private keys. Export only public enrollment
+  # material; private recovery belongs in a separately encrypted backup.
+  install -m 0644 "${secure_boot_state_dir}/MOK.pem" "$installer_sb_mok_dir/MOK.pem"
+  install -m 0644 "${secure_boot_state_dir}/MOK.der" "$installer_sb_mok_dir/MOK.der"
+
+  if [ "$installer_usb_mount_ours" = true ]; then
+    umount "$installer_usb_mountpoint" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || installer_fatal "failed to unmount installer USB EFI partition after SB_MOK sync"
+  fi
+}
+
+repair_target_secure_boot_removable_loader() {
+  # shellcheck disable=SC2016
+  run_in_target "ensure removable Secure Boot fallback loader uses shim" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+esp_dir=${1%/}
+shim_path=$2
+removable_path=$3
+shim_loader="${esp_dir}${shim_path}"
+removable_loader="${esp_dir}${removable_path}"
+
+[ -f "$shim_loader" ] || {
+  printf "missing signed shim loader: %s\n" "$shim_loader" >&2
+  exit 1
+}
+install -d -m 0755 "$(dirname "$removable_loader")"
+if [ ! -f "$removable_loader" ] || ! cmp -s "$shim_loader" "$removable_loader"; then
+  install -m 0644 "$shim_loader" "$removable_loader"
+fi
+cmp -s "$shim_loader" "$removable_loader" || {
+  printf "removable Secure Boot loader does not match shim: %s\n" "$removable_loader" >&2
+  exit 1
+}
+' sh \
+    "${DIR_BOOT_EFI}" \
+    "${INSTALLER_GRUB_SHIM_EFI_PATH}" \
+    "${INSTALLER_GRUB_REMOVABLE_BOOT_EFI_PATH}"
+}
+
+repair_target_secure_boot_mok_manager_loader() {
+  # shellcheck disable=SC2016
+  run_in_target "ensure MokManager EFI loader is staged on the ESP" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+esp_dir=${1%/}
+mok_manager_path=$2
+mok_manager_loader="${esp_dir}${mok_manager_path}"
+mok_manager_name=$(basename "$mok_manager_path")
+
+find_mok_manager_source() {
+  for candidate in \
+    "__INSTALLER_PATH_DIR_USR_LIB__/shim/${mok_manager_name}.signed" \
+    "__INSTALLER_PATH_DIR_USR_LIB__/shim/${mok_manager_name}" \
+    __INSTALLER_PATH_DIR_USR_LIB__/shim/MokManager.efi.signed \
+    __INSTALLER_PATH_DIR_USR_LIB__/shim/MokManager.efi
+  do
+    [ -f "$candidate" ] || continue
+    printf "%s\n" "$candidate"
+    return 0
+  done
+  return 1
+}
+
+mok_manager_source=$(find_mok_manager_source || true)
+[ -n "$mok_manager_source" ] || {
+  printf "unable to locate MokManager payload for %s under __INSTALLER_PATH_DIR_USR_LIB__/shim\n" "$mok_manager_name" >&2
+  exit 1
+}
+
+install -d -m 0755 "$(dirname "$mok_manager_loader")"
+if [ ! -f "$mok_manager_loader" ] || ! cmp -s "$mok_manager_source" "$mok_manager_loader"; then
+  install -m 0644 "$mok_manager_source" "$mok_manager_loader"
+fi
+[ -f "$mok_manager_loader" ] || {
+  printf "failed to stage MokManager EFI loader at %s\n" "$mok_manager_loader" >&2
+  exit 1
+}
+' sh \
+    "${DIR_BOOT_EFI}" \
+    "${INSTALLER_GRUB_MOK_MANAGER_EFI_PATH}"
+}
+
+repair_target_secure_boot_nvram_entry() {
+  # shellcheck disable=SC2016
+  attempt_in_target "ensure firmware boot entry uses shim" __INSTALLER_PATH_DIR_USR_BIN__/timeout --kill-after=2 45 __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+disk=$1
+efi_part=$2
+shim_path=$3
+label=debian
+
+find_shim_boot_entry() {
+  loader_lower=$1
+  while IFS= read -r line; do
+    lower_line=$(printf "%s\n" "$line" | tr "[:upper:]" "[:lower:]")
+    case "$lower_line" in
+      # libefivar prints file paths either as File(path) or as a bare path.
+      # Match the exact final loader path in both formats, on the selected GPT
+      # partition; a matching label alone never authorizes BootNext.
+      *"hd(${part_num},gpt,${part_uuid},"*")/file(${loader_lower})"|*"hd(${part_num},gpt,${part_uuid},"*")/${loader_lower}")
+        entry=$(printf "%s\n" "$line" | sed -n "s/^Boot\\([0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]\\)\\*.*/\\1/p")
+        [ -n "$entry" ] || continue
+        printf "%s\n" "$entry"
+        return 0
+        ;;
+    esac
+  done
+}
+
+command -v efibootmgr >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
+  printf "efibootmgr is unavailable; cannot force firmware boot through shim\n" >&2
+  exit 1
+}
+[ -d __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars ] || {
+  printf "target efivars are unavailable; cannot force firmware boot through shim\n" >&2
+  exit 1
+}
+grep -qs " __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars " __INSTALLER_PATH_DIR_PROC__/mounts ||
+  grep -qs " ${TARGET_ROOT}${DIR_SYS}/firmware/efi/efivars " __INSTALLER_PATH_DIR_PROC__/mounts || {
+  printf "target efivars are not mounted; cannot force firmware boot through shim\n" >&2
+  exit 1
+}
+[ -b "$disk" ] || {
+  printf "install disk is missing inside target: %s\n" "$disk" >&2
+  exit 1
+}
+[ -b "$efi_part" ] || {
+  printf "EFI partition is missing inside target: %s\n" "$efi_part" >&2
+  exit 1
+}
+disk_identity=$(readlink -f -- "$disk")
+efi_parent=$(lsblk -dnro PKNAME -- "$efi_part")
+[ "$disk_identity" = "__INSTALLER_PATH_DIR_DEV__/${efi_parent}" ] || {
+  printf "selected ESP does not belong to the selected install disk; refusing a firmware boot mutation\n" >&2
+  exit 1
+}
+
+# PARTN can be empty before udev has populated partition properties. Bind the
+# kernel partition number to the selected block device instead of guessing it
+# from names (which differ for NVMe, MMC and other disk families).
+efi_devnum=$(lsblk -dnro MAJ:MIN -- "$efi_part")
+printf "%s\n" "$efi_devnum" | grep -Eq "^[0-9]+:[0-9]+$" || exit 1
+part_num=$(cat "__INSTALLER_PATH_DIR_SYS__/dev/block/${efi_devnum}/partition")
+case "$part_num" in
+  ""|*[!0-9]*)
+  printf "unable to resolve EFI partition number for %s\n" "$efi_part" >&2
+  exit 1
+  ;;
+esac
+part_uuid=$(blkid -s PARTUUID -o value "$efi_part")
+part_uuid=$(printf "%s\n" "$part_uuid" | tr "[:upper:]" "[:lower:]")
+printf "%s\n" "$part_uuid" | grep -Eq "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" || {
+  printf "selected ESP has no valid GPT partition UUID; refusing a firmware boot mutation\n" >&2
+  exit 1
+}
+case "$shim_path" in
+  /EFI/*.efi) ;;
+  *) exit 1 ;;
+esac
+case "$shim_path" in
+  *[!A-Za-z0-9_./+-]*|*'/../'*|*'/..'|*'/./'*|*'/.'|*'//'*) exit 1 ;;
+esac
+[ -s "__INSTALLER_PATH_DIR_BOOT__/efi${shim_path}" ] || exit 1
+loader=$(printf "%s\n" "$shim_path" | sed "s#/#\\\\#g")
+loader_lower=$(printf "%s\n" "$loader" | tr "[:upper:]" "[:lower:]")
+
+boot_entries=$(efibootmgr -v)
+entry_id=$(printf "%s\n" "$boot_entries" | find_shim_boot_entry "$loader_lower")
+if [ -z "$entry_id" ]; then
+  efibootmgr --create-only --disk "$disk" --part "$part_num" --label "$label" --loader "$loader" >__INSTALLER_PATH_DIR_DEV__/null
+  boot_entries=$(efibootmgr -v)
+  entry_id=$(printf "%s\n" "$boot_entries" | find_shim_boot_entry "$loader_lower")
+fi
+[ -n "$entry_id" ] || {
+  printf "failed to create or find shim firmware boot entry for %s\n" "$loader" >&2
+  exit 1
+}
+
+efibootmgr --bootnext "$entry_id" >__INSTALLER_PATH_DIR_DEV__/null
+boot_state=$(efibootmgr)
+printf "%s\n" "$boot_state" | grep -E -i -q "^BootNext:[[:space:]]*${entry_id}$"
+' sh \
+    "${DEV_INSTALL_DISK}" \
+    "${DEV_PART_EFI}" \
+    "${INSTALLER_GRUB_SHIM_EFI_PATH}"
+}
+
+queue_target_grub_mok_enrollment_boot_for_reset() {
+  # Queue failure must not break installation or repeat the firmware reset.
+  if (
+    set -eu
+    # The caller already mounted __INSTALLER_PATH_DIR_BOOT__ and the ESP and verified GRUB before
+    # updating grub.cfg. Do not repeat mandatory preflights for this optional step.
+    installer_fatal() { installer_warn "$*"; exit 1; }
+    # A cached success must not authorize a management boot if another operation
+    # has replaced or cleared the reset request since the final reset returned.
+    run_installer_secure_boot_install_tool reset-pending || exit 1
+    # Shim consumes MokAuth before GRUB runs. Queue exactly this one route:
+    # a GRUB next_entry survives the firmware visit and opens MokManager again.
+    # A failed firmware readback may follow a successful BootNext write, so
+    # do not automatically arm another route on that uncertain outcome either.
+    # The existing GRUB MOK Enrollment entry remains available manually.
+    repair_target_secure_boot_nvram_entry
+  ); then
+    installer_info "MOK management boot queued through shim; use the native reset and enrollment options in MokManager"
+  else
+    installer_warn "could not confirm the one-shot MOK management boot; continuing installation; select MOK Enrollment manually at boot"
+  fi
+  return 0
+}
+
+require_target_grub_installed() {
+  # shellcheck disable=SC2016
+  if ! test_in_target __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+packages=$1
+test -x __INSTALLER_PATH_DIR_USR_SBIN__/grub-install
+[ -x __INSTALLER_PATH_DIR_USR_SBIN__/update-grub ] || [ -x __INSTALLER_PATH_DIR_USR_SBIN__/grub-mkconfig ]
+test -x __INSTALLER_PATH_DIR_USR_BIN__/grub-editenv
+for pkg in $packages; do
+  dpkg-query -W "$pkg" >__INSTALLER_PATH_DIR_DEV__/null 2>&1
+done
+' sh "${INSTALLER_SECURE_BOOT_BOOT_CHAIN_PACKAGES}"; then
+    installer_fatal "target Secure Boot GRUB and shim packages are not fully installed before profile installation"
+  fi
+}
+
+ensure_target_grub_profile_mounts() {
+  target_is_mounted || installer_fatal "${TARGET_ROOT} is not mounted before GRUB profile installation"
+  [ -n "${DEV_PART_BOOT:-}" ] || installer_fatal "DEV_PART_BOOT is unset before GRUB profile installation"
+  [ -n "${DEV_PART_EFI:-}" ] || installer_fatal "DEV_PART_EFI is unset before GRUB profile installation"
+
+  if ! target_mount_source "${TARGET_ROOT}${DIR_BOOT}" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 &&
+    target_mount_source "${TARGET_ROOT}${DIR_BOOT_EFI}" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    info "unmounting __INSTALLER_PATH_DIR_BOOT__/efi before restoring __INSTALLER_PATH_DIR_BOOT__ for GRUB profile installation"
+    if ! umount "${TARGET_ROOT}${DIR_BOOT_EFI}"; then
+      installer_fatal "failed to unmount ${TARGET_ROOT}${DIR_BOOT_EFI} before restoring ${TARGET_ROOT}${DIR_BOOT}"
+    fi
+  fi
+
+  ensure_target_mount "${DEV_PART_BOOT}" "${TARGET_ROOT}${DIR_BOOT}" ext4 "${MNT_BOOT_OPTS}" "__INSTALLER_PATH_DIR_BOOT__"
+  ensure_target_mount "${DEV_PART_EFI}" "${TARGET_ROOT}${DIR_BOOT_EFI}" vfat "${MNT_EFI_OPTS}" "__INSTALLER_PATH_DIR_BOOT__/efi"
+
+  # shellcheck disable=SC2016
+  test_in_target __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+grep -qs " __INSTALLER_PATH_DIR_BOOT__ " __INSTALLER_PATH_DIR_PROC__/mounts
+grep -qs " __INSTALLER_PATH_DIR_BOOT__/efi " __INSTALLER_PATH_DIR_PROC__/mounts
+' || installer_fatal "target __INSTALLER_PATH_DIR_BOOT__ and __INSTALLER_PATH_DIR_BOOT__/efi must be mounted before GRUB profile installation"
+}
+
+ensure_target_grubenv_ready() {
+  require_target_grub_installed
+  # shellcheck disable=SC2016
+  run_in_target "ensure target grubenv exists for GRUB profile state" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+command -v grub-editenv >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
+  printf "grub-editenv is unavailable in target\n" >&2
+  exit 1
+}
+install -d -m 0755 __INSTALLER_PATH_DIR_BOOT__/grub
+[ -s __INSTALLER_PATH_DIR_BOOT__/grub/grubenv ] || grub-editenv __INSTALLER_PATH_DIR_BOOT__/grub/grubenv create
+[ -s __INSTALLER_PATH_DIR_BOOT__/grub/grubenv ] || {
+  printf "grubenv is missing after creation\n" >&2
+  exit 1
+}
+' sh
+}
+
+ensure_target_bootable_kernel_pairs() {
+  # shellcheck disable=SC2016
+  run_in_target "ensure target bootable kernel and initrd pairs exist" __INSTALLER_PATH_DIR_BIN__/sh -c '
+set -eu
+have_pairs() {
+  for img in __INSTALLER_PATH_DIR_BOOT__/vmlinuz-*; do
+    [ -e "$img" ] || continue
+    ver=${img#__INSTALLER_PATH_DIR_BOOT__/vmlinuz-}
+    [ -e "__INSTALLER_PATH_DIR_BOOT__/initrd.img-$ver" ] || continue
+    return 0
+  done
+  return 1
+}
+
+have_pairs || {
+  printf "no bootable kernel/initrd pairs exist under __INSTALLER_PATH_DIR_BOOT__\n" >&2
+  exit 1
+}
+' sh
+}
+
+prepare_target_secure_boot_runtime() {
+  if [ "${TARGET_SECURE_BOOT_RUNTIME_PREPARED:-0}" = 1 ]; then
+    return 0
+  fi
+  run_installer_secure_boot_install_tool prepare
+  TARGET_SECURE_BOOT_RUNTIME_PREPARED=1
+}
+
+secure_boot_packages_stage_stamp() {
+  runtime_state_dir=$(installer_runtime_state_dir)
+  printf '%s/secure-boot-packages.done\n' "$runtime_state_dir"
+}
+
+secure_boot_packages_stage_is_complete() {
+  [ -f "$(secure_boot_packages_stage_stamp)" ]
+}
+
+mark_secure_boot_packages_stage_complete() {
+  stamp_path=$(secure_boot_packages_stage_stamp)
+  install -d -m 0700 "$(dirname "$stamp_path")"
+  : >"$stamp_path"
+  chmod 0600 "$stamp_path"
+}
+
+stage_target_secure_boot_runtime_assets() {
+  ensure_target_secure_boot_state_mount
+  write_target_secure_boot_payloads
+  # Generate signing material here, but queue firmware changes only after all
+  # desktop role package hooks finish. An early failure must not consume the
+  # one reset attempt, and a later package must not replace its MokAuth request.
+  remove_target_secure_boot_crypttab_entry
+  install_target_secure_boot_kernel_hooks
+}
+
+finalize_target_secure_boot_mok_reset() (
+  # Called by each storage-family late hook immediately after GRUB generation.
+  # Keep optional preflight exits and reset failures out of first-failure.
+  installer_fatal() { installer_warn "$*"; exit 1; }
+  late_command_load_runtime_env false || return 1
+  late_command_load_host_env || return 1
+  late_command_require_class_policy_env || return 1
+  ensure_target_grub_profile_mounts || return 1
+  if (reset_target_secure_boot_mok_state); then
+    queue_target_grub_mok_enrollment_boot_for_reset
+  else
+    installer_warn "final MOK reset was not confirmed; continuing installation"
+  fi
+)
+
+ensure_target_dualboot_os_prober_package() {
+  [ "${DUALBOOT_ENABLED:-false}" = "true" ] || return 0
+
+  if ! installer_word_list_contains "${INSTALLER_PKGSEL_INCLUDE:-}" os-prober; then
+    INSTALLER_PKGSEL_INCLUDE="${INSTALLER_PKGSEL_INCLUDE:+${INSTALLER_PKGSEL_INCLUDE} }os-prober"
+  fi
+
+  if test_in_target test -x __INSTALLER_PATH_DIR_USR_BIN__/os-prober; then
+    return 0
+  fi
+
+  installer_warn "optional/dualboot selected but __INSTALLER_PATH_DIR_USR_BIN__/os-prober is missing in target; repairing package state"
+  prepare_target_volatile_dirs_for_apt
+  run_in_target "refresh apt metadata before dualboot os-prober repair" \
+    env DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    apt-get \
+      -o Acquire::Retries=5 \
+      -o Acquire::http::Timeout=45 \
+      -o Acquire::https::Timeout=45 \
+      -o Binary::apt::APT::Keep-Downloaded-Packages=false \
+      -o DPkg::Use-Pty=0 \
+      update
+  run_in_target "install dualboot os-prober package" \
+    env DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    apt-get \
+      -o Acquire::Retries=5 \
+      -o Acquire::http::Timeout=45 \
+      -o Acquire::https::Timeout=45 \
+      -o Binary::apt::APT::Keep-Downloaded-Packages=false \
+      -o DPkg::Use-Pty=0 \
+      -y install --no-install-recommends --no-install-suggests os-prober
+
+  TARGET_BOOT_TOOL_STATE_LOADED=0
+}
+
+require_target_dualboot_os_prober_package() {
+  [ "${DUALBOOT_ENABLED:-false}" = "true" ] || return 0
+  ensure_target_dualboot_os_prober_package
+  test_in_target test -x __INSTALLER_PATH_DIR_USR_BIN__/os-prober || \
+    installer_fatal "__INSTALLER_PATH_DIR_USR_BIN__/os-prober is missing in target after repair; GRUB cannot probe other operating systems automatically"
+}
+
+resolve_target_grub_config_command() {
+  if test_in_target test -x __INSTALLER_PATH_DIR_USR_SBIN__/update-grub; then
+    printf '%s\n' update-grub
+    return 0
+  fi
+  if test_in_target test -x __INSTALLER_PATH_DIR_USR_SBIN__/grub-mkconfig; then
+    printf '%s\n' grub-mkconfig
+    return 0
+  fi
+  return 1
+}
+
+run_target_grub_config_update() {
+  grub_config_command=$(resolve_target_grub_config_command) || \
+    installer_fatal "neither __INSTALLER_PATH_DIR_USR_SBIN__/update-grub nor __INSTALLER_PATH_DIR_USR_SBIN__/grub-mkconfig is available in target"
+
+  if [ "${DUALBOOT_ENABLED:-false}" = "true" ]; then
+    install_disk_path=$(readlink -f "$DEV_INSTALL_DISK" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+    [ -n "$install_disk_path" ] || \
+      installer_fatal "unable to resolve the selected install disk before scoped dualboot os-prober: ${DEV_INSTALL_DISK:-unset}"
+    install_disk_name=${install_disk_path##*/}
+    case "$install_disk_name" in
+      ''|*[!A-Za-z0-9._-]*)
+        installer_fatal "invalid install disk basename for scoped dualboot os-prober run: ${install_disk_name:-unset}"
+        ;;
+    esac
+    test_in_target test -x __INSTALLER_PATH_DIR_USR_BIN__/unshare.installer-real || \
+      installer_fatal "preserved real target unshare is unavailable for the scoped dualboot os-prober run"
+
+    # os-prober scans every partition exposed below __INSTALLER_PATH_DIR_SYS__/block. Run the final
+    # dual-boot discovery in a private mount namespace and mask USB-backed
+    # disks other than the selected install disk so removable installer or
+    # utility media cannot stall the unattended installation.
+    # shellcheck disable=SC2016
+    run_in_target "update GRUB configuration with unrelated USB storage hidden from os-prober" \
+      __INSTALLER_PATH_DIR_USR_BIN__/unshare.installer-real --mount __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+mount --make-rprivate /
+install_disk_name=$1
+grub_config_command=$2
+empty_sys_block=$(mktemp -d /tmp/os-prober-empty-sys-block.XXXXXX)
+cleanup_scoped_os_prober() {
+  rmdir "$empty_sys_block" 2>__INSTALLER_PATH_DIR_DEV__/null || true
+}
+trap cleanup_scoped_os_prober EXIT HUP INT TERM
+
+for sys_block in __INSTALLER_PATH_DIR_SYS__/block/*; do
+  [ -d "$sys_block" ] || continue
+  block_name=${sys_block##*/}
+  [ "$block_name" = "$install_disk_name" ] && continue
+  device_path=$(readlink -f "$sys_block/device" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+  case "$device_path" in
+    */usb*)
+      mount --bind "$empty_sys_block" "$sys_block"
+      printf "[late:grub] hidden USB-backed block device from os-prober: %s\n" \
+        "$block_name" >&2
+      ;;
+  esac
+done
+
+case "$grub_config_command" in
+  update-grub)
+    __INSTALLER_PATH_DIR_USR_SBIN__/update-grub
+    ;;
+  grub-mkconfig)
+    __INSTALLER_PATH_DIR_USR_SBIN__/grub-mkconfig -o __INSTALLER_PATH_DIR_BOOT__/grub/grub.cfg
+    ;;
+  *)
+    printf "unsupported target GRUB config command: %s\n" "$grub_config_command" >&2
+    exit 1
+    ;;
+esac
+' sh "$install_disk_name" "$grub_config_command"
+    return 0
+  fi
+
+  case "$grub_config_command" in
+    update-grub)
+      run_in_target "update GRUB configuration" __INSTALLER_PATH_DIR_USR_SBIN__/update-grub
+      ;;
+    grub-mkconfig)
+      run_in_target "generate GRUB configuration" __INSTALLER_PATH_DIR_USR_SBIN__/grub-mkconfig -o __INSTALLER_PATH_DIR_BOOT__/grub/grub.cfg
+      ;;
+    *)
+      installer_fatal "unsupported target GRUB config command: ${grub_config_command}"
+      ;;
+  esac
+}
+
+install_target_secure_boot_target_packages() {
+  # shellcheck disable=SC2086
+  set -- $INSTALLER_SECURE_BOOT_TARGET_PACKAGES
+  [ "$#" -ge 1 ] || installer_fatal "selected Secure Boot target package set is empty"
+  prepare_target_volatile_dirs_for_apt
+  run_in_target "install selected Secure Boot target packages" \
+    env DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    apt-get \
+      -o Acquire::Retries=5 \
+      -o Acquire::http::Timeout=45 \
+      -o Acquire::https::Timeout=45 \
+      -o Binary::apt::APT::Keep-Downloaded-Packages=false \
+      -o DPkg::Use-Pty=0 \
+      -y install --no-install-recommends --no-install-suggests "$@"
+}
+
+
+reinstall_target_grub_boot_chain_packages() {
+  # shellcheck disable=SC2086
+  set -- $INSTALLER_SECURE_BOOT_BOOT_CHAIN_PACKAGES
+  [ "$#" -ge 1 ] || installer_fatal "selected GRUB EFI boot chain package set is empty"
+  prepare_target_volatile_dirs_for_apt
+  run_in_target "reinstall selected GRUB EFI boot chain packages on the restored ESP" \
+    env DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    apt-get \
+      -o Acquire::Retries=5 \
+      -o Acquire::http::Timeout=45 \
+      -o Acquire::https::Timeout=45 \
+      -o Binary::apt::APT::Keep-Downloaded-Packages=false \
+      -o DPkg::Use-Pty=0 \
+      -y install --reinstall --no-install-recommends --no-install-suggests "$@"
+}
+
+installer_canonical_device_path() {
+  readlink -f "$1" 2>__INSTALLER_PATH_DIR_DEV__/null || printf '%s\n' "$1"
+}
+
+installer_same_device_path() {
+  installer_left=$(installer_canonical_device_path "$1")
+  installer_right=$(installer_canonical_device_path "$2")
+  [ "$installer_left" = "$installer_right" ]
+}
+
+installer_device_fs_type() {
+  command -v blkid >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || return 1
+  blkid -s TYPE -o value "$1" 2>__INSTALLER_PATH_DIR_DEV__/null || true
+}
+
+installer_device_fs_label() {
+  command -v blkid >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || return 1
+  blkid -s LABEL -o value "$1" 2>__INSTALLER_PATH_DIR_DEV__/null || true
+}
+
+installer_udev_settle() {
+  if command -v udevadm >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    udevadm settle || warn "udevadm settle failed while refreshing device state"
+  fi
+}
+
+installer_wipe_block_device() {
+  if command -v swapoff >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    swapoff "$1" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || true
+  fi
+  if command -v wipefs >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    wipefs -a -f "$1" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || true
+  fi
+}
+
+installer_log_command_failure() {
+  failure_prefix=$1
+  failure_file=$2
+
+  [ -s "$failure_file" ] || return 0
+  sed "s/^/[${failure_prefix}] /" "$failure_file" >&2 || true
+}
+
+installer_ensure_ext4_filesystem() {
+  dev=$1
+  opts=$2
+  label=$3
+
+  ensure_installer_command_logged blkid util-linux-udeb
+  ensure_installer_command_logged mkfs.ext4 e2fsprogs-udeb
+
+  current_type=$(installer_device_fs_type "$dev")
+  current_label=$(installer_device_fs_label "$dev")
+  if [ "$current_type" = "ext4" ] && [ "$current_label" = "$label" ]; then
+    return 0
+  fi
+
+  installer_wipe_block_device "$dev"
+  mkfs_err=$(installer_runtime_temp_log_path secure-boot-mkfs-ext4.log)
+  info "formatting Secure Boot state mapper ${dev} as ext4"
+  # shellcheck disable=SC2086
+  if ! mkfs.ext4 $opts "$dev" >"$mkfs_err" 2>&1; then
+    installer_log_command_failure "mkfs.ext4" "$mkfs_err"
+    rm -f "$mkfs_err"
+    fatal "failed to format Secure Boot state mapper ${dev} as ext4"
+  fi
+  rm -f "$mkfs_err"
+  installer_udev_settle
+}
+
+installer_find_open_luks_mapping_for_device() {
+  installer_dev=$1
+
+  command -v cryptsetup >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || return 1
+
+  for installer_mapper_path in __INSTALLER_PATH_DIR_DEV__/mapper/*; do
+    [ -b "$installer_mapper_path" ] || continue
+    installer_mapper_name=${installer_mapper_path##*/}
+    installer_real_dev=$(cryptsetup status "$installer_mapper_name" 2>__INSTALLER_PATH_DIR_DEV__/null |
+      sed -n 's/^[[:space:]]*device:[[:space:]]*//p' | sed -n '1p')
+    [ -n "$installer_real_dev" ] || continue
+    if installer_same_device_path "$installer_dev" "$installer_real_dev"; then
+      printf '%s\n' "$installer_mapper_path"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+installer_active_secure_boot_luks_mapper() {
+  if [ -b "$LUKS_MAPPER_VAR_LIB_SHSIGNED" ]; then
+    printf '%s\n' "$LUKS_MAPPER_VAR_LIB_SHSIGNED"
+    return 0
+  fi
+
+  installer_find_open_luks_mapping_for_device "$DEV_PART_VAR_LIB_SHSIGNED"
+}
+
+open_luks_mapping_with_passphrase() {
+  dev=$1
+  mapper_name=$2
+  passphrase=$3
+
+  ensure_installer_command_logged cryptsetup cryptsetup-udeb
+  if command -v modprobe >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    modprobe dm_mod >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || true
+    modprobe dm_crypt >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || true
+  fi
+
+  ACTIVE_TARGET_SECURE_BOOT_MAPPER=$(installer_active_secure_boot_luks_mapper || true)
+  if [ -n "$ACTIVE_TARGET_SECURE_BOOT_MAPPER" ]; then
+    installer_ensure_ext4_filesystem "$ACTIVE_TARGET_SECURE_BOOT_MAPPER" "$MKFS_EXT4_VAR_LIB_SHSIGNED_OPTS" "$FS_LABEL_VAR_LIB_SHSIGNED"
+    return 0
+  fi
+
+  if ! cryptsetup isLuks "$dev" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    installer_wipe_block_device "$dev"
+    luks_format_err=$(installer_runtime_temp_log_path secure-boot-luks-format.log)
+    info "formatting Secure Boot state partition ${dev} as LUKS2"
+    # shellcheck disable=SC2086
+    if ! printf '%s' "$passphrase" | cryptsetup luksFormat --batch-mode --key-file - $CRYPTSETUP_LUKS_VAR_LIB_SHSIGNED_OPTS "$dev" >"$luks_format_err" 2>&1; then
+      installer_log_command_failure "cryptsetup:luksFormat" "$luks_format_err"
+      rm -f "$luks_format_err"
+      fatal "failed to format Secure Boot state partition ${dev} as LUKS2"
+    fi
+    rm -f "$luks_format_err"
+    installer_udev_settle
+  fi
+
+  luks_open_err=$(installer_runtime_temp_log_path secure-boot-luks-open.log)
+  info "opening Secure Boot LUKS mapper ${mapper_name}"
+  if ! printf '%s' "$passphrase" | cryptsetup luksOpen --batch-mode --key-file - "$dev" "$mapper_name" >"$luks_open_err" 2>&1; then
+    installer_log_command_failure "cryptsetup:luksOpen" "$luks_open_err"
+    rm -f "$luks_open_err"
+    fatal "failed to open Secure Boot LUKS mapper ${mapper_name}"
+  fi
+  rm -f "$luks_open_err"
+  installer_udev_settle
+  ACTIVE_TARGET_SECURE_BOOT_MAPPER="$LUKS_MAPPER_VAR_LIB_SHSIGNED"
+  installer_ensure_ext4_filesystem "$ACTIVE_TARGET_SECURE_BOOT_MAPPER" "$MKFS_EXT4_VAR_LIB_SHSIGNED_OPTS" "$FS_LABEL_VAR_LIB_SHSIGNED"
+}
+
+ensure_target_secure_boot_state_mount() {
+  set +x
+  set +v
+  secure_boot_state_mode=$(target_secure_boot_state_mode)
+  mountpoint="${TARGET_ROOT}${DIR_VAR_LIB_SHSIGNED}"
+  mapper_path=
+
+  target_is_mounted || fatal "${TARGET_ROOT} is not mounted before Secure Boot state activation"
+
+  case "$secure_boot_state_mode" in
+    direct)
+      install -d -m 0700 "$mountpoint"
+      install -d -m 0700 "${TARGET_ROOT}${DIR_SECURE_BOOT_STATE}"
+      return 0
+      ;;
+    luks)
+      validate_target_secure_boot_luks_contract
+      # Preserve any trailing newline in the value so validation rejects it
+      # instead of silently changing the LUKS key during command substitution.
+      secure_boot_luks_read=$(installer_cmdline_password_value shim_signed_passphrase && printf '.') ||
+        installer_fatal "SECURE_BOOT_STATE_MODE=luks requires shim_signed_passphrase or PRESEED_SHIM_SIGNED_PASSPHRASE in installer credential input"
+      case "$secure_boot_luks_read" in
+        *'
+'.) ;;
+        *) installer_fatal "PRESEED_SHIM_SIGNED_PASSPHRASE could not be read as a single value" ;;
+      esac
+      secure_boot_luks_passphrase=${secure_boot_luks_read%.}
+      secure_boot_luks_passphrase=${secure_boot_luks_passphrase%?}
+      unset secure_boot_luks_read
+      case "$secure_boot_luks_passphrase" in
+        *[![:print:]]*) installer_fatal "PRESEED_SHIM_SIGNED_PASSPHRASE must be a single printable line" ;;
+      esac
+      ;;
+    *)
+      fatal "unsupported Secure Boot state mode: ${secure_boot_state_mode}"
+      ;;
+  esac
+
+  [ -b "${DEV_PART_VAR_LIB_SHSIGNED}" ] || fatal "Secure Boot state partition is missing: ${DEV_PART_VAR_LIB_SHSIGNED}"
+
+  install -d -m 0700 "$mountpoint"
+  open_luks_mapping_with_passphrase "${DEV_PART_VAR_LIB_SHSIGNED}" "${LUKS_NAME_VAR_LIB_SHSIGNED}" "$secure_boot_luks_passphrase"
+  unset passphrase secure_boot_luks_passphrase
+  mapper_path=${ACTIVE_TARGET_SECURE_BOOT_MAPPER:-$LUKS_MAPPER_VAR_LIB_SHSIGNED}
+  ensure_target_mount "$mapper_path" "$mountpoint" ext4 "${MNT_VAR_LIB_SHSIGNED_OPTS}" "__INSTALLER_PATH_DIR_VAR__/lib/shim-signed"
+  chmod 0700 "$mountpoint"
+}
+
+close_target_secure_boot_state() {
+  secure_boot_state_mode=$(target_secure_boot_state_mode)
+  mountpoint="${TARGET_ROOT}${DIR_VAR_LIB_SHSIGNED}"
+  active_mapper=
+
+  case "$secure_boot_state_mode" in
+    direct)
+      install -d -m 0700 "$mountpoint"
+      return 0
+      ;;
+    luks)
+      validate_target_secure_boot_luks_contract
+      ;;
+    *)
+      fatal "unsupported Secure Boot state mode: ${secure_boot_state_mode}"
+      ;;
+  esac
+
+  active_mapper=$(installer_active_secure_boot_luks_mapper || true)
+  if mounted_src=$(target_mount_source "$mountpoint"); then
+    if [ -n "$active_mapper" ] && ! installer_same_device_path "$mounted_src" "$active_mapper"; then
+      fatal "${mountpoint} is mounted from ${mounted_src}, expected ${active_mapper}"
+    fi
+    info "unmounting Secure Boot state partition"
+    if ! umount "$mountpoint"; then
+      fatal "failed to unmount ${mountpoint}"
+    fi
+    install -d -m 0700 "$mountpoint"
+  fi
+
+  active_mapper=${active_mapper:-$(installer_active_secure_boot_luks_mapper || true)}
+  if [ -n "$active_mapper" ]; then
+    active_mapper_name=${active_mapper##*/}
+    ensure_installer_command_logged cryptsetup cryptsetup-udeb
+    info "closing Secure Boot LUKS mapper ${active_mapper_name}"
+    if ! cryptsetup close "$active_mapper_name"; then
+      fatal "failed to close Secure Boot LUKS mapper ${active_mapper_name}"
+    fi
+  fi
+}
+
+remove_target_secure_boot_crypttab_entry() {
+  secure_boot_state_mode=$(target_secure_boot_state_mode)
+  crypttab="${TARGET_ROOT}${DIR_ETC}/crypttab"
+
+  [ "$secure_boot_state_mode" = "luks" ] || return 0
+  validate_target_secure_boot_luks_contract
+
+  outer_uuid=$(blkid -s UUID -o value "${DEV_PART_VAR_LIB_SHSIGNED}" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+
+  [ -f "$crypttab" ] || return 0
+
+  tmp=$(mktemp) || fatal "unable to create temporary crypttab file"
+
+  uuid_ref=
+  [ -n "$outer_uuid" ] && uuid_ref="UUID=${outer_uuid}"
+  : >"$tmp"
+  while IFS= read -r line || [ -n "$line" ]; do
+    trimmed_line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    case "$trimmed_line" in
+      ''|'#'*)
+        printf '%s\n' "$line" >>"$tmp"
+        continue
+        ;;
+    esac
+    # shellcheck disable=SC2086
+    set -- $trimmed_line
+    [ "${1:-}" = "$LUKS_NAME_VAR_LIB_SHSIGNED" ] && continue
+    [ "${2:-}" = "${DEV_PART_VAR_LIB_SHSIGNED}" ] && continue
+    [ -n "$uuid_ref" ] && [ "${2:-}" = "$uuid_ref" ] && continue
+    printf '%s\n' "$line" >>"$tmp"
+  done <"$crypttab" || {
+    rm -f "$tmp"
+    fatal "failed to rewrite ${crypttab} while pruning Secure Boot auto-open entries"
+  }
+
+  if ! cmp -s "$tmp" "$crypttab"; then
+    info "removing Secure Boot state crypttab auto-open entry"
+    mv "$tmp" "$crypttab" || {
+      rm -f "$tmp"
+      fatal "failed to replace ${crypttab} after pruning Secure Boot auto-open entries"
+    }
+    chmod 0644 "$crypttab"
+  else
+    rm -f "$tmp"
+  fi
+}
+
+target_secure_boot_state_mode() {
+  secure_boot_mode=${SECURE_BOOT_MODE:-}
+  secure_boot_state_mode=${SECURE_BOOT_STATE_MODE:-}
+  if [ -n "$secure_boot_mode" ] && [ -n "$secure_boot_state_mode" ] && [ "$secure_boot_mode" != "$secure_boot_state_mode" ]; then
+    installer_fatal "SECURE_BOOT_MODE and SECURE_BOOT_STATE_MODE disagree: '${secure_boot_mode}' != '${secure_boot_state_mode}'"
+    return 1
+  fi
+  mode=${secure_boot_mode:-$secure_boot_state_mode}
+  if [ -z "$mode" ]; then
+    case "${HOOK_FAMILY:-}" in
+      btrfs|vm) mode=luks ;;
+      *) mode=direct ;;
+    esac
+  fi
+
+  case "$mode" in
+    luks|direct) printf '%s\n' "$mode" ;;
+    *)
+      installer_fatal "SECURE_BOOT_MODE/SECURE_BOOT_STATE_MODE must be 'luks' or 'direct', got '${mode}'"
+      return 1
+      ;;
+  esac
+}
+
+validate_target_secure_boot_luks_contract() {
+  [ -n "${DEV_PART_VAR_LIB_SHSIGNED:-}" ] || installer_fatal "SECURE_BOOT_STATE_MODE=luks requires DEV_PART_VAR_LIB_SHSIGNED to be defined"
+  [ -n "${LUKS_NAME_VAR_LIB_SHSIGNED:-}" ] || installer_fatal "SECURE_BOOT_STATE_MODE=luks requires LUKS_NAME_VAR_LIB_SHSIGNED to be defined"
+  [ -n "${LUKS_MAPPER_VAR_LIB_SHSIGNED:-}" ] || installer_fatal "SECURE_BOOT_STATE_MODE=luks requires LUKS_MAPPER_VAR_LIB_SHSIGNED to be defined"
+  [ -n "${MNT_VAR_LIB_SHSIGNED_OPTS:-}" ] || installer_fatal "SECURE_BOOT_STATE_MODE=luks requires MNT_VAR_LIB_SHSIGNED_OPTS to be defined"
+}
+
+ensure_target_secure_boot_state_dirs() {
+  install -d -m 0700 "${TARGET_ROOT}${DIR_VAR_LIB_SHSIGNED}"
+  install -d -m 0700 "${TARGET_ROOT}${DIR_SECURE_BOOT_STATE}"
+}
+
+write_target_secure_boot_payloads() {
+  secure_boot_state_mode=$(target_secure_boot_state_mode)
+  case "$secure_boot_state_mode" in
+    luks)
+      validate_target_secure_boot_luks_contract
+      secure_boot_luks_device=${DEV_PART_VAR_LIB_SHSIGNED}
+      secure_boot_luks_name=${LUKS_NAME_VAR_LIB_SHSIGNED}
+      secure_boot_luks_mapper=${LUKS_MAPPER_VAR_LIB_SHSIGNED}
+      secure_boot_state_mount_opts=${MNT_VAR_LIB_SHSIGNED_OPTS}
+      ;;
+    direct)
+      secure_boot_luks_device=${SECURE_BOOT_LUKS_DEVICE:-}
+      secure_boot_luks_name=${SECURE_BOOT_LUKS_NAME:-}
+      secure_boot_luks_mapper=${SECURE_BOOT_LUKS_MAPPER:-}
+      secure_boot_state_mount_opts=${SECURE_BOOT_STATE_MOUNT_OPTS:-}
+      ;;
+    *)
+      installer_fatal "unsupported Secure Boot state mode: ${secure_boot_state_mode}"
+      ;;
+  esac
+
+  ensure_target_secure_boot_state_dirs
+  render_target_asset "$(installer_repo_file_value FILE_TARGET_INSTALL_TOOLS_SECURE_BOOT_TOOL_TMPL)" "${FILE_SECURE_BOOT_TOOL}" 0755
+  stage_target_asset "$(installer_repo_file_value FILE_TARGET_INSTALL_TOOLS_VERIFY_MODULE_SIGNATURE)" "${DIR_LIBEXEC_INSTALL_TOOLS}/verify-module-signature.py" 0644
+  render_target_asset_with_placeholder_map \
+    "$(installer_repo_file_value FILE_TARGET_SECURE_BOOT_TMPL)" \
+    "${FILE_SECURE_BOOT_CONFIG}" \
+    0600 \
+    secure_boot_config_placeholder_map
+
+  if [ "$secure_boot_state_mode" = luks ]; then
+    render_target_asset "$(installer_repo_file_value FILE_TARGET_SBIN_LUKS_MOK_OPEN_TMPL)" "${FILE_LUKS_MOK_OPEN_HELPER}" 0755
+    render_target_asset "$(installer_repo_file_value FILE_TARGET_SBIN_LUKS_MOK_CLOSE_TMPL)" "${FILE_LUKS_MOK_CLOSE_HELPER}" 0755
+    render_target_asset "$(installer_repo_file_value FILE_TARGET_SBIN_LUKS_MOK_PASSWD_TMPL)" "${FILE_LUKS_MOK_PASSWD_HELPER}" 0755
+    stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APT_MOK_PREHOOK)" "${DIR_USR_LOCAL_LIBEXEC}/apt-mok-prehook" 0755
+    stage_target_asset "$(installer_repo_apt_file APT_CONF_D_99MOK_MAINTENANCE)" __INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/99mok-maintenance 0644
+    stage_target_asset "$(installer_repo_apt_file APT_CONF_D_01MOK_MAINTENANCE_CLEANUP)" __INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/01mok-maintenance-cleanup 0644
+  fi
+  render_target_asset "$(installer_repo_file_value FILE_TARGET_DKMS_FRAMEWORK_CONF_D_90_SECURE_BOOT_TMPL)" "${FILE_DKMS_FRAMEWORK_SECURE_BOOT}" 0644
+}
+
+install_target_secure_boot_kernel_hooks() {
+  render_target_asset "$(installer_repo_file_value FILE_TARGET_KERNEL_POSTINST_D_ZZ_SIGN_KERNEL_TMPL)" "${FILE_KERNEL_POSTINST_SIGN}" 0755
+  render_target_asset "$(installer_repo_file_value FILE_TARGET_KERNEL_POSTRM_D_ZZ_SIGN_KERNEL_CLEANUP_TMPL)" "${FILE_KERNEL_POSTRM_SIGN}" 0755
+  render_target_asset "$(installer_repo_file_value FILE_TARGET_KERNEL_HEADER_POSTINST_D_ZZ_SIGN_KERNEL_HEADERS_TMPL)" "${FILE_KERNEL_HEADER_POSTINST_SIGN}" 0755
+}
+
+ensure_target_secure_boot_packages() {
+  if secure_boot_packages_stage_is_complete; then
+    installer_info "Secure Boot target packages already repaired earlier in this install; skipping duplicate package and GRUB EFI refresh"
+    return 0
+  fi
+  require_in_target "Secure Boot package installation"
+  ensure_target_grub_profile_mounts
+  install_target_secure_boot_target_packages
+  reinstall_target_grub_boot_chain_packages
+  require_target_grub_installed
+  efivars_bind_mounted=false
+  set -- __INSTALLER_PATH_DIR_USR_SBIN__/grub-install \
+    "--target=${INSTALLER_GRUB_EFI_TARGET}" \
+    --efi-directory=__INSTALLER_PATH_DIR_BOOT__/efi \
+    --bootloader-id=debian \
+    --uefi-secure-boot \
+    --force-extra-removable
+  if ! target_mount_source "${TARGET_ROOT}${DIR_SYS}/firmware/efi/efivars" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    if [ -d __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars ]; then
+      install -d -m 0755 ${TARGET_ROOT}${DIR_SYS}/firmware/efi/efivars
+      info "binding installer efivars into target for grub-install"
+      if ! mount --bind __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars ${TARGET_ROOT}${DIR_SYS}/firmware/efi/efivars; then
+        warn "failed to bind installer efivars into target for grub-install; retrying without NVRAM updates"
+        set -- "$@" --no-nvram
+      else
+        efivars_bind_mounted=true
+      fi
+    else
+      set -- "$@" --no-nvram
+    fi
+  fi
+  if ! attempt_in_target "refresh signed GRUB EFI payload on the mounted ESP" "$@"; then
+    case " $* " in
+      *" --no-nvram "*)
+        fatal "grub-install failed even after disabling NVRAM updates"
+        ;;
+      *)
+        warn "grub-install with NVRAM updates failed; retrying with --no-nvram"
+        set -- "$@" --no-nvram
+        run_in_target "refresh signed GRUB EFI payload on the mounted ESP without NVRAM updates" "$@"
+        ;;
+    esac
+  fi
+  if [ "$efivars_bind_mounted" = true ]; then
+    if ! umount ${TARGET_ROOT}${DIR_SYS}/firmware/efi/efivars; then
+      warn "failed to unmount temporary target efivars bind after grub-install"
+    fi
+  fi
+  repair_target_secure_boot_mok_manager_loader
+  repair_target_secure_boot_removable_loader
+  normalize_target_grub_video_stack
+  mark_secure_boot_packages_stage_complete
+}
+
+reset_target_secure_boot_mok_state() {
+  INSTALLER_SECURE_BOOT_MOK_RESET_STATE=unavailable
+  installer_lifecycle_paths || return 1
+  mok_state_dir=$(installer_runtime_state_dir) || return 1
+  mok_state_file=$mok_state_dir/secure-boot-mok-reset.state
+  if [ ! -e "$mok_state_file" ] && [ ! -L "$mok_state_file" ]; then
+    # Mount/bridge, command and password failures happen before any reset write.
+    # Leave no attempt record so a corrected preflight can be retried safely.
+    if ! (prepare_target_secure_boot_mok_reset); then
+      installer_warn "Secure Boot MOK reset preflight failed; no firmware reset was attempted"
+      return 1
+    fi
+    # Claim exclusively only after preflight and before invoking mokutil. An
+    # interrupted/uncertain write stays unknown across later installer processes.
+    (umask 077; set -C; printf 'unknown\n' >"$mok_state_file") || return 1
+    INSTALLER_SECURE_BOOT_MOK_RESET_STATE=unknown
+    mok_reset_outcome=unknown
+    if mok_reset_output=$(reset_target_secure_boot_mok_state_attempt); then
+      case "$mok_reset_output" in queued) mok_reset_outcome=$mok_reset_output ;;
+        *) installer_warn "unexpected MOK reset result; outcome remains unknown" ;;
+      esac
+    fi
+    mok_state_tmp=$(mktemp "$mok_state_dir/.mok-reset.XXXXXX") || return 1
+    if ! printf '%s\n' "$mok_reset_outcome" >"$mok_state_tmp" ||
+       ! chmod 0600 "$mok_state_tmp" || ! mv -fT -- "$mok_state_tmp" "$mok_state_file"; then
+      rm -f -- "$mok_state_tmp"
+      return 1
+    fi
+  fi
+  [ -f "$mok_state_file" ] && [ ! -L "$mok_state_file" ] &&
+    [ "$(installer_metadata_value "$mok_state_file" uid_gid_mode_links)" = 0:0:600:1 ] &&
+    [ "$(wc -c <"$mok_state_file")" -le 8 ] || {
+    installer_warn "unsafe installer MOK reset state; refusing another firmware operation"
+    return 1
+  }
+  INSTALLER_SECURE_BOOT_MOK_RESET_STATE=$(cat "$mok_state_file") || return 1
+  # The command substitution above confines explicit bridge/preflight exits.
+  # Only a confirmed pending reset may queue an automatic management boot.
+  # Unknown (including an obsolete empty result) must never repeat EFI writes.
+  case "$INSTALLER_SECURE_BOOT_MOK_RESET_STATE" in
+    queued) return 0 ;;
+    *) installer_warn "Secure Boot MOK reset outcome is unknown; continuing install without retrying the firmware request"; return 1 ;;
+  esac
+}
+
+sign_target_installed_kernel_modules() {
+  run_in_target "sign installed kernel modules before final initramfs refresh" "${FILE_SECURE_BOOT_TOOL}" sign-installed-modules
+  TARGET_SECURE_BOOT_RUNTIME_PREPARED=1
+}
+
+repair_target_installed_kernels() {
+  run_in_target "repair installed kernel signatures and initrds" "${FILE_SECURE_BOOT_TOOL}" repair-installed-kernels
+  TARGET_SECURE_BOOT_RUNTIME_PREPARED=1
+}
+
+# Emit quoted shell DATA from a fixed variable allowlist. Never eval values.
+render_grub_profile_config_map() (
+  set -eu
+  value=${DEV_PART_BOOT:-}
+  grub_profile_config_value GRUB_CONFIG_DEV_PART_BOOT "$value" || exit 1
+  value=${grub_root_device:-}
+  grub_profile_config_value GRUB_CONFIG_DEV_PART_ROOT "$value" || exit 1
+  value=${DEV_PART_EFI:-}
+  grub_profile_config_value GRUB_CONFIG_DEV_PART_EFI "$value" || exit 1
+  value=${BOOTPROFILE_DEFAULT:-}
+  grub_profile_config_value GRUB_CONFIG_BOOTPROFILE_DEFAULT "$value" || exit 1
+  value=${BOOTPROFILE_PERFORMANCE:-}
+  grub_profile_config_value GRUB_CONFIG_BOOTPROFILE_PERFORMANCE "$value" || exit 1
+  value=${BOOTPROFILE_HARDENED:-}
+  grub_profile_config_value GRUB_CONFIG_BOOTPROFILE_HARDENED "$value" || exit 1
+  value=${GRUB_ROOT_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_ROOT_FLAGS "$value" || exit 1
+  value=${GRUB_INITRAMFS_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_INITRAMFS_FLAGS "$value" || exit 1
+  value=${GRUB_NVME_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_NVME_FLAGS "$value" || exit 1
+  value=${GRUB_CGROUP_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_CGROUP_FLAGS "$value" || exit 1
+  value=${GRUB_SECURITY_CORE_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_SECURITY_CORE_FLAGS "$value" || exit 1
+  value=${GRUB_BLACKLIST_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_BLACKLIST_FLAGS "$value" || exit 1
+  value=${GRUB_VFIO_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_VFIO_FLAGS "$value" || exit 1
+  value=${GRUB_MEMORY_CORE_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_MEMORY_CORE_FLAGS "$value" || exit 1
+  value=${GRUB_HARDENING_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_HARDENING_FLAGS "$value" || exit 1
+  value=${GRUB_ASPM_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_ASPM_FLAGS "$value" || exit 1
+  value=${GRUB_SYSTEMD_MASK_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_SYSTEMD_MASK_FLAGS "$value" || exit 1
+  value=${GRUB_PROFILE_DEFAULT_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_PROFILE_DEFAULT_FLAGS "$value" || exit 1
+  value=${GRUB_PROFILE_PERFORMANCE_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_PROFILE_PERFORMANCE_FLAGS "$value" || exit 1
+  value=${GRUB_PROFILE_HARDENED_FLAGS:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_PROFILE_HARDENED_FLAGS "$value" || exit 1
+  value=${FILE_SECURE_BOOT_MOK_CERT_DER_ESP:-}
+  grub_profile_config_value GRUB_CONFIG_MOK_DER_PATH "$value" || exit 1
+  value=${GRUB_DEFAULT_ENTRY:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_DEFAULT_ENTRY "$value" || exit 1
+  value=${grub_rescue_uuid:-}
+  grub_profile_config_value GRUB_CONFIG_RESCUE_USB_UUID "$value" || exit 1
+  value=${GRUB_DISPLAY_GFXPAYLOAD_LINUX:-}
+  grub_profile_config_value GRUB_CONFIG_GRUB_GFXPAYLOAD_LINUX "$value" || exit 1
+  value=${DUALBOOT_ENABLED:-false}
+  grub_profile_config_value GRUB_CONFIG_DUALBOOT_ENABLED "$value" || exit 1
+ )
+
+grub_profile_config_value() {
+  case "$2" in
+    *'
+'*|*"$(printf '\r')"*) installer_fatal "multiline GRUB profile value: $1"; return 1 ;;
+  esac
+  # POSIX shell single-quote escaping, applied before literal substitution.
+  quoted=$(printf '%s' "$2" | sed "s/'/'\\\\''/g") || return 1
+  printf "%s='%s'\n" "$1" "$quoted"
+}
+
+install_target_grub_profiles() (
+  set -eu
+  ensure_target_grub_profile_mounts || exit 1
+  ensure_target_grubenv_ready || exit 1
+  ensure_target_bootable_kernel_pairs || exit 1
+  prepare_target_secure_boot_runtime || exit 1
+  grub_root_device=$(installer_filesystem_device "${DEV_PART_ROOT}") || exit 1
+  grub_rescue_uuid=$(installer_rescue_usb_search_uuid) || exit 1
+  install -d -m 0755 ${TARGET_ROOT}${DIR_ETC}/default ${TARGET_ROOT}${DIR_ETC}/grub.d || exit 1
+  profile_work=$(mktemp -d ${TARGET_ROOT}${DIR_ETC}/default/.grub-profiles.XXXXXX) || exit 1
+  trap 'rm -rf -- "$profile_work"' EXIT
+  trap 'exit 1' HUP INT TERM
+  cp "${TMP_ENV_DIR}/grub-profiles" "$profile_work/config" || exit 1
+  render_grub_profile_config_map >"$profile_work/map" || exit 1
+  render_target_scalar_placeholders "$profile_work/config" "$profile_work/map" || exit 1
+  installer_assert_no_unresolved_installer_placeholders "$profile_work/config" "GRUB profile defaults" || exit 1
+  chmod 0600 "$profile_work/config" || exit 1
+  [ ! -L ${TARGET_ROOT}${DIR_ETC}/default/grub-profiles ] || { installer_fatal "GRUB profile defaults must not be a symlink"; exit 1; }
+  mv -fT -- "$profile_work/config" ${TARGET_ROOT}${DIR_ETC}/default/grub-profiles || exit 1
+  install -d -m 0755 ${TARGET_ROOT}${DIR_USR_LOCAL_SHARE}/grub-profiles || exit 1
+  for grub_fragment in display-1.cfg.in display-2.cfg.in snapshots.cfg.in submenu.cfg.in entry.cfg.in mokmenu.cfg.in header.cfg.in rescue.cfg.in firmware.cfg.in; do
+    fetch_hook "$(installer_repo_asset_path DIR_TARGET_SHARE_GRUB_PROFILES "${grub_fragment}.tmpl")" "$profile_work/$grub_fragment" || exit 1
+    render_target_template "$profile_work/$grub_fragment" "${TARGET_ROOT}${DIR_USR_LOCAL_SHARE}/grub-profiles/$grub_fragment" 0644 || exit 1
+  done
+  render_target_template "${TMP_ENV_DIR}/grub-profile-generator" ${TARGET_ROOT}${DIR_ETC}/grub.d/40_custom 0755 || exit 1
+  attempt_in_target "install GRUB profile entries" __INSTALLER_PATH_DIR_BIN__/sh __INSTALLER_PATH_DIR_ETC__/grub.d/40_custom --install ||
+    { installer_fatal "failed to install GRUB profile entries"; exit 1; }
+  disable_stock_kernel_menu || exit 1
+)

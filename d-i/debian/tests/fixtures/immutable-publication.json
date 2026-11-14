@@ -1,0 +1,175 @@
+{
+  "format": 1,
+  "execution": "unexecuted source fixtures; static inspection only",
+  "owners": [
+    "tools/publication.py",
+    "tools/build.py",
+    "tools/tests/test_installer_modules.py"
+  ],
+  "cases": [
+    {
+      "id": "identical-completed-candidate",
+      "input": "same release identity and complete product bytes on a later generation",
+      "expect": "verify exact regular-file and directory sets and reuse the existing inode tree",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "different-completed-candidate",
+      "input": "same release identity with different, missing or unexpected bytes",
+      "expect": "refuse; preserve every existing member and previous release",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "symlinked-output-ancestor",
+      "input": "an ancestor is a symlink before a missing output parent",
+      "expect": "no-follow directory open fails before creating anything in the referenced tree",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "parent-replaced-during-file-generation",
+      "input": "the pinned output parent is renamed and replaced by a symlink",
+      "expect": "write only through the original directory descriptor; report outcome unknown on ancestry recheck; do not follow the replacement",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "parent-replaced-before-tree-rename",
+      "input": "the output parent changes after staging, before the complete tree commit",
+      "expect": "refuse the commit, retain the original owned staging tree privately and preserve other releases",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "fifo-or-device-member",
+      "input": "an existing candidate leaf is a FIFO, socket, device or symlink",
+      "expect": "pin with O_PATH, reject its type before opening content and never block on the leaf",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "hardlink-or-owner-change",
+      "input": "a regular candidate member has multiple links or a different owner",
+      "expect": "refuse before reading or mutating its content",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "member-replaced-after-pin",
+      "input": "a checked regular member name changes while its pinned content is read",
+      "expect": "read the checked inode only; reject the changed path identity and retain all evidence",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "content-changed-during-read",
+      "input": "size, timestamps or bytes change while verifying a completed candidate",
+      "expect": "refuse; compare the pinned identity before and after its bounded read",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "earlier-subtree-changed",
+      "input": "a previously inspected subtree changes before the verification finishes",
+      "expect": "the second complete metadata capture differs; refuse reuse or commit",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "restrictive-creation-mask",
+      "input": "directory creation is restricted to owner access",
+      "expect": "the staging root remains private until complete; published nested directories are explicitly 0755 and files 0644",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "unexpected-empty-directory",
+      "input": "a completed candidate contains an extra empty directory",
+      "expect": "refuse exact membership validation",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "empty-existing-release",
+      "input": "the release identity already names an empty directory",
+      "expect": "refuse without replacing the directory or using it as staging",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "member-grammar-and-prefix-collision",
+      "input": "traversal, control characters, absolute names, empty components, environment files or a file/directory prefix collision",
+      "expect": "reject the full product mapping before any output directory is created",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "aggregate-resource-limits",
+      "input": "too many members, directories, bytes, path components or an oversized member",
+      "expect": "reject during bounded candidate validation; unknown existing entries fail as they are enumerated",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "concurrent-builder",
+      "input": "another cooperating builder owns the pinned output-parent directory lock",
+      "expect": "The existing suite parent directory inode is locked once for source capture and both flat suite writes. Another builder fails busy immediately, creates no lock file/output directory, and performs no cleanup.",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "later-builder-after-lock-release",
+      "input": "a cooperating writer finishes before the next writer acquires ownership",
+      "expect": "the later writer verifies identical bytes and reuses the completed candidate",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "partial-stage-write",
+      "input": "the second product write fails before the whole tree rename",
+      "expect": "retain the private named staging tree, keep the final identity absent and preserve old releases",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "concurrent-frontend-owner-edit",
+      "input": "the destination frontend changes after its initial identity check",
+      "expect": "refuse replacement, preserve the intervening edit and remove only the writer's exact private temporary inode",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "temporary-name-replaced",
+      "input": "a private file temporary name is replaced with another inode before cleanup",
+      "expect": "never unlink the replacement or follow its contents; preserve the original destination",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "post-rename-sync-failure",
+      "input": "file or complete-tree rename succeeds but parent synchronization or final verification fails",
+      "expect": "distinct outcome-unknown error with chained cause; the direct Python CLIs return 75 instead of ordinary failure 1; retain the complete candidate and previous releases; never auto-rollback or auto-retry",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "interrupted-frontend-pair",
+      "input": "generation stops after one checkout preseed update",
+      "expect": "Static equality and manual served-tree capture reject the mismatched flat checkout pair; make build creates no local served candidate and changes no live pointer.",
+      "scope": "flat generation and relevant manual publication boundaries"
+    },
+    {
+      "id": "operator-caller-boundary",
+      "input": "the manual activation tool calls the same publication API after its separate authorization and journal checks",
+      "expect": "preserve its bytes-only API and retained releases; repository implementation never executes the operator tool, including preview",
+      "scope": "manual external complete-tree publication"
+    },
+    {
+      "id": "flat-suite-products",
+      "input": "generation with valid captured source",
+      "expect": "Overwrite exactly five generated regular products and preseed.cfg directly in each suite; no release/publication directory, authored-input rewrite or Git ignore."
+    },
+    {
+      "id": "flat-partial-product-failure",
+      "input": "product write fails after an earlier flat file was replaced",
+      "expect": "Stop with retained diagnostics, leave preseeds unrefreshed when appropriate, require regeneration/static equality before manual serving; no claim of multi-file rollback."
+    },
+    {
+      "id": "pointer-during-acquisition",
+      "input": "operator switches flat served tree before old installer finishes fetching",
+      "expect": "Trusted pins reject mixed bytes; no old release URL fallback. Operator drains installers before switching or restarts from the chosen trusted preseed."
+    },
+    {
+      "id": "pointer-after-local-capture",
+      "input": "operator switches served tree after installer authenticated and cached its complete payload",
+      "expect": "Continue exclusively from the bound local snapshot; never probe the new tree for missing members."
+    }
+  ],
+  "limits": [
+    "Cooperating local builders share the output-parent flock; hostile same-account mutation of the whole checkout remains outside the trust claim.",
+    "POSIX rename cannot replace a nonempty completed release; the parent lock and destination recheck protect cooperating writers, including empty reservations.",
+    "Descriptor pinning prevents redirected pathname I/O; optimistic identity rechecks are not a filesystem snapshot.",
+    "No fixture, operator tool, host helper, service, policy or target installation is executed by static inspection or generation."
+  ]
+}

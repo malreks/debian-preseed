@@ -1,0 +1,2 @@
+[include]
+	path = __INSTALLER_PATH_DIR_ETC__/gitops/aliases.gitconfig

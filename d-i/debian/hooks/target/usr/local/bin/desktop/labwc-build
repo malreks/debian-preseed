@@ -1,0 +1,74 @@
+#!/bin/sh
+# User-facing compiler/build launcher. Scopes preserve argv, cwd and the
+# foreground terminal; build scratch/output policy stays below the pool.
+set -eu
+
+[ "$#" -gt 0 ] || { printf '%s\n' 'usage: labwc-build COMMAND [ARGUMENT ...]' >&2; exit 64; }
+build_uid=$(__INSTALLER_PATH_DIR_USR_BIN__/id -u) || exit 69
+case "$build_uid" in ''|0|*[!0-9]*) printf '%s\n' 'labwc-build: a non-root account is required' >&2; exit 77 ;; esac
+build_account=$(__INSTALLER_PATH_DIR_USR_BIN__/id -un) || exit 69
+case "$build_account" in
+  ''|*[!abcdefghijklmnopqrstuvwxyz0123456789_-]*) exit 77 ;;
+esac
+[ "${#build_account}" -le 32 ] || exit 77
+
+# Ordinary compiler aliases use this boundary too, before a DevOps shell has
+# populated its environment. Never spill compiler scratch onto tmpfs or create
+# a substitute store on the root filesystem when the pool is unavailable.
+__INSTALLER_PATH_DIR_USR_BIN__/mountpoint --quiet -- __INSTALLER_PATH_DIR_POOL__ || {
+  printf '%s\n' 'labwc-build: the managed pool is not mounted' >&2
+  exit 69
+}
+build_account_root="__INSTALLER_PATH_DIR_POOL_BUILD__/${build_account}"
+build_tmp="${build_account_root}/tmp"
+for build_directory in __INSTALLER_PATH_DIR_POOL__ __INSTALLER_PATH_DIR_POOL_BUILD__ \
+  "$build_account_root" "$build_tmp"
+do
+  [ -d "$build_directory" ] && [ ! -L "$build_directory" ] || {
+    printf '%s\n' 'labwc-build: installed pool directories are missing or indirect' >&2
+    exit 69
+  }
+done
+[ "$(__INSTALLER_PATH_DIR_USR_BIN__/find -P "$build_account_root" -maxdepth 0 -printf '%U:%m')" = "$build_uid:2770" ] &&
+  [ "$(__INSTALLER_PATH_DIR_USR_BIN__/find -P "$build_tmp" -maxdepth 0 -printf '%U:%m')" = "$build_uid:700" ] || {
+    printf '%s\n' 'labwc-build: installed account build storage has unsafe ownership or modes' >&2
+    exit 77
+  }
+TMPDIR=$build_tmp
+TMP=$build_tmp
+TEMP=$build_tmp
+CARGO_TARGET_DIR="${build_account_root}/cargo/target"
+GOTMPDIR=$build_tmp
+export TMPDIR TMP TEMP CARGO_TARGET_DIR GOTMPDIR
+
+# The kernel-owned proc interface identifies this process, never a caller PID
+# or an environment marker. Nested compiler calls retain the existing scope.
+IFS= read -r build_cgroup <__INSTALLER_PATH_DIR_PROC__/self/cgroup || exit 69
+case "$build_cgroup" in
+  0::*/build.slice/*) exec "$@" ;;
+  0::/*) ;;
+  *) printf '%s\n' 'labwc-build: unified cgroup ownership is unavailable' >&2; exit 69 ;;
+esac
+
+build_runtime="__INSTALLER_PATH_DIR_RUN_USER__/${build_uid}"
+[ "${XDG_RUNTIME_DIR:-}" = "$build_runtime" ] &&
+  [ -d "$build_runtime" ] && [ ! -L "$build_runtime" ] &&
+  [ -S "$build_runtime/bus" ] && [ ! -L "$build_runtime/bus" ] || {
+    printf '%s\n' 'labwc-build: the account user manager is unavailable' >&2
+    exit 69
+  }
+[ "$(__INSTALLER_PATH_DIR_USR_BIN__/find -P "$build_runtime" -maxdepth 0 -printf '%U:%m')" = "$build_uid:700" ] || exit 77
+DBUS_SESSION_BUS_ADDRESS="unix:path=${build_runtime}/bus"
+export DBUS_SESSION_BUS_ADDRESS
+
+# Refuse an absent policy rather than silently creating an unlimited slice.
+[ -f __INSTALLER_PATH_DIR_SYSTEMD_USER__/build.slice ] &&
+  [ ! -L __INSTALLER_PATH_DIR_SYSTEMD_USER__/build.slice ] || {
+    printf '%s\n' 'labwc-build: installed build policy is missing' >&2
+    exit 69
+  }
+# No shell interpolation, detached job, elevated manager or unconfined retry.
+# The scope owns cleanup; an intentional interactive build has no runtime cap.
+exec __INSTALLER_PATH_DIR_USR_BIN__/systemd-run --user --scope --quiet --collect \
+  --description='Desktop build workload' --expand-environment=no --slice=build.slice \
+  --property=KillMode=control-group --property=TimeoutStopSec=15s -- "$@"

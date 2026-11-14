@@ -1,0 +1,355 @@
+#!/usr/bin/python3
+"""Installer-only directory metadata transaction for rendered tmpfiles d rows.
+
+No recursion into directory contents, service access or live policy loading.
+The private journal records previous metadata and exact inode identities.
+"""
+from __future__ import annotations
+
+import fcntl
+import grp
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import secrets
+import signal
+import stat
+import sys
+import time
+
+STATE = Path('__INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__')
+RECOVERY = Path('__INSTALLER_PATH_DIR_TMPFILES_POLICY_RECOVERY__')
+LOCK = Path('__INSTALLER_PATH_FILE_TMPFILES_POLICY_LOCK__')
+DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+class OutcomeUnknown(RuntimeError):
+    pass
+
+
+def metadata(info) -> tuple[int, int, int]:
+    return info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)
+
+
+def identity(info) -> tuple[int, int]:
+    return info.st_dev, info.st_ino
+
+
+def safe_path(value: str) -> Path:
+    path = Path(value)
+    if (not path.is_absolute() or path == Path('/') or str(path) != value or len(value) > 1024
+            or len(path.parts) > 64 or re.fullmatch(r'/[A-Za-z0-9_./@+-]+', value) is None
+            or '..' in path.parts):
+        raise ValueError('unsupported directory policy path')
+    return path
+
+
+def trusted_directory(path: Path) -> int:
+    descriptor = os.open('/', DIRECTORY_FLAGS)
+    try:
+        for part in path.parts[1:]:
+            child = os.open(part, DIRECTORY_FLAGS, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+            info = os.fstat(descriptor)
+            if info.st_uid or info.st_mode & 0o022:
+                raise ValueError('protected directory policy ancestry is writable')
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def policy_rows(path: Path) -> tuple[bytes, list]:
+    parent = trusted_directory(path.parent)
+    try:
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=parent)
+        try:
+            before = os.fstat(fd)
+            if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_uid
+                    or before.st_mode & 0o022 or not 0 <= before.st_size <= 65536):
+                raise ValueError('unsafe rendered directory policy')
+            data = os.read(fd, 65537)
+            after = os.fstat(fd)
+            named = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            if (len(data) != before.st_size or identity(before) != identity(named)
+                    or (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                    != (before.st_size, before.st_mtime_ns, before.st_ctime_ns)):
+                raise ValueError('rendered directory policy changed during capture')
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+    rows, seen = [], set()
+    for line in data.decode('utf-8').splitlines():
+        fields = line.split()
+        if not fields or fields[0].startswith('#') or fields[0] != 'd':
+            continue
+        if not 3 <= len(fields) <= 7 or len(rows) >= 256:
+            raise ValueError('unsupported or oversized directory policy')
+        destination = safe_path(fields[1])
+        # These kernel-owned interfaces are never metadata destinations.
+        if destination.parts[1] in {'proc', 'sys', 'dev'} or destination in seen:
+            raise ValueError('protected or duplicate directory policy destination')
+        seen.add(destination)
+        raw_mode = fields[2]
+        if raw_mode != '-' and re.fullmatch(r'(?:0?[0-7]{4}|[0-7]{3})', raw_mode) is None:
+            raise ValueError('unsupported directory mode')
+        mode = None if raw_mode == '-' else int(raw_mode, 8)
+        owners = []
+        for index, lookup, attribute in ((3, pwd.getpwnam, 'pw_uid'), (4, grp.getgrnam, 'gr_gid')):
+            name = fields[index] if len(fields) > index else '-'
+            if name == '-':
+                owners.append(None)
+            elif name.isdecimal() and len(name) <= 10 and int(name) < 4294967295:
+                owners.append(int(name))
+            elif re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', name):
+                owners.append(getattr(lookup(name), attribute))
+            else:
+                raise ValueError('unsupported directory owner/group')
+        rows.append((destination, mode, *owners))
+    return data, rows
+
+
+class DirectoryTransaction:
+    def __init__(self, rows: list):
+        self.nodes = {Path('/'): {'fd': os.open('/', DIRECTORY_FLAGS), 'path': Path('/'), 'created': False}}
+        self.rows, self.touched = rows, []
+        self.deadline = time.monotonic() + 90
+        try:
+            # Resolve all data, accounts and existing identities before creating
+            # a destination or changing any ownership/mode.
+            for path, _mode, _uid, _gid in rows:
+                for parent in reversed((path, *path.parents)):
+                    if parent in self.nodes:
+                        continue
+                    if len(self.nodes) >= 1024:
+                        raise ValueError('directory policy exceeds its ancestor bound')
+                    above = self.nodes[parent.parent]
+                    node = {'path': parent, 'parent': above, 'fd': None, 'created': False, 'before': None}
+                    if above['fd'] is not None:
+                        try:
+                            node['fd'] = os.open(parent.name, DIRECTORY_FLAGS, dir_fd=above['fd'])
+                        except FileNotFoundError:
+                            pass
+                        else:
+                            info = os.fstat(node['fd'])
+                            node.update(identity=identity(info), before=metadata(info), last=metadata(info))
+                    self.nodes[parent] = node
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        for node in reversed(list(self.nodes.values())):
+            if node['fd'] is not None:
+                os.close(node['fd'])
+
+    def check(self, node: dict) -> None:
+        if time.monotonic() >= self.deadline:
+            raise TimeoutError('directory policy deadline exceeded')
+        named = os.stat(node['path'].name, dir_fd=node['parent']['fd'], follow_symlinks=False)
+        if not stat.S_ISDIR(named.st_mode) or identity(named) != node['identity']:
+            raise ValueError('directory identity changed; no pathname fallback')
+
+    def snapshot(self) -> list[dict]:
+        return [{'path': str(path), 'before': node.get('before'), 'identity': node.get('identity'),
+                 'created': node['created'], 'last': node.get('last')}
+                for path, node in self.nodes.items() if path != Path('/')]
+
+    def apply(self, journal) -> None:
+        for path, node in self.nodes.items():
+            if path == Path('/'):
+                continue
+            if node['fd'] is None:
+                if time.monotonic() >= self.deadline:
+                    raise TimeoutError('directory preparation deadline exceeded')
+                # Fail if a concurrent entry wins. Do not adopt or reset it.
+                os.mkdir(path.name, 0o700, dir_fd=node['parent']['fd'])
+                node['created'] = True
+                node['fd'] = os.open(path.name, DIRECTORY_FLAGS, dir_fd=node['parent']['fd'])
+                info = os.fstat(node['fd'])
+                if info.st_uid != 0:
+                    raise OutcomeUnknown('new directory identity changed before binding')
+                node.update(identity=identity(info), last=metadata(info))
+                os.fsync(node['parent']['fd'])
+                journal('applying', self.snapshot())
+            self.check(node)
+        for path, mode, uid, gid in self.rows:
+            node = self.nodes[path]
+            self.check(node)
+            if metadata(os.fstat(node['fd'])) != node['last']:
+                raise ValueError('directory metadata changed after preflight')
+            self.touched.append(node)
+            journal('applying', self.snapshot())
+            try:
+                os.fchown(node['fd'], -1 if uid is None else uid, -1 if gid is None else gid)
+                node['last'] = metadata(os.fstat(node['fd']))
+                final_mode = mode if mode is not None else (0o755 if node['created'] else node['before'][2])
+                os.fchmod(node['fd'], final_mode)
+                node['last'] = metadata(os.fstat(node['fd']))
+                expected = (node['last'][0] if uid is None else uid,
+                            node['last'][1] if gid is None else gid, final_mode)
+                if node['last'] != expected:
+                    raise ValueError('directory metadata does not match its selected policy')
+                os.fsync(node['fd'])
+            finally:
+                node['last'] = metadata(os.fstat(node['fd']))
+            self.check(node)
+        # Intermediate directories absent from the policy retain standard
+        # root-owned traversal. Existing intermediate metadata never changes.
+        selected = {row[0] for row in self.rows}
+        for path, node in self.nodes.items():
+            if node['created'] and path not in selected:
+                self.check(node)
+                os.fchmod(node['fd'], 0o755)
+                node['last'] = metadata(os.fstat(node['fd']))
+                os.fsync(node['fd'])
+
+    def rollback(self) -> None:
+        self.deadline = time.monotonic() + 15
+        for node in reversed(self.touched):
+            if node['created']:
+                continue
+            self.check(node)
+            if metadata(os.fstat(node['fd'])) != node['last']:
+                raise OutcomeUnknown('another metadata writer changed a selected directory')
+            uid, gid, mode = node['before']
+            os.fchown(node['fd'], uid, gid)
+            os.fchmod(node['fd'], mode)
+            os.fsync(node['fd'])
+            if metadata(os.fstat(node['fd'])) != node['before']:
+                raise OutcomeUnknown('previous directory metadata was not restored')
+        for node in reversed(list(self.nodes.values())):
+            if node['created']:
+                if node['fd'] is None:
+                    raise OutcomeUnknown('created directory could not be pinned')
+                self.check(node)
+                os.rmdir(node['path'].name, dir_fd=node['parent']['fd'])
+                os.fsync(node['parent']['fd'])
+
+
+def main() -> int:
+    if os.geteuid() != 0 or len(sys.argv) != 3:
+        raise ValueError('directory policy requires the offline installer owner')
+    policy, label = safe_path(sys.argv[1]), sys.argv[2]
+    if len(label) > 160 or not label.isprintable():
+        raise ValueError('invalid directory policy context')
+    data, rows = policy_rows(policy)
+    if not rows:
+        return 0
+    state = trusted_directory(STATE)
+    lock = recovery = record = None
+    transaction = None
+    record_name = None
+    try:
+        lock = os.open(LOCK.name, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600, dir_fd=state)
+        info = os.fstat(lock)
+        if (LOCK.parent != STATE or info.st_uid or not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600):
+            raise ValueError('unsafe directory policy ownership lock')
+        end = time.monotonic() + 30
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= end:
+                    print('directory policy is owned by another installer writer', file=sys.stderr)
+                    return 75
+                time.sleep(0.1)
+        if identity(os.stat(LOCK.name, dir_fd=state, follow_symlinks=False)) != identity(info):
+            raise ValueError('directory policy lock identity changed')
+        if RECOVERY.parent != STATE:
+            raise ValueError('directory recovery root has another owner')
+        try:
+            os.mkdir(RECOVERY.name, 0o700, dir_fd=state)
+            os.fsync(state)
+        except FileExistsError:
+            pass
+        recovery = os.open(RECOVERY.name, DIRECTORY_FLAGS, dir_fd=state)
+        info = os.fstat(recovery)
+        if info.st_uid or stat.S_IMODE(info.st_mode) != 0o700:
+            raise ValueError('unsafe private directory recovery root')
+        with os.scandir(recovery) as entries:
+            for count, entry in enumerate(entries, 1):
+                if count >= 128 or re.fullmatch(r'[0-9a-f]{24}', entry.name) is None:
+                    raise OutcomeUnknown('directory recovery needs explicit operator retention review')
+                child = os.open(entry.name, DIRECTORY_FLAGS, dir_fd=recovery)
+                try:
+                    info = os.fstat(child)
+                    if info.st_uid or stat.S_IMODE(info.st_mode) != 0o700:
+                        raise OutcomeUnknown('unsafe retained directory recovery ancestry')
+                    fd = os.open('record.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=child)
+                    with os.fdopen(fd, 'rb') as stream:
+                        info = os.fstat(stream.fileno())
+                        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 524288):
+                            raise ValueError('unsafe retained directory recovery record')
+                        retained = json.loads(stream.read(524289))
+                    if (not isinstance(retained, dict) or retained.get('format') != 1
+                            or retained.get('phase') not in {'complete', 'rolled-back'}):
+                        raise OutcomeUnknown('a retained directory transaction requires reconciliation')
+                except (OSError, ValueError, TypeError) as error:
+                    raise OutcomeUnknown('retained directory recovery data requires reconciliation') from error
+                finally:
+                    os.close(child)
+        transaction = DirectoryTransaction(rows)
+        record_name = secrets.token_hex(12)
+        os.mkdir(record_name, 0o700, dir_fd=recovery)
+        record = os.open(record_name, DIRECTORY_FLAGS, dir_fd=recovery)
+        os.fsync(recovery)
+
+        def journal(next_phase, nodes):
+            payload = json.dumps({'format': 1, 'phase': next_phase, 'policy': str(policy),
+                                  'sha256': hashlib.sha256(data).hexdigest(), 'nodes': nodes}, sort_keys=True).encode() + b'\n'
+            if len(payload) > 524288:
+                raise ValueError('directory recovery record exceeds its bound')
+            fd = os.open('.record.new', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=record)
+            with os.fdopen(fd, 'wb') as stream:
+                stream.write(payload); stream.flush(); os.fsync(stream.fileno())
+            os.replace('.record.new', 'record.json', src_dir_fd=record, dst_dir_fd=record)
+            os.fsync(record)
+
+        journal('prepared', transaction.snapshot())
+        try:
+            transaction.apply(journal)
+            journal('complete', transaction.snapshot())
+        except BaseException as error:
+            try:
+                transaction.rollback()
+                journal('rolled-back', transaction.snapshot())
+            except BaseException:
+                try:
+                    journal('outcome-unknown', transaction.snapshot())
+                except BaseException:
+                    pass
+                raise OutcomeUnknown('directory metadata recovery is uncertain; retain its journal') from error
+            raise
+        print('directory policy metadata committed: ' + label)
+        return 0
+    except OutcomeUnknown:
+        location = RECOVERY / record_name if record_name else RECOVERY
+        print('directory policy outcome unknown; retain recovery: ' + str(location), file=sys.stderr)
+        return 76
+    finally:
+        if transaction is not None:
+            transaction.close()
+        for fd in (record, recovery, lock, state):
+            if fd is not None:
+                os.close(fd)
+
+
+if __name__ == '__main__':
+    def interrupted(_number, _frame):
+        raise InterruptedError('directory policy interrupted')
+    for number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        signal.signal(number, interrupted)
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError, KeyError, TimeoutError) as error:
+        print('directory policy failed: ' + type(error).__name__, file=sys.stderr)
+        raise SystemExit(1)

@@ -1,0 +1,25 @@
+# Managed by unattended-installer.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+profile pwsh /{usr/bin/pwsh,opt/microsoft/powershell/*/pwsh} flags=(attach_disconnected, complain) {
+  #include <abstractions/base>
+  include if exists <abstractions/nameservice>
+  include if exists <abstractions/openssl>
+  include if exists <abstractions/ssl_certs>
+  include if exists <abstractions/user-tmp>
+
+  network,
+
+  /{bin,sbin}/** rix,
+  __INSTALLER_PATH_DIR_USR__/{bin,sbin}/** rix,
+  __INSTALLER_PATH_DIR_OPT__/microsoft/powershell/ r,
+  __INSTALLER_PATH_DIR_OPT__/microsoft/powershell/** mrix,
+
+  owner @{HOME}/ r,
+  owner @{HOME}/** rwkl,
+
+  include if exists <local/usr.bin.pwsh>
+}

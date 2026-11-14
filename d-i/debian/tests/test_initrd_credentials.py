@@ -1,0 +1,535 @@
+"""Installer credential regression tests: never read real deployment secrets.
+
+Tests model the busybox-udeb applet set (not a full GNU/desktop PATH). The
+real-kernel/real-USB installation remains a separate acceptance test.
+"""
+
+# Refuse host execution before importing runtime helpers or creating fixtures.
+from pathlib import Path as _IsolationPath
+import sys as _isolation_sys
+_isolation_sys.path.insert(0, str(_IsolationPath(__file__).resolve().parents[3] / 'tools'))
+# Copied checker/GUI fixtures still use the verified private checkout gate.
+_isolation_sys.path.insert(0, '/workspace/repository/tools')
+from isolation import require_test_isolation as _require_test_isolation
+_isolation_sys.path.pop(0)
+_require_test_isolation()
+
+from payload_fixture import installed_argv as payload_installed_argv, source_stat as payload_source_stat
+from payload_fixture import read_text as payload_read_text
+from pathlib import Path
+import os
+import errno
+import shlex
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+from test_environment import skip_unless_trusted_credential_ancestry
+
+ROOT = Path(__file__).resolve().parents[3]
+SEED = ROOT / 'd-i/forky'
+CANONICAL = SEED / 'scripts/common/credentials.sh'
+LIBS = [(SEED / 'scripts/common/lib.sh', 'installer'),
+        (SEED / 'scripts/runtime/common.sh', 'runtime')]
+SHELLS = [('/bin/sh', ['/bin/sh'])]
+if shutil.which('bash'):
+    SHELLS.append(('bash-posix', [shutil.which('bash'), '--posix']))
+if shutil.which('busybox'):
+    SHELLS.append(('busybox-ash', [shutil.which('busybox'), 'sh']))
+MAPPING = {
+    'wifi_interface': 'PRESEED_WIFI_INTERFACE',
+    'wifi_essid': 'PRESEED_WIFI_ESSID',
+    'wifi_security': 'PRESEED_WIFI_SECURITY',
+    'wifi_cidr': 'PRESEED_WIFI_CIDR',
+    'wifi_wep': 'PRESEED_WIFI_PASSPHRASE',
+    'netcfg/wireless_wpa': 'PRESEED_WIFI_PASSPHRASE',
+    'wireless_wpa': 'PRESEED_WIFI_PASSPHRASE',
+    'wifi_wpa': 'PRESEED_WIFI_PASSPHRASE',
+    'fruux_username': 'PRESEED_FRUUX_USERNAME',
+    'fruux_password': 'PRESEED_FRUUX_PASSWORD',
+    'primary_user': 'PRESEED_PRIMARY_USERNAME',
+    'primary_fullname': 'PRESEED_PRIMARY_FULLNAME',
+    'primary_password': 'PRESEED_PRIMARY_PASSWORD',
+    'primary_gpg_passphrase': 'PRESEED_PRIMARY_GPG_PASSPHRASE',
+    'git_ssh_passphrase': 'PRESEED_GIT_SSH_PASSPHRASE',
+    'shim_signed_passphrase': 'PRESEED_SHIM_SIGNED_PASSPHRASE',
+    'dns_upstream_tls_ca_name_custom': 'PRESEED_DNS_UPSTREAM_TLS_CA_NAME_CUSTOM',
+    'root_password': 'PRESEED_ROOT_PASSWORD',
+    'crowdsec_token': 'PRESEED_CROWDSEC_TOKEN',
+    'crowdsec_enroll_token': 'PRESEED_CROWDSEC_TOKEN',
+    'crowdsec_attachment_key': 'PRESEED_CROWDSEC_TOKEN',
+    'urlhaus_authkey': 'PRESEED_URLHAUS_AUTHKEY',
+    'tailscale_authkey': 'PRESEED_TAILSCALE_TOKEN',
+    'tailscale_auth_key': 'PRESEED_TAILSCALE_TOKEN',
+    'filen_priv_email': 'PRESEED_FILEN_PRIV_EMAIL',
+    'filen_priv_password': 'PRESEED_FILEN_PRIV_PASSWORD',
+    'filen_priv_2fa_seed': 'PRESEED_FILEN_PRIV_2FA_SEED',
+    'filen_offsec_email': 'PRESEED_FILEN_OFFSEC_EMAIL',
+    'filen_offsec_password': 'PRESEED_FILEN_OFFSEC_PASSWORD',
+    'filen_offsec_2fa_seed': 'PRESEED_FILEN_OFFSEC_2FA_SEED',
+    'telegram_chat_id': 'PRESEED_TELEGRAM_CHAT_ID',
+    'telegram_api_key': 'PRESEED_TELEGRAM_API_KEY',
+    'cf_r2_access_key': 'PRESEED_CF_APTLY_ACCESS_KEY',
+    'cf_r2_secret_key': 'PRESEED_CF_APTLY_SECRET_KEY',
+    'obs_username': 'PRESEED_OBS_USERNAME',
+    'obs_password': 'PRESEED_OBS_PASSWORD',
+}
+
+class CredentialFixture(unittest.TestCase):
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory(prefix='initrd-credentials-')
+        self.addCleanup(self.t.cleanup)
+        self.dir = Path(self.t.name)
+        self.file = self.dir / 'preseed.env'
+        self.cmdfile = self.dir / 'cmdline'
+        self.cmdfile.write_text('quiet\n')
+        self.env = {'PATH': os.environ['PATH'], 'LC_ALL': 'C',
+                    'INSTALLER_PRESEED_ENV_FILE': str(self.file),
+                    'INSTALLER_CMDLINE_FILE': str(self.cmdfile)}
+        self.values = {v: 'Fixture-' + v for v in MAPPING.values()}
+        self.write_env()
+
+    def write_env(self, mode=0o600, newline='\n', bom=False):
+        # Exactly the supplied PRESEED_* assignment format, comments included.
+        text = newline.join('# Former GRUB variable: ' + next(k for k,v in MAPPING.items() if v==name) + '='
+                           + newline + name + '=' + shlex.quote(value) + newline
+                           for name,value in self.values.items())
+        self.file.write_bytes((b'\xef\xbb\xbf' if bom else b'') + text.encode())
+        self.file.chmod(mode)
+
+    def run_lookup(self, prefix='installer', key='root_password', cmdline='quiet',
+                   shell=None, preamble='', env=None):
+        lib = next(path for path,p in LIBS if p==prefix)
+        script = 'set -eu\n. ' + shlex.quote(str(lib)) + '\n' + preamble
+        script += prefix + '_cmdline_value ' + shlex.quote(key) + '\n'
+        e = {**self.env, 'INSTALLER_CMDLINE': cmdline}
+        if env:
+            e.update(env)
+        return subprocess.run(payload_installed_argv((shell or ['/bin/sh']) + ['-c', script]), cwd=self.dir,
+                              env=e, text=True, capture_output=True, timeout=10)
+
+    def assert_safe_failure(self, result, reason):
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn(reason, result.stderr)
+        self.assertEqual(result.stdout, '')
+        self.assertNotIn(self.values['PRESEED_ROOT_PASSWORD'], result.stderr)
+
+class InitrdCredentialTests(CredentialFixture):
+    @skip_unless_trusted_credential_ancestry
+    def test_optional_urlhaus_key_does_not_inherit_ambient_value(self):
+        script = '. ' + shlex.quote(str(CANONICAL)) + '\npreseed_env_read_value urlhaus_authkey\n'
+        for value in (None, '', 'Fixture-AbCd0123._~-'):
+            if value is None:
+                self.values.pop('PRESEED_URLHAUS_AUTHKEY', None)
+            else:
+                self.values['PRESEED_URLHAUS_AUTHKEY'] = value
+            self.write_env()
+            for name, shell in SHELLS:
+                with self.subTest(value=value, shell=name):
+                    result = subprocess.run(payload_installed_argv(shell + ['-c', script]),
+                        env={**self.env, 'PRESEED_URLHAUS_AUTHKEY': 'Ambient-Must-Not-Be-Used',
+                             'INSTALLER_CMDLINE': 'urlhaus_authkey=Kernel-Must-Not-Be-Used'},
+                        cwd=self.dir, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0 if value else 1, result.stderr)
+                    self.assertEqual(result.stdout, value + '\n' if value else '')
+                    self.assertEqual(result.stderr, '')
+
+    @skip_unless_trusted_credential_ancestry
+    def test_invalid_urlhaus_key_is_rejected_without_echoing_it(self):
+        script = '. ' + shlex.quote(str(CANONICAL)) + '\npreseed_env_read_value urlhaus_authkey\n'
+        for value in ('Fixture/secret', 'Fixture?secret', 'Fixture%secret', 'Fixture$secret',
+                      'Fixture\nsecret', 'Fixture\rsecret', 'Fixture secret', 'X' * 257):
+            self.values['PRESEED_URLHAUS_AUTHKEY'] = value
+            self.write_env()
+            result = subprocess.run(payload_installed_argv(['/bin/sh', '-c', script]),
+                env=self.env, cwd=self.dir, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout, '')
+            self.assertNotIn(value, result.stderr)
+            self.assertIn('URLhaus Auth-Key', result.stderr)
+
+    @skip_unless_trusted_credential_ancestry
+    def test_empty_wifi_security_means_open_while_missing_is_absent(self):
+        self.values['PRESEED_WIFI_SECURITY'] = ''
+        self.write_env()
+        for prefix in ('installer', 'runtime'):
+            result = self.run_lookup(prefix, 'wifi_security')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '\n')
+        del self.values['PRESEED_WIFI_SECURITY']
+        self.write_env()
+        self.assertEqual(self.run_lookup('installer', 'wifi_security').returncode, 1)
+
+    def test_both_entrypoints_source_one_canonical_reader(self):
+        for lib, _ in LIBS:
+            entry = lib.read_text()
+            self.assertIn("bootstrap_source_module 'scripts/common/credentials.sh'", entry)
+            self.assertNotIn('preseed_env_read_value() (', entry)
+            self.assertIn(payload_read_text(CANONICAL), payload_read_text(lib))
+
+    @skip_unless_trusted_credential_ancestry
+    def test_full_supplied_env_format_all_mappings_all_shells(self):
+        for name,shell in SHELLS:
+            for prefix in ('installer','runtime'):
+                for key,var in MAPPING.items():
+                    with self.subTest(shell=name,resolver=prefix,key=key):
+                        result = self.run_lookup(prefix,key,shell=shell)
+                        self.assertEqual(result.returncode,0,result.stderr)
+                        self.assertEqual(result.stdout,self.values[var]+'\n')
+                        self.assertEqual(result.stderr,'')
+
+    @skip_unless_trusted_credential_ancestry
+    def test_filen_passwords_preserve_unicode_and_literal_shell_punctuation(self):
+        value = "Fixture-é-日本語 ' \" $ ` ; \\ # space"
+        for key, variable in MAPPING.items():
+            if key.startswith('filen_') and key.endswith('_password'):
+                self.values[variable] = value
+        self.write_env()
+        for name, shell in SHELLS:
+            for prefix in ('installer', 'runtime'):
+                for key in ('filen_priv_password', 'filen_offsec_password'):
+                    with self.subTest(shell=name, resolver=prefix, key=key):
+                        result = self.run_lookup(prefix, key, shell=shell)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(result.stdout, value + '\n')
+                        self.assertEqual(result.stderr, '')
+
+    @skip_unless_trusted_credential_ancestry
+    def test_filen_trailing_newline_is_rejected_before_capture_can_strip_it(self):
+        self.values['PRESEED_FILEN_PRIV_PASSWORD'] = 'Fixture-secret\n'
+        self.write_env()
+        for name, shell in SHELLS:
+            with self.subTest(shell=name):
+                result = self.run_lookup('installer', 'filen_priv_password', shell=shell)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, '')
+                self.assertIn('single-line', result.stderr)
+                self.assertNotIn('Fixture-secret', result.stderr)
+
+    def test_registered_cmdline_values_are_typed_and_unknown_secrets_are_ignored(self):
+        for prefix in ('installer','runtime'):
+            for key in MAPPING:
+                with self.subTest(resolver=prefix,key=key):
+                    result=self.run_lookup(prefix,key,cmdline=key+'=override-fixture')
+                    self.assertEqual(result.returncode,0,result.stderr)
+                    self.assertEqual(result.stdout,'override-fixture\n')
+
+    def test_empty_registered_cmdline_values_remain_explicit(self):
+        for prefix in ('installer','runtime'):
+            for key in MAPPING:
+                with self.subTest(resolver=prefix,key=key):
+                    result=self.run_lookup(prefix,key,cmdline=key+'=')
+                    self.assertEqual(result.returncode,0,result.stderr)
+                    self.assertEqual(result.stdout,'\n')
+
+    def test_registered_value_wins_while_unknown_secret_argument_is_ignored(self):
+        for prefix in ('installer', 'runtime'):
+            with self.subTest(resolver=prefix):
+                result = self.run_lookup(
+                    prefix,
+                    'root_password',
+                    cmdline='service_token=fixture root_password=cmdline-fixture',
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, 'cmdline-fixture\n')
+
+    def test_unknown_secret_names_are_ignored_without_failing(self):
+        for prefix in ('installer', 'runtime'):
+            for key in ('password', 'service_passphrase', 'service_token',
+                        'private_key', 'wireless_psk', 'api_secret',
+                        'credential_file'):
+                with self.subTest(resolver=prefix, key=key):
+                    result = self.run_lookup(prefix, key, cmdline=key + '=fixture')
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, '')
+                    self.assertNotIn('fixture', result.stderr)
+
+    @skip_unless_trusted_credential_ancestry
+    def test_env_fallback_works_without_stat_in_all_shells(self):
+        for name,shell in SHELLS:
+            for prefix in ('installer','runtime'):
+                with self.subTest(shell=name,resolver=prefix):
+                    result=self.run_lookup(prefix,shell=shell,
+                                           preamble='stat() { echo STAT_MUST_NOT_RUN >&2; return 127; }\n')
+                    self.assertEqual(result.returncode,0,result.stderr)
+                    self.assertEqual(result.stdout,self.values['PRESEED_ROOT_PASSWORD']+'\n')
+                    self.assertNotIn('STAT_MUST_NOT_RUN',result.stderr)
+
+    @skip_unless_trusted_credential_ancestry
+    def test_readable_modes_are_accepted_without_mutation(self):
+        for mode in (0o400, 0o600, 0o644, 0o666, 0o755):
+            for prefix in ('installer', 'runtime'):
+                with self.subTest(mode=oct(mode), resolver=prefix):
+                    self.file.chmod(mode)
+                    result = self.run_lookup(prefix)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(payload_source_stat(self.file).st_mode & 0o777, mode)
+
+    @skip_unless_trusted_credential_ancestry
+    def test_chmod_is_not_required_for_preseed_env(self):
+        self.file.chmod(0o755)
+        result = self.run_lookup(preamble='chmod() { return 1; }\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(payload_source_stat(self.file).st_mode & 0o777, 0o755)
+
+    def test_ls_failure_is_reported_without_weakening_checks(self):
+        self.assert_safe_failure(self.run_lookup(preamble='ls() { return 1; }\n'),'cannot inspect')
+
+    @skip_unless_trusted_credential_ancestry
+    def test_crlf_and_bom_and_empty_other_fields_are_supported(self):
+        self.values={v:'' for v in self.values}
+        self.values['PRESEED_ROOT_PASSWORD']='Fixture!$\\quoted'
+        for bom in (False,True):
+            self.write_env(newline='\r\n',bom=bom)
+            for prefix in ('installer','runtime'):
+                result=self.run_lookup(prefix)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual(result.stdout,self.values['PRESEED_ROOT_PASSWORD']+'\n')
+
+    @skip_unless_trusted_credential_ancestry
+    def test_shell_quoted_apostrophes_and_metacharacters_are_literal(self):
+        self.values['PRESEED_ROOT_PASSWORD']="a'b\"$()`;|&*?[]\\#value"
+        self.write_env()
+        for name,shell in SHELLS:
+            result=self.run_lookup(shell=shell)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(result.stdout,self.values['PRESEED_ROOT_PASSWORD']+'\n')
+
+    @skip_unless_trusted_credential_ancestry
+    def test_unquoted_printable_values_are_literal_data(self):
+        value = 'Fixture!$()`;|&*?[]\\#=,.:@+/-'
+        self.values['PRESEED_ROOT_PASSWORD'] = value
+        self.file.write_text(
+            'PRESEED_ROOT_PASSWORD=' + value + '\n' +
+            "PRESEED_PRIMARY_USERNAME='fixtureuser'\n"
+        )
+        result = self.run_lookup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, value + '\n')
+
+    @skip_unless_trusted_credential_ancestry
+    def test_unmapped_preseed_fields_do_not_block_known_lookup(self):
+        self.file.write_text(
+            'PRESEED_ROOT_PASSWORD=Fixture-Root\n'
+            'PRESEED_LEGACY_ROLE_FIELD=retained-as-data\n'
+            'PRESEED_TECHNITIUM_ADMIN_PASSWORD=retained-as-data\n'
+            'PRESEED_future_role_1=retained-as-data\n'
+        )
+        result = self.run_lookup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'Fixture-Root\n')
+        self.assertEqual(result.stderr, '')
+        self.assertNotIn('retained-as-data', result.stdout + result.stderr)
+
+    @skip_unless_trusted_credential_ancestry
+    def test_invalid_syntax_is_redacted(self):
+        self.file.write_text("PRESEED_ROOT_PASSWORD='"+self.values['PRESEED_ROOT_PASSWORD'])
+        self.assert_safe_failure(self.run_lookup(),'restricted assignment grammar')
+
+    @skip_unless_trusted_credential_ancestry
+    def test_standalone_shell_statements_are_rejected_without_output(self):
+        with self.file.open('a') as stream:
+            stream.write('\nprintf "NEVER_LOG_SOURCE_OUTPUT"\nprintf "NEVER_LOG_SOURCE_ERROR" >&2\n')
+        result=self.run_lookup()
+        self.assert_safe_failure(result, 'restricted assignment grammar')
+        self.assertNotIn('NEVER_LOG_SOURCE_OUTPUT', result.stdout + result.stderr)
+        self.assertNotIn('NEVER_LOG_SOURCE_ERROR', result.stdout + result.stderr)
+
+    def test_symlink_hardlink_and_fifo_rejected(self):
+        self.file.unlink()
+        real=self.dir/'real.env';real.write_text("PRESEED_ROOT_PASSWORD='fixture'\n");real.chmod(0o600)
+        self.file.symlink_to(real)
+        self.assert_safe_failure(self.run_lookup(),'symlink')
+        self.file.unlink();os.link(real,self.file)
+        self.assert_safe_failure(self.run_lookup(),'hard link')
+        self.file.unlink();os.mkfifo(self.file)
+        self.assert_safe_failure(self.run_lookup(),'regular file')
+
+    @unittest.skipUnless(os.geteuid()==0,'requires root to set fixture ownership')
+    def test_wrong_owner_is_rejected(self):
+        try:
+            os.chown(self.file,65534,65534)
+        except OSError as error:
+            if error.errno in (errno.EINVAL, errno.EPERM, errno.EACCES):
+                self.skipTest('runtime cannot establish a foreign-owned credential fixture')
+            raise
+        self.assert_safe_failure(self.run_lookup(),'owned by')
+
+    def test_symlinked_parent_is_rejected(self):
+        link=self.dir/'linked';link.symlink_to(self.dir,target_is_directory=True)
+        result=self.run_lookup(env={'INSTALLER_PRESEED_ENV_FILE':str(link/'preseed.env')})
+        self.assert_safe_failure(result,'symlinked')
+
+    def test_writable_nonsticky_parent_is_rejected(self):
+        self.dir.chmod(0o777)
+        try:
+            self.assert_safe_failure(self.run_lookup(),'parent directory')
+        finally:
+            self.dir.chmod(0o700)
+
+    @skip_unless_trusted_credential_ancestry
+    def test_default_fallback_does_not_inherit_exported_secrets(self):
+        self.file.write_text('# no deployment credentials\n')
+        result=self.run_lookup(env={'PRESEED_ROOT_PASSWORD':'Inherited-Wrong'})
+        self.assertEqual(result.returncode,1,result.stderr)
+        self.assertEqual(result.stdout,'')
+
+    def test_password_cmdline_works_when_env_file_is_absent(self):
+        self.file.unlink()
+        result=self.run_lookup(cmdline='root_password=override-fixture')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout,'override-fixture\n')
+
+    def test_password_cmdline_wins_before_broken_env_file_is_used(self):
+        self.file.write_text("PRESEED_ROOT_PASSWORD='invalid\n")
+        result=self.run_lookup(cmdline='root_password=override-fixture')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout,'override-fixture\n')
+
+    def test_both_resolvers_accept_password_cmdline_file(self):
+        self.cmdfile.write_text('quiet root_password=file-override-fixture\n')
+        for prefix in ('installer','runtime'):
+            result=self.run_lookup(prefix,cmdline='')
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(result.stdout,'file-override-fixture\n')
+
+    def test_root_account_validation_precedes_disk_discovery(self):
+        text=payload_read_text(SEED/'hooks/installer/d-i/early.sh')
+        self.assertLess(text.index('runtime_validate_account_settings'),text.index('  hook_resolve_install_disk'))
+
+    def test_known_alias_does_not_reenable_fallback_of_another_alias(self):
+        for group in [('wifi_wpa','wireless_wpa'),('tailscale_authkey','tailscale_auth_key'),
+                      ('crowdsec_token','crowdsec_enroll_token')]:
+            result=self.run_lookup('installer',group[0],cmdline=group[1]+'=')
+            self.assertEqual(result.returncode,1,result.stderr)
+            self.assertEqual(result.stdout,'')
+
+class UserHashPrecedenceTests(CredentialFixture):
+    @skip_unless_trusted_credential_ancestry
+    def test_plaintext_user_password_clears_stale_hash_in_rendered_answers(self):
+        self.values['PRESEED_PRIMARY_USERNAME']='fixtureuser'
+        self.write_env()
+        out=self.dir/'answers.cfg'
+        script='set -eu\n'
+        for path in (SEED/'scripts/runtime/common.sh',SEED/'scripts/runtime/account.sh',SEED/'hosts/installer/account.env'):
+            script+='. '+shlex.quote(str(path))+'\n'
+        script+='runtime_write_account_answers '+shlex.quote(str(out))+'\n'
+        result=subprocess.run(payload_installed_argv(['/bin/sh','-c',script]),env=self.env,text=True,capture_output=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        text=payload_read_text(out)
+        self.assertIn('d-i passwd/user-password-crypted password\n',text)
+        self.assertIn('d-i passwd/root-login boolean true\n',text)
+        self.assertIn('d-i passwd/username string fixtureuser\n',text)
+
+
+@skip_unless_trusted_credential_ancestry
+class PrimaryIdentityTests(CredentialFixture):
+    def setUp(self):
+        super().setUp()
+        self.values.update(PRESEED_PRIMARY_USERNAME='fixtureuser',
+                           PRESEED_PRIMARY_FULLNAME="Fixture O'Connor",
+                           PRESEED_PRIMARY_PASSWORD="Fixture!$()'`\\Password")
+        self.write_env()
+        self.answers = self.dir/'account.answers.cfg'
+        self.effective = self.dir/'effective-account.env'
+
+    def render(self, shell=None, extra='', tracing=False):
+        script = 'set -eu\n'
+        for path in (SEED/'scripts/runtime/common.sh', SEED/'scripts/runtime/account.sh',
+                     SEED/'hosts/installer/account.env'):
+            script += '. ' + shlex.quote(str(path)) + '\n'
+        if tracing:
+            script += 'set -x\n'
+        script += 'runtime_write_account_answers ' + shlex.quote(str(self.answers)) + '\n'
+        script += 'runtime_write_effective_account_env ' + shlex.quote(str(self.effective)) + '\n' + extra
+        environment = {**self.env, 'INSTALLER_CMDLINE':
+                       'primary_user=wrong primary_fullname=Wrong primary_password=wrong',
+                       'ACCOUNT_USERNAME': 'inherited', 'ACCOUNT_FULLNAME': 'Inherited Person',
+                       'ACCOUNT_PASSWORD_CRYPTED': '$6$obsolete-fixture-hash'}
+        return subprocess.run(payload_installed_argv((shell or ['/bin/sh']) + ['-c', script]),
+                              env=environment, text=True, capture_output=True, timeout=15)
+
+    def test_env_identity_wins_and_home_paths_round_trip_without_primary_secrets(self):
+        for name, shell in SHELLS:
+            with self.subTest(shell=name):
+                extra = '. ' + shlex.quote(str(self.effective)) + '\n'
+                extra += 'printf "%s\\n" "$ACCOUNT_USERNAME" "$ACCOUNT_FULLNAME" "$ACCOUNT_HOME" "$DIR_HOME_WORKSPACE" "$SSH_USER_CONFIG_TARGET"\n'
+                result = self.render(shell, extra=extra)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "fixtureuser\nFixture O'Connor\n/home/fixtureuser\n/home/fixtureuser/Workspace\n/home/fixtureuser/.ssh/config\n")
+                answers = payload_read_text(self.answers)
+                self.assertIn("d-i passwd/user-fullname string Fixture O'Connor\n", answers)
+                self.assertIn('d-i passwd/user-password password ' + self.values['PRESEED_PRIMARY_PASSWORD'] + '\n', answers)
+                self.assertIn('d-i passwd/user-password-crypted password\n', answers)
+                effective = payload_read_text(self.effective)
+                for secret in (self.values['PRESEED_PRIMARY_PASSWORD'], self.values['PRESEED_ROOT_PASSWORD'], '$6$obsolete-fixture-hash'):
+                    self.assertNotIn(secret, effective + result.stderr)
+                self.assertEqual(payload_source_stat(self.answers).st_mode & 0o777, 0o600)
+                self.assertEqual(payload_source_stat(self.effective).st_mode & 0o777, 0o600)
+
+    def test_missing_or_empty_primary_fields_cannot_use_old_defaults_or_cmdline(self):
+        original = dict(self.values)
+        for key in ('PRESEED_PRIMARY_USERNAME', 'PRESEED_PRIMARY_FULLNAME', 'PRESEED_PRIMARY_PASSWORD'):
+            for missing in (True, False):
+                self.values = dict(original)
+                if missing:
+                    del self.values[key]
+                else:
+                    self.values[key] = ''
+                self.write_env()
+                self.env['INSTALLER_CMDLINE'] = (
+                    'quiet' if key == 'PRESEED_PRIMARY_PASSWORD'
+                    else 'quiet primary_password=' + self.values['PRESEED_PRIMARY_PASSWORD']
+                )
+                self.env[key] = 'Inherited-Must-Not-Be-Used'
+                result = self.render()
+                with self.subTest(field=key, missing=missing):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(key + ' is required', result.stderr)
+                    self.assertFalse(self.answers.exists())
+                    self.assertFalse(self.effective.exists())
+                    self.assertNotIn(original['PRESEED_PRIMARY_PASSWORD'], result.stdout + result.stderr)
+
+    def test_invalid_identity_is_rejected_before_any_answers_are_written(self):
+        original = dict(self.values)
+        cases = {'PRESEED_PRIMARY_USERNAME': ('root', 'User', '../user', 'u'*33, 'user\n'),
+                 'PRESEED_PRIMARY_FULLNAME': (' Person', 'Person ', 'Person:Role', 'Person\n', 'Person\tName'),
+                 'PRESEED_PRIMARY_PASSWORD': ('with space', 'password\n', 'password\r', 'password\t')}
+        for key, invalid in cases.items():
+            for value in invalid:
+                self.values = {**original, key: value}
+                self.write_env()
+                result = self.render()
+                with self.subTest(field=key, value=value):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(self.answers.exists())
+                    self.assertNotIn(value, result.stdout + result.stderr)
+
+    def test_tracing_does_not_print_resolved_passwords(self):
+        result = self.render(tracing=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for key in ('PRESEED_PRIMARY_PASSWORD', 'PRESEED_ROOT_PASSWORD'):
+            self.assertNotIn(self.values[key], result.stdout + result.stderr)
+
+    def test_late_loader_publishes_identity_for_separate_addon_shells(self):
+        # Exercise the real account loader. Only network fetching is omitted;
+        # all policy loading, credential resolution and publication are real.
+        late = self.dir/'late'
+        late.mkdir()
+        (late/'account.env').write_text(payload_read_text(SEED/'hosts/installer/account.env'))
+        (late/'runtime-common.sh').write_text(payload_read_text(SEED/'scripts/runtime/common.sh'))
+        (late/'account-runtime.sh').write_text(payload_read_text(SEED/'scripts/runtime/account.sh'))
+        script = 'set -eu\n. ' + shlex.quote(str(SEED/'scripts/late/core.sh')) + '\n'
+        script += 'late_command_ensure_host_policy_envs() { :; }\n'
+        script += 'TMP_ENV_DIR=' + shlex.quote(str(late)) + '\n'
+        script += 'LATE_COMMAND_ACCOUNT_ENV=' + shlex.quote(str(late/'account.env')) + '\n'
+        script += 'late_command_load_account_env\n'
+        script += '/bin/sh -eu -c \' . "$1"; printf "%s\\n" "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" \' addon "$LATE_COMMAND_ACCOUNT_ENV"\n'
+        result = subprocess.run(['/bin/sh', '-c', script], env=self.env,
+                                text=True, capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'fixtureuser\n/home/fixtureuser\n')
+        effective = (late/'account.env').read_text()
+        self.assertNotIn(self.values['PRESEED_PRIMARY_PASSWORD'], effective)
+        self.assertNotIn(self.values['PRESEED_ROOT_PASSWORD'], effective)

@@ -1,0 +1,38 @@
+#!/bin/sh
+# DevOps installation entrypoint; implementation is in late/devops/.
+set -eu
+
+target_root=${1:-${TARGET_ROOT}}
+[ -d "$target_root" ] || exit 0
+devops_codex_host_log_dir=__INSTALLER_LOG_CODEX_RUNTIME_DIR__
+
+runtime_dir=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
+[ -s "$bootstrap_lib" ] || {
+  printf '%s\n' 'fatal: installer bootstrap is unavailable; start with preseed.cfg' >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+. "$bootstrap_lib"
+bootstrap_source_common_lib ""
+installer_operation_context_repo FILE_LATE_DEVOPS_TMPL 18 devops
+
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_VALIDATION_BASE)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_UPSTREAM_POLICY)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_POLICY_RESOLUTION_TMPL)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_PUBLICATION_LAYOUT)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_SIGNING_KEY)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_PUBLICATION_SERVICES)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_TOOL_CONFIGS)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_BAZELISK_NODE)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_UPSTREAM_RUST)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_CODEX_LAYOUT)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_CODEX_APPSERVER)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_CODEX_RELEASE)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_ACCOUNT_EXECUTION)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_GITBUILD)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_MAIN_ORCHESTRATION)" || exit "$?"
+
+bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_CODEX_PROVISION)" || exit "$?"
+
+devops_main "$@"

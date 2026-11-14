@@ -1,0 +1,24 @@
+# Headless logging: local kernel-attested producers, no GUI signals or network input.
+global(maxMessageSize="__INSTALLER_LOG_RSYSLOG_MESSAGE_KIB__k" compatibility.defaults.secure="strict")
+$WorkDirectory __INSTALLER_LOG_RSYSLOG_SPOOL_DIR__
+module(load="imuxsock" SysSock.Use="on" SysSock.IgnoreOwnMessages="on"
+       SysSock.Annotate="on" SysSock.ParseTrusted="on" SysSock.UsePIDFromSystem="on"
+       SysSock.FlowControl="off" SysSock.RateLimit.Interval="0")
+module(load="imklog")
+$FileOwner root
+$FileGroup adm
+$FileCreateMode 0640
+$DirCreateMode 0750
+$Umask 0027
+$ActionFileDefaultTemplate RSYSLOG_TraditionalFileFormat
+main_queue(queue.size="__INSTALLER_LOG_RSYSLOG_MAIN_QUEUE_MESSAGES__" queue.workerThreads="1")
+include(file="__INSTALLER_PATH_DIR_ETC__/rsyslog.d/20-server-security.conf" mode="abort-if-missing")
+include(file="__INSTALLER_PATH_DIR_ETC__/rsyslog.d/36-zram.conf" mode="optional")
+include(file="__INSTALLER_PATH_DIR_ETC__/rsyslog.d/38-timeshift.conf" mode="optional")
+if ($syslogfacility-text != "auth" and $syslogfacility-text != "authpriv") then {
+  action(type="omfile" file="__INSTALLER_LOG_SYSTEM_SERVICES_FILE__" createDirs="off"
+         rotation.sizeLimit="__INSTALLER_LOG_RSYSLOG_ROTATE_BYTES__"
+         rotation.sizeLimitCommand="__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-size-rotate"
+         rotation.sizeLimitCommandPassFileName="on")
+}
+stop

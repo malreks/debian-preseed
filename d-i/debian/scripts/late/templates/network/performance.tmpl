@@ -1,0 +1,5 @@
+    metric __INSTALLER_METRIC__
+    mtu 1500
+    pre-up __INSTALLER_PATH_DIR_SBIN__/ip link set dev "$IFACE" txqueuelen 1000 2>__INSTALLER_PATH_DIR_DEV__/null || true
+    post-up __INSTALLER_PATH_DIR_SBIN__/ip link set dev "$IFACE" txqueuelen 1000 2>__INSTALLER_PATH_DIR_DEV__/null || true
+    post-up __INSTALLER_PATH_DIR_USR_SBIN__/ethtool -K "$IFACE" rx on tx on sg on tso on gso on gro on 2>__INSTALLER_PATH_DIR_DEV__/null || true

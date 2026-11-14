@@ -1,0 +1,80 @@
+# Managed by unattended-installer.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+# Build boundary follows the installation-wide AppArmor mode; the worker
+# refuses to execute builds unless its own label is enforcing.
+# Package-provided sbuild/mmdebstrap implement subordinate-UID/PID/mount
+# namespaces; direct host-tool builds enter a networkless Bubblewrap sandbox.
+profile gitbuild-worker __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/gitbuild-worker flags=(attach_disconnected, mediate_deleted) {
+  # Do not include wrapper-python: its /root denial would also deny a private
+  # chroot's root directory. No real account credential directories are allowed.
+  #include <abstractions/base>
+  #include <abstractions/python>
+  #include <abstractions/nameservice>
+  #include <abstractions/ssl_certs>
+  #include <abstractions/wrapper-terminal>
+  #include <abstractions/bwrap-common>
+  userns,
+  capability dac_read_search,
+  capability fowner,
+  capability fsetid,
+  capability mknod,
+  capability setfcap,
+  capability kill,
+  capability sys_resource,
+  capability sys_tty_config,
+  unix,
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  # Network is needed by the trusted dependency/bootstrap phase. sbuild's build
+  # network namespace and Bubblewrap --unshare-all isolate compilation itself.
+  signal (receive) peer=unconfined,
+  signal (receive) peer=gitbuild,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/gitbuild-worker rix,
+  __INSTALLER_PATH_DIR_USR__/** mr,
+  __INSTALLER_PATH_DIR_USR__/{bin,sbin,lib,libexec}/** rix,
+  /{bin,sbin,lib,lib64}/** mrix,
+  /{bin,sbin,lib,lib64} r,
+  /{usr,etc,var,var/lib,home,pool,pool/cache,pool/db,pool/build}/ r,
+  __INSTALLER_PATH_DIR_ETC__/** r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/{,**} r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/apt/{,**} r,
+  __INSTALLER_PATH_DIR_SYS__/{,**} r,
+  __INSTALLER_PATH_DIR_PROC__/{,**} r,
+  __INSTALLER_PATH_DIR_PROC__/[0-9]*/{uid_map,gid_map,setgroups} rw,
+  __INSTALLER_PATH_DIR_PROC__/[0-9]*/{oom_score_adj,comm,coredump_filter} rw,
+  __INSTALLER_PATH_DIR_PROC__/[0-9]*/task/[0-9]*/comm rw,
+  __INSTALLER_PATH_DIR_DEV__/shm/{,**} rwkl,
+  __INSTALLER_PATH_DIR_DEV__/{stdin,stdout,stderr} rw,
+  __INSTALLER_PATH_DIR_RUN__/ r,
+  __INSTALLER_PATH_DIR_RUN__/lock/ rw,
+  owner __INSTALLER_PATH_DIR_RUN__/lock/gitbuild* rwk,
+  owner @{HOME}/ r,
+  owner @{HOME}/Workspace/{,**/} r,
+  owner __INSTALLER_PATH_DIR_POOL_BUILD__/*/gitbuild/{,**} rwkl,
+  # Inherited tar stdout can be written by the mapped namespace UID.
+  __INSTALLER_PATH_DIR_POOL_BUILD__/*/gitbuild/repo-*/*/rootfs.tar w,
+  owner __INSTALLER_PATH_DIR_POOL__/{cache,db}/*/ r,
+  owner __INSTALLER_PATH_DIR_POOL__/cache/*/gitbuild/{,**} rwkl,
+  # Only package-created private roots below the sticky data pool are writable by
+  # mapped UIDs. Never require world-executable user HOME or Workspace paths.
+  __INSTALLER_PATH_DIR_POOL_TMP__/ rw,
+  __INSTALLER_PATH_DIR_POOL_TMP__/{gitbuild-sbuild.*,gitbuild-autopkgtest-*,mmdebstrap.*,mmdebstrap-*,autopkgtest.*,autopkgtest-*,adt-*,tmp.*}/{,**} rwklmix,
+  __INSTALLER_PATH_DIR_POOL_TMP__/{mmdebstrap.*,mmdebstrap-*,tmp.*} rwkl,
+  # Paths after Bubblewrap's private pivot_root (not host workspaces).
+  /build/{,**} rwklmix,
+  __INSTALLER_PATH_DIR_HOME__/ rw,
+  __INSTALLER_PATH_DIR_HOME__/build/{,**} rwkl,
+  __INSTALLER_PATH_DIR_TMP__/{,**} rwklmix,
+  # Explicitly block credential brokers and privileged host operations even
+  # when a package attempts to execute an installed wrapper by absolute path.
+  deny __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/{obs-publishing,aptly-publishing,obs-publishing-bin/**,aptly-publishing-bin/**,gitbuild-publish,gitbuild-import-local,labwc-appearance-greeter} x,
+  deny __INSTALLER_PATH_DIR_USR__/bin/{pkexec,sudo,su} x,
+  deny __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,gnupg/**,keyring/**} rw,
+  deny owner @{HOME}/.{ssh,gnupg}/{,**} rwklm,
+  deny owner @{HOME}/.local/share/keyrings/{,**} rwklm,
+  deny owner @{HOME}/.local/lib/python*/{,**} mrwkl,
+}

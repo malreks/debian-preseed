@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+# Back returns to the parent; dismissal unwinds every menu process.
+menu_failure() {
+  [ "$1" -eq 1 ] && return 0
+  [ "$1" -eq 3 ] && exit 3
+  printf 'fatal: menu picker failed (status %s)\n' "$1" >&2
+  exit "$1"
+}
+
+choice=$(
+  printf '%s\n' 'Lock screen' 'Logout session' Suspend Reboot 'Power off' |
+    labwc-fuzzel menu --dmenu --prompt power || menu_failure "$?"
+)
+
+case "$choice" in
+  'Lock screen')
+    exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings lock
+    ;;
+  'Logout session')
+    exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings logout
+    ;;
+  Suspend)
+    exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings suspend
+    ;;
+  Reboot)
+    exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings reboot
+    ;;
+  'Power off')
+    exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings poweroff
+    ;;
+esac
+
+exit 0

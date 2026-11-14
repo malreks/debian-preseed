@@ -1,0 +1,9 @@
+# Audit daemon notices are not native audit key/value records. Preserve their
+# distinct program label before the upstream auditd-logs ParseKV call. Apply
+# this to either acquisition; only native type/msg records enter that parser.
+name: local/auditd-daemon
+filter: "evt.Parsed.program == 'auditd' and not (evt.Parsed.message matches '^(node=[^ ]+ )?type=[^ ]+ msg=audit[(]')"
+onsuccess: next_stage
+statics:
+  - parsed: program
+    value: auditd-daemon

@@ -1,0 +1,105 @@
+#!/bin/sh
+# This is a target-readiness record, not an installation-success record.
+# Only the guarded 99reboot sentinel may publish installation.success later.
+set -eu
+runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+. "$runtime/bootstrap/source.sh"
+. "$runtime/bootstrap/di.env"
+installer_lifecycle_paths
+[ -r "${DIR_INSTALLER_ENV}/runtime.env" ] || {
+  validate_target_message='installer runtime environment is unavailable'
+  printf '[finish-install:validate-target] fatal: %s\n' "$validate_target_message" >&2
+  if [ -c /dev/tty4 ] && [ -w /dev/tty4 ]; then
+    printf '[finish-install:validate-target] fatal: %s\n' "$validate_target_message" >/dev/tty4 || :
+  fi
+  if [ -c /dev/console ] && [ -w /dev/console ]; then
+    printf '[finish-install:validate-target] fatal: %s\n' "$validate_target_message" >/dev/console || :
+  fi
+  if command -v logger >/dev/null 2>&1; then
+    logger -t preseed-finish-validate "fatal: $validate_target_message" 2>/dev/null || :
+  fi
+  exit 1
+}
+# shellcheck disable=SC1090,SC1091
+. "${DIR_INSTALLER_ENV}/runtime.env"
+installer_operation_context_repo FILE_INST_FINISH_94ZZ_99_VALIDATE_TARGET 25 finish_install_validate_target
+finish_validate_target_exit() {
+  finish_validate_target_status=$?
+  if [ "$finish_validate_target_status" -ne 0 ] && command -v installer_error >/dev/null 2>&1; then
+    installer_error "finish-install target validation exited with status ${finish_validate_target_status}"
+  fi
+  exit "$finish_validate_target_status"
+}
+trap finish_validate_target_exit 0
+target=${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}
+target_state="${target}${DIR_VAR_LIB_INSTALLER_STATE}"
+awk -v p="$target" '$2==p {found=1} END {exit !found}' /proc/mounts
+[ -f "$LC_STATE/late.done" ]
+[ ! -e "$LC_STATE/first-failure" ]
+chroot "$target" /bin/sh -eu -c '
+target_etc=$1
+target_boot=$2
+target_lib=$3
+target_usr_local_bin=$4
+target_usr_local_sbin=$5
+target_usr_local_libexec=$6
+shift 6
+audit=$(dpkg --audit)
+[ -z "$audit" ] || { printf "%s\n" "$audit" >&2; exit 1; }
+test -s "$target_etc/fstab"
+test -s "$target_boot/grub/grub.cfg"
+require_signature() {
+  signatures=$(sbverify --list "$1" 2>&1)
+  # sbverify --list may return zero for an unsigned PE image.
+  printf "%s\n" "$signatures" | grep -Eq "^signature [0-9]+"
+}
+count=0
+for image in "$target_boot"/vmlinuz-*; do
+  test -s "$image" || continue
+  version=${image#"$target_boot"/vmlinuz-}
+  test -d "$target_lib/modules/$version"
+  test -s "$target_boot/initrd.img-$version"
+  lsinitramfs "$target_boot/initrd.img-$version" >/dev/null
+  require_signature "$image"
+  count=$((count + 1))
+done
+test "$count" -gt 0
+arch=$(dpkg --print-architecture)
+case "$arch" in amd64) suffix=x64 ;; arm64) suffix=aa64 ;; *) exit 1 ;; esac
+for file in "$target_boot/efi/EFI/debian/shim${suffix}.efi" "$target_boot/efi/EFI/debian/grub${suffix}.efi" "$target_boot/efi/EFI/debian/mm${suffix}.efi"; do
+  test -s "$file"
+  require_signature "$file"
+done
+systemctl --root=/ get-default >/dev/null
+# Only installer-specific placeholders in published configuration/executables.
+# Repository source templates and documentation are intentionally not scanned.
+if grep -rIlE "__INSTALLER_[A-Z0-9_]+__" "$target_etc" "$target_usr_local_bin" "$target_usr_local_sbin" "$target_usr_local_libexec"; then
+  echo "fatal: unresolved installer placeholder published" >&2
+  exit 1
+else
+  result=$?
+  test "$result" -eq 1
+fi
+' sh \
+  "$DIR_ETC" \
+  "$DIR_BOOT" \
+  "$DIR_LIB" \
+  "$DIR_USR_LOCAL_BIN" \
+  "$DIR_USR_LOCAL_SBIN" \
+  "$DIR_USR_LOCAL_LIBEXEC"
+# Do not traverse indirect parents when writing privileged readiness state.
+path=$target_state
+while [ "$path" != / ]; do
+  [ ! -L "$path" ]
+  path=${path%/*}; [ -n "$path" ] || path=/
+done
+install -d -m 0700 "$target_state"
+tmp=$(mktemp "$target_state/.validated.XXXXXX")
+trap 'finish_validate_target_status=$?; [ -z "${tmp:-}" ] || rm -f "$tmp"; if [ "$finish_validate_target_status" -ne 0 ] && command -v installer_error >/dev/null 2>&1; then installer_error "finish-install target validation exited with status ${finish_validate_target_status}"; fi; exit "$finish_validate_target_status"' 0
+printf 'state=TARGET_VALIDATED\ninstallation_success=not_yet\n' >"$tmp"
+chmod 0600 "$tmp"
+mv "$tmp" "$target_state/target-validated"
+tmp=$(mktemp "$LC_STATE/.validated.XXXXXX")
+printf 'state=TARGET_VALIDATED\n' >"$tmp"
+chmod 0600 "$tmp"
+mv "$tmp" "$LC_STATE/target-validated"

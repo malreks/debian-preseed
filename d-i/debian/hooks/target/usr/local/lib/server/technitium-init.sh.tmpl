@@ -1,0 +1,45 @@
+#!/bin/sh
+# PID 1 entrypoint inside the dedicated unprivileged Incus guest namespace.
+# Native Debian binaries and shared libraries come from the selected host suite.
+set -eu
+umask 077
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=__INSTALLER_PATH_DIR_SERVER_DNS_GUEST_CONFIG__
+export DOTNET_ROOT=__INSTALLER_PATH_DIR_SERVER_DNS_GUEST_APP__/dotnet
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export DOTNET_NOLOGO=1
+export DNS_SERVER_ADMIN_PASSWORD_FILE=__INSTALLER_PATH_DIR_SERVER_DNS_GUEST_PRIVATE__/admin-password
+export DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES=127.0.0.1
+if [ '__INSTALLER_IPV6_ENABLE__' = true ]; then
+  export DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES=127.0.0.1,::1
+fi
+export DNS_SERVER_WEB_SERVICE_HTTP_PORT=5380
+# Upstream transport preference only. This never filters A/AAAA record types
+# or client transports; IPv6 upstream is preferred only when the profile has it.
+export DNS_SERVER_PREFER_IPV6=__INSTALLER_IPV6_ENABLE__
+export DNS_SERVER_RECURSION=UseSpecifiedNetworkACL
+IFS= read -r dns_acl <__INSTALLER_PATH_DIR_SERVER_DNS_GUEST_PRIVATE__/recursion-acl
+case "$dns_acl" in ''|*[!0-9a-fA-F:.,/]*) exit 1 ;; esac
+export DNS_SERVER_RECURSION_NETWORK_ACL="$dns_acl"
+
+# These operations affect only this guest's network namespace. No host socket,
+# physical adapter, device, privileged mount or management interface is exposed.
+ip link set lo up
+ip link set eth0 up
+guest_prefix=__INSTALLER_TECHNITIUM_INCUS_IPV4_CIDR__
+ip address add __INSTALLER_TECHNITIUM_INCUS_IPV4_ADDRESS__/${guest_prefix#*/} dev eth0
+ip route add default via ${guest_prefix%/*}
+if [ '__INSTALLER_IPV6_ENABLE__' = true ]; then
+  guest_prefix6=__INSTALLER_TECHNITIUM_INCUS_IPV6_CIDR__
+  ip -6 address add __INSTALLER_TECHNITIUM_INCUS_IPV6_ADDRESS__/${guest_prefix6#*/} dev eth0
+  ip -6 route add default via ${guest_prefix6%/*}
+fi
+
+# The namespaced unprivileged-port threshold is 53; the DNS process receives no
+# capabilities. Tini retains PID 1 signal/reap ownership and drops the child to
+# its dedicated identity before any vendor code runs. No login shell is present.
+exec /usr/bin/tini -g -- /usr/bin/setpriv \
+  --reuid=2103 --regid=2103 --clear-groups --bounding-set=-all \
+  --inh-caps=-all --ambient-caps=-all --no-new-privs \
+  "$DOTNET_ROOT/dotnet" __INSTALLER_PATH_DIR_SERVER_DNS_GUEST_APP__/release/DnsServerApp.dll \
+  __INSTALLER_PATH_DIR_SERVER_DNS_GUEST_CONFIG__ --portable-app --stop-if-bind-fails

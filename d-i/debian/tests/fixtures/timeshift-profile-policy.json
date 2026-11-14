@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "execution": "UNEXECUTED source/failure-injection cases; static inspection only",
+  "cases": [
+    {"id": "btrfs-enabled", "profile": {"TIMESHIFT_ENABLE": "true"}, "filesystem": "btrfs", "architecture": "amd64", "expect": "Include the suite Timeshift package fragment and one os.timeshift stage; stage managed snapshot helpers, policy, configured timers, AppArmor and GRUB-Btrfs."},
+    {"id": "btrfs-disabled", "profile": {"TIMESHIFT_ENABLE": "false"}, "filesystem": "btrfs", "expect": "No Timeshift package, modules, configuration, helpers, policy, timers, snapshot creation or GRUB-Btrfs publication; no filesystem change."},
+    {"id": "no-timeshift-class", "classes": ["optional/timeshift"], "expect": "Reject unknown class; the only enabling input is the host-profile boolean."},
+    {"id": "f2fs-enabled-invalid", "profile": {"TIMESHIFT_ENABLE": "true"}, "filesystem": "f2fs", "expect": "Reject profile before partitioning; never convert a filesystem."},
+    {"id": "f2fs-disabled-explicit", "profile": {"TIMESHIFT_ENABLE": "false"}, "filesystem": "f2fs", "cmdline": "snapshots=none", "expect": "Explicit no-snapshot plan; no Timeshift or GRUB-Btrfs package/configuration/activation."},
+    {"id": "boolean-invalid", "profile": {"TIMESHIFT_ENABLE": "yes"}, "expect": "Reject profile grammar; no shell truthiness or class inference."},
+    {"id": "server-retention", "profile": {"TIMESHIFT_ENABLE": "true", "TIMESHIFT_COUNT_DAILY": "0", "TIMESHIFT_COUNT_WEEKLY": "2", "TIMESHIFT_COUNT_MONTHLY": "1"}, "expect": "Enable only weekly/monthly schedules; retain the explicit smaller server policy."},
+    {"id": "manual-lock", "mutation": "manual desktop snapshot competes with a scheduled snapshot", "expect": "Both use the existing managed Timeshift lock and bounded command owner; manual native CLI cannot bypass this owner."},
+    {"id": "missing-config", "mutation": "disabled or missing managed Timeshift configuration", "expect": "Hide the maintenance menu item; explicit snapshot action fails unavailable before a mutation."},
+    {"id": "stage-io-failure", "mutation": "publication fails before an enabled timer is linked", "expect": "Propagate exact failure; no later activation; retain the existing phase failure receipt."},
+    {"id": "btrfs-identity-invalid", "mutation": "root device UUID/type, @ mount or default subvolume ID 5 differs", "expect": "Fail before snapshot-policy activation without subvolume conversion or device substitution."},
+    {"id": "unqualified-architecture", "architecture": "arm64", "profile": {"TIMESHIFT_ENABLE": "true"}, "expect": "The unqualified architecture is rejected before partitioning; never silently omit snapshots."}
+  ]
+}

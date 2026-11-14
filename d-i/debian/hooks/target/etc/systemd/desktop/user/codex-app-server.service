@@ -1,0 +1,58 @@
+[Unit]
+Description=Desktop Codex app-server backend (repository build)
+Documentation=https://developers.openai.com/codex/app-server
+ConditionFileIsExecutable=__INSTALLER_DEVOPS_CODEX_WRAPPER_PATH__
+ConditionFileIsExecutable=__INSTALLER_DEVOPS_CODEX_BINARY_PATH__
+ConditionFileIsExecutable=__INSTALLER_DEVOPS_CODEX_APP_SERVER_READY_HELPER__
+ConditionPathIsDirectory=__INSTALLER_DEVOPS_CODEX_HOME__
+ConditionPathIsDirectory=__INSTALLER_DEVOPS_CODEX_SOCKETS_ROOT__
+ConditionPathIsDirectory=__INSTALLER_DEVOPS_CODEX_APP_SERVER_CONTROL_DIR__
+ConditionPathIsDirectory=__INSTALLER_DEVOPS_CODEX_HOME__/app-server-daemon
+# Keep the backend alive across proxy idle exits and direct administrative starts.
+# Stopping/restarting the public listener still propagates to this backend.
+PartOf=codex-app-server.socket
+StopWhenUnneeded=no
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+# User managers do not source shell profiles. The wrapper below applies the
+# appropriate desktop or headless environment; seed identity before any Exec command.
+Environment=HOME=%h USER=%u LOGNAME=%u XDG_RUNTIME_DIR=%t
+Environment=CODEX_HOME=__INSTALLER_DEVOPS_CODEX_HOME__
+Environment=XDG_CONFIG_HOME=%h/.config XDG_CACHE_HOME=%h/.cache
+Environment=XDG_DATA_HOME=%h/.local/share XDG_STATE_HOME=%h/.local/state
+# The non-secret policy is optional, including during stop/upgrade operations.
+# Keep its safe allowlist default even when the override file is absent.
+Environment=CODEX_APP_SERVER_SECRET_ENV_NAMES=CODEX_MCP_API_KEY
+EnvironmentFile=-__INSTALLER_DEVOPS_CODEX_APP_SERVER_ENVIRONMENT__
+# CODEX_HOME/auth.json is created by codex login before backend use.
+# The wrapper mounts it read-only; never synthesize or load it as a credential.
+LoadCredential=codex-mcp.env:__INSTALLER_DEVOPS_CODEX_CREDENTIALS_ROOT__/mcp.env
+# The launched wrapper reads CREDENTIALS_DIRECTORY after credential setup.
+WorkingDirectory=%h/Workspace
+ExecStartPre=__INSTALLER_PATH_DIR_USR__/bin/rm -f -- __INSTALLER_DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET__
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-app-run codex-app-server -- __INSTALLER_DEVOPS_CODEX_WRAPPER_PATH__ app-server --listen unix://__INSTALLER_DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET__
+ExecStartPost=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-app-run codex-app-server -- __INSTALLER_DEVOPS_CODEX_APP_SERVER_READY_HELPER__
+ExecStopPost=__INSTALLER_PATH_DIR_USR__/bin/rm -f -- __INSTALLER_DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET__
+# The wrapper performs bounded cleanup, then reports a manager-requested
+# SIGTERM as the conventional shell status 143. Listener shutdown is clean.
+SuccessExitStatus=143 SIGTERM
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+TimeoutStopSec=30s
+KillMode=mixed
+UMask=0077
+# Enter the caller-specific AppArmor bwrap child BEFORE no_new_privs is set.
+# bwrap sets no_new_privs itself and the payload verifies zero active caps.
+# User-manager seccomp knobs implicitly set NNP, so do not add them here.
+# Do not use ProtectProc/ProcSubset, PrivateUsers, RestrictNamespaces,
+# CapabilityBoundingSet, or ProtectKernelTunables: nested tool sandboxes need
+# their own PID/user/mount namespaces and a fresh private /proc.
+NoNewPrivileges=no
+LimitCORE=0
+StandardOutput=null
+StandardError=null
+SyslogIdentifier=codex-app-server

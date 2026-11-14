@@ -1,0 +1,253 @@
+#!__INSTALLER_PATH_DIR_USR_BIN__/python3 -IB
+"""Headless, non-root Codex launcher; no installers or desktop dependencies."""
+from __future__ import annotations
+
+import os
+import fcntl
+from pathlib import Path
+import pwd
+import stat
+import sys
+
+ROOT = Path('__INSTALLER_PATH_DIR_DATA_CODEX__')
+BINARY = ROOT / 'share/bin/codex'
+WRAPPER = ROOT / 'lib/codex'
+POOL = Path('__INSTALLER_PATH_DIR_POOL__')
+BWRAP = Path('__INSTALLER_PATH_DIR_USR_BIN__') / 'bwrap'
+
+
+def direct(path: Path, *, owner: int | None = None, directory: bool = False) -> os.stat_result:
+    if not path.is_absolute() or os.path.realpath(path) != str(path):
+        raise ValueError('Codex path traverses an indirect ancestor')
+    info = path.lstat()
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if not expected(info.st_mode) or (not directory and info.st_nlink != 1):
+        raise ValueError('Codex path has an unexpected type or link count')
+    if owner is not None and info.st_uid != owner:
+        raise ValueError('Codex path has an unexpected owner')
+    return info
+
+
+def resolver_snapshot() -> tuple[int, Path]:
+    """Pin a bounded resolver snapshot; expose no host runtime directory."""
+    source = (Path('__INSTALLER_PATH_DIR_ETC__') / 'resolv.conf').resolve(strict=True)
+    runtime = Path('__INSTALLER_PATH_DIR_RUN__')
+    resolved = Path('__INSTALLER_PATH_DIR_RUN_SYSTEMD__') / 'resolve'
+    if not (source.is_relative_to(Path('__INSTALLER_PATH_DIR_ETC__')) or source in {
+            resolved / 'resolv.conf', resolved / 'stub-resolv.conf',
+            runtime / 'NetworkManager/resolv.conf', runtime / 'resolvconf/resolv.conf'}):
+        raise ValueError('unapproved resolver source')
+    owners = {0}
+    if source.parent == resolved:
+        try:
+            owners.add(pwd.getpwnam('systemd-resolve').pw_uid)
+        except KeyError:
+            pass
+    descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        info = os.fstat(descriptor)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid not in owners
+                or info.st_mode & 0o022 or not 0 <= info.st_size <= 65536):
+            raise ValueError('unsafe resolver source')
+        data = os.read(descriptor, 65537)
+        after = os.fstat(descriptor)
+        if (len(data) != info.st_size or (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                != (info.st_size, info.st_mtime_ns, info.st_ctime_ns)):
+            raise ValueError('resolver changed during bounded capture')
+    finally:
+        os.close(descriptor)
+    snapshot = os.memfd_create('codex-resolver', os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+    try:
+        with os.fdopen(os.dup(snapshot), 'wb') as stream:
+            stream.write(data); stream.flush()
+        os.lseek(snapshot, 0, os.SEEK_SET)
+        fcntl.fcntl(snapshot, fcntl.F_ADD_SEALS,
+                    fcntl.F_SEAL_WRITE | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SEAL)
+        return snapshot, source
+    except BaseException:
+        os.close(snapshot)
+        raise
+
+
+def main(arguments: list[str]) -> int:
+    uid = os.getuid()
+    if uid == 0 or uid != os.geteuid() or os.getgid() != os.getegid():
+        raise ValueError('Codex requires an ordinary non-root account')
+    account = pwd.getpwuid(uid)
+    home = Path(account.pw_dir)
+    direct(home, owner=uid, directory=True)
+    direct(ROOT, owner=0, directory=True)
+    for parent in ROOT.parents:
+        if direct(parent, owner=0, directory=True).st_mode & 0o022:
+            raise ValueError('Codex code ancestry is writable')
+    for code in (WRAPPER, BINARY, BWRAP):
+        info = direct(code, owner=0)
+        if info.st_mode & 0o6022 or not info.st_mode & 0o111:
+            raise ValueError('Codex executable is writable or not executable')
+    for code_directory in (ROOT / 'share', BINARY.parent, WRAPPER.parent):
+        if direct(code_directory, owner=0, directory=True).st_mode & 0o022:
+            raise ValueError('Codex executable ancestry is writable')
+    state = ROOT / 'usr/home'
+    direct(state, owner=uid, directory=True)
+    project = Path.cwd().resolve(strict=True)
+    workspace = home / 'Workspace'
+    build = Path('__INSTALLER_PATH_DIR_POOL_BUILD__') / account.pw_name
+    if not any(project == root or root in project.parents for root in (workspace, build)):
+        raise ValueError('Codex requires a project in the operator Workspace or pool build store')
+    if direct(project, owner=uid, directory=True).st_mode & 0o022 or not os.access(project, os.W_OK):
+        raise ValueError('Codex requires an account-owned project without shared write access')
+    environment = {
+        'HOME': str(home), 'USER': account.pw_name, 'LOGNAME': account.pw_name,
+        'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8',
+        'PATH': '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_BIN__',
+        'CODEX_HOME': str(state), 'CODEX_AGENTS': str(ROOT / 'usr/agents'),
+        'CODEX_SKILLS': str(ROOT / 'usr/skills'), 'CODEX_LOG_DIR': str(ROOT / 'log'),
+        'CODEX_SQLITE_HOME': str(ROOT / 'sqlite'),
+        'XDG_CONFIG_HOME': str(home / '.config'), 'XDG_CACHE_HOME': str(home / '.cache'),
+        'XDG_DATA_HOME': str(home / '.local/share'), 'XDG_STATE_HOME': str(home / '.local/state'),
+    }
+    # Explicit interactive authentication inputs remain private process data.
+    # No SSH agent, desktop bus, runner socket or ambient host service address.
+    for key in ('TERM', 'COLORTERM', 'OPENAI_API_KEY', 'CODEX_MCP_API_KEY'):
+        value = os.environ.get(key)
+        if value is not None:
+            if len(value) > 16384 or any(ord(char) < 32 for char in value):
+                raise ValueError('invalid Codex process input')
+            environment[key] = value
+    credentials = os.environ.get('CREDENTIALS_DIRECTORY')
+    if credentials:
+        directory = Path(credentials)
+        boundary = Path('__INSTALLER_PATH_DIR_RUN_USER__') / str(uid) / 'credentials'
+        if not directory.is_relative_to(boundary) or directory == boundary:
+            raise ValueError('unapproved Codex service credential directory')
+        if directory != boundary / 'codex-app-server.service':
+            raise ValueError('unapproved Codex credential unit')
+        info = direct(directory, directory=True)
+        if info.st_uid not in {0, uid} or info.st_mode & 0o077:
+            raise ValueError('unsafe Codex service credential directory')
+        descriptor = os.open(directory / 'codex-mcp.env', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            info = os.fstat(descriptor)
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid not in (0, uid)
+                    or info.st_mode & 0o077 or info.st_size > 16384):
+                raise ValueError('unsafe Codex service credential input')
+            data = os.read(descriptor, 16385)
+            if len(data) > 16384:
+                raise ValueError('oversized Codex service credential input')
+        finally:
+            os.close(descriptor)
+        seen = False
+        for line in data.decode('utf-8').splitlines():
+            if not line or line.startswith('#'):
+                continue
+            name, separator, value = line.partition('=')
+            if (name != 'CODEX_MCP_API_KEY' or not separator or seen
+                    or any(ord(char) < 32 or ord(char) == 127 for char in value)):
+                raise ValueError('invalid Codex service credential record')
+            environment[name] = value
+            seen = True
+    isolated = bool(arguments and arguments[0] == '--isolated-network')
+    if isolated:
+        arguments = arguments[1:]
+    if arguments and arguments[0] == '--no-bwrap':
+        raise ValueError('headless Codex requires its namespace boundary')
+    command = [str(BWRAP), '--die-with-parent', '--new-session', '--unshare-all',
+               '--cap-drop', 'ALL', '--ro-bind', '__INSTALLER_PATH_DIR_USR__', '__INSTALLER_PATH_DIR_USR__']
+    if not isolated:
+        command += ['--share-net']
+    # usrmerge is installed by the common APT fragment. These are Debian ABI
+    # interfaces, not mutable project path or toolchain defaults.
+    for name in ('bin', 'sbin', 'lib', 'lib64'):
+        host = Path('/') / name
+        if host.exists():
+            command += ['--ro-bind', str(host), str(host)]
+    command += ['--ro-bind', '__INSTALLER_PATH_DIR_ETC__', '__INSTALLER_PATH_DIR_ETC__',
+                '--proc', '__INSTALLER_PATH_DIR_PROC__', '--dev', '__INSTALLER_PATH_DIR_DEV__',
+                '--tmpfs', '__INSTALLER_PATH_DIR_TMP__', '--tmpfs', '__INSTALLER_PATH_DIR_RUN__',
+                '--dir', str(home), '--ro-bind', str(ROOT / 'share'), str(ROOT / 'share'),
+                '--ro-bind', str(ROOT / 'lib'), str(ROOT / 'lib'),
+                '--ro-bind', str(ROOT / 'config.schema.json'), str(ROOT / 'config.schema.json')]
+    # Codex advertises Unix endpoints through its native private per-UID
+    # rendezvous directory. Share only this directory with the socket proxy,
+    # keeping every unrelated host /tmp and /run socket outside the namespace.
+    rendezvous = Path('__INSTALLER_PATH_DIR_TMP__') / f'codex-daemon-{uid}'
+    try:
+        rendezvous.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    if stat.S_IMODE(direct(rendezvous, owner=uid, directory=True).st_mode) != 0o700:
+        raise ValueError('Codex socket rendezvous must remain account-private')
+    command += ['--bind', str(rendezvous), str(rendezvous)]
+    for name in ('usr', 'log', 'sqlite', 'runtime', 'packages', 'sockets'):
+        path = ROOT / name
+        direct(path, owner=uid, directory=True)
+        command += ['--bind', str(path), str(path)]
+    # Rootless work/cache/database stores remain on the separately mounted pool.
+    if not os.path.ismount(POOL):
+        raise ValueError('the Codex data pool is not mounted')
+    for root in ('__INSTALLER_PATH_DIR_POOL_BUILD__', '__INSTALLER_PATH_DIR_POOL_CACHE__', '__INSTALLER_PATH_DIR_POOL_DB__'):
+        path = Path(root) / account.pw_name
+        direct(path, owner=uid, directory=True)
+        command += ['--bind', str(path), str(path)]
+    scratch = Path('__INSTALLER_PATH_DIR_POOL_BUILD__') / account.pw_name / 'tmp'
+    if stat.S_IMODE(direct(scratch, owner=uid, directory=True).st_mode) != 0o700:
+        raise ValueError('Codex scratch directory must be account-private')
+    environment.update(TMPDIR=str(scratch), TMP=str(scratch), TEMP=str(scratch))
+    # Only explicit operator-owned pool paths may enter the build environment.
+    # Codex-only hosts do not acquire a toolchain through these names.
+    stores = tuple(Path(root) / account.pw_name for root in (
+        '__INSTALLER_PATH_DIR_POOL_BUILD__', '__INSTALLER_PATH_DIR_POOL_CACHE__', '__INSTALLER_PATH_DIR_POOL_DB__'))
+    for name in ('CARGO_HOME', 'CARGO_TARGET_DIR', 'CARGO_INSTALL_ROOT', 'RUSTUP_HOME', 'SCCACHE_DIR',
+                 'GOCACHE', 'GOPATH', 'GOBIN', 'GOMODCACHE', 'GOENV', 'GOTMPDIR', 'PIP_CACHE_DIR',
+                 'UV_CACHE_DIR', 'UV_TOOL_DIR', 'UV_TOOL_BIN_DIR', 'MISE_DATA_DIR', 'MISE_STATE_DIR',
+                 'MISE_CACHE_DIR', 'MISE_TMP_DIR', 'BAZELISK_HOME', 'NPM_CONFIG_CACHE', 'NPM_CONFIG_PREFIX',
+                 'COREPACK_HOME', 'ANSIBLE_HOME', 'ANSIBLE_GALAXY_CACHE_DIR', 'PACKER_CACHE_DIR',
+                 'PACKER_CONFIG', 'PACKER_PLUGIN_PATH', 'TF_PLUGIN_CACHE_DIR'):
+        value = os.environ.get(name)
+        if value is None:
+            continue
+        path = Path(value)
+        if (not path.is_absolute() or '..' in path.parts or str(path) != value
+                or not any(path.is_relative_to(root) for root in stores)):
+            raise ValueError('operator tool state must remain in its private pool stores')
+        environment[name] = value
+    environment['GOTOOLCHAIN'] = 'local'
+    bins = [environment[name] + '/bin' for name in ('CARGO_INSTALL_ROOT', 'CARGO_HOME', 'GOPATH') if name in environment]
+    if 'MISE_DATA_DIR' in environment:
+        bins.append(environment['MISE_DATA_DIR'] + '/shims')
+    environment['PATH'] = ':'.join([*bins, environment['PATH']])
+    # The full DevOps account has a rendered pool-backed Bazel policy and
+    # explicit Mise/Packer configuration. Codex-only accounts need none of
+    # these files. Never mount the whole home, SSH material or runner state.
+    for relative, directory in (('.bazelrc', False), ('.config/mise', True), ('.config/packer', True)):
+        path = home / relative
+        if not path.exists() and not path.is_symlink():
+            continue
+        if direct(path, owner=uid, directory=directory).st_mode & 0o022:
+            raise ValueError('operator tool configuration has shared write access')
+        command += ['--ro-bind', str(path), str(path)]
+    # /run is private. Keep /etc/resolv.conf usable even when Debian points it
+    # into systemd-resolved or NetworkManager, without exposing their sockets.
+    resolver, resolver_path = resolver_snapshot()
+    try:
+        if resolver_path.is_relative_to(Path('__INSTALLER_PATH_DIR_RUN__')):
+            for parent in reversed(resolver_path.parents):
+                if parent.is_relative_to(Path('__INSTALLER_PATH_DIR_RUN__')) and parent != Path('__INSTALLER_PATH_DIR_RUN__'):
+                    command += ['--dir', str(parent)]
+        command += ['--ro-bind-data', str(resolver), str(resolver_path),
+                    '--bind', str(project), str(project), '--chdir', str(project), '--', str(BINARY), *arguments]
+        # exec preserves native status and signal handling. Bubblewrap owns a PID
+        # namespace; no numeric-PID cleanup or unconfined fallback is introduced.
+        os.set_inheritable(resolver, True)
+        os.execve(BWRAP, command, environment)
+    finally:
+        os.close(resolver)
+    return 1
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (OSError, ValueError, KeyError) as error:
+        print(f'codex: {error}', file=sys.stderr)
+        raise SystemExit(1)

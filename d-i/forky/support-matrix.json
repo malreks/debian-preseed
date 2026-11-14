@@ -1,0 +1,411 @@
+{
+  "format": 1,
+  "tuples": [
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/desktop/base/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "desktop/base",
+      "roles": [
+        "desktop/base"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/desktop/full/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "desktop/full",
+      "roles": [
+        "desktop/full"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/desktop/medium/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "desktop/medium",
+      "roles": [
+        "desktop/medium"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/server/devops/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/devops",
+      "roles": [
+        "server/devops"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/server/github-actions/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/github-actions",
+      "roles": [
+        "server/github-actions"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/server/gitlab-cicd/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/gitlab-cicd",
+      "roles": [
+        "server/gitlab-cicd"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/server/technitium/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/technitium",
+      "roles": [
+        "server/technitium"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/server/devops+github-actions/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/devops+github-actions",
+      "roles": [
+        "server/devops",
+        "server/github-actions"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/server/devops+gitlab-cicd/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/devops+gitlab-cicd",
+      "roles": [
+        "server/devops",
+        "server/gitlab-cicd"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/server/github-actions+gitlab-cicd/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/github-actions+gitlab-cicd",
+      "roles": [
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/forky/plans/server/devops+github-actions+gitlab-cicd/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/devops+github-actions+gitlab-cicd",
+      "roles": [
+        "server/devops",
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "forky"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/desktop/base/amd64.json",
+      "qualification": {
+        "id": "trixie-labwc-x11-dependency",
+        "reason": "Native Trixie labwc depends on xwayland, excluded by this desktop policy. No foreign-suite fallback is permitted.",
+        "status": "blocked"
+      },
+      "role": "desktop/base",
+      "roles": [
+        "desktop/base"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/desktop/full/amd64.json",
+      "qualification": {
+        "id": "trixie-labwc-x11-dependency",
+        "reason": "Native Trixie labwc depends on xwayland, excluded by this desktop policy. No foreign-suite fallback is permitted.",
+        "status": "blocked"
+      },
+      "role": "desktop/full",
+      "roles": [
+        "desktop/full"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/desktop/medium/amd64.json",
+      "qualification": {
+        "id": "trixie-labwc-x11-dependency",
+        "reason": "Native Trixie labwc depends on xwayland, excluded by this desktop policy. No foreign-suite fallback is permitted.",
+        "status": "blocked"
+      },
+      "role": "desktop/medium",
+      "roles": [
+        "desktop/medium"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/server/devops/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/devops",
+      "roles": [
+        "server/devops"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/server/github-actions/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/github-actions",
+      "roles": [
+        "server/github-actions"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/server/gitlab-cicd/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/gitlab-cicd",
+      "roles": [
+        "server/gitlab-cicd"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/server/technitium/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/technitium",
+      "roles": [
+        "server/technitium"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/server/devops+github-actions/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/devops+github-actions",
+      "roles": [
+        "server/devops",
+        "server/github-actions"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/server/devops+gitlab-cicd/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/devops+gitlab-cicd",
+      "roles": [
+        "server/devops",
+        "server/gitlab-cicd"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/server/github-actions+gitlab-cicd/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/github-actions+gitlab-cicd",
+      "roles": [
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    },
+    {
+      "architecture": "amd64",
+      "filesystem": "btrfs",
+      "implementation": "candidate",
+      "mode": "fresh",
+      "plan": "catalog/compiled/trixie/plans/server/devops+github-actions+gitlab-cicd/amd64.json",
+      "qualification": {
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
+      },
+      "role": "server/devops+github-actions+gitlab-cicd",
+      "roles": [
+        "server/devops",
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "runtime_acceptance": "unverified",
+      "suite": "trixie"
+    }
+  ]
+}

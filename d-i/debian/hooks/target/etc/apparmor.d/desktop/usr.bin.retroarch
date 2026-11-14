@@ -1,0 +1,55 @@
+# Managed by unattended-installer.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+profile retroarch __INSTALLER_PATH_DIR_USR__/bin/retroarch flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/desktop-application>
+  #include <abstractions/pipewire-audio>
+  #include <abstractions/user-documents>
+  include if exists <abstractions/user-tmp>
+
+  capability sys_nice,
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network netlink raw,
+
+  __INSTALLER_PATH_DIR_DEV__/bus/usb/** rw,
+  __INSTALLER_PATH_DIR_DEV__/ r,
+  __INSTALLER_PATH_DIR_DEV__/hidraw* rw,
+  __INSTALLER_PATH_DIR_DEV__/input/** rw,
+  __INSTALLER_PATH_DIR_DEV__/shm/ r,
+  __INSTALLER_PATH_DIR_DEV__/uinput rw,
+  __INSTALLER_PATH_DIR_RUN__/udev/data/{c13:*,+input:input*} r,
+  __INSTALLER_PATH_DIR_SYS__/devices/**/power_supply/BAT[0-9]/{capacity,status,type} r,
+  @{sys}/devices/**/power_supply/hidpp_battery_[0-9]*/scope r,
+  @{PROC}/@{pid}/cmdline r,
+  owner @{PROC}/@{pid}/stat r,
+
+  __INSTALLER_PATH_DIR_USR__/bin/retroarch mr,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/libretro/ r,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/libretro/*.so mr,
+  __INSTALLER_PATH_DIR_USR__/lib/libretro/{,*.so} mr,
+  # Cores are shared libraries, not executables. Keep plugin mapping limited
+  # to the core directories; ROMs and saves receive no execution permission.
+  owner @{HOME}/.config/retroarch/cores/*.so mr,
+  owner @{HOME}/.local/share/retroarch/cores/*.so mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{libretro,retroarch}/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{libretro,retroarch}/** r,
+
+  owner @{HOME}/.cache/retroarch/ rw,
+  owner @{HOME}/.cache/retroarch/** rwk,
+  owner @{HOME}/.config/retroarch/ rw,
+  owner @{HOME}/.config/retroarch/** rwkl,
+  owner @{HOME}/.local/share/retroarch/ rw,
+  owner @{HOME}/.local/share/retroarch/** rwkl,
+  owner @{HOME}/Games/ rw,
+  owner @{HOME}/Games/** rwkl,
+  owner __INSTALLER_PATH_DIR_RUN__/media/*/ r,
+  owner __INSTALLER_PATH_DIR_RUN__/media/*/** rwkl,
+
+  include if exists <local/usr.bin.retroarch>
+}

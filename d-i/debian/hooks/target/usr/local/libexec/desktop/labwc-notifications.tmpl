@@ -1,0 +1,564 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Mako controls and a native Wayland history/notification viewer.
+
+The native Waybar menu dispatches fixed actions. No second notification daemon,
+notification-supplied command execution, shell parsing or history files are used.
+"""
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+import fcntl
+import json
+import math
+import os
+from pathlib import Path
+import pwd
+import re
+import select
+import secrets
+import stat
+import subprocess
+import sys
+import time
+from threading import Event
+
+MAX_OUTPUT = 1_048_576
+APP_ID = "org.labwc.NotificationCenter"
+REQUEST_TIMEOUT = 4.0
+MAX_VISIBLE = 100
+DND_MODE = "do-not-disturb"
+DND_DURATIONS = {"dnd-15m": 900, "dnd-1h": 3600, "dnd-4h": 14400, "dnd-tomorrow": None}
+DND_RECORD = "expiry.json"
+MOUSE_HINT = "Left: menu | Middle: DND | Right: DND on + dismiss all"
+# Only fixed Mako control operations; never notification-provided commands.
+ACTIONS = {
+    "dnd": ("mode", "-t", DND_MODE),
+    "dnd-on": ("mode", "-a", DND_MODE),
+    "dnd-off": ("mode", "-r", DND_MODE),
+    "dismiss": ("dismiss", "--all"),
+    "clear": ("dismiss", "--all", "--no-history"),
+    "restore": ("restore",),
+}
+REQUESTS = {("mode",), ("list", "-j"), ("history", "-j"), *ACTIONS.values()}
+
+
+class Error(RuntimeError):
+    pass
+
+
+class Busy(Error):
+    pass
+
+
+class OutcomeUnknown(Error):
+    pass
+
+
+def environment() -> dict[str, str]:
+    uid = os.getuid()
+    if uid == 0 or uid != os.geteuid():
+        raise Error("notification controls require the unprivileged desktop user")
+    runtime = Path(f"__INSTALLER_PATH_DIR_RUN_USER__/{uid}")
+    info = runtime.lstat()
+    bus = runtime / "bus"
+    bus_info = bus.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != uid
+            or stat.S_IMODE(info.st_mode) != 0o700
+            or not stat.S_ISSOCK(bus_info.st_mode) or bus_info.st_uid != uid
+            or bus_info.st_nlink != 1
+            or os.environ.get("XDG_RUNTIME_DIR", str(runtime)) != str(runtime)):
+        raise Error("unsafe desktop runtime directory")
+    # Socket modes follow the bus unit. The canonical UID-owned 0700 parent
+    # supplies isolation; rejecting a normal 0666 socket breaks every action.
+    account = pwd.getpwuid(uid)
+    env = {"HOME": account.pw_dir, "USER": account.pw_name, "LOGNAME": account.pw_name,
+           "XDG_RUNTIME_DIR": str(runtime), "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime}/bus",
+           "XDG_CONFIG_HOME": str(Path(account.pw_dir) / ".config"),
+           "PATH": "__INSTALLER_PATH_DIR_USR__/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+           "GDK_BACKEND": "wayland", "XDG_SESSION_TYPE": "wayland",
+           # Match the existing 10-wayland.env session policy. Clearing the
+           # environment must not accidentally re-enable an absent AT-SPI bus.
+           "GTK_A11Y": "none", "NO_AT_BRIDGE": "1"}
+    display = os.environ.get("WAYLAND_DISPLAY", "")
+    if re.fullmatch(r"wayland-[0-9]+", display):
+        env["WAYLAND_DISPLAY"] = display
+    return env
+
+
+def mako(args: list[str], env: dict[str, str], *, cancel: Event | None = None) -> str:
+    if tuple(args) not in REQUESTS:
+        raise Error("unsupported Mako request")
+    if cancel is not None and cancel.is_set():
+        raise Error("Mako request cancelled")
+    # Bound BOTH streams during capture. stderr must never corrupt JSON or
+    # leak notification content into the journal or a GTK error message.
+    process = subprocess.Popen(["__INSTALLER_PATH_DIR_USR__/bin/makoctl", *args], env=env, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        buffers = {process.stdout: bytearray(), process.stderr: bytearray()}
+        streams = list(buffers)
+        received = 0
+        deadline = time.monotonic() + REQUEST_TIMEOUT
+        try:
+            while streams:
+                if cancel is not None and cancel.is_set():
+                    raise Error("Mako request cancelled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise Error("Mako request timed out; check mako.service in the user journal")
+                readable, _, _ = select.select(streams, [], [], min(0.1, remaining))
+                for stream in readable:
+                    chunk = os.read(stream.fileno(), 16_384)
+                    if not chunk:
+                        streams.remove(stream)
+                        continue
+                    received += len(chunk)
+                    if received > MAX_OUTPUT:
+                        raise Error("Mako response exceeds one MiB")
+                    buffers[stream].extend(chunk)
+            # A process can close its pipes and still hang. Continue checking
+            # cancellation and the same deadline until its exact PID exits.
+            while process.poll() is None:
+                if cancel is not None and cancel.is_set():
+                    raise Error("Mako request cancelled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise Error("Mako request timed out; check mako.service in the user journal")
+                try:
+                    process.wait(timeout=min(0.1, remaining))
+                except subprocess.TimeoutExpired:
+                    pass
+            if process.returncode:
+                raise Error(f"Mako request failed (exit {process.returncode}); check mako.service in the user journal")
+            try:
+                return buffers[process.stdout].decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise Error("Mako returned invalid UTF-8") from exc
+        finally:
+            try:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=2)
+            except (OSError, subprocess.SubprocessError) as error:
+                raise OutcomeUnknown("Mako helper termination is outcome-unknown") from error
+    finally:
+        process.stdout.close()
+        process.stderr.close()
+
+
+@contextmanager
+def dnd_store(env: dict[str, str]):
+    """Manual controls, replacement requests and expiry share one owned lock."""
+    runtime = os.open(env["XDG_RUNTIME_DIR"], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    directory = lock = None
+    try:
+        info = os.fstat(runtime)
+        if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            raise Error("unsafe notification runtime directory")
+        try:
+            os.mkdir("labwc-notifications", 0o700, dir_fd=runtime)
+        except FileExistsError:
+            pass
+        directory = os.open("labwc-notifications", os.O_RDONLY | os.O_DIRECTORY |
+                            os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=runtime)
+        info = os.fstat(directory)
+        if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            raise Error("unsafe DND state directory")
+        lock = os.open("control.lock", os.O_RDWR | os.O_CREAT | os.O_NONBLOCK |
+                       os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=directory)
+        info = os.fstat(lock)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600):
+            raise Error("unsafe DND lock")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Busy("another notification control is in progress") from None
+        current = os.stat("control.lock", dir_fd=directory, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise Error("DND lock identity changed")
+        yield directory
+    finally:
+        if lock is not None:
+            os.close(lock)
+        if directory is not None:
+            os.close(directory)
+        os.close(runtime)
+
+
+def read_expiry(directory: int) -> dict | None:
+    try:
+        fd = os.open(DND_RECORD, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW |
+                     os.O_CLOEXEC, dir_fd=directory)
+    except FileNotFoundError:
+        return None
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                or before.st_nlink != 1 or stat.S_IMODE(before.st_mode) != 0o600
+                or not 0 < before.st_size <= 1024):
+            raise Error("unsafe DND expiry record")
+        data = os.read(fd, 1025)
+        after = os.fstat(fd)
+        if (len(data) != before.st_size or
+                (before.st_size, before.st_mtime_ns, before.st_ctime_ns) !=
+                (after.st_size, after.st_mtime_ns, after.st_ctime_ns)):
+            raise Error("DND expiry record changed during read")
+    finally:
+        os.close(fd)
+    try:
+        record = json.loads(data)
+    except (ValueError, RecursionError):
+        raise Error("invalid DND expiry record") from None
+    if (not isinstance(record, dict) or set(record) != {"schema", "token", "deadline"}
+            or type(record["schema"]) is not int or record["schema"] != 1
+            or not isinstance(record["token"], str) or not re.fullmatch(r"[a-f0-9]{32}", record["token"])
+            or type(record["deadline"]) not in (int, float) or not math.isfinite(record["deadline"])
+            or not 0 <= record["deadline"] <= time.monotonic() + 172800):
+        raise Error("invalid DND expiry record")
+    return record
+
+
+def write_expiry(directory: int, record: dict | None) -> None:
+    # Runtime UI state needs atomic replacement, without durable disk writes.
+    if record is None:
+        try:
+            os.unlink(DND_RECORD, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+        return
+    name = ".expiry-" + secrets.token_hex(16)
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW |
+                 os.O_CLOEXEC, 0o600, dir_fd=directory)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(json.dumps(record, separators=(",", ":")).encode("ascii"))
+        os.replace(name, DND_RECORD, src_dir_fd=directory, dst_dir_fd=directory)
+    finally:
+        try:
+            os.unlink(name, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+
+
+def start_expiry(env: dict[str, str], token: str, seconds: float) -> None:
+    command = ["__INSTALLER_PATH_DIR_USR__/bin/systemd-run", "--user", "--quiet", "--collect",
+               "--unit=labwc-dnd-expiry-" + token, "--description=Labwc timed do not disturb",
+               "--service-type=exec", "--expand-environment=no", "--slice=app.slice",
+               "--property=Requisite=labwc-session.target", "--property=After=labwc-session.target",
+               "--property=PartOf=labwc-session.target", "--property=ExitType=cgroup",
+               "--property=KillMode=control-group", "--property=TimeoutStopSec=5s",
+               "--property=TimeoutStartSec=10s", "--property=RuntimeMaxSec=" + str(math.ceil(seconds) + 30),
+               "--", "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications", "expire", token]
+    try:
+        result = subprocess.run(command, env=env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                check=False, timeout=12)
+    except subprocess.TimeoutExpired:
+        # An uncommitted worker has no authority to change Mako. Do not retry
+        # an uncertain unit creation or publish its token.
+        raise OutcomeUnknown("DND worker startup is outcome-unknown; DND was not changed") from None
+    if result.returncode:
+        raise Error("DND expiry worker could not be started; DND was not changed")
+
+
+def control(action: str, env: dict[str, str], *, cancel: Event | None = None) -> None:
+    options = {"cancel": cancel} if cancel is not None else {}
+    if action not in {"dnd", "dnd-on", "dnd-off", "dnd-dismiss", *DND_DURATIONS}:
+        mako(list(ACTIONS[action]), env, **options)
+        return
+    with dnd_store(env) as directory:
+        read_expiry(directory)  # Reject unsafe state before any mutation.
+        if action in DND_DURATIONS:
+            seconds = DND_DURATIONS[action]
+            if seconds is None:
+                midnight = datetime.combine(datetime.now().date() + timedelta(days=1), datetime.min.time()).astimezone()
+                seconds = max(1.0, (midnight - datetime.now().astimezone()).total_seconds())
+            token = secrets.token_hex(16)
+            deadline = time.monotonic() + seconds
+            # Type=exec startup completes while this lock is held. The worker
+            # cannot consume the new token until it has been committed here.
+            start_expiry(env, token, seconds)
+            write_expiry(directory, {"schema": 1, "token": token, "deadline": deadline})
+            command = "dnd-on"
+        else:
+            # Every explicit manual control invalidates a previous expiry.
+            write_expiry(directory, None)
+            command = "dnd-on" if action == "dnd-dismiss" else action
+        try:
+            mako(list(ACTIONS[command]), env, **options)
+            if action == "dnd-dismiss":
+                mako(list(ACTIONS["dismiss"]), env, **options)
+        except (Error, OSError, subprocess.SubprocessError) as error:
+            raise OutcomeUnknown("notification control failed; Mako state is outcome-unknown") from error
+
+
+def expire_once(env: dict[str, str], token: str) -> float | None:
+    with dnd_store(env) as directory:
+        record = read_expiry(directory)
+        if record is None or record["token"] != token:
+            return None  # A newer or manual request owns the state now.
+        remaining = record["deadline"] - time.monotonic()
+        if remaining > 0:
+            return min(30.0, remaining)
+        try:
+            mako(list(ACTIONS["dnd-off"]), env)
+        except (Error, OSError, subprocess.SubprocessError) as error:
+            # Keep the record as evidence; never retry an uncertain mutation.
+            raise OutcomeUnknown("DND expiry failed; retained expiry.json and Mako state is outcome-unknown") from error
+        write_expiry(directory, None)
+        return None
+
+
+def expire(env: dict[str, str], token: str) -> int:
+    deadline = time.monotonic() + 172830
+    while time.monotonic() < deadline:
+        try:
+            delay = expire_once(env, token)
+        except Busy:
+            delay = 0.2
+        if delay is None:
+            return 0
+        time.sleep(delay)
+    raise Error("DND expiry exceeded its lifetime; retained expiry.json")
+
+
+def notification_text(value, default: str, limit: int) -> str:
+    # Mako 1.11 emits JSON null for empty strings. Do not display Python's None,
+    # stringify objects, or pass NUL/surrogates/control sequences to GTK/Pango.
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        raise Error("Mako returned a non-text notification field")
+    return "".join(character if character in "\n\t" or
+                   (ord(character) >= 32 and not 0x7f <= ord(character) <= 0x9f
+                    and not 0xd800 <= ord(character) <= 0xdfff) else "\ufffd"
+                   for character in value[:limit]) or default
+
+
+def notification_list(text: str) -> list[dict[str, str]]:
+    if len(text) > MAX_OUTPUT:
+        raise Error("Mako response exceeds one MiB")
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError) as exc:
+        raise Error("Mako returned invalid notification JSON (requires mako-notifier >= 1.11)") from exc
+    if not isinstance(data, list) or len(data) > 1024 or any(not isinstance(item, dict) for item in data):
+        raise Error("Mako returned an invalid notification list")
+    return [{
+        "summary": notification_text(item.get("summary"), "Notification", 512),
+        "body": notification_text(item.get("body"), "", 8192),
+        "app": notification_text(item.get("app_name", item.get("app-name")), "", 256),
+    } for item in data]
+
+
+def snapshot(env: dict[str, str], action: str | None = None, *, cancel: Event | None = None) -> dict:
+    """Independent page failures must not hide a working Current or History view."""
+    result = {"active": None, "history": None, "dnd": None, "errors": []}
+    if action is not None and action not in ACTIONS:
+        raise Error("unsupported notification action")
+    if action is not None:
+        try:
+            control(action, env, cancel=cancel)
+        except (Error, OSError, subprocess.SubprocessError) as exc:
+            result["errors"].append("Action: " + str(exc))
+    for name, command in (("active", ["list", "-j"]), ("history", ["history", "-j"]),
+                          ("dnd", ["mode"])):
+        if cancel is not None and cancel.is_set():
+            break
+        try:
+            text = mako(command, env, cancel=cancel)
+            result[name] = DND_MODE in text.splitlines() if name == "dnd" else notification_list(text)
+        except (Error, OSError, subprocess.SubprocessError) as exc:
+            result["errors"].append(name.capitalize() + ": " + str(exc))
+    return result
+
+
+def show_center(env: dict[str, str]) -> int:
+    if not env.get("WAYLAND_DISPLAY"):
+        raise Error("notification center requires the managed Wayland display")
+    # GTK and any D-Bus helper must not inherit DISPLAY, arbitrary module paths,
+    # accessibility bridge overrides or a bus belonging to a different user.
+    os.environ.clear()
+    os.environ.update(env)
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    from gi.repository import Gdk, Gio, GLib, Gtk
+
+    class Center(Gtk.Application):
+        def __init__(self):
+            super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
+            self.window = None
+            self.alive = True
+            self.busy = False
+            self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mako-view")
+            self.timeout_id = None
+            self.cancel = Event()
+            self.page_cache = [object(), object()]
+
+        def do_activate(self):
+            if self.window is not None:
+                self.window.present()
+                return
+            self.window = Gtk.ApplicationWindow(application=self, title="Notifications")
+            self.window.set_default_size(720, 520)
+            self.window.connect("key-press-event", self.key_pressed)
+            self.window.connect("destroy", self.closed)
+            root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            root.set_border_width(12)
+            self.window.add(root)
+            self.controls = Gtk.Box(spacing=8)
+            root.pack_start(self.controls, False, False, 0)
+            for label, action, hint in (
+                    ("Refresh", None, "Refresh current notifications and Mako history"),
+                    ("DND on / off", "dnd", "Toggle only the do-not-disturb mode"),
+                    ("Dismiss active", "dismiss", "Save active notifications to history where Mako policy permits"),
+                    ("Restore latest", "restore", "Restore the most recent entry from Mako history")):
+                button = Gtk.Button(label=label)
+                button.set_tooltip_text(hint)
+                button.connect("clicked", lambda _button, action=action: self.refresh(action))
+                self.controls.pack_start(button, False, False, 0)
+            self.status = Gtk.Label(label="Loading notifications...", xalign=0)
+            self.status.set_line_wrap(True)
+            root.pack_start(self.status, False, False, 0)
+            notebook = Gtk.Notebook()
+            root.pack_start(notebook, True, True, 0)
+            self.pages = []
+            for title in ("Current", "History"):
+                scroll = Gtk.ScrolledWindow()
+                scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+                box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+                box.set_border_width(10)
+                scroll.add(box)
+                notebook.append_page(scroll, Gtk.Label(label=title))
+                self.pages.append(box)
+            note = Gtk.Label(label=("Mako keeps session history, not a permanent archive. Low-urgency messages may not be saved.\n"
+                                   "DND hides popups; restore does not turn DND off. Notification content is read-only."), xalign=0)
+            note.set_line_wrap(True)
+            root.pack_start(note, False, False, 0)
+            self.window.show_all()
+            self.refresh()
+            self.timeout_id = GLib.timeout_add_seconds(5, self.tick)
+
+        def key_pressed(self, _window, event):
+            if event.keyval == Gdk.KEY_Escape:
+                self.window.close()
+                return True
+            return False
+
+        def closed(self, *_):
+            self.alive = False
+            self.cancel.set()
+            if self.timeout_id is not None:
+                GLib.source_remove(self.timeout_id)
+                self.timeout_id = None
+            self.window = None
+
+        def tick(self):
+            if self.alive:
+                self.refresh()
+            return self.alive
+
+        def refresh(self, action=None):
+            if self.busy or not self.alive:
+                return
+            self.busy = True
+            self.controls.set_sensitive(False)
+            future = self.executor.submit(snapshot, env, action, cancel=self.cancel)
+            future.add_done_callback(self.queue_completed)
+
+        def queue_completed(self, future):
+            if not self.cancel.is_set():
+                GLib.idle_add(self.completed, future)
+
+        def completed(self, future):
+            self.busy = False
+            if not self.alive:
+                return False
+            self.controls.set_sensitive(True)
+            try:
+                result = future.result()
+                dnd = result["dnd"]
+                state = "unavailable" if dnd is None else "on" if dnd else "off"
+                counts = ["unavailable" if result[name] is None else str(len(result[name]))
+                          for name in ("active", "history")]
+                status = f"Do not disturb: {state} | {counts[0]} active | {counts[1]} in history"
+                if result["errors"]:
+                    status += "\n" + "\n".join(result["errors"])
+                self.status.set_text(status[:2048])
+                for index, (box, name) in enumerate(zip(self.pages, ("active", "history"))):
+                    entries = result[name]
+                    if entries == self.page_cache[index]:
+                        continue  # Do not rebuild labels or interrupt selection every five seconds.
+                    self.page_cache[index] = entries
+                    for child in box.get_children():
+                        box.remove(child)
+                        child.destroy()
+                    if entries is None:
+                        box.pack_start(Gtk.Label(label="This view is unavailable; see status above.", xalign=0), False, False, 0)
+                    elif not entries:
+                        box.pack_start(Gtk.Label(label="No notifications", xalign=0), False, False, 0)
+                    else:
+                        if len(entries) > MAX_VISIBLE:
+                            box.pack_start(Gtk.Label(label=f"Showing the first {MAX_VISIBLE} of {len(entries)} notifications.", xalign=0), False, False, 0)
+                        for item in entries[:MAX_VISIBLE]:
+                            frame = Gtk.Frame()
+                            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+                            content.set_border_width(8)
+                            frame.add(content)
+                            # No markup, URI handlers, images, or commands from notifications.
+                            for text in (item["app"], item["summary"], item["body"]):
+                                if text:
+                                    label = Gtk.Label(label=text, xalign=0)
+                                    label.set_line_wrap(True)
+                                    label.set_selectable(True)
+                                    label.set_max_width_chars(72)
+                                    content.pack_start(label, False, False, 0)
+                            box.pack_start(frame, False, False, 0)
+                    box.show_all()
+            except (Error, OSError, ValueError, subprocess.SubprocessError) as exc:
+                self.status.set_text(str(exc)[:1024])
+            return False
+
+        def do_shutdown(self):
+            self.closed()
+            self.executor.shutdown(wait=True, cancel_futures=True)
+            Gtk.Application.do_shutdown(self)
+
+    return Center().run(["labwc-notifications"])
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "expire" and re.fullmatch(r"[a-f0-9]{32}", argv[1]):
+        return expire(environment(), argv[1])
+    if len(argv) != 1 or argv[0] not in {"status", "center", "dnd-dismiss", *ACTIONS, *DND_DURATIONS}:
+        raise Error("usage: labwc-notifications status|center|dnd|dnd-on|dnd-off|dnd-dismiss|dnd-15m|dnd-1h|dnd-4h|dnd-tomorrow|dismiss|clear|restore")
+    env = environment()
+    action = argv[0]
+    if action == "status":
+        dnd = "do-not-disturb" in mako(["mode"], env).splitlines()
+        print(json.dumps({"text": "__THEME_WAYBAR_BUTTON_NOTIFICATIONS_DND_ICON_GLYPH__" if dnd else "__THEME_WAYBAR_BUTTON_NOTIFICATIONS_NORMAL_ICON_GLYPH__", "class": "dnd" if dnd else "normal",
+                          "tooltip": "Do not disturb: " + ("on" if dnd else "off") + "\n" + MOUSE_HINT}))
+    elif action in {"dnd-dismiss", *ACTIONS, *DND_DURATIONS}:
+        control(action, env)
+    else:
+        return show_center(env)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (Error, OSError, ValueError, ImportError, subprocess.SubprocessError) as exc:
+        print(f"labwc-notifications: {exc}", file=sys.stderr)
+        if sys.argv[1:] == ["status"]:
+            # Waybar hides a custom module on nonzero exit, even with valid
+            # JSON. Keep the menu/center reachable while Mako is unavailable;
+            # this reports a degraded status, not a successful control action.
+            print(json.dumps({"text": "__THEME_WAYBAR_BUTTON_NOTIFICATIONS_ERROR_ICON_GLYPH__", "class": "error",
+                              "tooltip": "Notifications unavailable: " + str(exc)[:1024] + "\n" + MOUSE_HINT}))
+            raise SystemExit(0)
+        raise SystemExit(4 if isinstance(exc, OutcomeUnknown) else 3 if isinstance(exc, Busy) else 1)

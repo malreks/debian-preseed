@@ -1,0 +1,26 @@
+{
+  "custom/notifications": {
+    "cursor": true,
+    "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-exec __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events notifications",
+    "return-type": "json",
+    "format": "{}",
+    "escape": true,
+    "restart-interval": 30,
+    "exec-on-event": false,
+    "signal": 8,
+    "tooltip": true,
+    "on-click-right": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications dnd-dismiss",
+    "on-click-middle": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications dnd",
+    "on-click-release": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --menu=notifications",
+    "menu-file": "~/.config/waybar/gtk/notifications-menu.xml",
+    "menu-actions": {
+      "notifications_center": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications center",
+      "notifications_restore": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications restore",
+      "notifications_dnd_on": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications dnd-on",
+      "notifications_dnd_off": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications dnd-off",
+      "notifications_dnd": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications dnd",
+      "notifications_dismiss": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications dismiss",
+      "notifications_clear": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications clear"
+    }
+  }
+}

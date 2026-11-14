@@ -1,0 +1,8 @@
+{
+  "d-i/debian/hooks/target/etc/installer/runtime.conf.tmpl": "d-i/debian/hooks/target/etc/system-runtime.conf.tmpl",
+  "d-i/debian/hooks/target/etc/secure-boot/config.tmpl": "d-i/debian/hooks/target/etc/secure-boot.conf.tmpl",
+  "d-i/debian/hooks/target/etc/default/chatgpt": "d-i/debian/hooks/target/etc/chatgpt/package-policy.conf",
+  "d-i/debian/hooks/target/etc/default/codex-app-server": "d-i/debian/hooks/target/etc/codex/app-server.env",
+  "d-i/debian/hooks/target/etc/default/zram-writeback.tmpl": "d-i/debian/hooks/target/etc/zram-writeback/setup.conf.tmpl",
+  "d-i/debian/hooks/target/etc/zram-writeback.conf.tmpl": "d-i/debian/hooks/target/etc/zram-writeback/policy.conf.tmpl"
+}

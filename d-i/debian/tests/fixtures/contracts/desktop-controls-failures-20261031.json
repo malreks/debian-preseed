@@ -1,0 +1,151 @@
+{
+  "schema": 1,
+  "execution": "Unexecuted failure-injection cases; source review only. No host, service, bus, policy or desktop access is authorized.",
+  "cases": [
+    {
+      "name": "forward-dispatch-alias",
+      "inject": "Alias reads a COMMANDS key first declared in the same update mapping.",
+      "expected": "Installation verification rejects it before menu activation; no dispatcher execution is used for the check."
+    },
+    {
+      "name": "output-startup-dock-dependency",
+      "inject": "Dock is activating while ordered After the notifying output watcher.",
+      "expected": "Initial reconciliation defers the modeset, sends readiness after subscribing, and never joins the pending dock start job."
+    },
+    {
+      "name": "output-connector-replaced",
+      "inject": "Topology changes after dock shutdown and before submitting the prepared plan.",
+      "expected": "No stale transaction is submitted; dock/authority cleanup retains the existing ownership lock."
+    },
+    {
+      "name": "output-commit-rejected",
+      "inject": "A transaction returns Device or resource busy or times out after submission.",
+      "expected": "Return failure, issue no replay using the same argv, retain paired transaction diagnostics and require a new snapshot for later reconciliation."
+    },
+    {
+      "name": "system-controls-click-drawer",
+      "inject": "Click the system leader, then click the settings child while the quick-controls drawer is open.",
+      "expected": "The drawer opens and closes only from the system leader click; the settings child owns the left-click GTK menu; no right-click handler or independent hover reveal remains."
+    },
+    {
+      "name": "transient-concurrent-actions",
+      "inject": "Two recording/menu actions start concurrently.",
+      "expected": "Distinct readable unit names retain each cgroup until its descendants exit; no shared deterministic unit silently replaces another action."
+    },
+    {
+      "name": "session-closing-action",
+      "inject": "Session closing marker appears before a queued transient action starts.",
+      "expected": "Service condition rejects execution; no host helper or native application starts."
+    },
+    {
+      "name": "credential-prompt-cancel-or-deadline",
+      "inject": "User cancels KWallet creation/unlock, or the bounded first-publication window expires.",
+      "expected": "No automatic prompt restart; private bootstrap remains; no credentials-ready receipt is published before successful readback; explicit retry is available."
+    },
+    {
+      "name": "credential-input-replaced",
+      "inject": "Bootstrap inode or recorded metadata changes during Secret Service publication.",
+      "expected": "Do not unlink replacement input or publish readiness; retain recovery input and report failure."
+    },
+    {
+      "name": "preset-partial-preview",
+      "inject": "One native field cannot be extracted from the rendered preset.",
+      "expected": "No partial draft update, publication, refresh or authentication; preserve other component drafts."
+    },
+    {
+      "name": "preset-save-failure",
+      "inject": "Existing transactional publication fails or its final readback cannot be completed.",
+      "expected": "Retain drafts and existing recovery journal; distinguish incomplete update from saved-but-unreadable state; do not retry an uncertain mutation."
+    },
+    {
+      "name": "apps-open-pointer-leaves",
+      "inject": "Open the native Apps click drawer, then move the pointer away from its leader and the group.",
+      "expected": "The group PRELIGHT state remains set and the Apps leader retains its bright icon, background, outline and shadow in both output layouts."
+    },
+    {
+      "name": "apps-close-pointer-remains",
+      "inject": "Click the Apps leader again while its drawer is open; keep the pointer over the button.",
+      "expected": "The group PRELIGHT state clears, the latched active colors are removed, and the Apps leader keeps only its direct pointer-hover outline/fill until the pointer leaves."
+    },
+    {
+      "name": "apps-leader-event-conflict",
+      "inject": "Add a native GTK menu or click handler to the Apps leader.",
+      "expected": "Installation verification rejects the event conflict before activation, preserving native drawer ownership."
+    },
+    {
+      "name": "fuzzel-dismisses-waybar-menu",
+      "inject": "Open a Waybar GTK menu, then invoke a managed Fuzzel launcher from that menu or a hotkey.",
+      "expected": "The launcher transfers focus directly to Fuzzel without requesting a Waybar service reload, so the existing bar process and surfaces remain in place without a refresh blink."
+    },
+    {
+      "name": "tomat-overlay-blocks-launcher-hotkeys",
+      "inject": "The Tomat layer-shell overlay publishes its private active marker while W-d, W-space, C-A-space, W-s, Super_L, or XF86Launch1 is pressed.",
+      "expected": "labwc-run, labwc-main-menu, and labwc-computer-management validate the owned marker and exit before dispatching Fuzzel; the marker is atomically removed by the owning overlay instance or its stop hook after the transient service has stopped."
+    },
+    {
+      "name": "tomat-overlay-calendar-agenda-regions",
+      "inject": "The Tomat overlay starts Calix and Agenda as separate managed session services.",
+      "expected": "Labwc applies native app-id window rules to snap Calix to the left 50% region and Agenda to the right 50% region, so both surfaces remain visible behind the overlay."
+    },
+    {
+      "name": "greeter-enabled-head-without-layout",
+      "inject": "The DRM head inherits Enabled: yes, Position: 0,0 and Scale: 1, but Labwc has not created its scene output. The output selector would skip a matching configuration.",
+      "expected": "The greeter starts Labwc with autoEnableOutputs=yes so the compositor initializes its output layout before launching the selector and gtkgreet. An enabled-head snapshot alone is not treated as proof that a login monitor exists."
+    },
+    {
+      "name": "greeter-selection-failure-fails-fast",
+      "inject": "After Labwc initializes the login output, the selector returns nonzero or its bounded capture times out.",
+      "expected": "The client keeps the selector failure fatal, emits its fixed diagnostic, and exits before starting the watcher or gtkgreet so an output-management failure cannot silently leave the login session on the wrong layout."
+    },
+    {
+      "name": "greeter-selection-before-login-surface",
+      "inject": "Both an HDMI monitor and an internal panel are connected and require different profile scales.",
+      "expected": "Labwc initializes usable outputs first; the existing selector applies HDMI preference and the configured scale before gtkgreet creates its layer surfaces. The watcher retains its existing parent ownership and bounded command/cleanup contracts."
+    },
+    {
+      "name": "greeter-output-idempotent-modeset",
+      "inject": "Labwc has already auto-enabled the selected greeter connector before the greeter output controller runs.",
+      "expected": "The controller compares the live connector state and skips a redundant atomic modeset when Enabled, Position, Scale, and the requested current mode already match."
+    },
+    {
+      "name": "greeter-output-single-atomic-transaction",
+      "inject": "The greeter has one selected connector and one already-enabled non-selected connector while a page flip is pending.",
+      "expected": "The controller sends one complete output transaction, omits already-disabled connectors, and does not replay per-output commits that can queue behind the pending i915 page flip; a busy or timed-out preferred-mode commit is not immediately retried with a fallback mode."
+    },
+    {
+      "name": "app-veth-orderly-stop",
+      "inject": "systemd stops app-veth.service and the broker's SIGTERM handler performs fail-closed lease cleanup before returning status 143.",
+      "expected": "The unit treats status 143 as a successful orderly stop, so normal shutdown does not leave app-veth.service failed."
+    },
+    {
+      "name": "waybar-supported-module-options",
+      "inject": "Waybar parses the custom-apps and custom-window-switcher modules.",
+      "expected": "Those custom module objects set cursor=true, the supported Waybar 0.15 pointer setting, and do not emit the unknown cursor option warning. The Apps drawer keeps its expanded active color and adds a separate hover highlight while the pointer is over the revealed control."
+    },
+    {
+      "name": "desktop-appearance-application-id",
+      "inject": "Crystal Dock receives a window with the GTK application ID org.labwc.DesktopAppearance.",
+      "expected": "The installed desktop entry has the matching org.labwc.DesktopAppearance desktop ID, so Crystal Dock can resolve the application icon and actions."
+    },
+    {
+      "name": "appearance-registry-render-before-capture",
+      "inject": "Stage fields.json.tmpl through fetch_hook using its private payload destination before the temporary appearance setup captures native defaults.",
+      "expected": "The source path selects appearance-defaults rendering. Every field default receives its theme value before publication as fields.json mode 0644; all other JSON values, including mapping templates, ordered token lists and target indices, remain unchanged. DOCK_ACTIVE_INDICATOR_2D_COLOR keeps its literal mapping marker and the captured registry retains every native mapping."
+    },
+    {
+      "name": "appearance-registry-render-invalid-default",
+      "inject": "Replace a default marker with an unknown theme key, a different field key, a malformed marker, or remove every default line.",
+      "expected": "Defaults-only rendering returns failure before atomic publication. Existing fields.json bytes remain intact or the file remains absent; defaults capture and subsequent activation do not run. Literal mapping markers are never substituted as a fallback."
+    },
+    {
+      "name": "appearance-registry-render-interrupted",
+      "inject": "Fail or interrupt the registry renderer after it has written a partial private candidate.",
+      "expected": "The existing publish_target_asset transaction removes only its private candidate and does not publish partial fields.json. The previous destination bytes or absence are preserved and the staging failure propagates before appearance capture."
+    },
+    {
+      "name": "apparmor-pathname-unix-address",
+      "inject": "Add a unix peer addr condition containing /run/user/[0-9]*/systemd/notify.",
+      "expected": "The changed-file checker rejects the parser-invalid filesystem address; the pathname remains covered by an ordinary file rule."
+    }
+  ]
+}

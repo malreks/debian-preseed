@@ -1,0 +1,26 @@
+# GUI document applications: no namespaces, raw devices, or arbitrary execution.
+#include <abstractions/desktop-application>
+#include <abstractions/user-documents>
+include if exists <abstractions/user-tmp>
+include if exists <abstractions/cups-client>
+# Printing to CUPS/IPP can require a remote connection.
+network inet stream,
+network inet6 stream,
+__INSTALLER_PATH_DIR_USR_SHARE__/{mime,icons,pixmaps,themes,locale,poppler,hunspell,myspell}/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/{mime,icons,pixmaps,themes,locale,poppler,hunspell,myspell}/** r,
+__INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/qt{5,6}/plugins/** mr,
+__INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/gio/modules/*.so mr,
+__INSTALLER_PATH_DIR_ETC__/{papersize,localtime} r,
+__INSTALLER_PATH_DIR_ETC__/cups/ r,
+__INSTALLER_PATH_DIR_ETC__/cups/** r,
+__INSTALLER_PATH_DIR_DEV__/shm/ r,
+owner __INSTALLER_PATH_DIR_DEV__/shm/** rwkl,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,wayland-*,qt*,app-*} rw,
+owner @{HOME}/.cache/ rw,
+owner @{HOME}/.cache/fontconfig/ rw,
+owner @{HOME}/.cache/fontconfig/** rwkl,
+owner @{HOME}/.config/{gtk-3.0,gtk-4.0,qt5ct,qt6ct}/** r,
+owner @{HOME}/.config/{gtk-3.0,gtk-4.0,qt5ct,qt6ct}/ r,
+owner @{HOME}/.config/{qt5ct,qt6ct}/colors/{,*.conf} r,
+__INSTALLER_PATH_DIR_USR_SHARE__/{qt5ct,qt6ct}/colors/{,*.conf} r,
+owner @{HOME}/.config/{kdeglobals,kdeglobals.lock,Trolltech.conf,QtProject.conf} rwkl,

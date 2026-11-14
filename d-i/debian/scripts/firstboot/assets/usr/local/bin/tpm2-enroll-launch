@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+pending_file=__INSTALLER_PATH_FILE_CRYPTO_PENDING__
+[ -r "$pending_file" ] || exit 0
+pending_user=$(cat "$pending_file")
+[ -n "$pending_user" ] || exit 0
+[ "$(id -un)" = "$pending_user" ] || exit 0
+[ -x __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/tpm2-enroll.sh ] || exit 0
+command -v labwc-terminal >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || exit 0
+command -v sudo >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || exit 0
+
+exec labwc-terminal -e sudo __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/tpm2-enroll.sh

@@ -1,0 +1,15 @@
+#!/bin/sh
+# shellcheck disable=SC2154
+set -eu
+umask 077
+# shellcheck disable=SC1091
+. __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/ssh-checks
+managed_ssh_context || { printf '%s\n' 'ssh: unsafe or incomplete managed identity' >&2; exit 1; }
+managed_ssh_socket || { printf '%s\n' 'ssh: unsafe or unavailable desktop agent socket' >&2; exit 1; }
+# Test signing ability rather than trusting a matching fingerprint listing.
+__INSTALLER_PATH_DIR_USR__/bin/ssh-add -T "$public" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 && exit 0
+SSH_ASKPASS=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-ssh-gpg-askpass
+SSH_ASKPASS_REQUIRE=force
+export SSH_ASKPASS SSH_ASKPASS_REQUIRE
+__INSTALLER_PATH_DIR_USR__/bin/ssh-add -q -- "$private" <__INSTALLER_PATH_DIR_DEV__/null || exit 1
+__INSTALLER_PATH_DIR_USR__/bin/ssh-add -T "$public" >__INSTALLER_PATH_DIR_DEV__/null 2>&1

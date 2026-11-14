@@ -1,0 +1,95 @@
+#!/bin/sh
+# GitHub's native pre-job hook uses its .sh interface. One exec hands the
+# bounded file work to Python; this is job runtime policy, never installation.
+exec __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B - <<'PY'
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+
+WORK = Path('__INSTALLER_PATH_DIR_SERVER_GITHUB_WORK__/build')
+BAZELRC = Path('__INSTALLER_PATH_FILE_SERVER_GITHUB_JOB_BAZELRC__')
+ENVIRONMENT = Path('__INSTALLER_PATH_FILE_SERVER_GITHUB_JOB_ENV__')
+
+
+def directory(path, *, create=False):
+    descriptor = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for part in path.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        info = os.fstat(descriptor)
+        if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError('untrusted job directory')
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def public(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_mode & 0o022 or info.st_nlink != 1 or info.st_size > 16384:
+            raise ValueError('untrusted job policy')
+        data = stream.read(16385)
+        if len(data) != info.st_size:
+            raise ValueError('job policy changed')
+        return data
+
+
+try:
+    if os.geteuid() != 2101:
+        raise ValueError('incorrect runner identity')
+    bazelrc = public(BAZELRC)
+    environment = public(ENVIRONMENT)
+    allowed = {'TMPDIR', 'CARGO_HOME', 'CARGO_TARGET_DIR', 'RUSTUP_HOME', 'GOPATH',
+               'GOCACHE', 'GOMODCACHE', 'GOTMPDIR', 'PIP_CACHE_DIR', 'UV_CACHE_DIR',
+               'BAZELISK_HOME', 'SCCACHE_DIR', 'CCACHE_DIR'}
+    seen = set()
+    for line in environment.decode('ascii').splitlines():
+        name, value = line.split('=', 1)
+        if name not in allowed or name in seen or re.fullmatch(r'/__w/\.ci-cache/[a-z-]+', value) is None:
+            raise ValueError('invalid container cache environment')
+        seen.add(name)
+    if seen != allowed:
+        raise ValueError('incomplete container cache environment')
+    # Native runner mounts _temp/_github_home at /github/home and exports HOME
+    # there. It mounts its work directory at /__w for every job container.
+    home = directory(WORK / '_temp/_github_home', create=True)
+    try:
+        temporary = '.bazelrc-' + os.urandom(16).hex()
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=home)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(bazelrc)
+        os.replace(temporary, '.bazelrc', src_dir_fd=home, dst_dir_fd=home)
+    finally:
+        os.close(home)
+    # GitHub processes the hook's native environment file before starting the
+    # job container. Registration credentials are never placed in job inputs.
+    native = Path(os.environ.get('GITHUB_ENV', ''))
+    parent = WORK / '_temp/_runner_file_commands'
+    if native.parent != parent or re.fullmatch(r'set_env_[a-zA-Z0-9-]+', native.name) is None:
+        raise ValueError('unexpected native environment-file interface')
+    owner = directory(parent)
+    try:
+        fd = os.open(native.name, os.O_WRONLY | os.O_APPEND | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=owner)
+        with os.fdopen(fd, 'wb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1 or info.st_size > 65536:
+                raise ValueError('unsafe native environment file')
+            stream.write(environment)
+    finally:
+        os.close(owner)
+except (OSError, ValueError, UnicodeError):
+    print('runner job cache policy unavailable; job remains failed before execution', file=sys.stderr)
+    raise SystemExit(1)
+PY

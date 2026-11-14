@@ -1,0 +1,618 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""On-demand categorized Fuzzel menu; GIO owns XDG lookup and Exec expansion.
+
+The UI process never loads desktop Exec strings. Each submenu/launch uses a
+fresh worker so GLib's process-local application cache cannot outlive a menu.
+No application directories are written and no application data reaches a shell.
+"""
+from __future__ import annotations
+
+import argparse
+from collections import Counter
+import json
+import locale
+import os
+from pathlib import Path
+import pwd
+import re
+import runpy
+import secrets
+import shlex
+import stat
+import subprocess
+import sys
+import unicodedata
+
+sys.dont_write_bytecode = True
+SELF = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu'
+FUZZEL = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-fuzzel'
+BACK = 'Back'
+MAX_APPS = 4096
+MAX_MENU_BYTES = 1024 * 1024
+MENU_MARKER_NAME = 'labwc-main-menu.pid'
+TOMAT_OVERLAY_MARKER_NAME = 'break-overlay.active'
+MAX_DESKTOP_BYTES = 1024 * 1024
+DEBUG_MODES = {
+    'gtk': 'GTK Inspector and GTK/GDK logs',
+    'qt': 'Qt/QPA/QtQuick logs',
+    'electron': 'Electron/Chromium and Ozone logs',
+    'wayland-graphics': 'Wayland/OpenGL/Mesa/Vulkan diagnostics',
+    'full': 'Full application diagnostic bundle',
+    'xwayland': 'Private Xwayland diagnostics (Zoom/Discord only)',
+}
+DEBUG_CONTEXT_NAMES = (
+    'LABWC_DEBUG_PROFILE', 'LABWC_DEBUG_SESSION', 'LABWC_DEBUG_DESKTOP_ID',
+    'LABWC_DEBUG_EXECUTABLE', 'LABWC_DEBUG_LOG_IDENTIFIER',
+)
+XWAYLAND_EXECUTABLES = {
+    'zoom': frozenset({'__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/zoom', '__INSTALLER_PATH_DIR_USR__/bin/zoom', '__INSTALLER_PATH_DIR_OPT__/zoom/zoom', '__INSTALLER_PATH_DIR_OPT__/zoom/ZoomLauncher'}),
+    'discord': frozenset({'__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/discord', '__INSTALLER_PATH_DIR_USR__/bin/discord', '__INSTALLER_PATH_DIR_USR__/bin/Discord', '__INSTALLER_PATH_DIR_OPT__/discord/Discord'}),
+}
+
+# Priority order, display label, main tokens, specific additional tokens.
+# Specific tokens refine broad main tokens; Settings always takes precedence.
+# Freedesktop Menu Specification, main/additional-category-registry (see docs).
+CATEGORY_RULES = (
+    ('Settings', {'Settings'}, {'DesktopSettings', 'HardwareSettings', 'Printing'}),
+    ('Development', {'Development'}, {'IDE', 'Building', 'Debugger', 'RevisionControl',
+                                     'Database', 'Profiling', 'WebDevelopment'}),
+    ('Internet', {'Network'}, {'WebBrowser', 'InstantMessaging', 'Chat', 'IRCClient',
+                              'FileTransfer', 'RemoteAccess', 'P2P'}),
+    ('Office & Productivity', {'Office'}, {'Calendar', 'ContactManagement', 'Email',
+                                          'ProjectManagement', 'Finance', 'Spreadsheet',
+                                          'WordProcessor', 'Presentation'}),
+    ('Graphics', {'Graphics'}, {'2DGraphics', '3DGraphics', 'Photography', 'Scanning',
+                               'VectorGraphics', 'RasterGraphics'}),
+    ('Multimedia', {'AudioVideo'}, {'Audio', 'Video', 'Player', 'Recorder',
+                                   'AudioVideoEditing', 'Music'}),
+    ('Games', {'Game'}, set()),
+    ('Education', {'Education', 'Science'}, {'Math', 'Languages', 'ArtificialIntelligence'}),
+    ('System', {'System'}, {'TerminalEmulator', 'Monitor', 'Security', 'PackageManager', 'Emulator'}),
+    ('Utilities', {'Utility'}, {'TextEditor', 'Calculator', 'Archiving', 'FileTools',
+                               'Compression', 'FileManager'}),
+)
+DISPLAY_CATEGORIES = ('Development', 'Internet', 'Office & Productivity', 'Graphics',
+                      'Multimedia', 'Games', 'Education', 'Utilities', 'System',
+                      'Settings', 'Other')
+
+# Only fixed, reviewed argv vectors may be executed as desktop actions.
+# Generic GUI actions use the existing wrapper's configured default GPU policy.
+WAYLAND = ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app', 'auto', '--')
+ACTIONS = {
+    'Terminal': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal',),
+    'Computer Management': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-computer-management',),
+    'Files': WAYLAND + ('__INSTALLER_PATH_DIR_USR__/bin/thunar',),
+    'Help': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-help', '--topic', 'desktop.fuzzel'),
+    # Keep the Fuzzel actions on the same public dispatcher used by Waybar.
+    # The dispatcher retains the session checks and authenticated handoff for
+    # every entry point; these vectors do not bypass it with direct helpers.
+    'Lock': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings', 'lock'),
+    'Logout': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings', 'logout'),
+    'Power': ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-power-settings', 'power'),
+}
+SETTINGS_ACTIONS = {
+    'Display': WAYLAND + ('__INSTALLER_PATH_DIR_USR__/bin/wdisplays',),
+    'Audio': WAYLAND + ('__INSTALLER_PATH_DIR_USR__/bin/pavucontrol',),
+    'Appearance': WAYLAND + ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-desktop-appearance', '--gtk'),
+    'Wallpaper': WAYLAND + ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/waypaper',),
+    'Labwc Tweaks': WAYLAND + ('__INSTALLER_PATH_DIR_USR__/bin/labwc-tweaks',),
+    'Qt6 Settings': WAYLAND + ('__INSTALLER_PATH_DIR_USR__/bin/qt6ct',),
+    'Refresh Outputs': ('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-output-watch', '--refresh'),
+    'Restart Dock': ('__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', '--no-block', 'restart', 'crystal-dock.service'),
+}
+
+
+def category_for(categories: str | None) -> str:
+    tokens = set((categories or '').split(';'))
+    label, main, specific = CATEGORY_RULES[0]
+    if tokens & (main | specific):
+        return label
+    for token_set_index in (2, 1):
+        for rule in CATEGORY_RULES[1:]:
+            if tokens & rule[token_set_index]:
+                return rule[0]
+    return 'Other'
+
+
+def prepare_environment() -> None:
+    # Never let an injected GI/module path substitute launcher implementation.
+    # -I separately disables Python's environment/site-current-directory imports.
+    for key in ('GIO_LAUNCH_DESKTOP', 'GIO_EXTRA_MODULES', 'GIO_MODULE_DIR', 'GI_TYPELIB_PATH'):
+        os.environ.pop(key, None)
+    # Relative XDG paths are invalid; GLib must not search the current directory.
+    home = os.environ.get('XDG_DATA_HOME', '')
+    if not home or not os.path.isabs(home):
+        account_home = Path.home()
+        if not account_home.is_absolute():
+            account_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+        os.environ['XDG_DATA_HOME'] = str(account_home / '.local/share')
+    roots = os.environ.get('XDG_DATA_DIRS', '')
+    if not roots:
+        roots = '__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__:__INSTALLER_PATH_DIR_USR_SHARE__'
+    absolute = [part for part in roots.split(':') if os.path.isabs(part)]
+    # An explicitly invalid list must not turn into an empty GLib value, which
+    # would re-enable its defaults. This fixed non-directory searches nothing.
+    os.environ['XDG_DATA_DIRS'] = ':'.join(dict.fromkeys(absolute)) or '__INSTALLER_PATH_DIR_DEV__/null'
+    os.environ.setdefault('XDG_CURRENT_DESKTOP', 'labwc:wlroots')
+
+
+def tomat_overlay_active() -> bool:
+    runtime_name = os.environ.get('XDG_RUNTIME_DIR', '')
+    if not re.fullmatch(r'__INSTALLER_PATH_DIR_RUN_USER__/[0-9]+', runtime_name):
+        return False
+    runtime = Path(runtime_name)
+    try:
+        runtime_info = runtime.lstat()
+        if (not stat.S_ISDIR(runtime_info.st_mode) or runtime_info.st_uid != os.getuid()
+                or stat.S_IMODE(runtime_info.st_mode) != 0o700):
+            return False
+        directory = runtime / 'labwc-tomat'
+        directory_info = directory.lstat()
+        if (not stat.S_ISDIR(directory_info.st_mode) or directory_info.st_uid != os.getuid()
+                or stat.S_IMODE(directory_info.st_mode) != 0o700):
+            return False
+        marker = directory / TOMAT_OVERLAY_MARKER_NAME
+        descriptor = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        with os.fdopen(descriptor, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600):
+                return False
+            value = stream.read(64)
+        return bool(re.fullmatch(rb'[0-9a-f]{12}\n', value))
+    except (FileNotFoundError, OSError, UnicodeError):
+        return False
+
+
+def gio_api():
+    prepare_environment()
+    try:
+        locale.setlocale(locale.LC_ALL, '')
+    except locale.Error:
+        locale.setlocale(locale.LC_ALL, 'C.UTF-8')
+    import gi
+    gi.require_version('Gio', '2.0')
+    gi.require_version('GioUnix', '2.0')
+    from gi.repository import Gio, GioUnix
+    return Gio, GioUnix.DesktopAppInfo
+
+
+def visible(app) -> bool:
+    # get_all/new have already applied desktop ID precedence, including Hidden
+    # tombstones and unavailable TryExec. Never retry a lower-precedence file.
+    return bool(app and app.get_string('Type') == 'Application'
+                and not app.get_is_hidden() and app.should_show())
+
+
+# Curated desktop identities override conflicting vendor categories (for
+# example RetroArch's Emulator secondary category is not a System app here).
+CATEGORY_OVERRIDES = {
+    'qoredb.desktop': 'Development',
+    'QoreDB.desktop': 'Development',
+    'com.qoredb.qoredb.desktop': 'Development',
+    'qalculate-qt.desktop': 'Office & Productivity',
+    'qalculate-gtk.desktop': 'Office & Productivity',
+    'retroarch.desktop': 'Games',
+    'org.libretro.RetroArch.desktop': 'Games',
+    'com.libretro.RetroArch.desktop': 'Games',
+}
+# The fixed Desktop Settings action already represents this executable.
+# Filter desktop IDs, never arbitrary localized display names.
+TWEAKS_DESKTOP_IDS = frozenset({'labwc-tweaks.desktop', 'labwc-tweaks-gtk.desktop'})
+
+
+def read_desktop_text(source: Path, limit: int = MAX_DESKTOP_BYTES) -> str:
+    with source.open(encoding='utf-8') as stream:
+        text = stream.read(limit + 1)
+    if len(text.encode('utf-8')) > limit:
+        raise ValueError('desktop entry exceeds the size limit')
+    return text
+
+
+def desktop_keyfile(text: str):
+    from gi.repository import GLib
+    keyfile = GLib.KeyFile()
+    try:
+        keyfile.load_from_data(text, len(text.encode('utf-8')), GLib.KeyFileFlags.KEEP_TRANSLATIONS)
+    except GLib.Error as exc:
+        raise ValueError(f'invalid desktop entry: {exc}') from exc
+    return keyfile
+
+
+def action_is_launchable(keyfile, action_id: str) -> bool:
+    from gi.repository import GLib
+    group = 'Desktop Action ' + action_id
+    try:
+        if group not in keyfile.get_groups()[0]:
+            return False
+        keys = keyfile.get_keys(group)[0]
+        return all(key in keys and bool((keyfile.get_string(group, key) or '').strip()) for key in ('Name', 'Exec'))
+    except GLib.Error:
+        return False
+
+
+def enumerate_apps() -> list[dict[str, str]]:
+    Gio, DesktopAppInfo = gio_api()
+    apps = {}
+    for app in Gio.AppInfo.get_all():
+        if not isinstance(app, DesktopAppInfo) or not visible(app):
+            continue
+        desktop_id = app.get_id()
+        if desktop_id and desktop_id not in TWEAKS_DESKTOP_IDS:
+            entry = {'id': desktop_id, 'action': '',
+                     'name': app.get_display_name() or desktop_id,
+                     'category': CATEGORY_OVERRIDES.get(desktop_id, category_for(app.get_categories())),
+                     'icon': safe_icon(app.get_string('Icon')),
+                     'executable': app.get_executable() or '',
+                     'filename': app.get_filename() or ''}
+            action_ids = list(dict.fromkeys(app.list_actions()))
+            # The existing catalog bound covers default launches and actions.
+            if len(apps) + 1 + len(action_ids) > MAX_APPS:
+                raise ValueError('application catalog exceeds the managed bounds')
+            if action_ids:
+                keyfile = desktop_keyfile(read_desktop_text(Path(entry['filename'])))
+                action_ids = [action_id for action_id in action_ids if action_is_launchable(keyfile, action_id)]
+            for action_id in ('', *action_ids):
+                choice = dict(entry, action=action_id)
+                if action_id:
+                    action_name = app.get_action_name(action_id) or action_id
+                    choice['name'] += ' — ' + action_name
+                if any(len(value.encode('utf-8')) > 4096 for value in choice.values()):
+                    raise ValueError('application catalog exceeds the managed bounds')
+                apps[desktop_id, action_id] = choice
+    return sorted(apps.values(), key=lambda app: (app['name'].casefold(), app['id'], app['action']))
+
+
+def desktop_policy() -> dict:
+    owner = Path('__INSTALLER_PATH_DIR_USR__').stat().st_uid
+    hook = Path('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files')
+    for path in (hook, *hook.parents):
+        meta = path.lstat()
+        expected = stat.S_ISREG if path == hook else stat.S_ISDIR
+        if not expected(meta.st_mode) or meta.st_uid != owner or meta.st_mode & 0o022:
+            raise RuntimeError('unsafe desktop policy helper')
+    return runpy.run_path(str(hook))
+
+
+def launch_debug_session(desktop_id: str, mode: str, executable: str) -> None:
+    """Start the filtered terminal and bounded collector for one app launch."""
+    if mode not in DEBUG_MODES:
+        raise ValueError('unsupported application debug mode')
+    if mode == 'xwayland' and not any(executable in paths for paths in XWAYLAND_EXECUTABLES.values()):
+        raise RuntimeError('Xwayland diagnostics are restricted to the managed Zoom and Discord entries')
+    session = secrets.token_hex(12)
+    # Correlation reaches the outer private compatibility output supervisor;
+    # its Cage/Xwayland environment remains owned by the existing runtime.
+    for name in DEBUG_CONTEXT_NAMES:
+        os.environ.pop(name, None)
+    os.environ.update({
+        'LABWC_DEBUG_PROFILE': mode,
+        'LABWC_DEBUG_SESSION': session,
+        'LABWC_DEBUG_DESKTOP_ID': desktop_id,
+        'LABWC_DEBUG_EXECUTABLE': executable,
+    })
+    # Prepare the request and baseline before the selected Exec is launched.
+    subprocess.run([
+        '__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-debug-session', 'start', session, mode, desktop_id, executable,
+    ], stdin=subprocess.DEVNULL, close_fds=True, timeout=10, check=True)
+    print(f'desktop debug session mode={mode} application={desktop_id} correlation=labwc-debug-{session}',
+          flush=True)
+
+
+def launch_desktop(desktop_id: str, action_id: str | None = None,
+                   debug_mode: str | None = None) -> None:
+    Gio, DesktopAppInfo = gio_api()
+    app = DesktopAppInfo.new(desktop_id)
+    if action_id is not None and (not visible(app) or action_id not in app.list_actions()):
+        raise RuntimeError(f'desktop action is no longer available: {desktop_id!r}: {action_id!r}')
+    if visible(app):
+        # Normalize the effective entry, not a lower-priority vendor copy.
+        # Reuse the dpkg hook's exact wrapper/terminal/compatibility policy;
+        # GIO still owns argument, URI and field-code expansion.
+        try:
+            source = Path(app.get_filename())
+            owner = Path('__INSTALLER_PATH_DIR_USR__').stat().st_uid
+            policy = desktop_policy()
+            defaults = policy['load_defaults'](owner_uid=owner)
+            prefix = policy['launch_prefix'](source, app.get_executable() or '',
+                                              app.get_string('Exec') or '', defaults)
+            text = read_desktop_text(source, policy['MAX_BYTES'])
+            text = policy['rewrite_desktop'](text, prefix)
+            keyfile = desktop_keyfile(text)
+            # An in-memory DesktopAppInfo has no filename for %k. Preserve its
+            # original identity; leave %% and every other field code to GIO.
+            quoted_source = '"' + ''.join('\\' + c if c in '\\"`$' else
+                                          '%%' if c == '%' else c for c in str(source)) + '"'
+            for group in keyfile.get_groups()[0]:
+                if group == 'Desktop Entry' or group.startswith('Desktop Action '):
+                    if 'Exec' in keyfile.get_keys(group)[0]:
+                        value = keyfile.get_string(group, 'Exec')
+                        value = re.sub(r'%%|%k', lambda m: '%%' if m[0] == '%%' else quoted_source, value)
+                        keyfile.set_string(group, 'Exec', value)
+            if debug_mode is not None:
+                # D-Bus activation delegates to an existing service which does
+                # not inherit this per-launch environment. Use the normalized
+                # managed Exec for diagnostic launches only.
+                keyfile.set_boolean('Desktop Entry', 'DBusActivatable', False)
+            normalized = DesktopAppInfo.new_from_keyfile(keyfile)
+            if normalized is None:
+                raise RuntimeError('normalized desktop entry is invalid')
+            if debug_mode is not None:
+                selected_group = 'Desktop Action ' + action_id if action_id else 'Desktop Entry'
+                selected_exec = keyfile.get_string(selected_group, 'Exec')
+                words = shlex.split(selected_exec)
+                executable_label = words[0] if words else (app.get_executable() or '')
+                compatibility = policy['compatibility_exec'](selected_exec)
+                if compatibility is not None:
+                    executable_label = shlex.split(compatibility)[0]
+                    if debug_mode != 'xwayland':
+                        raise RuntimeError('Zoom/Discord use the private Xwayland diagnostic entry')
+                launch_debug_session(desktop_id, debug_mode, executable_label)
+            if action_id is None:
+                normalized.launch([], Gio.AppLaunchContext())
+            else:
+                # Recheck after normalization; never fall back to the default
+                # launch when a selected action was removed or became invalid.
+                if (not visible(normalized) or action_id not in normalized.list_actions()
+                        or not action_is_launchable(keyfile, action_id)):
+                    raise RuntimeError(f'desktop action is unavailable: {action_id!r}')
+                normalized.launch_action(action_id, Gio.AppLaunchContext())
+        except Exception as exc:
+            raise RuntimeError(f'cannot launch {desktop_id!r}: {exc}') from exc
+
+
+def display_text(text: str) -> str:
+    # Fuzzel dmenu is line-oriented; controls must not create extra menu entries.
+    # Escape backslashes too, making these substitutions unambiguous. Preserve
+    # spaces, punctuation, Unicode/emoji and ordinary XML/shell metacharacters.
+    result = []
+    for char in text:
+        if char == '\\':
+            result.append('\\\\')
+        elif unicodedata.category(char) in {'Cc', 'Cs'} or char in '\u2028\u2029\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069':
+            result.append(f'\\u{ord(char):04x}')
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
+def app_choices(apps: list[dict[str, str]], category: str | None) -> dict[str, tuple[str, str]]:
+    selected = sorted((app for app in apps if category is None or app['category'] == category),
+                      key=lambda app: (app['name'].casefold(), app['id'], app.get('action', '')))
+    counts = Counter(display_text(app['name']) for app in selected)
+    choices = {}
+    for app in selected:
+        label = display_text(app['name'])
+        if counts[label] > 1 or label == BACK:
+            label += ' [' + display_text(app['id']) + ']'
+        base, number = label, 2
+        while label in choices or label == BACK:
+            label = f'{base} ({number})'
+            number += 1
+        choices[label] = (app['id'], app.get('action', ''))
+    return choices
+
+
+# Native theme names for navigation/actions; app rows use their effective
+# desktop entry's Icon field, not a guessed glyph or an Exec-derived name.
+MENU_ICONS = {
+    'Search Applications': '__THEME_FUZZEL_MENU_ACTION_SEARCH_APPLICATIONS_ICON_NAME__',
+    'Development': '__THEME_FUZZEL_MENU_CATEGORY_DEVELOPMENT_ICON_NAME__',
+    'Internet': '__THEME_FUZZEL_MENU_CATEGORY_INTERNET_ICON_NAME__',
+    'Office & Productivity': '__THEME_FUZZEL_MENU_CATEGORY_OFFICE_PRODUCTIVITY_ICON_NAME__',
+    'Graphics': '__THEME_FUZZEL_MENU_CATEGORY_GRAPHICS_ICON_NAME__',
+    'Multimedia': '__THEME_FUZZEL_MENU_CATEGORY_MULTIMEDIA_ICON_NAME__',
+    'Games': '__THEME_FUZZEL_MENU_CATEGORY_GAMES_ICON_NAME__',
+    'Education': '__THEME_FUZZEL_MENU_CATEGORY_EDUCATION_ICON_NAME__',
+    'Utilities': '__THEME_FUZZEL_MENU_CATEGORY_UTILITIES_ICON_NAME__',
+    'System': '__THEME_FUZZEL_MENU_CATEGORY_SYSTEM_ICON_NAME__',
+    'Settings': '__THEME_FUZZEL_MENU_CATEGORY_SETTINGS_ICON_NAME__',
+    'Other': '__THEME_FUZZEL_MENU_CATEGORY_OTHER_ICON_NAME__',
+    'Terminal': '__THEME_FUZZEL_MENU_ACTION_TERMINAL_ICON_NAME__',
+    'Computer Management': '__THEME_FUZZEL_MENU_ACTION_COMPUTER_MANAGEMENT_ICON_NAME__',
+    'Files': '__THEME_FUZZEL_MENU_ACTION_FILES_ICON_NAME__',
+    'Desktop Settings': '__THEME_FUZZEL_MENU_ACTION_DESKTOP_SETTINGS_ICON_NAME__',
+    'Help': '__THEME_FUZZEL_MENU_ACTION_HELP_ICON_NAME__',
+    'Lock': '__THEME_FUZZEL_MENU_ACTION_LOCK_ICON_NAME__',
+    'Logout': '__THEME_FUZZEL_MENU_ACTION_LOGOUT_ICON_NAME__',
+    'Power': '__THEME_FUZZEL_MENU_ACTION_POWER_ICON_NAME__',
+    'Display': '__THEME_FUZZEL_MENU_ACTION_DISPLAY_ICON_NAME__',
+    'Audio': '__THEME_FUZZEL_MENU_ACTION_AUDIO_ICON_NAME__',
+    'Appearance': '__THEME_FUZZEL_MENU_ACTION_APPEARANCE_ICON_NAME__',
+    'Wallpaper': '__THEME_FUZZEL_MENU_ACTION_WALLPAPER_ICON_NAME__',
+    'Labwc Tweaks': '__THEME_FUZZEL_MENU_ACTION_LABWC_TWEAKS_ICON_NAME__',
+    'Qt6 Settings': '__THEME_FUZZEL_MENU_ACTION_QT6_SETTINGS_ICON_NAME__',
+    'Refresh Outputs': '__THEME_FUZZEL_MENU_ACTION_REFRESH_OUTPUTS_ICON_NAME__',
+    'Restart Dock': '__THEME_FUZZEL_MENU_ACTION_RESTART_DOCK_ICON_NAME__',
+    BACK: '__THEME_FUZZEL_MENU_ACTION_BACK_ICON_NAME__',
+}
+DEFAULT_ICON = '__THEME_FUZZEL_MENU_DEFAULT_ICON_NAME__'
+
+
+def safe_icon(value: str | None) -> str:
+    # Native dmenu metadata is NUL + "icon" + US + value. Never let a desktop
+    # entry inject another row/metadata field. Icon names and absolute paths
+    # (including spaces and Unicode) remain data for Fuzzel's own resolver.
+    if not value or len(value) > 4096 or any(
+            unicodedata.category(c) in {'Cc', 'Cs'} or c in '\u2028\u2029'
+            for c in value):
+        return DEFAULT_ICON
+    if '/' in value and not os.path.isabs(value):
+        return DEFAULT_ICON
+    return value
+
+
+def choose(choices: dict, prompt: str, icons: dict[str, str] | None = None) -> str | None:
+    if any(not isinstance(label, str) or any(unicodedata.category(c) in {'Cc', 'Cs'}
+           or c in '\u2028\u2029' for c in label) for label in choices):
+        raise ValueError('menu labels must not contain protocol controls')
+    env = dict(os.environ, LABWC_FUZZEL_MANAGED_ICONS='0')
+    # The shell wrapper passes this already-encoded protocol through untouched.
+    # Fuzzel returns the label without metadata. The dispatch mapping is still
+    # closed: user-provided names/icons never become commands or shell code.
+    supplied = icons if icons is not None else (
+        MENU_ICONS if prompt in ('Main Menu', 'Desktop Settings') else {})
+    rows = ''.join(label + '\0icon\x1f' + safe_icon(supplied.get(label, MENU_ICONS.get(BACK)
+                   if label == BACK else DEFAULT_ICON)) + '\n' for label in choices)
+    if len(choices) > MAX_APPS + 1 or len(rows.encode('utf-8')) > MAX_MENU_BYTES:
+        raise ValueError('application picker input exceeds the managed bounds')
+    result = subprocess.run([FUZZEL, 'menu', '--dmenu', '--prompt', prompt + ': '],
+                            input=rows, text=True, encoding='utf-8', stdout=subprocess.PIPE, env=env, check=False)
+    if result.returncode == 3:
+        raise SystemExit(3)  # Dismiss the complete menu workflow.
+    if result.returncode == 1:
+        return None  # Win+Backspace: return to the parent menu.
+    if result.returncode != 0:
+        raise RuntimeError(f'Fuzzel failed (status {result.returncode})')
+    selected = result.stdout.removesuffix('\n')
+    return selected if selected in choices else None
+
+
+def run_action(argv: tuple[str, ...]) -> None:
+    result = subprocess.run(argv, check=False)
+    if result.returncode == 3:
+        raise SystemExit(3)
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, argv)
+
+
+def launcher_marker(active: bool) -> None:
+    """Publish a private lifecycle marker for Waybar's event-driven state."""
+    runtime = Path(os.environ.get('XDG_RUNTIME_DIR', ''))
+    if not runtime.is_absolute():
+        return
+    try:
+        runtime_info = runtime.lstat()
+        if (not stat.S_ISDIR(runtime_info.st_mode) or runtime_info.st_uid != os.getuid()
+                or stat.S_IMODE(runtime_info.st_mode) != 0o700):
+            return
+        marker = runtime / MENU_MARKER_NAME
+        if active:
+            descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT
+                                 | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+            with os.fdopen(descriptor, 'wb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                        or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600):
+                    return
+                stream.truncate(0)
+                stream.write((str(os.getpid()) + '\n').encode('ascii'))
+                stream.flush()
+        else:
+            descriptor = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            with os.fdopen(descriptor, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                        or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600):
+                    return
+                value = stream.read(32)
+            if value == (str(os.getpid()) + '\n').encode('ascii'):
+                marker.unlink()
+    except (FileNotFoundError, OSError, ValueError):
+        return
+
+
+def signal_launcher_state(active: bool) -> None:
+    """Refresh the launcher module after publishing its lifecycle marker."""
+    launcher_marker(active)
+    subprocess.run(
+        ['__INSTALLER_PATH_DIR_USR__/bin/systemctl', '--user', '--quiet', 'kill', '--kill-whom=main',
+         '--signal=RTMIN+8', 'waybar.service'],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, check=False, timeout=5,
+    )
+
+
+def run_menu(initial: str | None = None, debug_mode: str | None = None) -> None:
+    try:
+        signal_launcher_state(True)
+        _run_menu(initial, debug_mode)
+    finally:
+        signal_launcher_state(False)
+
+
+def _run_menu(initial: str | None = None, debug_mode: str | None = None) -> None:
+    top = dict.fromkeys(('Search Applications', *DISPLAY_CATEGORIES, 'Terminal',
+                         'Files', 'Computer Management', 'Desktop Settings', 'Help', 'Lock', 'Logout', 'Power'))
+    while True:
+        selected = initial if initial is not None else choose(top, 'Main Menu')
+        initial = None
+        if selected is None:
+            return
+        if selected in ACTIONS and selected != 'Search Applications':
+            run_action(ACTIONS[selected])
+            if selected in ('Computer Management', 'Power'):
+                continue
+            return
+        if selected == 'Desktop Settings':
+            choices = dict(SETTINGS_ACTIONS)
+            icons = MENU_ICONS
+        else:
+            # Fresh process, same user and XDG/session/output environment.
+            result = subprocess.run([SELF, '--list'], check=True, text=True,
+                                    stdout=subprocess.PIPE, timeout=10)
+            apps = json.loads(result.stdout)
+            if debug_mode is not None:
+                compat_executables = {'zoom', 'discord', 'Discord'} | set().union(*XWAYLAND_EXECUTABLES.values())
+                if debug_mode == 'xwayland':
+                    # Only the two existing compatibility entrypoints belong
+                    # in this picker. Selected Exec is checked again at launch.
+                    apps = [app for app in apps if app.get('executable') in compat_executables
+                            and not app.get('action')]
+                else:
+                    apps = [app for app in apps if app.get('executable') not in compat_executables]
+            choices = app_choices(apps, None if selected == 'Search Applications' else selected)
+            by_id = {app['id']: safe_icon(app.get('icon')) for app in apps}
+            icons = {label: by_id[desktop_id] for label, (desktop_id, _action_id) in choices.items()}
+        choices[BACK] = None
+        item = choose(choices, DEBUG_MODES[debug_mode] if debug_mode else selected, icons)
+        if item is None or item == BACK:
+            continue
+        if selected == 'Desktop Settings':
+            run_action(choices[item])
+        else:
+            desktop_id, action_id = choices[item]
+            command = [SELF, '--launch=' + desktop_id]
+            if action_id:
+                command.append('--action=' + action_id)
+            if debug_mode is not None:
+                command.append('--debug=' + debug_mode)
+            subprocess.run(command, check=True)
+        return
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--list', action='store_true', help='list visible apps as JSON (diagnostic)')
+    group.add_argument('--launch', metavar='DESKTOP_ID', help='launch an effective visible desktop ID')
+    group.add_argument('--search', action='store_true', help='search all applications with navigation back to the main menu')
+    parser.add_argument('--action', metavar='ACTION_ID', help='launch an advertised action of the selected desktop ID')
+    parser.add_argument('--debug', choices=tuple(DEBUG_MODES), help='launch the selected application with a complete managed diagnostic bundle')
+    options = parser.parse_args(argv)
+    if options.action is not None and options.launch is None:
+        parser.error('--action requires --launch')
+    if options.debug is not None and options.launch is None and options.action is not None:
+        parser.error('--debug with --action requires --launch')
+    if os.geteuid() == 0:
+        raise RuntimeError('the application menu must run as the desktop user, not root')
+    if tomat_overlay_active():
+        return 0
+    prepare_environment()
+    if options.list:
+        print(json.dumps(enumerate_apps(), ensure_ascii=False))
+    elif options.launch is not None:
+        launch_desktop(options.launch, options.action, options.debug)
+    elif options.search or options.debug is not None:
+        run_menu('Search Applications', options.debug)
+    else:
+        run_menu(debug_mode=options.debug)
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError, RuntimeError, ImportError, subprocess.SubprocessError) as exc:
+        print(f'labwc main menu: {exc}', file=sys.stderr)
+        raise SystemExit(1)

@@ -1,0 +1,15 @@
+# Preserve the reviewed Qt Hyprpolkitagent implementation for Labwc.
+# Only this binary package may come from signed Debian Trixie Backports.
+# Dependencies follow the selected native suite; no package-version pins.
+# Specific deny records precede the approved release record.
+Package: hyprpolkitagent:any
+Pin: release a=experimental
+Pin-Priority: -1
+
+Package: hyprpolkitagent:any
+Pin: release n=sid
+Pin-Priority: -1
+
+Package: hyprpolkitagent:any
+Pin: release o=Debian,n=trixie-backports
+Pin-Priority: 1001

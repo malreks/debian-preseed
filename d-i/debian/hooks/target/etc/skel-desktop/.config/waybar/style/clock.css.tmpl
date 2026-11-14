@@ -1,0 +1,87 @@
+/* Waybar clock button rules. Native theme values remain editable per mapping. */
+
+#clock {
+  background: __THEME_WAYBAR_BUTTON_CLOCK_NORMAL_BACKGROUND_COLOR__;
+  border-style: __THEME_WAYBAR_BORDER_STYLE__;
+  border-color: __THEME_WAYBAR_BUTTON_CLOCK_NORMAL_OUTLINE_COLOR__;
+  font-weight: __THEME_WAYBAR_FONT_WEIGHT_EMPHASIS__;
+  color: __THEME_WAYBAR_BUTTON_CLOCK_NORMAL_TEXT_COLOR__;
+}
+
+#clock:hover, #clock:active {
+  background: __THEME_WAYBAR_BUTTON_CLOCK_HOVER_BACKGROUND_COLOR__;
+  border-color: __THEME_WAYBAR_BUTTON_CLOCK_HOVER_OUTLINE_COLOR__;
+}
+
+/* The clock outline is animated by keyframes. Preserve color and border
+ * transitions while making the animated shadow take effect immediately. */
+window#waybar.internal #clock,
+window#waybar.external #clock {
+  transition: background-color __THEME_WAYBAR_HOVER_TRANSITION_DURATION_MS__ms ease, border-color __THEME_WAYBAR_HOVER_TRANSITION_DURATION_MS__ms ease, color __THEME_WAYBAR_HOVER_TRANSITION_DURATION_MS__ms ease, box-shadow 0s linear;
+}
+
+window#waybar.internal #clock:hover, window#waybar.internal #clock:active {
+  box-shadow: inset 0 0 0 2px __THEME_WAYBAR_BUTTON_CLOCK_HOVER_OUTLINE_COLOR__,
+              inset 0 0 8px 1px __THEME_WAYBAR_BUTTON_CLOCK_HOVER_SHADOW_COLOR__;
+  animation: waybar-clock-outline-cycle __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_DURATION_MS__ms linear infinite;
+}
+
+window#waybar.external #clock:hover, window#waybar.external #clock:active {
+  box-shadow: inset 0 0 0 2px __THEME_WAYBAR_BUTTON_CLOCK_HOVER_OUTLINE_COLOR__,
+              inset 0 0 8px 1px __THEME_WAYBAR_BUTTON_CLOCK_HOVER_SHADOW_COLOR__;
+  animation: waybar-clock-outline-cycle __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_DURATION_MS__ms linear infinite;
+}
+
+calendar.header label {
+  color: __THEME_WAYBAR_CLOCK_CALENDAR_MONTHS_TEXT_COLOR__;
+}
+
+calendar.day-name {
+  color: __THEME_WAYBAR_CLOCK_CALENDAR_WEEKDAYS_TEXT_COLOR__;
+}
+
+calendar.week-number {
+  color: __THEME_WAYBAR_CLOCK_CALENDAR_WEEKS_TEXT_COLOR__;
+}
+
+calendar.highlight {
+  color: __THEME_WAYBAR_CLOCK_CALENDAR_TODAY_TEXT_COLOR__;
+}
+
+@keyframes waybar-clock-outline-cycle {
+  0% {
+    box-shadow: inset 2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_LEFT_COLOR__,
+                inset 0 2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_TOP_COLOR__,
+                inset -2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_RIGHT_COLOR__,
+                inset 0 -2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_BOTTOM_COLOR__,
+                inset 0 0 8px 1px __THEME_WAYBAR_BUTTON_CLOCK_HOVER_SHADOW_COLOR__;
+  }
+  25% {
+    box-shadow: inset 2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_TOP_COLOR__,
+                inset 0 2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_RIGHT_COLOR__,
+                inset -2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_BOTTOM_COLOR__,
+                inset 0 -2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_LEFT_COLOR__,
+                inset 0 0 8px 1px __THEME_WAYBAR_BUTTON_CLOCK_HOVER_SHADOW_COLOR__;
+  }
+  50% {
+    box-shadow: inset 2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_RIGHT_COLOR__,
+                inset 0 2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_BOTTOM_COLOR__,
+                inset -2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_LEFT_COLOR__,
+                inset 0 -2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_TOP_COLOR__,
+                inset 0 0 8px 1px __THEME_WAYBAR_BUTTON_CLOCK_HOVER_SHADOW_COLOR__;
+  }
+  75% {
+    box-shadow: inset 2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_BOTTOM_COLOR__,
+                inset 0 2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_LEFT_COLOR__,
+                inset -2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_TOP_COLOR__,
+                inset 0 -2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_RIGHT_COLOR__,
+                inset 0 0 8px 1px __THEME_WAYBAR_BUTTON_CLOCK_HOVER_SHADOW_COLOR__;
+  }
+  100% {
+    box-shadow: inset 2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_LEFT_COLOR__,
+                inset 0 2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_TOP_COLOR__,
+                inset -2px 0 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_RIGHT_COLOR__,
+                inset 0 -2px 0 0 __THEME_WAYBAR_STATUS_OUTLINE_ANIMATION_BOTTOM_COLOR__,
+                inset 0 0 8px 1px __THEME_WAYBAR_BUTTON_CLOCK_HOVER_SHADOW_COLOR__;
+  }
+}

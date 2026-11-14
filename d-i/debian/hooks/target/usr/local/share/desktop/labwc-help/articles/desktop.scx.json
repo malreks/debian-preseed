@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "blocks": [
+    {
+      "type": "paragraph",
+      "text": "The desktop can use the profile-pinned scx and scx-loader Debian packages. Each package receives a local dpkg-sig _gpgorigin signature and is published through a signed APT source whose Release metadata covers the package hashes. APT verifies the signed source metadata; the embedded package signature is an additional package-level attestation. When the selected host profile opts in, scx_loader.service is enabled for automatic startup and launches the configured default through its D-Bus loader. sched_ext can replace the kernel's normal CPU scheduling policy at runtime. Help only documents the commands; it never starts, stops, or switches a scheduler."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Managed defaults"
+    },
+    {
+      "type": "list",
+      "items": [
+        "The loader reads __INSTALLER_PATH_DIR_ETC__/scx_loader/config.toml. The managed default scheduler is scx_rusty and its default mode is Auto; scx_rusty is the long-running general-purpose profile.",
+        "The scx_loader.service and scx.service are separate backends. The opted-in system profile enables scx_loader.service and disables scx.service, so only one backend owns sched_ext. Entering the DevOps shell requests an idempotent switch to scx_flash through scxctl.",
+        "The pinned scx-loader release advertises scx_beerland, scx_bpfland, scx_cake, scx_cosmos, scx_eevdf, scx_flash, scx_flow, scx_forge, scx_lavd, scx_mlfq, scx_pandemonium, scx_p2dq, scx_tickless, scx_rustland, and scx_rusty. scx_bore and scx_bored are not in this release; use scxctl list to inspect the installed loader instead of guessing a name.",
+        "The units have a sched_ext feature condition. A kernel without __INSTALLER_PATH_DIR_SYS__/kernel/sched_ext stays on its normal scheduler instead of repeatedly failing at boot."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Inspect or change the scheduler"
+    },
+    {
+      "type": "code",
+      "text": "systemctl status scx_loader.service --no-pager\n/usr/bin/scxctl list\n/usr/bin/scxctl get\njournalctl -u scx_loader.service -b"
+    },
+    {
+      "type": "paragraph",
+      "text": "Use the existing administrator authorization path before changing a scheduler. Read the active mode and recent service log first. If a scheduler is unstable, stop or disable scx_loader.service through the administrator workflow and allow the kernel's built-in scheduler to take over; do not delete the configuration or rebuild scheduler binaries from source."
+    },
+    {
+      "type": "warning",
+      "text": "Scheduler behavior depends on the installed kernel, the profile-pinned scx packages, and current workload. Keep the direct scx.service disabled while the loader is in use, retain service logs after a failure, and treat a failed or uncertain transition as requiring inspection before another attempt."
+    }
+  ]
+}

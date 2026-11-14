@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "execution": "unexecuted source fixtures; static-only boundary",
+  "cases": [
+    {
+      "name": "restricted-config",
+      "assert": "no shell sourcing; exact registered fields and selected UUIDs"
+    },
+    {
+      "name": "root-home-fds",
+      "assert": "root FD5 and home FD6 remain open through each native operation; UUID and disk sequence match the same session"
+    },
+    {
+      "name": "device-replacement",
+      "expect": "changed UUID/disk generation refuses before mutation"
+    },
+    {
+      "name": "native-fd-unavailable",
+      "expect": "read-only native descriptor compatibility probes fail before keyslot operations"
+    },
+    {
+      "name": "secrets",
+      "assert": "passphrases use bounded memfds/private credentials, never argv or diagnostics"
+    },
+    {
+      "name": "timeout",
+      "expect": "pin child before session validation; bounded TERM/KILL and final wait; no numeric PID fallback"
+    },
+    {
+      "name": "mutation-uncertainty",
+      "expect": "retain intent and private RAM workspace; return 76; phase and reenroll refuse automatic retry"
+    },
+    {
+      "name": "recovery",
+      "assert": "hold the same enrollment lock; confirm a changed generation; verify unchanged metadata or operation postconditions and recovery/PIN without mutating keyslots"
+    },
+    {
+      "name": "reboot-confirmation",
+      "assert": "release remains pending until evidence, TPM/PIN and recovery validation in a separate boot"
+    },
+    {
+      "name": "ownership",
+      "assert": "mutation child inherits the enrollment lock; cleanup never races retained uncertain work"
+    }
+  ]
+}

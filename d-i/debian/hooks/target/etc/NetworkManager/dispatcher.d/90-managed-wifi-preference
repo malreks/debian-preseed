@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+PATH=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__:__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin
+export PATH
+
+[ "$#" -eq 2 ] || exit 0
+device=$1
+event=$2
+case "$device:$event" in
+  *:up|*:down|*:dhcp4-change|*:dhcp6-change) ;;
+  *) exit 0 ;;
+esac
+
+# Dispatcher reconciliation is advisory. Do not make NetworkManager's
+# dispatcher unit fail when the adapter, lock, or NM state is transiently busy.
+__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-wifi-configure --dispatcher "$device" "$event" || exit 0

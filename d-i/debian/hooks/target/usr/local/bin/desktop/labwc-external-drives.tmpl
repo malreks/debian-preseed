@@ -1,0 +1,702 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Safe external USB volume and shutdown manager.
+
+Block-device discovery and identity checks are read-only. UDisks remains the
+only authority used for mount, unmount, and power-off mutations. Every action
+revalidates the selected major/minor identity before it mutates anything.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import fcntl
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+import labwc_desktop_runtime as desktop_runtime
+
+DEV_ROOT = Path("__INSTALLER_PATH_DIR_DEV__")
+MOUNTINFO = Path("__INSTALLER_PATH_DIR_PROC__/self/mountinfo")
+LSBLK = "__INSTALLER_PATH_DIR_USR__/bin/lsblk"
+UDISKSCTL = "__INSTALLER_PATH_DIR_USR__/bin/udisksctl"
+FINDMNT = "__INSTALLER_PATH_DIR_USR__/bin/findmnt"
+UDEVADM = "__INSTALLER_PATH_DIR_USR__/bin/udevadm"
+SYNC = "__INSTALLER_PATH_DIR_USR__/bin/sync"
+NOTIFY_SEND = "__INSTALLER_PATH_DIR_USR__/bin/notify-send"
+PICKER = "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-fuzzel"
+MAX_RECORDS = 128
+MAX_COMMAND_OUTPUT = 1_048_576
+SYNC_TIMEOUT = 120.0
+UDISKS_TIMEOUT = 120.0
+CLEANUP_TIMEOUT = 5.0
+UNMOUNT_ATTEMPTS = 30
+UNMOUNT_INTERVAL = 1.0
+DEVICE_NAME = re.compile(r"^[A-Za-z0-9._+-]+$")
+DEVNUM = re.compile(r"^[0-9]+:[0-9]+$")
+
+ERROR_ICON = "__THEME_MAKO_EXTERNAL_DRIVES_ERROR_ICON_NAME__"
+
+
+class DriveError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class Device:
+    path: str
+    kind: str
+    parent: str
+    devnum: str
+    device_type: str
+    fstype: str = ""
+    label: str = ""
+    model: str = ""
+    size: int = 0
+    transport: str = ""
+    mountpoints: str = ""
+
+
+@dataclass(frozen=True)
+class Mounted:
+    path: str
+    devnum: str
+    device_type: str
+
+
+def fatal(message: str, status: int = 1) -> int:
+    print(f"fatal: {message}", file=sys.stderr)
+    return status
+
+
+def decode_lsblk(value: str, *, mountpoints: bool = False) -> str:
+    result: list[str] = []
+    index = 0
+    while index < len(value):
+        if value.startswith("\\x", index) and index + 3 < len(value):
+            pair = value[index + 2:index + 4]
+            if not re.fullmatch(r"[0-9A-Fa-f]{2}", pair):
+                raise DriveError("external-device output contains an invalid escape")
+            code = int(pair, 16)
+            index += 4
+            if code == 0x20:
+                result.append(" ")
+            elif code == 0x09:
+                result.append("\t")
+            elif code == 0x0A:
+                result.append("\n")
+            elif code == 0x22:
+                result.append('"')
+            elif code == 0x5C:
+                result.append("\\")
+            elif code < 0x20 or code == 0x7F:
+                result.append("?")
+            else:
+                result.append(chr(code))
+            continue
+        result.append(value[index])
+        index += 1
+    text = "".join(result)
+    if any(character in text for character in ("\t", "\r")) or (not mountpoints and "\n" in text):
+        raise DriveError("external-device output contains unsupported control characters")
+    return text
+
+
+def parse_pairs(line: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for match in re.finditer(r"([^=\s]+)=\"((?:\\x[0-9A-Fa-f]{2}|[^\"])*)\"", line):
+        fields[match.group(1)] = match.group(2)
+    return fields
+
+
+def command(argv: list[str], *, timeout: float = 30, capture: bool = False,
+            input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    return desktop_runtime.run(argv, input_text=input_text, capture=capture, timeout=timeout)
+
+
+def run_bounded(argv: list[str], timeout: float, *, capture: bool = True) -> tuple[int, str]:
+    try:
+        result = desktop_runtime.run(argv, capture=capture, timeout=timeout,
+                                     output_limit=MAX_COMMAND_OUTPUT)
+        return int(result.returncode or 0), result.stdout or ""
+    except subprocess.TimeoutExpired:
+        return 124, ""
+    except (OSError, desktop_runtime.HelperError):
+        return 1, ""
+
+
+def notify(urgency: str, icon: str, summary: str, body: str) -> None:
+    if not os.access(NOTIFY_SEND, os.X_OK) or not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        return
+    try:
+        command([NOTIFY_SEND, "-a", "External Drives", "-u", urgency, "-i", icon, summary, body], timeout=2)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def picker(rows: list[str], prompt: str) -> str | None:
+    result = desktop_runtime.run([PICKER, "menu", "--dmenu", "--prompt", prompt],
+                                 input_text="".join(f"{row}\n" for row in rows), capture=True,
+                                 timeout=120, env=dict(os.environ, LABWC_MENU_ACTION_WAIT="1"))
+    if result.returncode == 1:
+        return None
+    if result.returncode == 3:
+        raise SystemExit(3)
+    if result.returncode != 0:
+        raise DriveError(f"menu picker failed (status {result.returncode})")
+    selected = result.stdout.rstrip("\n")
+    return selected if selected in rows else None
+
+
+def validate_device_path(path: str) -> str:
+    if not re.fullmatch(r"__INSTALLER_PATH_DIR_DEV__/[A-Za-z0-9._+-]+", path):
+        raise DriveError(f"unsafe external-drive device path: {path or 'unset'}")
+    return path
+
+
+def settle_udev() -> None:
+    if os.access(UDEVADM, os.X_OK):
+        try:
+            command([UDEVADM, "settle", "--timeout=5"], timeout=7)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+
+def snapshot(*extra: str, shutdown: bool = False) -> list[dict[str, str]]:
+    settle_udev()
+    fields = ("PATH,TYPE,FSTYPE,LABEL,MODEL,SIZE,TRAN,RM,HOTPLUG,MOUNTPOINTS,PKNAME,MAJ:MIN"
+              if not shutdown else "PATH,KNAME,TYPE,TRAN,MOUNTPOINTS,PKNAME,MAJ:MIN")
+    try:
+        result = command([LSBLK, "--bytes", "--pairs", "--paths", "--output", fields, "--", *extra], capture=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise DriveError("unable to inventory external block devices") from error
+    if result.returncode:
+        raise DriveError("unable to inventory external block devices")
+    if len(result.stdout.encode("utf-8", "replace")) > MAX_COMMAND_OUTPUT:
+        raise DriveError("external-device inventory exceeds its output limit")
+    return [parse_pairs(line) for line in result.stdout.splitlines() if line.strip()]
+
+
+def normalize_parent(value: str) -> str:
+    if value.startswith("__INSTALLER_PATH_DIR_DEV__/"):
+        value = value[5:]
+    return value
+
+
+def collect_inventory() -> tuple[list[str], dict[str, Device]]:
+    rows = snapshot()
+    usb_disks: set[str] = set()
+    for field in rows:
+        path = field.get("PATH", "")
+        if (field.get("TYPE") == "disk" and field.get("TRAN") == "usb"
+                and re.fullmatch(r"__INSTALLER_PATH_DIR_DEV__/[A-Za-z0-9._+-]+", path) and DEVNUM.fullmatch(field.get("MAJ:MIN", ""))):
+            usb_disks.add(Path(path).name)
+    visible: list[str] = []
+    records: dict[str, Device] = {}
+    count = 0
+    for field in rows:
+        kind = field.get("TYPE", "")
+        path = field.get("PATH", "")
+        if kind == "disk" and field.get("TRAN") != "usb":
+            continue
+        if kind not in {"disk", "part"} or not re.fullmatch(r"__INSTALLER_PATH_DIR_DEV__/[A-Za-z0-9._+-]+", path) or not DEVNUM.fullmatch(field.get("MAJ:MIN", "")):
+            continue
+        parent_name = normalize_parent(field.get("PKNAME", ""))
+        if kind == "part" and (parent_name not in usb_disks or field.get("TRAN") not in {"", "usb"}):
+            continue
+        parent = path if kind == "disk" else f"__INSTALLER_PATH_DIR_DEV__/{parent_name}"
+        count += 1
+        if count > MAX_RECORDS:
+            break
+        record_kind = "volume" if kind == "part" or field.get("FSTYPE") else "drive"
+        record = Device(path, record_kind, parent, field["MAJ:MIN"], kind,
+                        field.get("FSTYPE", ""), decode_lsblk(field.get("LABEL", "")),
+                        decode_lsblk(field.get("MODEL", "")), int(field.get("SIZE", "0") or 0),
+                        field.get("TRAN", ""), decode_lsblk(field.get("MOUNTPOINTS", ""), mountpoints=True))
+        identifier = f"{count:03d}"
+        records[identifier] = record
+        size = human_size(record.size)
+        if record.kind == "drive":
+            model = record.model[:42] or "External USB drive"
+            visible.append(f"{identifier}  [Drive] {record.path} - {model} - {size}")
+        else:
+            label = record.label[:32] or record.path
+            filesystem = decode_lsblk(record.fstype) if record.fstype else "no filesystem"
+            status = "[Mounted]" if record.mountpoints else "[Not mounted]"
+            location = f" - {record.mountpoints[:72]}" if record.mountpoints else ""
+            visible.append(f"{identifier}  {status} {label} - {filesystem} - {size}{location}")
+    return visible, records
+
+
+def human_size(value: int) -> str:
+    units = ("B", "KiB", "MiB", "GiB", "TiB", "PiB")
+    index = 0
+    number = float(max(value, 0))
+    while number >= 1024 and index < len(units) - 1:
+        number /= 1024
+        index += 1
+    return f"{number:.0f} {units[index]}" if index == 0 else f"{number:.1f} {units[index]}"
+
+
+def current_identity(device: str) -> tuple[str, str, str, str]:
+    validate_device_path(device)
+    try:
+        result = command([LSBLK, "--nodeps", "--pairs", "--paths", "--output", "MAJ:MIN,TYPE,TRAN,PKNAME", "--", device], capture=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise DriveError(f"unable to identify external-drive device: {device}") from error
+    for line in result.stdout.splitlines():
+        field = parse_pairs(line)
+        if DEVNUM.fullmatch(field.get("MAJ:MIN", "")) and field.get("TYPE") in {"disk", "part"}:
+            return field["MAJ:MIN"], field["TYPE"], field.get("TRAN", ""), normalize_parent(field.get("PKNAME", ""))
+    raise DriveError(f"unable to identify external-drive device: {device}")
+
+
+def validate_external_disk(device: str, expected_devnum: str | None = None) -> str:
+    validate_device_path(device)
+    if not Path(device).is_block_device():
+        raise DriveError(f"external drive is no longer available: {device}")
+    devnum, kind, transport, _parent = current_identity(device)
+    if expected_devnum and devnum != expected_devnum:
+        raise DriveError(f"external-drive disk identity changed: {device}")
+    if kind != "disk" or transport != "usb":
+        raise DriveError(f"external drive is not a USB disk: {device}")
+    return devnum
+
+
+def validate_external_target(device: str, expected_devnum: str, expected_type: str) -> tuple[str, str, str, str]:
+    validate_device_path(device)
+    if not Path(device).is_block_device():
+        raise DriveError(f"external-drive device is no longer available: {device}")
+    identity = current_identity(device)
+    if identity[0] != expected_devnum or identity[1] != expected_type:
+        raise DriveError(f"external-drive device identity changed: {device}")
+    if expected_type == "disk":
+        if identity[2] != "usb":
+            raise DriveError(f"device is not an external USB drive: {device}")
+    elif expected_type == "part":
+        if not DEVICE_NAME.fullmatch(identity[3]):
+            raise DriveError(f"external-drive partition has an unsafe parent: {device}")
+        if identity[2] not in {"", "usb"}:
+            raise DriveError(f"external-drive partition transport conflicts with its USB parent: {device}")
+        validate_external_disk(f"__INSTALLER_PATH_DIR_DEV__/{identity[3]}")
+    return identity
+
+
+def mountpoints_from_mountinfo(expected_devnum: str) -> list[str]:
+    try:
+        lines = MOUNTINFO.read_text(encoding="utf-8", errors="strict").splitlines()
+    except (OSError, UnicodeError):
+        return []
+    result: list[str] = []
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 6 or fields[2] != expected_devnum:
+            continue
+        value = fields[4]
+        try:
+            value = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), value)
+        except ValueError as error:
+            raise DriveError("external-volume mount point encoding is invalid") from error
+        if not value.startswith("/") or any(char in value for char in ("\n", "\r", "\t")):
+            raise DriveError("external-volume mount point contains unsupported control characters")
+        result.append(value)
+    return result
+
+
+def current_mountpoint(device: str, expected_devnum: str | None = None) -> str | None:
+    if expected_devnum:
+        values = mountpoints_from_mountinfo(expected_devnum)
+        if values:
+            return values[0]
+    try:
+        result = command([LSBLK, "--bytes", "--pairs", "--paths", "--output", "PATH,TYPE,FSTYPE,LABEL,MODEL,SIZE,TRAN,RM,HOTPLUG,MOUNTPOINTS,PKNAME,MAJ:MIN", "--", device], capture=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in result.stdout.splitlines():
+        field = parse_pairs(line)
+        if field.get("PATH") == device and field.get("MOUNTPOINTS"):
+            value = decode_lsblk(field["MOUNTPOINTS"], mountpoints=True)
+            if not value.startswith("/") or any(char in value for char in ("\n", "\r", "\t")):
+                raise DriveError("external-volume mount point is invalid")
+            return value.split("\n", 1)[0]
+    return None
+
+
+def target_mounted(device: str, devnum: str) -> bool:
+    return bool(mountpoints_from_mountinfo(devnum) or current_mountpoint(device, devnum))
+
+
+def current_fstype(device: str) -> str:
+    try:
+        result = command([LSBLK, "--nodeps", "--noheadings", "--raw", "--output", "FSTYPE", "--", device], capture=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+
+
+def mount_supported(fstype: str) -> bool:
+    return fstype not in {"", "crypto_LUKS", "LVM2_member", "linux_raid_member", "swap"}
+
+
+def udisks(action: str, device: str) -> tuple[int, str]:
+    if action not in {"mount", "unmount", "power-off"}:
+        raise DriveError(f"unsupported UDisks external-drive operation: {action}")
+    validate_device_path(device)
+    return run_bounded([UDISKSCTL, action, "--block-device", device], UDISKS_TIMEOUT + CLEANUP_TIMEOUT)
+
+
+def sync_volume(device: str, devnum: str, kind: str) -> int:
+    validate_external_target(device, devnum, kind)
+    mountpoint = current_mountpoint(device, devnum)
+    if not mountpoint:
+        return 0
+    notify("normal", "__THEME_MAKO_EXTERNAL_DRIVES_ACTIVITY_ICON_NAME__", "Writing external-drive data", f"Please wait while pending writes to {device} are committed.")
+    status, output = run_bounded([SYNC, "--file-system", "--", mountpoint], SYNC_TIMEOUT + CLEANUP_TIMEOUT)
+    if output:
+        (print(output) if status == 0 else print(output, file=sys.stderr))
+    if status:
+        notify("critical", ERROR_ICON, "Filesystem sync failed", f"{device} remains mounted and powered. Close files and try again.")
+        return status
+    validate_external_target(device, devnum, kind)
+    if current_mountpoint(device, devnum) != mountpoint:
+        notify("critical", ERROR_ICON, "External drive changed", f"{device} remains untouched because its mount point changed.")
+        return 1
+    return 0
+
+
+def wait_unmounted(device: str, devnum: str) -> int:
+    for _attempt in range(UNMOUNT_ATTEMPTS + 1):
+        if not target_mounted(device, devnum):
+            return 0
+        time.sleep(UNMOUNT_INTERVAL)
+    print(f"timed out waiting for external volume to unmount: {device}", file=sys.stderr)
+    return 1
+
+
+def unmount_volume(device: str, devnum: str, kind: str) -> int:
+    validate_external_target(device, devnum, kind)
+    if not target_mounted(device, devnum):
+        notify("normal", "__THEME_MAKO_EXTERNAL_DRIVES_EJECT_ICON_NAME__", "External volume already unmounted", f"{device} is not mounted.")
+        return 0
+    if sync_volume(device, devnum, kind):
+        return 1
+    status, output = udisks("unmount", device)
+    if output:
+        (print(output) if status == 0 else print(output, file=sys.stderr))
+    if status or wait_unmounted(device, devnum):
+        notify("critical", ERROR_ICON, "External volume is still mounted", f"{device} may be busy. Close files and applications, then try again.")
+        return status or 1
+    notify("normal", "__THEME_MAKO_EXTERNAL_DRIVES_EJECT_ICON_NAME__", "External volume unmounted", f"{device} was unmounted cleanly.")
+    return 0
+
+
+def mount_volume(device: str, devnum: str, kind: str) -> int:
+    validate_external_target(device, devnum, kind)
+    status, output = udisks("mount", device)
+    if output:
+        (print(output) if status == 0 else print(output, file=sys.stderr))
+    if status:
+        notify("critical", ERROR_ICON, "External volume mount failed", f"{device} could not be mounted.")
+        return status
+    notify("normal", "__THEME_MAKO_EXTERNAL_DRIVES_ACTIVITY_ICON_NAME__", "External volume mounted", f"{device} is ready to use.")
+    return 0
+
+
+def mounted_records_for_disk(disk: str) -> list[Mounted]:
+    rows = snapshot(disk)
+    name = Path(disk).name
+    result: list[Mounted] = []
+    for field in rows:
+        path = field.get("PATH", "")
+        transport = field.get("TRAN", "")
+        if ((path == disk or normalize_parent(field.get("PKNAME", "")) == name)
+                and (transport == "usb" or (field.get("TYPE") == "part" and transport == ""))
+                and field.get("MOUNTPOINTS") and DEVNUM.fullmatch(field.get("MAJ:MIN", ""))):
+            result.append(Mounted(path, field["MAJ:MIN"], field.get("TYPE", "")))
+    return result
+
+
+def confirm(prompt: str, continuation: str) -> bool:
+    return picker(["Cancel", continuation], prompt) == continuation
+
+
+def power_off_drive_confirmed(disk: str, devnum: str) -> int:
+    validate_external_disk(disk, devnum)
+    validate_disk_removal_state(disk, devnum)
+    mounted = mounted_records_for_disk(disk)
+    for volume in mounted:
+        if sync_volume(volume.path, volume.devnum, volume.device_type):
+            notify("critical", ERROR_ICON, "External drive remains connected", f"{volume.path} could not be synchronized and remains mounted.")
+            return 1
+    for volume in mounted:
+        status = unmount_volume(volume.path, volume.devnum, volume.device_type)
+        if status:
+            notify("critical", ERROR_ICON, "External drive remains connected", f"{volume.path} is busy and was not force-unmounted.")
+            return status
+    if mounted_records_for_disk(disk):
+        notify("critical", ERROR_ICON, "External drive remains connected", f"{disk} still has mounted volumes and was not powered off.")
+        return 1
+    validate_external_disk(disk, devnum)
+    validate_disk_removal_state(disk, devnum)
+    status, output = udisks("power-off", disk)
+    if output:
+        (print(output) if status == 0 else print(output, file=sys.stderr))
+    if status:
+        notify("critical", ERROR_ICON, "External drive power-off failed", f"{disk} remains connected.")
+        return status
+    notify("normal", "__THEME_MAKO_EXTERNAL_DRIVES_EJECT_ICON_NAME__", "External drive powered off", f"{disk} can now be disconnected.")
+    return 0
+
+
+def power_off_drive(disk: str, devnum: str) -> int:
+    validate_external_disk(disk, devnum)
+    if not confirm(f"Safely power off {disk}", "Sync, unmount volumes, and power off"):
+        return 0
+    return power_off_drive_confirmed(disk, devnum)
+
+
+def manage_volume(record: Device) -> int:
+    validate_external_target(record.path, record.devnum, record.device_type)
+    disk_devnum = validate_external_disk(record.parent)
+    mountpoint = current_mountpoint(record.path, record.devnum)
+    if mountpoint:
+        action = picker(["Unmount Volume", "Safely Power Off Drive", "← Back"], f"{record.path} is mounted")
+    elif mount_supported(current_fstype(record.path)):
+        action = picker(["Mount Volume", "Safely Power Off Drive", "← Back"], f"{record.path} is not mounted")
+    else:
+        action = picker(["Safely Power Off Drive", "← Back"], f"{record.path} is not mountable")
+    if action == "Mount Volume":
+        return mount_volume(record.path, record.devnum, record.device_type)
+    if action == "Unmount Volume":
+        return unmount_volume(record.path, record.devnum, record.device_type)
+    if action == "Safely Power Off Drive":
+        return power_off_drive(record.parent, disk_devnum)
+    return 0
+
+
+def manage_drive(record: Device) -> int:
+    validate_external_disk(record.path, record.devnum)
+    if picker(["Safely Power Off Drive", "← Back"], f"{record.path} actions") == "Safely Power Off Drive":
+        return power_off_drive(record.path, record.devnum)
+    return 0
+
+
+def shutdown_records() -> list[tuple[str, str, str]]:
+    rows = snapshot(shutdown=True)
+    homes = {entry.pw_dir for entry in pwd.getpwall() if entry.pw_uid == 0 or 1000 <= entry.pw_uid <= 59999 and entry.pw_dir.startswith("/")}
+    nodes: list[tuple[str, str]] = []
+    protected: set[str] = set()
+    swaps: set[str] = set()
+    mapped: set[str] = set()
+    disks: dict[str, tuple[str, str]] = {}
+    for field in rows[:4096]:
+        key = field.get("KNAME", "")
+        if not key.startswith("__INSTALLER_PATH_DIR_DEV__/"):
+            key = f"__INSTALLER_PATH_DIR_DEV__/{key}" if key else field.get("PATH", "")
+        parent = field.get("PKNAME", "")
+        if parent and not parent.startswith("__INSTALLER_PATH_DIR_DEV__/"):
+            parent = f"__INSTALLER_PATH_DIR_DEV__/{parent}"
+        nodes.append((key, parent))
+        if field.get("TYPE") not in {"disk", "part"}:
+            mapped.add(key)
+        for mount in decode_lsblk(field.get("MOUNTPOINTS", ""), mountpoints=True).split("\n") if field.get("MOUNTPOINTS") else []:
+            if mount in {"/", "__INSTALLER_PATH_DIR_HOME__"} or mount in homes or re.fullmatch(r"/(boot|usr|etc|var)(/.*)?", mount):
+                protected.add(key)
+            if mount == "[SWAP]":
+                swaps.add(key)
+        if field.get("TYPE") == "disk" and field.get("TRAN") == "usb":
+            path = field.get("PATH", "")
+            devnum = field.get("MAJ:MIN", "")
+            if not re.fullmatch(r"__INSTALLER_PATH_DIR_DEV__/[A-Za-z0-9._+-]+", path) or not DEVNUM.fullmatch(devnum):
+                raise DriveError("invalid USB shutdown inventory")
+            disks[key] = (path, devnum)
+    changed = True
+    while changed:
+        changed = False
+        for child, parent in nodes:
+            if not parent:
+                continue
+            for source, target in ((protected, protected), (swaps, swaps), (mapped, mapped)):
+                if child in source and parent not in target:
+                    target.add(parent)
+                    changed = True
+    return [("system" if key in protected else "swap" if key in swaps else "mapped" if key in mapped else "external", path, devnum) for key, (path, devnum) in disks.items()]
+
+
+def validate_disk_removal_state(disk: str, devnum: str) -> None:
+    records = shutdown_records()
+    matching = [(kind, path, number) for kind, path, number in records if path == disk and number == devnum]
+    if len(matching) != 1:
+        raise DriveError("the selected external disk changed during removal")
+    if matching[0][0] != "external":
+        raise DriveError(f"external disk removal rejected: active {matching[0][0]} storage remains on {disk}")
+
+
+def prepare_shutdown() -> int:
+    records = shutdown_records()
+    for kind, device, _devnum in records:
+        if kind == "swap":
+            raise DriveError(f"external USB disk still contains active swap: {device}")
+        if kind == "mapped":
+            raise DriveError(f"external USB disk still has an open encrypted/LVM/RAID mapping: {device}")
+    for kind, device, devnum in records:
+        if kind == "system":
+            print(f"Keeping USB system disk available for PID 1: {device}")
+        elif kind == "external":
+            print(f"Preparing external USB disk for shutdown: {device}")
+            if power_off_drive_confirmed(device, devnum):
+                return 1
+    print("External USB drive preparation complete")
+    return 0
+
+
+def run_path_operation(operation: str, selected_path: str) -> int:
+    if operation not in {"--manage-path", "--unmount-path", "--power-off-path"} or not selected_path.startswith("/") or not Path(selected_path).is_dir():
+        raise DriveError("the selected external-drive folder is unavailable")
+    try:
+        result = command([FINDMNT, "--noheadings", "--raw", "--canonicalize", "--evaluate", "--nofsroot", "--output", "SOURCE", "--target", selected_path], capture=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise DriveError("unable to resolve the selected folder's mounted volume") from error
+    device = result.stdout.strip()
+    validate_device_path(device)
+    devnum, kind, _transport, parent = current_identity(device)
+    if kind == "disk":
+        disk = device
+    elif kind == "part":
+        disk = f"__INSTALLER_PATH_DIR_DEV__/{parent}"
+    else:
+        raise DriveError("the selected folder is not on a supported external USB volume")
+    validate_external_target(device, devnum, kind)
+    disk_devnum = validate_external_disk(disk)
+    os.chdir("/")
+    if operation == "--manage-path":
+        return manage_volume(Device(device, "volume", disk, devnum, kind))
+    if operation == "--unmount-path":
+        return unmount_volume(device, devnum, kind)
+    return power_off_drive(disk, disk_devnum)
+
+
+def run_device_operation(operation: str, device: str) -> int:
+    if operation not in {"--unmount-device", "--power-off-device"}:
+        raise DriveError("unsupported external-drive operation")
+    devnum, kind, _transport, parent = current_identity(device)
+    validate_external_target(device, devnum, kind)
+    os.chdir("/")
+    if operation == "--unmount-device":
+        return unmount_volume(device, devnum, kind)
+    disk = device if kind == "disk" else f"__INSTALLER_PATH_DIR_DEV__/{parent}"
+    return power_off_drive_confirmed(disk, validate_external_disk(disk))
+
+
+def operation_lock(runtime: Path, shutdown: bool):
+    if shutdown:
+        runtime = Path("__INSTALLER_PATH_DIR_RUN__/labwc-power")
+        metadata = runtime.lstat()
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != 0 or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise DriveError("the root external-drive shutdown runtime directory is unsafe")
+    else:
+        try:
+            metadata = runtime.lstat()
+        except OSError as error:
+            raise DriveError("the desktop external-drive runtime directory is unavailable") from error
+        if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o700):
+            raise DriveError("the desktop external-drive runtime directory is unsafe")
+    lock = runtime / "labwc-external-drives.lock"
+    descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        owner = 0 if shutdown else os.getuid()
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) != 0o600):
+            raise DriveError("the external-drive operation lock has unsafe metadata")
+        current = lock.lstat()
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise DriveError("the external-drive operation lock changed identity")
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(descriptor)
+        raise DriveError("an external-drive operation is already in progress") from None
+    except OSError:
+        os.close(descriptor)
+        raise
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def main(argv: list[str]) -> int:
+    operation = "menu"
+    selected = ""
+    if argv == ["--prepare-shutdown"]:
+        operation = "shutdown"
+    elif argv:
+        if len(argv) != 2 or argv[0] not in {"--manage-path", "--unmount-path", "--power-off-path", "--unmount-device", "--power-off-device"}:
+            return fatal("usage: labwc-external-drives [--prepare-shutdown|--manage-path FOLDER|--unmount-path FOLDER|--power-off-path FOLDER|--unmount-device DEVICE|--power-off-device DEVICE]", 2)
+        operation, selected = argv
+    shutdown = operation == "shutdown"
+    if shutdown:
+        if os.getuid() != 0:
+            raise DriveError("external-drive shutdown preparation requires the authorized root service")
+        os.chdir("/")
+        os.environ.pop("DBUS_SESSION_BUS_ADDRESS", None)
+        os.environ.pop("XDG_RUNTIME_DIR", None)
+    elif os.getuid() == 0:
+        raise DriveError("labwc-external-drives must run as the logged-in desktop user")
+    if not Path("__INSTALLER_PATH_DIR_RUN__/dbus/system_bus_socket").is_socket():
+        raise DriveError("the system D-Bus socket required by UDisks is unavailable")
+    if not os.access(UDISKSCTL, os.X_OK) or not os.access(LSBLK, os.X_OK):
+        raise DriveError("required external-drive command is not installed")
+    runtime = Path("__INSTALLER_PATH_DIR_RUN__/labwc-power") if shutdown else Path(os.environ.get("XDG_RUNTIME_DIR", ""))
+    if not shutdown and runtime != Path("__INSTALLER_PATH_DIR_RUN_USER__") / str(os.getuid()):
+        raise DriveError("the desktop runtime directory is unavailable")
+    lock = operation_lock(runtime, shutdown)
+    try:
+        if shutdown:
+            return prepare_shutdown()
+        if operation in {"--unmount-device", "--power-off-device"}:
+            return run_device_operation(operation, selected)
+        if operation != "menu":
+            return run_path_operation(operation, selected)
+        while True:
+            inventory, records = collect_inventory()
+            rows = ["000  Refresh drive list", *inventory, "999  Close"]
+            selection = picker(rows, "External drives")
+            if not selection:
+                return 0
+            identifier = selection.split(" ", 1)[0]
+            if identifier == "000":
+                continue
+            if identifier == "999":
+                return 0
+            if not identifier.isdecimal() or identifier not in records:
+                notify("critical", ERROR_ICON, "External drive selection rejected", "The selected inventory record was malformed.")
+                continue
+            record = records[identifier]
+            try:
+                if record.kind == "drive":
+                    manage_drive(record)
+                elif record.kind == "volume":
+                    manage_volume(record)
+                else:
+                    notify("critical", ERROR_ICON, "External drive selection rejected", "The selected inventory record type was invalid.")
+            except DriveError as error:
+                notify("critical", ERROR_ICON, "External drive action failed", str(error))
+                print(f"warning: {error}", file=sys.stderr)
+    finally:
+        os.close(lock)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except SystemExit:
+        raise
+    except (DriveError, OSError, subprocess.TimeoutExpired) as error:
+        raise SystemExit(fatal(str(error)))

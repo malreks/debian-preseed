@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+PREREQ=""
+
+prereqs() {
+  printf '%s\n' "$PREREQ"
+}
+
+case "${1:-}" in
+  prereqs)
+    prereqs
+    exit 0
+    ;;
+esac
+
+[ -r __INSTALLER_PATH_FILE_TPM2_CRYPTROOT_CONFIG__ ] || exit 0
+
+. __INSTALLER_PATH_DIR_USR_SHARE__/initramfs-tools/hook-functions
+
+fatal() {
+  printf 'tpm2-cryptroot hook: fatal: %s\n' "$*" >&2
+  exit 1
+}
+
+copy_file config __INSTALLER_PATH_FILE_TPM2_CRYPTROOT_CONFIG__ __INSTALLER_PATH_FILE_TPM2_CRYPTROOT_CONFIG__
+copy_exec __INSTALLER_PATH_DIR_USR_SBIN__/cryptsetup __INSTALLER_PATH_DIR_USR_SBIN__/cryptsetup
+
+token_plugin=$(find __INSTALLER_PATH_DIR_USR_LIB__ __INSTALLER_PATH_DIR_LIB__ -type f -name 'libcryptsetup-token-systemd-tpm2.so' -print 2>__INSTALLER_PATH_DIR_DEV__/null | head -n 1)
+[ -n "$token_plugin" ] || fatal "systemd TPM2 cryptsetup token plugin is unavailable"
+copy_exec "$token_plugin" "$token_plugin"
+
+# These systemd token dependencies are loaded dynamically. The native v262
+# Argon2id PIN path uses OpenSSL; retain each TSS family independently as well.
+for token_library in libtss2-esys libtss2-mu libtss2-rc libtss2-tcti-device libcrypto; do
+  # Keep package SONAME symlinks as well as their regular targets. copy_exec's
+  # packaged copy_file implementation preserves the link and copies its target.
+  token_libraries=$(find __INSTALLER_PATH_DIR_USR_LIB__ __INSTALLER_PATH_DIR_LIB__ \( -type f -o -type l \) \
+    -name "${token_library}.so.*" -print 2>__INSTALLER_PATH_DIR_DEV__/null | sort -u)
+  [ -n "$token_libraries" ] || fatal "TPM2 token runtime library is unavailable: $token_library"
+  for token_library_file in $token_libraries; do
+    copy_exec "$token_library_file" "$token_library_file"
+  done
+done
+
+manual_add_modules tpm || true
+manual_add_modules dm_crypt || true
+manual_add_modules tpm_crb || true
+manual_add_modules tpm_tis || true
+manual_add_modules tpm_tis_core || true
+manual_add_modules tpm_tis_spi || true
+manual_add_modules tpm_tis_spi_cr50 || true
+manual_add_modules tpm_tis_i2c || true
+manual_add_modules tpm_tis_i2c_cr50 || true
+manual_add_modules tpm_ftpm_tee || true

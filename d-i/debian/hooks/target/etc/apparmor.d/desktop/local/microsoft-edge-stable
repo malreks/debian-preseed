@@ -1,0 +1,97 @@
+# Managed by unattended-installer.
+#
+# Enforced Microsoft Edge attachment with package-owned code read-only and
+# mutable browser state limited to the Edge profile and Downloads.
+
+#include <abstractions/electron-application>
+#include <abstractions/pipewire-audio>
+#include <abstractions/user-documents>
+include if exists <abstractions/user-tmp>
+include if exists <abstractions/xdg-open>
+
+network inet stream,
+network inet6 stream,
+network inet dgram,
+network inet6 dgram,
+network netlink raw,
+
+__INSTALLER_PATH_DIR_DEV__/video* rw,
+__INSTALLER_PATH_DIR_RUN__/udev/data/c13:* r,
+@{PROC}/[0-9]*/statm r,
+@{sys}/devices/**/report_descriptor r,
+
+__INSTALLER_PATH_DIR_OPT__/microsoft/msedge/ r,
+__INSTALLER_PATH_DIR_OPT__/microsoft/msedge/** mrix,
+
+__INSTALLER_PATH_DIR_ETC_OPT__/edge/policies/ r,
+__INSTALLER_PATH_DIR_ETC_OPT__/edge/policies/** r,
+
+owner __INSTALLER_PATH_DIR_RUN__/media/*/ r,
+owner __INSTALLER_PATH_DIR_RUN__/media/*/** r,
+owner @{HOME}/.cache/Microsoft/ rw,
+owner @{HOME}/.cache/Microsoft/** rwkl,
+owner @{HOME}/.cache/microsoft-edge/ rw,
+owner @{HOME}/.cache/microsoft-edge/** rwk,
+owner @{HOME}/.config/microsoft-edge/ rw,
+owner @{HOME}/.config/microsoft-edge/** rwkl,
+owner @{HOME}/.config/microsoft-edge/NativeMessagingHosts/.bitwarden_desktop_proxy rix,
+owner @{HOME}/.config/{chromium,microsoft-edge}/NativeMessagingHosts/ r,
+owner @{HOME}/.config/{chromium,microsoft-edge}/NativeMessagingHosts/.app.bw.socket rw,
+owner @{HOME}/.config/{chromium,microsoft-edge}/NativeMessagingHosts/.app.bw.bitwarden.log rwkl,
+owner "@{HOME}/.config/microsoft-edge/Domain Actions/" r,
+owner "@{HOME}/.config/microsoft-edge/Domain Actions/*/" r,
+owner "@{HOME}/.config/microsoft-edge/Domain Actions/*/*.so" mr,
+owner @{HOME}/.pki/nssdb/ rw,
+owner @{HOME}/.pki/nssdb/** rwk,
+owner @{HOME}/@{XDG_DOWNLOAD_DIR}/ rw,
+owner @{HOME}/@{XDG_DOWNLOAD_DIR}/** rwkl,
+
+
+# Opt-in developer profile used by __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/browser-devtools.
+owner @{HOME}/.local/ r,
+owner @{HOME}/.local/state/ r,
+owner @{HOME}/.local/state/browser-devtools/ r,
+owner @{HOME}/.local/state/browser-devtools/edge/ rw,
+owner @{HOME}/.local/state/browser-devtools/edge/** rwkl,
+
+# GTK file-chooser previews use Glycin's independent decoder sandbox. Only
+# namespace construction lives in this child; no new capabilities are added
+# to the parent domain, and no unconfined execution fallback is introduced.
+__INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/{,*.conf} r,
+__INSTALLER_PATH_DIR_USR__/bin/bwrap rCx -> edge-glycin-bwrap,
+signal (send) set=(kill term) peer=microsoft-edge-stable//edge-glycin-bwrap,
+
+# Workspace uploads remain outside this browser's data policy, including when
+# another abstraction is expanded later. Use Downloads for deliberate uploads.
+deny @{HOME}/Workspace/ rw,
+deny @{HOME}/Workspace/** rwklmx,
+
+profile edge-glycin-bwrap flags=(mediate_deleted) {
+  # Do not attach disconnected paths to an artificial root: no such need is
+  # established by the supplied audit, and aliasing would widen the policy.
+  #include <abstractions/base>
+  #include <abstractions/bwrap-common>
+  include if exists <abstractions/fonts>
+  signal (receive) set=(kill term) peer=microsoft-edge-stable,
+  __INSTALLER_PATH_DIR_USR__/bin/true rix,
+  # NNP is already set when the loader runs: keep it in this child domain.
+  __INSTALLER_PATH_DIR_USR_LIBEXEC__/glycin-loaders/2+/{glycin-image-rs,glycin-svg} rix,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/{,*.conf} r,
+  __INSTALLER_PATH_DIR_USR_SHARE_MIME__/mime.cache r,
+  __INSTALLER_PATH_DIR_USR__/{,local/}share/icons/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE_BACKGROUNDS__/{,**} r,
+  owner __INSTALLER_PATH_DIR_TMP__/gdk-pixbuf-glycin-tmp.* rwk,
+  owner @{HOME}/.cache/fontconfig/{,**} r,
+  owner @{HOME}/.cache/glycin/{,**} rwkl,
+  # Browser databases, GPU descriptors and network access are not decoder
+  # requirements. Do not copy incidental inherited-fd complaints into grants.
+  deny @{HOME}/Workspace/ rw,
+  deny @{HOME}/Workspace/** rwklmx,
+  deny /oldroot@{HOME}/Workspace/ rw,
+  deny /oldroot@{HOME}/Workspace/** rwklmx,
+  deny /newroot@{HOME}/Workspace/ rw,
+  deny /newroot@{HOME}/Workspace/** rwklmx,
+  deny __INSTALLER_PATH_DIR_TMP__/{oldroot,newroot}@{HOME}/Workspace/ rw,
+  deny __INSTALLER_PATH_DIR_TMP__/{oldroot,newroot}@{HOME}/Workspace/** rwklmx,
+}

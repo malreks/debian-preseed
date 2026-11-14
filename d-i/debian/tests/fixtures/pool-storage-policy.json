@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "execution": "UNEXECUTED behavioral and failure-injection specifications; source inspection only",
+  "cases": [
+    {"id": "missing-pool", "given": "A role is selected but /pool is not mounted", "expect": "Refuse managed engine/build store creation before mutation; never fall back to root or home storage."},
+    {"id": "desktop-engines", "given": "Medium/full desktop with the existing rootless account and XFS /pool", "expect": "Retain Podman graphroot, volumes, image-copy staging and Incus dir pool below /pool; no existing-store reset or mapping change."},
+    {"id": "native-incus-archives", "given": "Managed Incus pool, image/backup/log volume settings and native ETag", "expect": "Use owner-marked native custom volumes on /pool for image, backup and instance-log storage; preserve unrelated configuration and refuse conflicting settings or volume owners. An uncertain native relocation retains its transaction and is not retried."},
+    {"id": "runner-isolation", "given": "Both provider runner classes selected", "expect": "Separate users, graphroots, build/cache/tmp directories and user sockets; no host management socket or desktop credentials."},
+    {"id": "operator-builds", "given": "Server DevOps primary-account provisioning", "expect": "Create private per-account pool roots and explicit Cargo/Go/Mise/Bazel/container configuration; reject preexisting mismatched ownership, mode or bytes without migration."},
+    {"id": "gitbuild-projects", "given": "Two source repositories have the same basename", "expect": "Derive disjoint private pool job roots from each canonical repository path, while preserving source workspace ownership."},
+    {"id": "gitbuild-suite", "given": "Forky versus Trixie installation", "expect": "Rendered worker, cache tarball, sbuild and autopkgtest release use exactly the selected native suite, with no Forky default on Trixie."},
+    {"id": "privileged-import", "given": "An authenticated caller submits another account artifact, traversal, symlink, replaced inode or unsafe parent", "expect": "Reject before repository mutation; accept only exact caller-owned private project/job artifacts and copy through descriptors to root-only staging."},
+    {"id": "rootless-temp", "given": "Mapped-UID build requires a traversable temporary parent", "expect": "Use only root-owned sticky /pool/tmp and package-created private child roots; never relax private account parents."},
+    {"id": "interrupted-storage", "given": "A native store mutation times out or loses process identity", "expect": "Retain its ownership journal and exact recovery evidence, distinguish outcome unknown, and never retry/reset automatically."}
+  ]
+}

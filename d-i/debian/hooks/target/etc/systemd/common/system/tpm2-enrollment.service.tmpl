@@ -1,0 +1,27 @@
+[Unit]
+Description=Configure and confirm the selected LUKS2 TPM2 PIN and recovery policy
+After=local-fs.target firstboot.service secondboot.service
+Before=getty@tty1.service console-getty.service serial-getty@ttyS0.service
+ConditionPathExists=__INSTALLER_PATH_FILE_CRYPTO_PENDING__
+
+[Service]
+Type=oneshot
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/tpm2-enroll.sh
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=tty
+# /dev/console is the kernel's selected boot console, including serial boots.
+TTYPath=__INSTALLER_PATH_DIR_DEV__/console
+TTYReset=yes
+TTYVHangup=yes
+TimeoutStartSec=infinity
+UMask=0077
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=__INSTALLER_PATH_DIR_CRYPTO_STATE__ __INSTALLER_PATH_DIR_RUN__
+# Native cryptsetup/TPM tools retain their reviewed AppArmor transitions.
+NoNewPrivileges=no
+
+[Install]
+WantedBy=multi-user.target

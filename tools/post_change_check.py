@@ -1,0 +1,3141 @@
+#!/usr/bin/env python3
+"""Run non-mutating source checks for every changed regular checkout file.
+
+The checker inventories staged, unstaged and untracked paths without executing
+their contents. Shared-contract lookups are read as data. It parses languages for which
+the repository has local or standard-library parsers, runs shell syntax and
+ShellCheck only on changed shell files, validates changed structured data, and
+performs targeted theme/AppArmor checks. It never imports project modules,
+executes repository scripts, starts services, contacts host sockets, or writes
+validation artifacts.
+"""
+from __future__ import annotations
+
+import ast
+from concurrent.futures import ThreadPoolExecutor
+import configparser
+import fnmatch
+import hashlib
+import io
+import json
+import os
+import re
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
+import tarfile
+import tomllib
+import xml.etree.ElementTree as ElementTree
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - reported only for changed YAML input.
+    yaml = None
+
+YAML_ERROR = yaml.YAMLError if yaml is not None else ValueError
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEBIAN_ROOT = ROOT / 'd-i/debian'
+TARGET_ROOT = DEBIAN_ROOT / 'hooks/target'
+
+# Source ownership is independent of the installed FHS spelling. This is
+# data-only lookup: it never renders or executes a target program. Logical FHS
+# names resolve to exactly one common or selected-family physical source.
+ASSET_GROUPS = ('etc/apparmor.d', 'etc/apparmor', 'etc/tmpfiles.d', 'etc/sysctl.d',
+                'usr/local/libexec', 'usr/local/lib', 'usr/local/sbin',
+                'usr/local/bin', 'usr/local/share')
+
+
+def target_source(relative: str, family: str = 'desktop') -> Path:
+    if family not in {'desktop', 'server'} or any(part in {'', '.', '..'} for part in relative.split('/')):
+        raise ValueError('invalid target source lookup')
+    candidates = [TARGET_ROOT / relative]
+    for group in ASSET_GROUPS:
+        if relative.startswith(group + '/'):
+            leaf = relative[len(group) + 1:]
+            if leaf.split('/', 1)[0] not in {'common', 'desktop', 'server'}:
+                candidates += [TARGET_ROOT / group / owner / leaf for owner in ('common', family)]
+            break
+    if not relative.endswith('.tmpl'):
+        candidates += [path.with_name(path.name + '.tmpl') for path in tuple(candidates)]
+    existing = [path for path in candidates if path.is_file() and not path.is_symlink()]
+    if len(existing) != 1:
+        raise ValueError('target source has missing or ambiguous physical ownership: ' + relative)
+    return existing[0]
+
+
+SCHEMA = DEBIAN_ROOT / 'hosts/themes/theme-schema.tsv'
+APPEARANCE_REGISTRY = target_source('usr/local/share/labwc-appearance/fields.json.tmpl')
+APPEARANCE_FIELDS = target_source('usr/local/lib/python3/dist-packages/labwc_appearance/fields.py')
+APPEARANCE_NATIVE = target_source('usr/local/lib/python3/dist-packages/labwc_appearance/native.py')
+THEME_FETCH_CORE = DEBIAN_ROOT / 'scripts/late/core.sh'
+THEME_RENDER_SUPPORT = DEBIAN_ROOT / 'scripts/late/themes.sh'
+THEME_RENDER_AWK = DEBIAN_ROOT / 'scripts/late/theme-render.awk'
+THEME_VALIDATE_AWK = DEBIAN_ROOT / 'scripts/late/theme-validate.awk'
+APPEARANCE_STAGE = DEBIAN_ROOT / 'scripts/desktop/components/appearance.sh'
+DESKTOP_INSTALLER = DEBIAN_ROOT / 'scripts/desktop/labwc.sh'
+WAYBAR_GEOMETRY_SCHEMA = DEBIAN_ROOT / 'scripts/desktop/waybar-geometry.tsv'
+WAYBAR_PROFILE_ROOT = DEBIAN_ROOT / 'hosts/profiles/desktop'
+THEME_TOKEN = re.compile(rb'__THEME_([A-Z0-9_]+)__')
+THEME_PREFIX = b'__THEME_'
+REGISTRY_TOKEN = re.compile(r'__(?:THEME|INSTALLER)_[A-Z0-9_]+__')
+APPEARANCE_COMPONENTS = frozenset({
+    'DOCK', 'FUZZEL', 'WAYBAR', 'TASKVIEW', 'WAYCAL', 'MAKO', 'TERMINAL', 'SWAYLOCK', 'GTKGREET',
+})
+APPEARANCE_TYPES = frozenset({
+    'hash6', 'hash8', 'hex6', 'hex8', 'swaylock-rgb', 'swaylock-rgba', 'rgba', 'alpha', 'decimal', 'text-color',
+    'mako-progress',
+})
+APPEARANCE_GRAMMARS = frozenset({
+    'gtk3-css-color', 'gtk4-css-color', 'pango-color', 'qt-color', 'mako-color',
+    'mako-progress', 'fuzzel-rgba', 'foot-rgb', 'kitty-color', 'swaylock-rgb', 'swaylock-rgba', 'alpha', 'decimal',
+})
+APPEARANCE_PATHS = frozenset({
+    'fuzzel/base.ini', 'fuzzel/fuzzel.ini', 'fuzzel/menu.ini',
+    'fuzzel/computer-management.ini', 'waybar/style.css', 'waybar/style-common.css', 'waybar/config',
+    'waybar/modules/app-files',
+    'waybar/modules/app-notes',
+    'waybar/modules/app-sleek',
+    'waybar/modules/app-terminal',
+    'waybar/modules/app-tuta',
+    'waybar/modules/apps',
+    'waybar/modules/backlight',
+    'waybar/modules/battery',
+    'waybar/modules/bluetooth',
+    'waybar/modules/clock',
+    'waybar/modules/cpu',
+    'waybar/modules/disk',
+    'waybar/modules/external-apps-drawer',
+    'waybar/modules/external-launcher',
+    'waybar/modules/external-quick-controls',
+    'waybar/modules/external-taskbar',
+    'waybar/modules/external-tray',
+    'waybar/modules/internal-apps-drawer',
+    'waybar/modules/internal-launcher',
+    'waybar/modules/internal-quick-controls',
+    'waybar/modules/internal-taskbar',
+    'waybar/modules/internal-tray',
+    'waybar/modules/keyboard',
+    'waybar/modules/lock',
+    'waybar/modules/memory',
+    'waybar/modules/network',
+    'waybar/modules/notifications',
+    'waybar/modules/power',
+    'waybar/modules/pulseaudio',
+    'waybar/modules/screenshot',
+    'waybar/modules/system',
+    'waybar/modules/tomat',
+    'waybar/modules/wayscriber',
+    'waybar/modules/window-switcher',
+    'waybar/modules/workspaces',
+    'waybar/style/gtk.css',
+    'waybar/style/menu.css', 'waybar/style/workspaces.css', 'waybar/style/tomat.css',
+    'waybar/style/wayscriber.css', 'waybar/style/taskview.css', 'waybar/style/apps.css',
+    'waybar/style/clock.css', 'waybar/style/audio.css', 'waybar/style/brightness.css',
+    'waybar/style/battery.css', 'waybar/style/storage.css', 'waybar/style/cpu.css',
+    'waybar/style/memory.css', 'waybar/style/tray.css', 'waybar/style/system.css',
+    'waybar/style/notifications.css', 'waybar/style/lock.css', 'waybar/style/power.css',
+    'waybar/icons/apps-symbolic.svg',
+    'waybar/icons/wayscriber-symbolic.svg', 'waycal/style.css',
+    'crystal-dock/labwc/appearance.conf',
+    'foot/foot.ini', 'kitty/kitty.conf', 'mako/config', 'gtk-3.0/settings.ini',
+    'gtk-4.0/settings.ini', 'gtk-4.0/gtk.css', 'swaylock/config', 'qt5ct/qt5ct.conf', 'qt6ct/qt6ct.conf',
+    'qt5ct/colors/labwc-appearance.conf', 'qt6ct/colors/labwc-appearance.conf',
+    'Kvantum/kvantum.kvconfig', 'labwc/themerc-override', 'labwc/environment',
+    '/etc/greetd/gtkgreet.css', '/etc/greetd/gtkgreet-power.css',
+})
+SHELL_SUFFIXES = frozenset({'.env', '.sh'})
+BINARY_SUFFIXES = frozenset({
+    '.7z', '.bz2', '.deb', '.gif', '.gz', '.ico', '.jpeg', '.jpg', '.otf',
+    '.png', '.tar', '.tgz', '.ttf', '.webp', '.woff', '.woff2', '.xz', '.zip',
+})
+
+
+def _run(command: list[str], *, timeout: int = 15,
+         input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            cwd=ROOT,
+            capture_output=True,
+            input=input_text,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        return subprocess.CompletedProcess(
+            command, 124, stdout=error.stdout or '', stderr='static checker timed out'
+        )
+
+
+def _changed_paths() -> list[Path]:
+    """Return existing regular changed files anywhere in the checkout."""
+    names: set[str] = set()
+    commands = (
+        ['git', 'diff', '--name-only', '-z', '--diff-filter=ACMRTUXB'],
+        ['git', 'diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRTUXB'],
+        ['git', 'ls-files', '--others', '--exclude-standard', '-z'],
+    )
+    for command in commands:
+        result = _run(command)
+        if result.returncode:
+            detail = (result.stderr or result.stdout).strip().replace('\n', ' ')[:300]
+            raise RuntimeError(f'cannot enumerate changed files: {detail}')
+        names.update(part for part in result.stdout.split('\0') if part)
+
+    paths = []
+    for name in sorted(names):
+        path = ROOT / name
+        if Path(name).is_absolute() or any(part in {'', '.', '..'} for part in Path(name).parts):
+            raise ValueError('noncanonical changed path')
+        if path.is_symlink():
+            raise ValueError(f'changed symlink is outside static regular-file contract: {name}')
+        if path.is_file() and path.resolve().is_relative_to(ROOT):
+            paths.append(path)
+    return paths
+
+
+def _first_line(path: Path) -> str:
+    with path.open('r', encoding='utf-8', errors='replace') as stream:
+        return stream.readline(4096).strip()
+
+
+def _logical_suffix(path: Path) -> str:
+    return Path(path.name.removesuffix('.tmpl')).suffix.lower()
+
+
+def _shell_kind(path: Path) -> str | None:
+    first = _first_line(path)
+    relative = path.relative_to(ROOT).as_posix()
+    if '/etc/apparmor.d/' in '/' + relative and not first.startswith('#!'):
+        return None
+    if first.startswith('#!') and 'bash' in first:
+        return 'bash'
+    if first.startswith('#!') and re.search(r'\b(?:sh|dash|ash)\b', first):
+        return 'sh'
+    if _logical_suffix(path) in SHELL_SUFFIXES or path.name.endswith('.sh.tmpl'):
+        return 'sh'
+    return None
+
+
+def _detail(result: subprocess.CompletedProcess[str]) -> str:
+    return (result.stderr or result.stdout).strip().replace('\n', ' ')[:500]
+
+
+def _report_command(errors: list[str], label: str,
+                    result: subprocess.CompletedProcess[str]) -> None:
+    errors.append(f'{label}: command failed ({result.returncode}): {_detail(result)}')
+
+
+def _read_text(path: Path) -> str:
+    data = path.read_bytes()
+    if b'\0' in data:
+        raise ValueError('unexpected NUL byte in text source')
+    return data.decode('utf-8')
+
+
+def _installer_path_token_values() -> list[tuple[str, str]]:
+    """Read the authored runtime path contract as data for static checks."""
+    runtime = DEBIAN_ROOT / 'hosts/installer/runtime.env'
+    assignments: dict[str, str] = {}
+    for line in _read_text(runtime).splitlines():
+        match = re.fullmatch(r'((?:DIR|FILE|CMD|LIB|PATH)_[A-Z0-9_]+)="([^"]*)"', line)
+        if match:
+            assignments[match[1]] = match[2]
+    resolved: dict[str, str] = {}
+    for _ in range(len(assignments) + 1):
+        changed = False
+        for name, value in assignments.items():
+            if name in resolved:
+                continue
+            references = re.findall(r'\$\{([A-Z][A-Z0-9_]*)\}', value)
+            if any(reference not in resolved for reference in references):
+                continue
+            for reference in references:
+                value = value.replace('${' + reference + '}', resolved[reference])
+            if '${' in value:
+                continue
+            resolved[name] = value
+            changed = True
+        if not changed:
+            break
+    return sorted(
+        (
+            f'__INSTALLER_PATH_{name}__',
+            value,
+        )
+        for name, value in resolved.items()
+        if value.startswith('/') and value != '/'
+    )
+
+
+def _render_installer_path_placeholders(value: str) -> str:
+    for token, replacement in sorted(_installer_path_token_values(),
+                                     key=lambda item: len(item[0]), reverse=True):
+        value = value.replace(token, replacement)
+    return value
+
+
+def _repository_selector_values(suite: str = 'forky') -> dict[str, str]:
+    """Read the parent-first source catalog as data, never as shell code."""
+    if suite not in ('forky', 'trixie'):
+        raise ValueError('unknown suite map')
+    values: dict[str, str] = {'INSTALLER_SUITE': suite}
+    source = DEBIAN_ROOT / 'repo.env'
+    for number, line in enumerate(_read_text(source).splitlines(), 1):
+        if not re.match(r'^(?:DIR|FILE)_', line):
+            continue
+        match = re.fullmatch(r'((?:DIR|FILE)_[A-Z0-9_]+)="([^"`\\]*)"', line)
+        if match is None:
+            raise ValueError(f'repo.env:{number}: malformed source selector')
+        name, raw = match.groups()
+        if name in values:
+            raise ValueError(f'repo.env:{number}: duplicate source selector {name}')
+
+        def expand(reference: re.Match[str]) -> str:
+            key = reference.group(1)
+            if key not in values:
+                raise ValueError(f'repo.env:{number}: undefined parent {key}')
+            return values[key]
+
+        value = re.sub(r'\$\{([A-Z][A-Z0-9_]*)\}', expand, raw)
+        if '$' in value or not value or value.startswith('/'):
+            raise ValueError(f'repo.env:{number}: invalid relative selector {name}')
+        if value != '.' and any(part in {'', '.', '..'} for part in value.split('/')):
+            raise ValueError(f'repo.env:{number}: noncanonical selector {name}')
+        values[name] = value
+    return values
+
+
+def _resolve_repository_source_contract(value: str) -> str:
+    """Normalize literal selectors for source assertions without running loaders."""
+    values = _repository_selector_values()
+    value = re.sub(r'\$\{((?:DIR|FILE)_[A-Z0-9_]+)\}',
+                   lambda match: values.get(match.group(1), match.group(0)), value)
+    return re.sub(r'\bFILE_[A-Z0-9_]+\b',
+                  lambda match: values.get(match.group(0), match.group(0)), value)
+
+
+def check_python(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    candidates = [path for path in paths if _logical_suffix(path) == '.py'
+                  or re.match(r'^#!.*\bpython(?:[0-9]+(?:\.[0-9]+)*)?\b', _first_line(path))]
+    for path in candidates:
+        try:
+            ast.parse(_read_text(path), filename=str(path.relative_to(ROOT)))
+        except (OSError, UnicodeError, SyntaxError) as error:
+            errors.append(f'{path.relative_to(ROOT)}: Python syntax: {error}')
+    counts['python_ast'] = len(candidates)
+
+
+def check_text_files(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    checked = 0
+    for path in paths:
+        suffix = _logical_suffix(path)
+        if suffix in BINARY_SUFFIXES or path.name.endswith(('.tar.gz', '.tgz')):
+            continue
+        try:
+            _read_text(path)
+            checked += 1
+        except (OSError, UnicodeError, ValueError) as error:
+            errors.append(f'{path.relative_to(ROOT)}: text encoding/content: {error}')
+    counts['text_files'] = checked
+
+
+def _shellcheck_batch(errors: list[str], executable: str, kind: str,
+                      paths: list[Path], *, unbound: bool) -> None:
+    if not paths:
+        return
+
+    def check_one(path: Path) -> tuple[Path, list[subprocess.CompletedProcess[str]]]:
+        input_text = None
+        catalog_inputs: list[str] | None = None
+        shellcheck_path = str(path)
+        if _logical_suffix(path) == '.env':
+            # Host profiles are assignment-only data with a handful of
+            # intentional cross-file expansions. ShellCheck's data-flow graph
+            # becomes superlinear on the full 1,600-line files. Syntax is still
+            # checked against the complete source above; feed ShellCheck only
+            # expansion lines, preserving their original line numbers, for the
+            # error and SC2154 contracts.
+            source_lines = _read_text(path).splitlines()
+            data_only = all(
+                not line.strip()
+                or line.lstrip().startswith('#')
+                or re.fullmatch(r'(?:export\s+)?[A-Z][A-Z0-9_]*=.*', line)
+                for line in source_lines
+            )
+            if data_only:
+                compact: list[str] = []
+                for line_number, line in enumerate(source_lines, 1):
+                    if '$' not in line:
+                        continue
+                    compact.extend([''] * (line_number - 1 - len(compact)))
+                    compact.append(line)
+                input_text = '\n'.join(compact) + '\n' if compact else '\n'
+                shellcheck_path = '-'
+                if path == DEBIAN_ROOT / 'repo.env':
+                    # The full source catalog has thousands of dependent
+                    # assignments. Prove parent order/references as data, then
+                    # analyze every expansion in small independent batches.
+                    # Declarations for earlier parents break the quadratic
+                    # cross-batch flow graph without hiding undefined parents.
+                    # Original records retain their original source line numbers.
+                    selectors = _repository_selector_values()
+                    records = [(number, line) for number, line in enumerate(source_lines, 1)
+                               if '$' in line and not line.lstrip().startswith('#')]
+                    catalog_inputs = []
+                    for start in range(0, len(records), 150):
+                        batch = records[start:start + 150]
+                        assigned = {line.split('=', 1)[0] for _number, line in batch}
+                        referenced = set()
+                        for _number, line in batch:
+                            referenced.update(re.findall(r'\$\{([A-Z][A-Z0-9_]*)\}', line))
+                        unknown = referenced - selectors.keys()
+                        if unknown:
+                            raise ValueError('repo.env has undefined parents: ' + ', '.join(sorted(unknown)))
+                        batch_lines = [''] * batch[-1][0]
+                        batch_lines[0] = '; '.join(name + '=' for name in sorted(referenced - assigned))
+                        for number, line in batch:
+                            batch_lines[number - 1] = line
+                        catalog_inputs.append('\n'.join(batch_lines) + '\n')
+        commands = [[
+            executable,
+            '--norc',
+            '--shell=' + kind,
+            '--format=json',
+            '--severity=error',
+            shellcheck_path,
+        ]]
+        if unbound:
+            commands.append([
+                executable,
+                '--norc',
+                '--shell=' + kind,
+                '--format=json',
+                '--severity=warning',
+                '--include=SC2154',
+                shellcheck_path,
+            ])
+        inputs = catalog_inputs if catalog_inputs is not None else [input_text]
+        return path, [_run(command, timeout=30, input_text=source)
+                      for source in inputs for command in commands]
+
+    # Analyze each source independently. A bounded worker pool keeps the total
+    # audit time proportional to the slowest changed source while limiting
+    # process and memory pressure on the installer checkout.
+    worker_count = min(2, len(paths))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        results = list(executor.map(check_one, paths))
+    for path, command_results in results:
+        for result in command_results:
+            if result.returncode not in (0, 1):
+                _report_command(errors, f'ShellCheck {kind} {path.relative_to(ROOT)}', result)
+                continue
+            if not result.stdout.strip():
+                continue
+            try:
+                messages = json.loads(result.stdout)
+            except json.JSONDecodeError as error:
+                errors.append(
+                    f'ShellCheck {kind} {path.relative_to(ROOT)} returned malformed JSON: {error}'
+                )
+                continue
+            for message in messages:
+                errors.append(
+                    f"{path.relative_to(ROOT)}:{message.get('line', '?')}: "
+                    f"ShellCheck SC{message.get('code', '?')}: {message.get('message', 'error')}"
+                )
+
+
+def check_shell(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    sources = [(path, _shell_kind(path)) for path in paths]
+    sources = [(path, kind) for path, kind in sources if kind]
+    counts['shell_sources'] = len(sources)
+    if not sources:
+        counts['shell_unbound_sources'] = 0
+        return
+    dash = shutil.which('dash')
+    bash = shutil.which('bash')
+    busybox = shutil.which('busybox')
+    shellcheck = shutil.which('shellcheck')
+    missing = [name for name, value in (
+        ('dash', dash), ('bash', bash), ('busybox', busybox), ('shellcheck', shellcheck)
+    ) if not value]
+    if missing:
+        errors.append('required static shell checker is unavailable: ' + ', '.join(missing))
+        return
+
+    for path, kind in sources:
+        commands = [[bash, '-n', str(path)]] if kind == 'bash' else [
+            [dash, '-n', str(path)], [busybox, 'sh', '-n', str(path)]
+        ]
+        for command in commands:
+            result = _run(command)
+            if result.returncode:
+                _report_command(errors, f'{path.relative_to(ROOT)}: shell syntax', result)
+
+    counts['shell_unbound_sources'] = len(sources)
+    for kind in ('sh', 'bash'):
+        _shellcheck_batch(
+            errors, shellcheck, kind,
+            [path for path, source_kind in sources if source_kind == kind],
+            # The per-file warning pass above retains SC2154 and all errors.
+            unbound=True,
+        )
+
+
+def check_preseed_commands(paths: list[Path], errors: list[str],
+                           counts: dict[str, int]) -> None:
+    for suite in ('forky', 'trixie'):
+        path = ROOT / 'd-i' / suite / 'preseed.cfg'
+        if path in paths:
+            _check_preseed_commands(path, errors, counts)
+
+
+def _check_preseed_commands(path: Path, errors: list[str],
+                            counts: dict[str, int]) -> None:
+    """Parse both shell layers of changed generated preseed data, never execute."""
+    keys = {'preseed/include_command', 'preseed/early_command',
+            'partman/early_command', 'preseed/late_command'}
+    commands: dict[str, tuple[int, str]] = {}
+    pending = ''
+    first_number = 0
+    for number, raw in enumerate(_read_text(path).splitlines(), 1):
+        if not pending:
+            first_number = number
+            pending = raw
+        else:
+            pending += ' ' + raw.lstrip()
+        if re.search(r'[ \t]\\$', pending):
+            pending = re.sub(r'[ \t]\\$', '', pending)
+            continue
+        fields = pending.split(None, 3)
+        pending = ''
+        if len(fields) < 2 or fields[1] not in keys:
+            continue
+        if len(fields) != 4 or fields[0] != 'd-i' or fields[2] != 'string':
+            errors.append(f'{path.relative_to(ROOT)}:{first_number}: malformed preseed command')
+            continue
+        if fields[1] in commands:
+            errors.append(f'{path.relative_to(ROOT)}:{first_number}: duplicate {fields[1]}')
+        commands[fields[1]] = (first_number, fields[3])
+    if pending:
+        errors.append(f'{path.relative_to(ROOT)}:{first_number}: unterminated continuation')
+    if commands.keys() != keys:
+        errors.append('generated preseed is missing commands: ' + ', '.join(sorted(keys - commands.keys())))
+    dash = shutil.which('dash')
+    busybox = shutil.which('busybox')
+    if not dash or not busybox:
+        errors.append('preseed syntax requires dash and busybox; no silent skips')
+        return
+    checks = 0
+    for key, (number, value) in commands.items():
+        try:
+            words = shlex.split(value)
+            if len(words) != 3 or words[:2] != ['/bin/sh', '-c']:
+                raise ValueError('expected one /bin/sh -c command')
+        except ValueError as error:
+            errors.append(f'{path.relative_to(ROOT)}:{number}: {key}: {error}')
+            continue
+        for layer, source in (('outer', value), ('body', words[2])):
+            for name, interpreter in (('dash', [dash]), ('busybox', [busybox, 'sh'])):
+                result = _run([*interpreter, '-n'], input_text=source)
+                checks += 1
+                if result.returncode:
+                    _report_command(errors, f'{path.relative_to(ROOT)}:{number}: {key} {layer} [{name}]', result)
+    counts['preseed_commands'] = len(commands)
+    counts['preseed_shell_parses'] = checks
+    # The first document must carry the same authored answers as the payload
+    # include, so locale/keyboard questions and early anna component loading
+    # cannot precede their configuration.
+    initial_key = re.compile(
+        r'd-i (?:anna/(?:standard_modules|no_kernel_modules|choose_modules)|'
+        r'debian-installer/(?:language|country|locale)|'
+        r'debconf/language|localechooser/\S+|'
+        r'keyboard-configuration/\S+|console-setup/\S+)\s'
+    )
+    expected = {line for line in _read_text(path.parent / 'common.cfg').splitlines()
+                if initial_key.match(line)}
+    published = set(_read_text(path).splitlines())
+    missing = expected - published
+    if missing:
+        errors.append('initial preseed is missing authored locale/keyboard/anna answers: ' + ', '.join(sorted(missing)))
+    counts['preseed_initial_answers'] = len(expected)
+
+
+def _schema_keys() -> set[str]:
+    keys = set()
+    for number, line in enumerate(SCHEMA.read_text(encoding='utf-8').splitlines(), 1):
+        if not line or line.startswith('#'):
+            continue
+        fields = line.split('\t')
+        if len(fields) != 3:
+            raise ValueError(f'{SCHEMA}:{number}: malformed schema row')
+        keys.add(fields[1])
+    return keys
+
+
+def _scan_markers(name: str, data: bytes, errors: list[str],
+                  schema_keys: set[str] | None, counts: dict[str, int]) -> set[str] | None:
+    if THEME_PREFIX not in data:
+        return schema_keys
+    counts['marker_files'] = counts.get('marker_files', 0) + 1
+    for line_number, line in enumerate(data.splitlines(), 1):
+        offset = 0
+        while True:
+            start = line.find(THEME_PREFIX, offset)
+            if start < 0:
+                break
+            match = THEME_TOKEN.match(line, start)
+            if not match:
+                errors.append(f'{name}:{line_number}: malformed/partial __THEME_ marker')
+            else:
+                counts['theme_markers'] = counts.get('theme_markers', 0) + 1
+                if schema_keys is None:
+                    schema_keys = _schema_keys()
+                key = match.group(1).decode('ascii')
+                if key.removeprefix('TARGET_PATH_') not in schema_keys:
+                    errors.append(f'{name}:{line_number}: unknown theme token {key}')
+            offset = start + len(THEME_PREFIX)
+    return schema_keys
+
+
+def check_markers(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    schema_keys: set[str] | None = None
+    # The installer theme renderer processes the staged target tree. Installer
+    # source code has its own marker grammar and may construct marker strings
+    # dynamically, so it is not mistaken for a staged asset here.
+    for path in (path for path in paths if path.is_relative_to(TARGET_ROOT)):
+        schema_keys = _scan_markers(str(path.relative_to(ROOT)), path.read_bytes(), errors,
+                                    schema_keys, counts)
+    counts.setdefault('marker_files', 0)
+    counts.setdefault('theme_markers', 0)
+
+
+def check_appearance_registry(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Validate the raw registry contract without importing installed code."""
+    theme_inputs = {
+        SCHEMA,
+        *(DEBIAN_ROOT / 'hosts/themes' / (group + '.env') for group in ('base', 'apps', 'office')),
+    }
+    appearance_source_changed = any(
+        path in {APPEARANCE_REGISTRY, APPEARANCE_FIELDS, APPEARANCE_NATIVE,
+                 THEME_FETCH_CORE, THEME_RENDER_SUPPORT, THEME_RENDER_AWK,
+                 THEME_VALIDATE_AWK, APPEARANCE_STAGE, DESKTOP_INSTALLER}
+        or path in theme_inputs
+        or (path.is_relative_to(TARGET_ROOT)
+            and path.relative_to(TARGET_ROOT).parts[:2] in {('etc', 'greetd'), ('etc', 'skel-desktop')})
+        for path in paths
+    )
+    if not appearance_source_changed:
+        counts['appearance_registry_fields'] = 0
+        counts['appearance_registry_mappings'] = 0
+        counts['appearance_source_checks'] = 0
+        counts['appearance_capture_line_checks'] = 0
+        counts['appearance_native_token_checks'] = 0
+        return
+    field_count = 0
+    mapping_count = 0
+    multitoken_count = 0
+    source_checks = 0
+    capture_line_checks = 0
+    native_token_checks = 0
+    source_cache: dict[Path, list[str]] = {}
+    try:
+        value = json.loads(_read_text(APPEARANCE_REGISTRY))
+        if (not isinstance(value, dict) or value.get('schema') != 3
+                or value.get('captured') is not False
+                or not isinstance(value.get('components'), list)
+                or not isinstance(value.get('fields'), list)
+                or not value['fields'] or len(value['fields']) > 1024):
+            raise ValueError('registry must be schema 3 with captured=false and bounded fields')
+        components = value['components']
+        component_ids: list[str] = []
+        for component in components:
+            if (not isinstance(component, dict)
+                    or component.get('id') not in APPEARANCE_COMPONENTS
+                    or not isinstance(component.get('label'), str)
+                    or not component['label']
+                    or type(component.get('field_count')) is not int
+                    or component['field_count'] < 1):
+                raise ValueError('invalid component descriptor')
+            component_ids.append(component['id'])
+        if len(component_ids) != len(set(component_ids)):
+            raise ValueError('duplicate component descriptor')
+        seen: set[str] = set()
+        theme_values: dict[str, str] = {}
+        theme_types: dict[str, str] = {}
+        for schema_line_number, schema_line in enumerate(_read_text(SCHEMA).splitlines(), 1):
+            if not schema_line or schema_line.startswith('#'):
+                continue
+            schema_parts = schema_line.split('\t')
+            if len(schema_parts) != 3:
+                raise ValueError(f'{SCHEMA}:{schema_line_number}: malformed schema row')
+            theme_types[schema_parts[1]] = schema_parts[2]
+        for group in ('base', 'apps', 'office'):
+            env_path = DEBIAN_ROOT / 'hosts/themes' / (group + '.env')
+            for env_line_number, env_line in enumerate(_read_text(env_path).splitlines(), 1):
+                if not env_line or env_line.startswith('#'):
+                    continue
+                match = re.fullmatch(r'([A-Z][A-Z0-9_]*)="([^"\r\n]*)"', env_line)
+                if match:
+                    theme_values[match[1]] = match[2]
+        for field_number, field in enumerate(value['fields'], 1):
+            if not isinstance(field, dict):
+                raise ValueError(f'field {field_number} is not an object')
+            key = field.get('key')
+            if (not isinstance(key, str) or re.fullmatch(r'[A-Z][A-Z0-9_]{2,127}', key) is None
+                    or key in seen or field.get('component') not in APPEARANCE_COMPONENTS
+                    or field.get('component') not in component_ids
+                    or field.get('type') not in APPEARANCE_TYPES
+                    or not isinstance(field.get('default'), str)
+                    or not isinstance(field.get('label'), str)
+                    or not isinstance(field.get('category'), str)
+                    or not isinstance(field.get('mappings'), list)
+                    or not field['mappings']):
+                raise ValueError(f'invalid field descriptor at index {field_number}')
+            seen.add(key)
+            field_count += 1
+            for mapping_number, mapping in enumerate(field['mappings'], 1):
+                if not isinstance(mapping, dict):
+                    raise ValueError(f'{key} mapping {mapping_number} is not an object')
+                path = mapping.get('path')
+                source_name = mapping.get('source')
+                template = mapping.get('template')
+                tokens = mapping.get('tokens')
+                target_index = mapping.get('target_index')
+                rendered_path = (_render_installer_path_placeholders(path)
+                                 if isinstance(path, str) else path)
+                if (not isinstance(path, str) or rendered_path not in APPEARANCE_PATHS
+                        or type(mapping.get('line')) is not int
+                        or not 1 <= mapping['line'] <= 100000
+                        or not isinstance(template, str) or len(template) > 32768
+                        or not isinstance(source_name, str)
+                        or not isinstance(tokens, list) or not tokens or len(tokens) > 32
+                        or not all(isinstance(token, str) and REGISTRY_TOKEN.fullmatch(token)
+                                   for token in tokens)
+                        or tokens != REGISTRY_TOKEN.findall(template)
+                        or type(target_index) is not int
+                        or not 0 <= target_index < len(tokens)
+                        or tokens[target_index] != '__THEME_' + key + '__'
+                        or mapping.get('grammar') not in APPEARANCE_GRAMMARS):
+                    raise ValueError(f'invalid mapping for {key}')
+                source = ROOT / source_name
+                if (Path(source_name).is_absolute() or
+                        source_name != source.relative_to(ROOT).as_posix() or
+                        not source.is_relative_to(TARGET_ROOT) or
+                        not source.is_file() or source.is_symlink()):
+                    raise ValueError(f'{key} mapping {mapping_number} has an unsafe source path')
+                source_lines = source_cache.get(source)
+                if source_lines is None:
+                    source_lines = _read_text(source).splitlines()
+                    source_cache[source] = source_lines
+                if mapping['line'] > len(source_lines):
+                    raise ValueError(f'{key} mapping {mapping_number} source line is unavailable')
+                source_line = source_lines[mapping['line'] - 1]
+                if source_line != template:
+                    raise ValueError(f'{key} mapping {mapping_number} template differs from source line')
+                # Reproduce the data substitution boundary for this one source
+                # line without importing or executing installer renderers. Use
+                # actual checked-in theme literals and distinct safe sentinels
+                # for installer-owned placeholders; then ensure the target
+                # field remains uniquely extractable from the rendered line.
+                rendered_line = source_line
+                marker_matches = list(REGISTRY_TOKEN.finditer(rendered_line))
+                for marker_index, marker in reversed(list(enumerate(marker_matches))):
+                    token = marker.group(0)
+                    if token.startswith('__THEME_'):
+                        theme_key = token[len('__THEME_'):-2]
+                        if theme_key not in theme_values:
+                            raise ValueError(f'{key} mapping {mapping_number} references missing theme input {theme_key}')
+                        replacement = theme_values[theme_key]
+                    else:
+                        replacement = f'INSTALLER_STATIC_VALUE_{marker_index}'
+                    rendered_line = (rendered_line[:marker.start()] + replacement
+                                     + rendered_line[marker.end():])
+                pieces: list[str] = []
+                cursor = 0
+                for token in tokens:
+                    start = template.find(token, cursor)
+                    pieces.append(template[cursor:start])
+                    cursor = start + len(token)
+                pieces.append(template[cursor:])
+                candidates: list[list[str]] = []
+
+                def collect(index: int, position: int, extracted: list[str]) -> None:
+                    if len(candidates) > 4096:
+                        return
+                    literal = pieces[index]
+                    if not rendered_line.startswith(literal, position):
+                        return
+                    start = position + len(literal)
+                    if index == len(tokens):
+                        if start == len(rendered_line):
+                            candidates.append(extracted)
+                        return
+                    delimiter = pieces[index + 1]
+                    if delimiter:
+                        ends = []
+                        probe = start
+                        while True:
+                            probe = rendered_line.find(delimiter, probe)
+                            if probe < 0:
+                                break
+                            ends.append(probe)
+                            probe += 1
+                    else:
+                        ends = range(start, len(rendered_line) + 1)
+                    for end in ends:
+                        token_value = rendered_line[start:end]
+                        theme_token = tokens[index]
+                        if theme_token.startswith('__THEME_'):
+                            theme_key = theme_token[len('__THEME_'):-2]
+                            expected_value = theme_values.get(theme_key)
+                            if expected_value is not None and token_value != expected_value:
+                                continue
+                        collect(index + 1, end, extracted + [token_value])
+
+                collect(0, 0, [])
+                if len(candidates) != 1:
+                    raise ValueError(
+                        f'{key} mapping {mapping_number} does not have one rendered-line tokenization '
+                        f'(found {len(candidates)})'
+                    )
+                capture_line_checks += 1
+                relative = source.relative_to(TARGET_ROOT)
+                if relative.parts[:3] == ('etc', 'skel-desktop', '.config'):
+                    expected_path = relative.relative_to('etc/skel-desktop/.config')
+                    if expected_path.name.endswith('.tmpl'):
+                        expected_path = expected_path.with_suffix('')
+                    expected_path = expected_path.as_posix()
+                elif relative.parts[:2] == ('etc', 'greetd'):
+                    expected_path = relative
+                    if expected_path.name.endswith('.tmpl'):
+                        expected_path = expected_path.with_suffix('')
+                    expected_path = '/' + expected_path.as_posix()
+                else:
+                    raise ValueError(f'{key} mapping {mapping_number} source is not a native template')
+                if rendered_path != expected_path:
+                    raise ValueError(f'{key} mapping {mapping_number} target path differs from source')
+                source_checks += 1
+                mapping_count += 1
+                multitoken_count += len(tokens) > 1
+        # Discover native color tokens from every checked-in appearance source
+        # corresponding to an allowlisted installed path. This catches a new
+        # color token that was added to a native file but omitted from the
+        # registry entirely, including a whole source file with no mappings.
+        native_sources: set[Path] = set()
+        for target_path in APPEARANCE_PATHS:
+            if target_path.startswith('/'):
+                relative = Path(target_path[1:])
+                source_base = target_source(relative.as_posix())
+            else:
+                source_base = TARGET_ROOT / 'etc/skel-desktop/.config' / target_path
+            for candidate in (source_base.with_name(source_base.name + '.tmpl'), source_base):
+                if candidate.is_file() and not candidate.is_symlink():
+                    native_sources.add(candidate)
+                    break
+        for source in sorted(native_sources):
+            for token_match in REGISTRY_TOKEN.finditer(_read_text(source)):
+                token = token_match.group(0)
+                if not token.startswith('__THEME_'):
+                    continue
+                theme_key = token[len('__THEME_'):-2]
+                if theme_types.get(theme_key) not in APPEARANCE_GRAMMARS:
+                    continue
+                native_token_checks += 1
+                if theme_key not in seen:
+                    raise ValueError(
+                        f'{theme_key} is a native color token without an appearance mapping '
+                        f'in {source.relative_to(ROOT)}'
+                    )
+        for component in components:
+            expected = sum(1 for field in value['fields'] if field['component'] == component['id'])
+            if component['field_count'] != expected:
+                raise ValueError(f"field count mismatch for {component['id']}")
+    except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError) as error:
+        errors.append(f'{APPEARANCE_REGISTRY.relative_to(ROOT)}: registry contract: {error}')
+    counts['appearance_registry_fields'] = field_count
+    counts['appearance_registry_mappings'] = mapping_count
+    counts['appearance_multitoken_mappings'] = multitoken_count
+    counts['appearance_source_checks'] = source_checks
+    counts['appearance_capture_line_checks'] = capture_line_checks
+    counts['appearance_native_token_checks'] = native_token_checks
+
+
+def check_appearance_wiring(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Inspect desktop scope, delegates, staging and exact atomic-write authority."""
+    package = APPEARANCE_FIELDS.parent
+    policy = target_source('etc/apparmor.d/labwc-appearance')
+    affected = {policy, APPEARANCE_STAGE, APPEARANCE_REGISTRY,
+                DEBIAN_ROOT / 'repo.env', DEBIAN_ROOT / 'hosts/installer/runtime.env'}
+    if not affected.intersection(paths) and not any(path.parent == package for path in paths):
+        return
+    try:
+        native = ast.parse(_read_text(APPEARANCE_NATIVE))
+        files = next(ast.literal_eval(node.value) for node in native.body
+                     if isinstance(node, ast.Assign)
+                     and any(isinstance(target, ast.Name) and target.id == 'FILES' for target in node.targets))
+        if set(files) != {'fuzzel', 'waybar', 'taskview', 'waycal', 'dock', 'terminal',
+                          'swaylock', 'mako', 'theme'}:
+            raise ValueError('appearance scope must contain desktop components only')
+        if {component['id'] for component in json.loads(_read_text(APPEARANCE_REGISTRY))['components']} != APPEARANCE_COMPONENTS:
+            raise ValueError('appearance registry no longer matches the desktop component set')
+        module_names = {path.stem for path in package.glob('*.py') if path.is_file() and not path.is_symlink()}
+        staging = _read_text(APPEARANCE_STAGE)
+        for module in sorted(module_names):
+            if '/labwc_appearance/' + module + '.py' not in staging:
+                raise ValueError('appearance module is not staged: ' + module)
+            for node in ast.walk(ast.parse(_read_text(package / (module + '.py')))):
+                if isinstance(node, ast.ImportFrom) and node.level and node.module:
+                    if node.module.split('.')[0] not in module_names:
+                        raise ValueError('appearance module has a missing relative delegate: ' + module)
+        if re.search(r'^\s*def capture_registry\(', _read_text(APPEARANCE_FIELDS), re.M):
+            raise ValueError('installation-only field capture remains in the runtime editor')
+        for marker in ('installer_stage_profile_file FILE_DESKTOP_APPEARANCE_SETUP',
+                       'trap setup_cleanup 0', 'desktop_run_appearance_setup extract',
+                       'desktop_run_appearance_setup themes', 'desktop_run_appearance_setup defaults'):
+            if marker not in staging:
+                raise ValueError('private appearance setup staging/cleanup is incomplete')
+        # The published source is parsed as data, never imported. The narrow
+        # owner rules must cover each native file and its atomic sibling.
+        source_policy = _read_text(policy).split('profile labwc-appearance-auth ', 1)[0]
+        rules = []
+
+        def expand_braces(pattern: str) -> list[str]:
+            match = re.search(r'\{([^{}]*)\}', pattern)
+            if match is None:
+                return [pattern]
+            expanded = [leaf for choice in match[1].split(',')
+                        for leaf in expand_braces(pattern[:match.start()] + choice + pattern[match.end():])]
+            if len(expanded) > 2048:
+                raise ValueError('appearance source rule expansion exceeds its budget')
+            return expanded
+
+        for line in source_policy.splitlines():
+            match = re.fullmatch(r'\s*owner (@\{HOME\}/\.config/\S+)\s+([a-z]+),\s*', line)
+            if match and {'r', 'w'} <= set(match[2]):
+                rules += expand_braces(match[1].replace('@{HOME}', 'HOME'))
+
+        def covered(path: str) -> bool:
+            return any(fnmatch.fnmatchcase('HOME/.config/' + path, pattern) for pattern in rules)
+
+        native_paths = {path for group in files.values() for path in group}
+        for path in sorted(native_paths):
+            if not covered(path):
+                raise ValueError('appearance native file lacks exact write authority: ' + path)
+            parent = Path(path).parent.as_posix()
+            if not covered(parent + '/') or not covered(parent + '/.managed-static-sibling'):
+                raise ValueError('appearance atomic publication lacks directory/sibling authority: ' + parent)
+        for marker in ('deny network inet,', 'deny network inet6,',
+                       '/bin/pkexec rPx -> labwc-appearance-auth,'):
+            if marker not in source_policy:
+                raise ValueError('appearance network or authenticated greeter boundary changed')
+        entry = _read_text(target_source('usr/local/share/applications/org.labwc.DesktopAppearance.desktop'))
+        if '/labwc-desktop-appearance --gtk' not in entry:
+            raise ValueError('desktop appearance entry does not open the existing GTK editor')
+        # Inspect the shared recovery protocol as syntax. This proves caller
+        # shapes and lock placement, not service or failure-injection behavior.
+        fields_tree = ast.parse(_read_text(APPEARANCE_FIELDS))
+        functions = {node.name: node for node in fields_tree.body if isinstance(node, ast.FunctionDef)}
+        coordinator = functions['_apply_updates']
+        locks = [node for node in ast.walk(coordinator) if isinstance(node, ast.With)
+                 and any(isinstance(item.context_expr, ast.Call)
+                         and isinstance(item.context_expr.func, ast.Attribute)
+                         and item.context_expr.func.attr == 'lock'
+                         and item.context_expr.args
+                         and isinstance(item.context_expr.args[0], ast.Name)
+                         and item.context_expr.args[0].id == 'USER_LOCK' for item in node.items)]
+        if len(locks) != 1:
+            raise ValueError('appearance fields do not have one shared account lock owner')
+        locked = {id(node) for node in ast.walk(locks[0])}
+        dock_calls = [node for node in ast.walk(coordinator) if isinstance(node, ast.Call)
+                      and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                      and node.func.value.id == 'service' and node.func.attr in {'dock_stop', 'dock_start'}]
+        if len(dock_calls) != 2 or any(id(node) not in locked for node in dock_calls):
+            raise ValueError('appearance dock lifecycle escapes the field transaction lock')
+        fields_apply = [node for node in ast.walk(coordinator) if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name) and node.func.id == 'apply_greeter']
+        if len(fields_apply) != 1 or len(fields_apply[0].args) != 2 or id(fields_apply[0]) not in locked:
+            raise ValueError('greeter field preparation is not bound to the locked account token')
+        for name, tree in (('_recover_field_updates', fields_tree),
+                           ('recover', ast.parse(_read_text(package / 'engine.py')))):
+            recovery = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name)
+            checks = [node.lineno for node in ast.walk(recovery) if isinstance(node, ast.Call)
+                      and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                      and node.func.value.id == 'transaction' and node.func.attr == 'check_committed']
+            root_calls = [node.lineno for node in ast.walk(recovery) if isinstance(node, ast.Call)
+                          and isinstance(node.func, ast.Name) and node.func.id == 'privileged']
+            if len(checks) != 1 or not root_calls or min(checks) >= min(root_calls):
+                raise ValueError('committed appearance bytes are not checked before root finalization')
+        root_tree = ast.parse(_read_text(package / 'greeter.py'))
+        root_fields = [node for node in ast.walk(root_tree) if isinstance(node, ast.Call)
+                       and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                       and node.func.value.id == 'fields' and node.func.attr == 'apply_root_greeter']
+        if len(root_fields) != 1 or len(root_fields[0].args) != 3:
+            raise ValueError('authenticated greeter field dispatch lost its token or caller identity')
+        for module in ('fields', 'greeter', 'wallpaper'):
+            tree = ast.parse(_read_text(package / (module + '.py')))
+            journal_calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                             and isinstance(node.func, ast.Attribute) and node.args
+                             and isinstance(node.args[0], ast.Constant)
+                             and node.args[0].value == 'fields-pending.json']
+            if not journal_calls or any(node.func.attr != 'read' for node in journal_calls):
+                raise ValueError('unresolved greeter evidence must only block edits, never become a competing commit journal')
+            if module == 'wallpaper':
+                writer = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'publish')
+                recoveries = [node.lineno for node in ast.walk(writer) if isinstance(node, ast.Call)
+                              and isinstance(node.func, ast.Attribute) and node.func.attr == 'rollback']
+                if not recoveries or min(node.lineno for node in journal_calls) >= min(recoveries):
+                    raise ValueError('wallpaper recovery mutates files before checking other greeter evidence')
+        counts['appearance_runtime_modules'] = len(module_names)
+        counts['appearance_atomic_native_files'] = len(native_paths)
+        counts['appearance_desktop_components'] = len(APPEARANCE_COMPONENTS)
+        counts['appearance_recovery_protocols'] = 2
+    except (OSError, UnicodeError, SyntaxError, StopIteration, TypeError, ValueError, KeyError) as error:
+        errors.append(f'{APPEARANCE_STAGE.relative_to(ROOT)}: appearance wiring: {error}')
+
+
+def check_appearance_render_preservation(paths: list[Path], errors: list[str],
+                                         counts: dict[str, int]) -> None:
+    """Render defaults as data, preserving all runtime mapping metadata."""
+    theme_paths = [DEBIAN_ROOT / 'hosts/themes' / (group + '.env')
+                   for group in ('base', 'apps', 'office')]
+    inputs = {THEME_FETCH_CORE, THEME_RENDER_SUPPORT, THEME_RENDER_AWK,
+              THEME_VALIDATE_AWK, APPEARANCE_REGISTRY, APPEARANCE_STAGE,
+              DESKTOP_INSTALLER, SCHEMA, *theme_paths}
+    counts['appearance_rendered_defaults'] = 0
+    if not inputs.intersection(paths):
+        counts['appearance_render_contract'] = 0
+        return
+    try:
+        selectors = _repository_selector_values()
+        text = _resolve_repository_source_contract(_read_text(THEME_FETCH_CORE))
+        if '*/usr/local/share/labwc-appearance/fields.json) return 0 ;;' in text:
+            errors.append(
+                f'{THEME_FETCH_CORE.relative_to(ROOT)}: fields.json must not bypass theme rendering'
+            )
+        if 'fields.json.tmpl' not in text:
+            errors.append(
+                f'{THEME_FETCH_CORE.relative_to(ROOT)}: missing fields.json.tmpl render contract'
+            )
+        if ('*/usr/local/lib/python3/dist-packages/labwc_appearance/*.py) return 0 ;;' not in text
+                and selectors['DIR_TARGET_PY'] + '/labwc_appearance/' not in text):
+            errors.append(
+                f'{THEME_FETCH_CORE.relative_to(ROOT)}: missing appearance Python code theme-render exemption'
+            )
+        support = _resolve_repository_source_contract(_read_text(THEME_RENDER_SUPPORT))
+        if ((re.search(r'\*/usr/local/share/labwc-appearance/fields\.json\.tmpl\)\s*'
+                       r'theme_render_scope=appearance-defaults\s*;;', support) is None
+                 and selectors['FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL'] not in support)
+                or 'awk -v render_scope="$theme_render_scope"' not in support):
+            raise ValueError('registry must select and pass defaults-only rendering before publication')
+        stage = _render_installer_path_placeholders(
+            _resolve_repository_source_contract(_read_text(APPEARANCE_STAGE)))
+        registry_source = re.escape(selectors['FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL'])
+        if re.search(r'desktop_stage_role_asset ' + registry_source +
+                     r'\s*\\\s*/usr/local/share/labwc-appearance/fields\.json 0644', stage) is None:
+            raise ValueError('registry template must install as fields.json with mode 0644')
+        installer = _read_text(DESKTOP_INSTALLER)
+        calls = re.findall(r'^  (desktop_[a-z_]+)\s*$', installer, re.MULTILINE)
+        order = [calls.index(name) for name in (
+            'desktop_stage_target_assets', 'desktop_install_appearance_themes',
+            'desktop_install_user_config', 'desktop_capture_appearance_defaults',
+            'desktop_verify_appearance_assets', 'desktop_enable_target_services',
+        )]
+        if order != sorted(order):
+            raise ValueError('appearance registry must stage before capture/verification/activation')
+        target_assets = _read_text(DEBIAN_ROOT / 'scripts/desktop/components/target-assets.sh')
+        if re.search(r'^  desktop_stage_appearance\s*$', target_assets, re.MULTILINE) is None:
+            raise ValueError('target asset staging must include the appearance registry')
+
+        # Only pure AWK data validation/substitution runs here. No installer
+        # shell or managed Python module is sourced, imported, or executed.
+        validated = _run(['awk', '-f', str(THEME_VALIDATE_AWK), str(SCHEMA),
+                          *(str(path) for path in theme_paths)])
+        if validated.returncode:
+            raise ValueError('theme data validation failed: ' + validated.stderr[:300])
+        theme_values = dict(line.split('=', 1) for line in validated.stdout.splitlines())
+        rendered = _run(['awk', '-v', 'render_scope=appearance-defaults',
+                         '-f', str(THEME_RENDER_AWK), '-', str(APPEARANCE_REGISTRY)],
+                        input_text=validated.stdout)
+        if rendered.returncode:
+            raise ValueError('registry default rendering failed: ' + rendered.stderr[:300])
+        expected = json.loads(_read_text(APPEARANCE_REGISTRY))
+        for field in expected['fields']:
+            key = field['key']
+            if field.get('default') != '__THEME_' + key + '__':
+                raise ValueError('default template does not match appearance field ' + key)
+            field['default'] = theme_values[key]
+        actual = json.loads(rendered.stdout)
+        if actual != expected:
+            raise ValueError('rendering must replace every default and preserve all mapping metadata')
+        counts['appearance_rendered_defaults'] = len(actual['fields'])
+    except (OSError, UnicodeError, KeyError, TypeError, ValueError) as error:
+        errors.append(f'{THEME_FETCH_CORE.relative_to(ROOT)}: render contract: {error}')
+    counts['appearance_render_contract'] = 1
+
+
+def check_waybar_render_contract(paths: list[Path], errors: list[str],
+                                 counts: dict[str, int]) -> None:
+    """Check that Waybar config assets always use their placeholder map."""
+    renderer = DEBIAN_ROOT / 'scripts/desktop/components/core-renderers.sh.tmpl'
+    waybar_root = TARGET_ROOT / 'etc/skel-desktop/.config/waybar'
+    changed_waybar = [path for path in paths if path.is_relative_to(waybar_root)
+                      and path.name.endswith('.tmpl')]
+    if renderer not in paths and not changed_waybar:
+        counts['waybar_render_contract'] = 0
+        return
+    try:
+        renderer_text = _read_text(renderer)
+        if 'run_in_target "validate Waybar geometry with target Python"' not in renderer_text:
+            errors.append(f'{renderer.relative_to(ROOT)}: geometry validator must run through target run_in_target')
+        if re.search(r'/usr/bin/python3\s+-I\s+-B\s+"\$TMP_ENV_DIR/waybar_geometry\.py"', renderer_text):
+            errors.append(f'{renderer.relative_to(ROOT)}: geometry validator is being executed in d-i')
+        if re.search(r'(?m)^\s*desktop_render_waybar_asset\s+config\s*$', renderer_text):
+            errors.append(f'{renderer.relative_to(ROOT)}: config.tmpl is rendered once without its placeholder map')
+        if 'desktop_render_waybar_config_asset "$wb_config_asset"' not in renderer_text:
+            errors.append(f'{renderer.relative_to(ROOT)}: Waybar config asset loop is missing')
+        module_root = waybar_root / 'modules'
+        module_assets = {path.name.removesuffix('.tmpl') for path in changed_waybar
+                         if path.parent == module_root}
+        for asset in sorted(module_assets):
+            if asset not in renderer_text:
+                errors.append(f'{renderer.relative_to(ROOT)}: module template {asset} is not in the config renderer loop')
+        counts['waybar_module_templates'] = len(module_assets)
+        style_root = waybar_root / 'style'
+        style_assets = {path.name.removesuffix('.tmpl') for path in changed_waybar
+                        if path.parent == style_root}
+        for asset in sorted(style_assets):
+            loop_name = asset
+            if loop_name not in renderer_text:
+                errors.append(f'{renderer.relative_to(ROOT)}: style template {asset} is not in the style renderer loop')
+        counts['waybar_style_templates'] = len(style_assets)
+        map_match = re.search(
+            r'desktop_render_waybar_config_asset\(\) \{(.*?)\n  \}\n  desktop_render_waybar_config_asset config',
+            renderer_text, re.DOTALL,
+        )
+        if map_match is None:
+            errors.append(f'{renderer.relative_to(ROOT)}: config placeholder map body is missing')
+            explicit = set()
+        else:
+            explicit = set(re.findall(r'^\s+(LABWC_[A-Z0-9_]+)\s+"', map_match.group(1), re.MULTILINE))
+        geometry = DEBIAN_ROOT / 'scripts/desktop/waybar-geometry.tsv'
+        geometry_keys = set()
+        for line in _read_text(geometry).splitlines():
+            if not line or line.startswith('#'):
+                continue
+            fields = line.split('\t')
+            if len(fields) == 4:
+                geometry_keys.add(fields[0])
+        accepted = set(explicit)
+        for key in geometry_keys:
+            accepted.update({f'LABWC_WAYBAR_INTERNAL_{key}', f'LABWC_WAYBAR_EXTERNAL_{key}'})
+            if key.startswith(('MENU_', 'POPUP_', 'TOOLTIP_')):
+                accepted.add(f'LABWC_WAYBAR_SHARED_{key}')
+        tokens = set()
+        for path in changed_waybar:
+            tokens.update(re.findall(r'__INSTALLER_([A-Z0-9_]+)__', _read_text(path)))
+        accepted.update(token for token in tokens
+                       if token.startswith(('PATH_', 'APPARMOR_PROFILE_')))
+        unknown = sorted(token for token in tokens if token not in accepted)
+        for token in unknown:
+            errors.append(f'{waybar_root.relative_to(ROOT)}: no Waybar renderer map entry for {token}')
+        counts['waybar_installer_tokens'] = len(tokens)
+    except (OSError, UnicodeError) as error:
+        errors.append(f'{renderer.relative_to(ROOT)}: Waybar render contract: {error}')
+    counts['waybar_render_contract'] = 1
+
+
+def check_waybar_geometry_contract(paths: list[Path], errors: list[str],
+                                   counts: dict[str, int]) -> None:
+    """Validate profile geometry before the installer reaches target Python."""
+    changed_profiles = [
+        path for path in paths
+        if path.is_relative_to(WAYBAR_PROFILE_ROOT) and path.suffix == '.env'
+        and path.name != 'shared-de.env'
+    ]
+    geometry_inputs_changed = (
+        WAYBAR_GEOMETRY_SCHEMA in paths
+        or DEBIAN_ROOT / 'scripts/desktop/waybar_geometry.py' in paths
+        or DEBIAN_ROOT / 'scripts/desktop/components/core-renderers.sh.tmpl' in paths
+    )
+    if not changed_profiles and not geometry_inputs_changed:
+        counts['waybar_geometry_profiles'] = 0
+        return
+    profiles = changed_profiles or sorted(path for path in WAYBAR_PROFILE_ROOT.glob('*.env') if path.name != 'shared-de.env')
+    try:
+        specs: list[tuple[str, str, int, int]] = []
+        for line_number, raw in enumerate(_read_text(WAYBAR_GEOMETRY_SCHEMA).splitlines(), 1):
+            if not raw or raw.startswith('#'):
+                continue
+            fields = raw.split('\t')
+            if len(fields) != 4:
+                raise ValueError(f'{WAYBAR_GEOMETRY_SCHEMA}:{line_number}: malformed schema row')
+            key, kind, minimum, maximum = fields
+            if re.fullmatch(r'[A-Z][A-Z0-9_]*', key) is None or kind not in {'uint', 'px-tuple'}:
+                raise ValueError(f'{WAYBAR_GEOMETRY_SCHEMA}:{line_number}: invalid geometry schema key')
+            specs.append((key, kind, int(minimum), int(maximum)))
+        expected = {
+            f'LABWC_WAYBAR_{output_class}_{key}'
+            for output_class in ('INTERNAL', 'EXTERNAL')
+            for key, _kind, _minimum, _maximum in specs
+        }
+        assignment = re.compile(
+            r'(?:export\s+)?(LABWC_WAYBAR_(?:INTERNAL|EXTERNAL)_[A-Z][A-Z0-9_]*)="([^"\r\n]*)"$'
+        )
+        shared = WAYBAR_PROFILE_ROOT / 'shared-de.env'
+        if not shared.is_file():
+            raise ValueError(f'{shared.relative_to(ROOT)}: mandatory shared profile is missing')
+        for profile in profiles:
+            values: dict[str, str] = {}
+            for source in (shared, profile):
+                source_values: dict[str, str] = {}
+                for line_number, raw in enumerate(_read_text(source).splitlines(), 1):
+                    if not raw.startswith((
+                        'LABWC_WAYBAR_INTERNAL_', 'LABWC_WAYBAR_EXTERNAL_',
+                        'export LABWC_WAYBAR_INTERNAL_', 'export LABWC_WAYBAR_EXTERNAL_',
+                    )):
+                        continue
+                    match = assignment.fullmatch(raw)
+                    if match is None:
+                        raise ValueError(f'{source.relative_to(ROOT)}:{line_number}: malformed Waybar geometry assignment')
+                    key, value = match.groups()
+                    if key in source_values:
+                        raise ValueError(f'{source.relative_to(ROOT)}:{line_number}: duplicate {key}')
+                    source_values[key] = value
+                values.update(source_values)
+            if set(values) != expected:
+                missing = sorted(expected - set(values))
+                extra = sorted(set(values) - expected)
+                raise ValueError(
+                    f'{profile.relative_to(ROOT)}: geometry key set mismatch '
+                    f'missing={missing[:3]} extra={extra[:3]}'
+                )
+            for output_class in ('INTERNAL', 'EXTERNAL'):
+                for key, kind, minimum, maximum in specs:
+                    name = f'LABWC_WAYBAR_{output_class}_{key}'
+                    value = values[name]
+                    if kind == 'uint':
+                        if re.fullmatch(r'(?:0|[1-9][0-9]*)', value) is None:
+                            raise ValueError(f'{profile.relative_to(ROOT)}: non-canonical {name}')
+                        number = int(value)
+                        if not minimum <= number <= maximum:
+                            raise ValueError(f'{profile.relative_to(ROOT)}: out-of-range {name}')
+                    else:
+                        parts = value.split()
+                        if len(parts) != minimum or any(
+                            re.fullmatch(r'(?:0|[1-9][0-9]*)px', part) is None
+                            or int(part[:-2]) > maximum for part in parts
+                        ):
+                            raise ValueError(f'{profile.relative_to(ROOT)}: invalid {name}')
+            for key, _kind, _minimum, _maximum in specs:
+                if key.startswith('MENU_BUTTON_'):
+                    continue
+                if key.startswith(('MENU_', 'POPUP_', 'TOOLTIP_')):
+                    internal = values[f'LABWC_WAYBAR_INTERNAL_{key}']
+                    external = values[f'LABWC_WAYBAR_EXTERNAL_{key}']
+                    if internal != external:
+                        raise ValueError(
+                            f'{profile.relative_to(ROOT)}: native Waybar GTK popup geometry must match '
+                            f'INTERNAL/EXTERNAL: {key}'
+                        )
+            if int(values['LABWC_WAYBAR_INTERNAL_HEIGHT']) >= int(values['LABWC_WAYBAR_EXTERNAL_HEIGHT']):
+                raise ValueError(f'{profile.relative_to(ROOT)}: internal Waybar height must be smaller than external')
+    except (OSError, UnicodeError, TypeError, ValueError) as error:
+        errors.append(f'{WAYBAR_GEOMETRY_SCHEMA.relative_to(ROOT)}: geometry contract: {error}')
+    counts['waybar_geometry_profiles'] = len(profiles)
+
+
+def check_payload_archive(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    archive_paths = [path for path in paths if path.name == 'payload.tar.gz'
+                     and any(path.is_relative_to(ROOT / 'd-i' / owner)
+                             for owner in ('debian', 'forky', 'trixie'))]
+    if not archive_paths:
+        return
+    for archive_path in archive_paths:
+        _check_payload_archive(archive_path, paths, errors, counts)
+
+
+def _check_payload_archive(archive_path: Path, paths: list[Path],
+                           errors: list[str], counts: dict[str, int]) -> None:
+    schema_keys: set[str] | None = None
+    member_count = 0
+    with tarfile.open(archive_path, 'r:*') as archive:
+        for member in archive:
+            member_count += 1
+            if member_count > 100000:
+                raise ValueError('payload archive member limit exceeded')
+            if not member.isfile() or not member.name.startswith('hooks/target/'):
+                continue
+            if Path(member.name).suffix.lower() in BINARY_SUFFIXES:
+                continue
+            stream = archive.extractfile(member)
+            if stream is None:
+                continue
+            data = stream.read(8 * 1024 * 1024 + 1)
+            if len(data) > 8 * 1024 * 1024:
+                continue
+            schema_keys = _scan_markers(member.name, data, errors, schema_keys, counts)
+    counts['payload_members'] = member_count
+
+def check_desktop_resources(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Check slice ownership and pressure wiring strictly as source data."""
+    if not any(path.is_relative_to(DEBIAN_ROOT) for path in paths):
+        return
+    skel = TARGET_ROOT / 'etc/skel-desktop/.config/systemd/user'
+    units = TARGET_ROOT / 'etc/systemd/desktop'
+    if (TARGET_ROOT / 'etc/skel-desktop/.profile.d/72-ci-runners.sh.tmpl').exists():
+        raise ValueError('desktop skeleton must not install server CI runner administration')
+    for runner_unit in ('ci-github.service.tmpl', 'ci-gitlab.service.tmpl'):
+        runner_text = _read_text(TARGET_ROOT / ('etc/systemd/server/system/' + runner_unit))
+        if 'scx-workload-handoff' in runner_text:
+            raise ValueError('runner daemon must not switch the global scheduler for its whole lifetime: ' + runner_unit)
+    for base, unit in ((skel, 'labwc-compositor'), (skel, 'waybar'), (skel, 'crystal-dock'),
+                       (units / 'user', 'mako')):
+        text = _read_text(base / (unit + '.service.d/60-resource-class.conf'))
+        if re.findall(r'^Slice=(\S+)$', text, re.M) != ['session.slice']:
+            raise ValueError('desktop infrastructure must use session.slice: ' + unit)
+    for module in ('generic.py', 'session.py', 'runtime.py'):
+        source = _read_text(target_source('usr/local/lib/python3/dist-packages/labwc_managed_app/' + module))
+        if '"--slice=app.slice"' not in source or '"--slice=session.slice"' in source:
+            raise ValueError('application transient loses its distinct slice: ' + module)
+    build = _read_text(units / 'user/build.slice.tmpl')
+    for key in ('CPUWeight', 'IOWeight', 'MemoryHigh', 'MemoryMax', 'MemorySwapMax', 'TasksMax'):
+        if re.search(r'^' + key + r'=__SYSTEMD_BUILD_[A-Z_]+__$', build, re.M) is None:
+            raise ValueError('build slice lacks profile-owned bound: ' + key)
+    for name in ('user.slice.d', 'user-.slice.d', 'user@.service.d'):
+        if 'MemoryLow=__SYSTEMD_MEMORY_LOW_DESKTOP_ANCESTRY__' not in _read_text(
+                units / 'system' / name / '60-desktop-memory.conf.tmpl'):
+            raise ValueError('desktop memory protection loses an ancestor: ' + name)
+    helper = _read_text(target_source('usr/local/bin/labwc-build'))
+    for option in ('--user', '--scope', '--slice=build.slice', '--expand-environment=no',
+                   'KillMode=control-group', 'TimeoutStopSec=15s'):
+        if option not in helper:
+            raise ValueError('build launcher loses scope ownership: ' + option)
+    if '--system' in helper or 'DEVOPS_BUILD_ACTIVE' in helper or '|| exec' in helper:
+        raise ValueError('build launcher must not trust a marker or retry unconfined')
+    for storage_contract in (
+            'mountpoint --quiet -- __INSTALLER_PATH_DIR_POOL__',
+            'build_account=$(__INSTALLER_PATH_DIR_USR_BIN__/id -un)',
+            'build_account_root="__INSTALLER_PATH_DIR_POOL_BUILD__/${build_account}"',
+            'build_tmp="${build_account_root}/tmp"',
+            '"$build_uid:2770"', '"$build_uid:700"',
+            'TMPDIR=$build_tmp', 'TMP=$build_tmp', 'TEMP=$build_tmp',
+            'CARGO_TARGET_DIR="${build_account_root}/cargo/target"',
+            'GOTMPDIR=$build_tmp',
+            'export TMPDIR TMP TEMP CARGO_TARGET_DIR GOTMPDIR'):
+        if storage_contract not in helper:
+            raise ValueError('ordinary builds lose their pool boundary: ' + storage_contract)
+    if helper.index('export TMPDIR TMP TEMP CARGO_TARGET_DIR GOTMPDIR') > helper.index('0::*/build.slice/*'):
+        raise ValueError('nested build scope bypasses pool storage policy')
+    pool_policy = _read_text(target_source('etc/tmpfiles.d/75-desktop-pool-storage.conf.tmpl'))
+    if ('d __INSTALLER_DIR_POOL_BUILD__/__INSTALLER_ACCOUNT_USERNAME__/tmp 0700 '
+            '__INSTALLER_ACCOUNT_USERNAME__ __INSTALLER_ACCOUNT_USERNAME__ -') not in pool_policy:
+        raise ValueError('desktop build scratch directory lacks private installer provisioning')
+    profile = _read_text(TARGET_ROOT / 'etc/skel-desktop/.profile.d/71-devops-de.sh')
+    if '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-build "$devops_de_shell" -i' not in profile:
+        raise ValueError('DevOps shell no longer owns compiler descendants in build.slice')
+    for command in ('make', 'cargo', 'rustc', 'c++', 'ninja', 'cmake', 'clang++'):
+        if f"alias {command}='__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-build {command}'" not in profile:
+            raise ValueError('ordinary interactive compiler loses build routing: ' + command)
+    perl = TARGET_ROOT / 'usr/local/lib/common/perl5/site_perl/zram-writeback/Zram'
+    policy = _read_text(perl / 'Policy.pm')
+    controller = _read_text(perl / 'Daemon/Controller.pm')
+    if ("'ZRAM_EMERGENCY_WORK_MAX_PAGES'" not in policy
+            or '$work_remaining -= $pages' not in policy
+            or '$plan{writeback_pass_pages} = $remaining_pages' not in policy
+            or "'ZRAM_PRESSURE_WORK_MAX_PAGES'" not in policy
+            or "$plan{compact} = $state eq 'normal'" not in policy
+            or 'last_emergency_pass_at' not in controller):
+        raise ValueError('emergency maintenance loses aggregate work or cooldown ownership')
+    template = _read_text(TARGET_ROOT / 'etc/zram-writeback/policy.conf.tmpl')
+    renderer = _read_text(DEBIAN_ROOT / 'scripts/late/templates.sh')
+    if ('emergency_work_max_pages = __ZRAM_EMERGENCY_WORK_MAX_PAGES__' not in template
+            or 'ZRAM_EMERGENCY_WORK_MAX_PAGES=$ZRAM_EMERGENCY_WORK_MAX_PAGES' not in renderer):
+        raise ValueError('emergency work policy is not rendered into runtime configuration')
+    for name, variable in re.findall(r'^\s*(SYSTEMD_[A-Z0-9_]+)\) value=\$(SYSTEMD_[A-Z0-9_]+) ;;', renderer, re.M):
+        if name != variable:
+            raise ValueError('resource policy field reads a different variable: ' + name)
+    counts['desktop_resource_slice_contracts'] = 3
+    counts['desktop_memory_protection_ancestors'] = 3
+    counts['desktop_build_pool_boundary'] = 1
+    counts['zram_emergency_envelope_contracts'] = 1
+    counts['zram_pressure_envelope_contracts'] = 1
+
+
+def check_crypto_boot_contract(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Inspect crypto acquisition/cleanup contracts without loading a helper."""
+    policy = target_source('usr/local/libexec/tpm2-policy-check')
+    late = DEBIAN_ROOT / 'scripts/late/crypto.sh'
+    hook = TARGET_ROOT / 'etc/initramfs-tools/hooks/tpm2-cryptroot'
+    local_top = TARGET_ROOT / 'etc/initramfs-tools/scripts/local-top/00-tpm2-cryptroot'
+    cleanup = DEBIAN_ROOT / 'scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup'
+    armor = target_source('etc/apparmor.d/usr.local.sbin.tpm2-enroll.sh')
+    boot_armor = DEBIAN_ROOT / 'scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl'
+    runtime = DEBIAN_ROOT / 'hosts/installer/runtime.env'
+    enrollment = DEBIAN_ROOT / 'scripts/firstboot/assets/usr/local/sbin/tpm2-enroll.sh'
+    bootstrap = DEBIAN_ROOT / 'scripts/late/crypto-bootstrap.py.tmpl'
+    installer_paths = DEBIAN_ROOT / 'hooks/installer/di.env'
+    owners = {policy, late, hook, local_top, cleanup, armor, boot_armor, runtime, enrollment,
+              bootstrap, installer_paths}
+    if not owners.intersection(paths):
+        return
+    source = _read_text(policy)
+    tree = ast.parse(source, filename=str(policy.relative_to(ROOT)))
+    definitions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    inspection = definitions.get('verify_initramfs')
+    gate = definitions.get('verify_boot_cleanup')
+    evidence = definitions.get('verify_boot_evidence')
+    if not inspection or not gate or not evidence:
+        raise ValueError('crypto archive inspection or cleanup gate is missing')
+    body = ast.get_source_segment(source, inspection)
+    for contract in ("entry.name.endswith('.sig')", 'entry.stat(follow_symlinks=False)',
+                     'index >= 4096', 'len(images) > 64', 'time.monotonic() + 300',
+                     'total_bytes > 33_554_432', 'timeout=min(120, remaining)',
+                     'enumerate(io.BytesIO(raw))', 'member_index >= 100_000',
+                     'total_members > 200_000', 'len(encoded) > 4096',
+                     'time.monotonic() >= deadline',
+                     'identity(image.lstat()) != identity(before)',
+                     'identity(BOOT.lstat()) != boot_identity',
+                     "name.startswith(state_name + '/')", 'CRYPTO_LUKS2_ROOT'):
+        if contract not in body:
+            raise ValueError('crypto image inspection loses contract: ' + contract)
+    identities = [node for node in inspection.body if isinstance(node, ast.FunctionDef) and node.name == 'identity']
+    if len(identities) != 1:
+        raise ValueError('crypto image inspection requires one metadata identity contract')
+    identity = identities[0]
+    fields = {node.attr for node in ast.walk(identity) if isinstance(node, ast.Attribute)}
+    if not {'st_dev', 'st_ino', 'st_mode', 'st_uid', 'st_gid', 'st_nlink', 'st_size',
+            'st_mtime_ns', 'st_ctime_ns'}.issubset(fields) or 'st_atime' in fields or 'st_atime_ns' in fields:
+        raise ValueError('crypto image identity loses content/ownership fields or depends on access time')
+    libraries = [node.value for node in inspection.body if isinstance(node, ast.Assign)
+                 and any(isinstance(target, ast.Name) and target.id == 'libraries' for target in node.targets)]
+    if len(libraries) != 1:
+        raise ValueError('crypto image inspection requires one literal native library list')
+    families = ast.literal_eval(libraries[0])
+    hook_text = _read_text(hook)
+    loop = re.search(r'^for token_library in ([A-Za-z0-9 -]+); do$', hook_text, re.M)
+    if (not isinstance(families, tuple) or not loop or tuple(loop[1].split()) != families
+            or len(families) != 5 or 'libcrypto' not in families):
+        raise ValueError('crypto initrd hook and verifier disagree about native dynamic libraries')
+    constants = {node.value for node in ast.walk(inspection) if isinstance(node, ast.Constant)
+                 and isinstance(node.value, str)}
+    if (r'\( -type f -o -type l \)' not in hook_text
+            or 'copy_exec "$token_library_file" "$token_library_file"' not in hook_text
+            or r'\.so\.[0-9]+' not in constants):
+        raise ValueError('crypto initrd hook/verifier loses package SONAME links')
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name) and node.func.id == 'verify_initramfs']
+    if len(calls) != 3 or any(len(node.args) != 1 or not isinstance(node.args[0], ast.Name)
+                              or node.args[0].id != 'values' for node in calls):
+        raise ValueError('crypto archive callers must pass the validated root/home policy')
+    late_text = _read_text(late)
+    if ('"${DIR_USR_LOCAL_LIBEXEC}/tpm2-policy-check" --initramfs' not in late_text
+            or 'lsinitramfs' in late_text or 'initrd.img-*' in late_text):
+        raise ValueError('late crypto must use the permanent shared archive verifier')
+    gate_text = ast.get_source_segment(source, gate)
+    for contract in ('INITRAMFS_CLEANUP_PENDING', 'INITRAMFS_HEALTH_COMMON', 'BOOT_ARTIFACTS_CLEANED',
+                     '.lstat()', 'except FileNotFoundError', 'private_read(', 'boot_id()'):
+        if contract not in gate_text:
+            raise ValueError('crypto enrollment loses cleanup handoff: ' + contract)
+    if '.exists()' in gate_text or '.is_symlink()' in gate_text:
+        raise ValueError('crypto cleanup gate must not hide metadata/access failures')
+    def cleanup_call(node: ast.AST) -> bool:
+        return (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name) and node.value.func.id == 'verify_boot_cleanup')
+    if not cleanup_call(evidence.body[0]) or not cleanup_call(evidence.body[-2]):
+        raise ValueError('crypto evidence must check cleanup before and after measured-boot reads')
+    cleanup_text = _read_text(cleanup)
+    start = cleanup_text.index('remove_initramfs_health_hooks() {')
+    function = cleanup_text[start:cleanup_text.index('\n}\n', start)]
+    order = [function.index(value) for value in ('sync -f "$pending_candidate"',
+        'rm -f -- "$hook_path"', 'update-initramfs -u -k all', '--mark-boot-artifacts',
+        'rm -f -- "$initramfs_pending"')]
+    if order != sorted(order):
+        raise ValueError('crypto cleanup must retain pending evidence through rebuild/inspection/boot stamp')
+    pending = '__INSTALLER_PATH_FILE_FIRSTBOOT_INITRAMFS_CLEANUP_PENDING__'
+    stamped = '__INSTALLER_PATH_FILE_CRYPTO_BOOT_ARTIFACTS_CLEANED__'
+    config = '__INSTALLER_PATH_FILE_TPM2_CRYPTROOT_CONFIG__'
+    if (pending not in cleanup_text or pending + ' r,' not in _read_text(armor)
+            or stamped not in cleanup_text or stamped not in _read_text(boot_armor)
+            or config not in hook_text or config not in _read_text(local_top)
+            or '"$FILE_TPM2_CRYPTROOT_CONFIG"' not in late_text):
+        raise ValueError('crypto runtime paths, producers, consumers or exact AppArmor rule disagree')
+    enrollment_text = _read_text(enrollment)
+    for action in ('--boot-evidence', '--initramfs'):
+        branch = enrollment_text.split('if "$POLICY_CHECK" ' + action + '; then :; else\n', 1)
+        if len(branch) != 2 or '[ "$crypto_status" -ne 76 ] || exit 76' not in branch[1].split('\nfi', 1)[0]:
+            raise ValueError('crypto enrollment loses uncertain read/check result: ' + action)
+    counts['crypto_shared_initramfs_contracts'] = 1
+    counts['crypto_dynamic_library_families'] = len(families)
+    counts['crypto_cleanup_handoff_contracts'] = 1
+    counts['crypto_uncertain_check_adapters'] = 2
+    bootstrap_text = _read_text(bootstrap)
+    bootstrap_tree = ast.parse(bootstrap_text, filename=str(bootstrap.relative_to(ROOT)))
+    bootstrap_functions = {node.name: node for node in bootstrap_tree.body if isinstance(node, ast.FunctionDef)}
+    required = {'bootstrap_runtime_snapshot', 'bootstrap_disk_identity', 'bootstrap_partition',
+                'bootstrap_guard', 'bootstrap_command', 'bootstrap_token', 'bootstrap_main'}
+    if not required.issubset(bootstrap_functions):
+        raise ValueError('installer crypto loses its selected-device or transaction boundary')
+    for contract in ('device_identity(7)', 'bootstrap_partition(fd, record[\'slot\'])',
+                     "sys_device / 'diskseq'", "member / 'partition'", "member.parent / 'dev'",
+                     'time.monotonic() + 600', '_BOOTSTRAP_OUTPUT_REMAINING = 33554432',
+                     'len(encoded) > 1048576',
+                     "_RUNTIME['command'] = bootstrap_command", 'enrollment_lock()',
+                     'os.pread(4, 65, 0)', 'os.link(candidate, credential, follow_symlinks=False)',
+                     'private_read(TRANSACTION, 1048576)', "retained.get('state') != 'verified'",
+                     "record['state'] = 'enrolling'", "record['state'] = 'verified'",
+                     "'--tpm2-public-key='", "'--tpm2-pcrlock='", "'--token-only'", 'sys.exit(76)', 'sys.exit(69)'):
+        if contract not in bootstrap_text:
+            raise ValueError('installer crypto loses a device/recovery contract: ' + contract)
+    main = bootstrap_functions['bootstrap_main']
+    writes = [index for index, node in enumerate(main.body) if isinstance(node, ast.Expr)
+              and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name)
+              and node.value.func.id == 'bootstrap_write']
+    transactions = [index for index, node in enumerate(main.body) if isinstance(node, ast.Try)]
+    if len(writes) != 1 or len(transactions) != 1 or writes[0] >= transactions[0]:
+        raise ValueError('installer crypto must durably record intent before sealing or token mutation')
+    if (late_text.count('installer_run_target_setup FILE_LATE_CRYPTO_BOOTSTRAP ') != 1
+            or 'exec 4<"$crypto_bootstrap" 7<"$DEV_INSTALL_DISK"' not in late_text
+            or 'exec 5<"$DEV_PART_ROOT"' not in late_text or 'exec 6<"$DEV_PART_HOME"' not in late_text
+            or 'systemd-cryptenroll' in late_text or 'systemd-creds' in late_text):
+        raise ValueError('late crypto must bind selected handles and delegate initial native enrollment once')
+    path_key = 'FILE_INSTALLER_SELECTED_DISK_IDENTITY'
+    if path_key not in _read_text(installer_paths) or path_key not in _read_text(DEBIAN_ROOT / 'scripts/common/bootstrap.sh'):
+        raise ValueError('selected physical disk identity path is not owned and required by the installer contract')
+    for name in ('scripts/common/hook.sh', 'hooks/installer/partman/early.sh',
+                 'hooks/installer/partman/finish.d/99-storage-layout.sh'):
+        text = _read_text(DEBIAN_ROOT / name)
+        if path_key not in text or 'selected-disk.identity' in text:
+            raise ValueError('selected disk identity producer/consumer bypasses its canonical path: ' + name)
+    counts['crypto_installer_device_bindings'] = 3
+    counts['crypto_installer_bootstrap_transactions'] = 1
+    handoff = definitions.get('verify_bootstrap_transaction')
+    main = definitions.get('main')
+    if not handoff or not main:
+        raise ValueError('permanent crypto maintenance lacks the installer handoff gate')
+    handoff_text = ast.get_source_segment(source, handoff)
+    if ('private_read(BOOTSTRAP_TRANSACTION, 1048576)' not in handoff_text
+            or "record.get('state') != 'verified'" not in handoff_text
+            or 'set(devices) != set(expected)' not in handoff_text
+            or 'raise OutcomeUnknown' not in handoff_text
+            or 'verify_bootstrap_transaction(values)' not in ast.get_source_segment(source, main)):
+        raise ValueError('permanent crypto maintenance accepts an unverified or mismatched installer transaction')
+    receipt_token = '__INSTALLER_PATH_FILE_CRYPTO_BOOTSTRAP_TRANSACTION__'
+    if any(receipt_token + ' r,' not in _read_text(path) for path in (armor, boot_armor)):
+        raise ValueError('permanent crypto handoff is absent from an exact AppArmor consumer')
+    if ('crypto_policy_require() {' not in enrollment_text
+            or 'if crypto_config_data=$("$POLICY_CHECK" --config-data); then :; else' not in enrollment_text
+            or '$("$POLICY_CHECK" --config-data)\nEOF' in enrollment_text):
+        raise ValueError('crypto configuration adapter loses its producer or uncertain status')
+    counts['crypto_bootstrap_runtime_handoffs'] = 1
+
+
+def check_class_selection(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Inspect the early POSIX parser and its literal regression inputs as data."""
+    owner = DEBIAN_ROOT / 'scripts/common/modules/class-selection.sh'
+    fixture = DEBIAN_ROOT / 'tests/fixtures/class-parser-failures.json'
+    if not {owner, fixture}.intersection(paths):
+        return
+    source = _read_text(owner)
+    for contract in (
+            'case "$raw" in',
+            '*[[:space:]]*|*[![:print:]]*)',
+            'class_validation_tokens=$(printf',
+            "sed 's/\\\\\\([;,]\\)/ /g; s/[;,]/ /g'",
+            'for class_validation_token in $class_validation_tokens; do',
+            "''|*[!abcdefghijklmnopqrstuvwxyz0123456789_/-]*)"):
+        if contract not in source:
+            raise ValueError('class selection token validation contract is incomplete: ' + contract)
+    for contract in ('installer_normalize_class_tokens() (',
+                     'normalize_records=$(installer_configured_class_records) || return "$?"',
+                     '[ "$normalize_count" -le 64 ]',
+                     '[ "${#normalize_token}" -le 160 ]',
+                     '[ "${normalize_name##*/}" = "$normalize_token" ]',
+                     'ambiguous class basename; use the canonical group/name spelling',
+                     'normalized_raw=$(installer_normalize_class_tokens "$normalized_raw") || return "$?"',
+                     'auto_output=$(installer_auto_class_tokens "$(installer_seed_base "$seed_base")") || return "$?"',
+                     'class_lines=$(installer_classes_lines "$seed_base") || return "$?"',
+                     'for class_token in $class_lines; do'):
+        if contract not in source:
+            raise ValueError('class parser loses an input or status boundary: ' + contract)
+    if 'for class_token in $(installer_classes_lines' in source:
+        raise ValueError('class iteration must preserve its producer failure status')
+    if source.index('normalized_raw=$(installer_normalize_class_tokens') > source.index('auto_output=$(installer_auto_class_tokens'):
+        raise ValueError('manual classes must be canonical before hardware class merging')
+    data = json.loads(_read_text(fixture))
+    if data.get('execution') != 'unexecuted; static source and literal-data review only':
+        raise ValueError('class parser fixture execution boundary is missing')
+    cases = {item['id']: item for item in data['cases']}
+    logged = cases['fatal-20261112-hyphenated-bare-classes']
+    if (logged['input'] != 'prod;full;static;btrfs-de-p15s;nvidia-legacy;cuda-legacy'
+            or logged['canonical'] != ['site/prod', 'role/desktop/full', 'network/static',
+                                      'profile/desktop/btrfs-de-p15s', 'optional/nvidia-legacy', 'optional/cuda-legacy']):
+        raise ValueError('class parser fixture no longer describes the supplied fatal failure')
+    if not {'ambiguous-basename', 'duplicate-canonical-basename', 'traversal', 'encoded-traversal',
+            'shell-metacharacter', 'empty-selector', 'hardware-producer-failure',
+            'stale-cache-is-revalidated'}.issubset(cases):
+        raise ValueError('class parser failure fixtures lose a required boundary')
+    counts['class_parser_source_contracts'] = 1
+    counts['class_parser_unexecuted_cases'] = len(cases)
+
+
+def check_timeshift_profile_policy(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Profile gating and absence checks; no profile or managed code executes."""
+    compiler = ROOT / 'tools/class_compiler.py'
+    dispatcher = DEBIAN_ROOT / 'hooks/installer/class-dispatch.tsv'
+    owner = DEBIAN_ROOT / 'scripts/common/timeshift.sh'
+    profiles = DEBIAN_ROOT / 'hosts/profiles'
+    if not any(path in {compiler, dispatcher, owner} or path.is_relative_to(profiles)
+               or 'timeshift' in path.name for path in paths):
+        return
+    for suite in ('forky', 'trixie'):
+        classes = ROOT / 'd-i' / suite / 'classes'
+        if any(classes.rglob('*timeshift*.cfg')):
+            raise ValueError('Timeshift is host-profile policy and must have no class selector')
+        for role in (classes / 'class-select/role').glob('*/*.cfg'):
+            if re.search(r'\btimeshift\b', _read_text(role)):
+                raise ValueError('unconditional Timeshift in role class: ' + str(role.relative_to(ROOT)))
+        fragment = ROOT / 'd-i' / suite / 'fragments/timeshift.cfg'
+        if 'd-i pkgsel/include string timeshift' not in _read_text(fragment):
+            raise ValueError('missing conditional Timeshift package fragment')
+    total = 0
+    for family in ('desktop', 'server'):
+        for profile in (profiles / family).glob('*.env'):
+            if profile.name.startswith('shared-'):
+                continue
+            text = _read_text(profile)
+            if len(re.findall(r'^TIMESHIFT_ENABLE=[\'"](?:true|false)[\'"]$', text, re.M)) != 1:
+                raise ValueError('profile requires one explicit Timeshift boolean: ' + profile.name)
+            if re.search(r'^(?:GRUB_BTRFS_ENABLE|SNAPSHOTS_POLICY)=', text, re.M):
+                raise ValueError('profile has a second Timeshift/GRUB policy owner: ' + profile.name)
+            total += 1
+    source = _read_text(compiler)
+    if ("if profile_values['TIMESHIFT_ENABLE'] == 'true':\n                selected_refs.append('fragments/timeshift.cfg')" not in source
+            or "values['TIMESHIFT_ENABLE'] == 'true' and profile['filesystem'] != 'btrfs'" not in source):
+        raise ValueError('Timeshift packages must follow the validated Btrfs profile switch')
+    resolver = _read_text(DEBIAN_ROOT / 'scripts/common/resolve-plan.awk')
+    if 'if(snapshots=="timeshift-btrfs") add("fragments/timeshift.cfg")' not in resolver:
+        raise ValueError('d-i resolver lost conditional Timeshift package inclusion')
+    row = 'stage\tfragments/timeshift.cfg\tos.timeshift\tlate\tFILE_OS_TIMESHIFT\t'
+    dispatch_text = _read_text(dispatcher)
+    if sum(line.startswith(row) for line in dispatch_text.splitlines()) != 1:
+        raise ValueError('Timeshift requires one profile-enabled fragment stage owner')
+    late = _read_text(owner)
+    if late.index('installer_snapshots_enabled ||') > late.index('installer_stage_profile_file'):
+        raise ValueError('Timeshift publishes assets before checking the frozen profile policy')
+    foundation = _read_text(DEBIAN_ROOT / 'scripts/common/system-foundation.sh')
+    if 'timeshift/*) installer_snapshots_enabled || continue' not in foundation:
+        raise ValueError('disabled Timeshift modules must not be published')
+    menu = _read_text(target_source('usr/local/bin/labwc-maintenance-menu.tmpl'))
+    recovery = _read_text(target_source('usr/local/libexec/labwc-recovery-action-root'))
+    if "if not TIMESHIFT_CONFIG.is_file() or TIMESHIFT_CONFIG.is_symlink():" not in menu or 'exec __INSTALLER_PATH_FILE_TIMESHIFT_SNAPSHOT_HELPER__ manual' not in recovery:
+        raise ValueError('desktop snapshot UI bypasses profile absence or the managed snapshot owner')
+    counts['timeshift_profile_booleans'] = total
+    counts['timeshift_conditional_package_fragments'] = 2
+
+
+def check_server_configuration(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Inspect configuration ordering and readiness as source, never run it."""
+    owner = TARGET_ROOT / 'usr/local/libexec/server/installer-serverctl.py.tmpl'
+    runtime = DEBIAN_ROOT / 'hosts/installer/runtime.env'
+    renderer = DEBIAN_ROOT / 'scripts/common/modules/files-logging.sh'
+    if not {owner, runtime, renderer}.intersection(paths):
+        return
+    source = _read_text(owner)
+    tree = ast.parse(source, filename=str(owner.relative_to(ROOT)))
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    required = {'regular', 'dns_policy_snapshot', 'dns_resolver_plan', 'dns_resolver_handover',
+                'dns_configuration_ready', 'configure_dns', 'backup', 'update_dns', 'restore_dns', 'main'}
+    if not required.issubset(functions):
+        raise ValueError('server configuration loses a recovery or readiness owner')
+
+    def calls(node, name):
+        return [child for child in ast.walk(node) if isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name) and child.func.id == name]
+
+    capture = functions['regular']
+    fields = {node.attr for node in ast.walk(capture) if isinstance(node, ast.Attribute)}
+    if not {'O_NONBLOCK', 'O_NOFOLLOW', 'st_dev', 'st_ino', 'st_mode', 'st_nlink', 'st_uid',
+            'st_gid', 'st_size', 'st_mtime_ns', 'st_ctime_ns'}.issubset(fields):
+        raise ValueError('shared server data capture loses nonblocking or stable identity checks')
+    for name in ('dns_resolver_plan', 'dns_policy_snapshot'):
+        if calls(functions[name], 'write') or calls(functions[name], 'protected_directory'):
+            raise ValueError('DNS policy inspection must not publish or create directories')
+    configure = functions['configure_dns']
+    candidate_nodes = [node.value for node in configure.body if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name) and target.id == 'candidates' for target in node.targets)]
+    if len(candidate_nodes) != 1 or not isinstance(candidate_nodes[0], ast.Tuple):
+        raise ValueError('DNS configuration requires one complete candidate set')
+    candidates = candidate_nodes[0].elts
+    firewall = [node for node in candidates if isinstance(node, ast.Tuple)
+                and isinstance(node.elts[0], ast.Name) and node.elts[0].id == 'firewall']
+    if (len(candidates) != 6 or len(firewall) != 1 or len(firewall[0].elts) != 3
+            or not isinstance(firewall[0].elts[1], ast.Name) or firewall[0].elts[1].id != 'rules'):
+        raise ValueError('DNS firewall must have exactly one complete publication candidate')
+    transactions = [node for node in configure.body if isinstance(node, ast.Try)]
+    if len(transactions) != 1:
+        raise ValueError('DNS configuration requires one uncertainty-preserving publication transaction')
+    transaction = transactions[0]
+    for call in calls(configure, 'write'):
+        if call.lineno < transaction.lineno and (not call.args or not isinstance(call.args[0], ast.Name)
+                                                or call.args[0].id != 'saved'):
+            raise ValueError('DNS configuration publishes state before candidate validation and recovery capture')
+    first = transaction.body[0]
+    if (not isinstance(first, ast.Expr) or not isinstance(first.value, ast.Call)
+            or not isinstance(first.value.func, ast.Name) or first.value.func.id != 'write'
+            or not isinstance(first.value.args[0], ast.Name) or first.value.args[0].id != 'DNS_CONFIGURATION'):
+        raise ValueError('DNS configuration must publish its private journal before mutation')
+    body = ast.get_source_segment(source, configure)
+    for contract in ('rules = before + begin + acl + end + after', 'DNS private bridge overlaps a physical uplink',
+                     'snapshots[firewall] != firewall_before', 'dns_policy_snapshot(path) != snapshots[path]',
+                     "record.update(backup=str(saved), mode=snapshot['mode'], uid=snapshot['uid'], gid=snapshot['gid']",
+                     "transaction['published'].append(str(path))", 'except BaseException as error:',
+                     "transaction['state'] = 'configured-activation-pending'"):
+        if contract not in body:
+            raise ValueError('DNS configuration loses source contract: ' + contract)
+    handover = calls(configure, 'dns_resolver_handover')
+    prepared = [node for node in ast.walk(configure) if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute) and node.func.attr == 'prepare']
+    if len(handover) != 1 or len(prepared) != 1 or prepared[0].lineno >= handover[0].lineno:
+        raise ValueError('DNS stopped guest preparation must precede resolver handover')
+    for name in ('backup', 'update_dns', 'restore_dns'):
+        if not calls(functions[name], 'dns_configuration_ready'):
+            raise ValueError('DNS maintenance lacks its complete-configuration gate: ' + name)
+    if len(calls(functions['main'], 'dns_configuration_ready')) != 2:
+        raise ValueError('DNS start and configured status require a complete configuration receipt')
+    key = 'FILE_SERVER_DNS_CONFIGURATION_TRANSACTION'
+    if (key not in _read_text(runtime) or 'PATH_' + key not in _read_text(renderer)
+            or '__INSTALLER_PATH_' + key + '__' not in source):
+        raise ValueError('DNS configuration journal path is not wired through its owning renderer')
+    counts['server_configuration_policy_files'] = len(candidates) + 1
+    counts['server_configuration_readiness_gates'] = 5
+
+
+def check_private_server_setup(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Compare installer/maintenance boundaries without managed imports."""
+    setup = DEBIAN_ROOT / 'scripts/server/setup.py.tmpl'
+    control = TARGET_ROOT / 'usr/local/libexec/server/installer-serverctl.py.tmpl'
+    workload = TARGET_ROOT / 'usr/local/lib/server/technitium_incus.py.tmpl'
+    credentials = DEBIAN_ROOT / 'scripts/common/credentials.sh'
+    owners = {setup, control, workload, credentials}
+    if not owners.intersection(paths):
+        return
+    sources = {path: _read_text(path) for path in (setup, control, workload)}
+    trees = {path: ast.parse(source, filename=str(path.relative_to(ROOT))) for path, source in sources.items()}
+    definitions = {path: {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+                   for path, tree in trees.items()}
+    for name in ('regular', 'trusted_directory', 'json_document', 'dns_account_identity', 'selected_server_roles'):
+        if ast.dump(definitions[setup][name], include_attributes=False) != ast.dump(definitions[control][name], include_attributes=False):
+            raise ValueError('installer and maintenance disagree about protected server data: ' + name)
+    if not {'foundation', 'install', 'configure_runner', 'verify_gitlab_credentials', 'stage_dns_credentials'} <= definitions[setup].keys():
+        raise ValueError('initial server setup lacks its installer-only owner')
+    if {'foundation', 'install', 'configure_runner', 'enroll'}.intersection(definitions[control]):
+        raise ValueError('persistent server maintenance must not install or enroll runners')
+    for name in ('foundation.sh', 'services.sh'):
+        shell = _read_text(DEBIAN_ROOT / 'scripts/server' / name)
+        if 'server_roles=$(installer_plan_roles) || exit "$?"' not in shell or '$(installer_plan_roles)\nEOF' in shell:
+            raise ValueError('server role iteration loses its frozen-plan producer status: ' + name)
+    if 'configure-runner' in sources[control] or "'enroll'" in sources[control]:
+        raise ValueError('target maintenance CLI exposes an installer enrollment operation')
+    runner = ast.get_source_segment(sources[setup], definitions[setup]['configure_runner']) or ''
+    for contract in ("extra={'ACTIONS_RUNNER_INPUT_TOKEN': token}",
+                     "policy['default_image']", "policy['pull_policy']", "policy['helper_flavor'] != 'ubuntu'",
+                     "policy.get('helper_images')", "target_architecture()",
+                     "policy['podman_socket']",
+                     "'installed-but-pending-enrollment'", "'enrollment-uncertain'", "'enrolled-activation-pending'",
+                     "'online': False", "'--config', str(path)", 'verify_gitlab_credentials(url, token, home, uid)'):
+        if contract not in runner:
+            raise ValueError('private native runner setup loses a contract: ' + contract)
+    if any(value in runner for value in ('allowed_images', '--token', 'privileged = true', '/var/run/docker.sock', 'alpine')):
+        raise ValueError('runner setup exposes a token, forces an image or grants privileged job authority')
+    verify = ast.get_source_segment(sources[setup], definitions[setup]['verify_gitlab_credentials']) or ''
+    for contract in ("input_data=body, timeout=45", "'--max-time', '30'", "'--max-redirs', '0'",
+                     "status_code != b'200'", "'/api/v4/runners/verify'", "'online': False"):
+        if contract not in verify:
+            raise ValueError('private GitLab verification lacks its structured bounded acknowledgement: ' + contract)
+    config_token = '__INSTALLER_PATH_FILE_SERVER_GITLAB_CONFIG__'
+    unit = _read_text(TARGET_ROOT / 'etc/systemd/server/system/ci-gitlab.service.tmpl')
+    if (config_token not in runner or '--config ' + config_token not in unit
+            or '__INSTALLER_PATH_DIR_SERVER_GITLAB_CONFIG__' not in verify):
+        raise ValueError('native GitLab configuration and writable manager-identity directory disagree')
+    shared_server_profile = _read_text(DEBIAN_ROOT / 'hosts/profiles/server/shared-srv.env')
+    for key in ('PODMAN_GITHUB_USER', 'PODMAN_GITHUB_GROUP', 'PODMAN_GITHUB_RUNTIME_DIR',
+                'PODMAN_GITHUB_SOCKET', 'PODMAN_GITLAB_USER', 'PODMAN_GITLAB_GROUP',
+                'PODMAN_GITLAB_RUNTIME_DIR', 'PODMAN_GITLAB_SOCKET', 'PODMAN_DEVOPS_USER',
+                'PODMAN_DEVOPS_GROUP',
+                'CI_RUNNER_CPU_WEIGHT', 'CI_RUNNER_IO_WEIGHT', 'CI_RUNNER_TASKS_MAX',
+                'CI_RUNNER_MEMORY_HIGH', 'CI_RUNNER_MEMORY_MAX'):
+        if not re.search(r'^' + key + r'=', shared_server_profile, re.M):
+            raise ValueError('server shared profile loses Podman/runner ownership: ' + key)
+    github_unit = _read_text(TARGET_ROOT / 'etc/systemd/server/system/ci-github.service.tmpl')
+    for provider, unit_text in (('GITHUB', github_unit), ('GITLAB', unit)):
+        suffixes = ('USER', 'GROUP', 'RUNTIME_DIR', 'SOCKET') if provider == 'GITHUB' else ('USER', 'GROUP', 'RUNTIME_DIR')
+        for suffix in suffixes:
+            token = '__INSTALLER_PODMAN_' + provider + '_' + suffix + '__'
+            if token not in unit_text:
+                raise ValueError('runner service account is not sourced from server shared policy: ' + token)
+    credential_text = _read_text(credentials)
+    for field in ('USERNAME', 'PASSWORD', 'WEB_USERNAME', 'WEB_PASSWORD', 'TLS_PASSPHRASE', 'BACKUP_PASSPHRASE'):
+        if 'PRESEED_TECHNITIUM_' + field not in credential_text:
+            raise ValueError('missing private initrd Technitium credential mapping: ' + field)
+    if any(value in credential_text for value in ('PRESEED_CI_GITHUB_URL', 'PRESEED_CI_GITLAB_URL', 'PRESEED_TECHNITIUM_ADMIN_PASSWORD')):
+        raise ValueError('public URLs or retired Tech credential alias remain in private inputs')
+    identity = ast.get_source_segment(sources[setup], definitions[setup]['stage_dns_credentials']) or ''
+    if ("'--method=yescrypt', '--stdin'" not in identity or "user + ':!' + hashed" not in identity
+            or "'locked': True" not in identity or "'shell': '/usr/sbin/nologin'" not in identity):
+        raise ValueError('designated DNS account loses locked native private-stdin setup')
+    configure = ast.get_source_segment(sources[control], definitions[control]['configure_dns']) or ''
+    if "set(private) != {'dns_ownership', 'recursion_cidrs'}" not in configure:
+        raise ValueError('DNS maintenance introduces another initial secret input channel')
+    cipher = ast.get_source_segment(sources[control], definitions[control]['backup_cipher']) or ''
+    decrypt = ast.get_source_segment(sources[control], definitions[control]['decrypted_backup']) or ''
+    for contract in ('Scrypt(salt=salt, length=32, n=32768, r=8, p=1)',
+                     'modes.GCM(nonce, tag)', 'authenticate_additional_data(header)'):
+        if contract not in cipher:
+            raise ValueError('DNS encrypted backup loses its fixed authenticated format: ' + contract)
+    if 'context.finalize()' not in decrypt or decrypt.index('context.finalize()') >= decrypt.index('yield plain'):
+        raise ValueError('DNS restore must authenticate before archive parsing')
+    work = sources[workload]
+    for contract in ("'listen': 'unix:' + str(MANAGEMENT)", "'mode': '0600'", 'socket.SO_PEERCRED',
+                     "'private/web-configuration.json'", "'state': 'configuring'", 'def web_credentials(self):',
+                     'DNS guest transition may have changed; native and web journals retained'):
+        if contract not in work:
+            raise ValueError('private DNS management loses its identity or uncertainty boundary: ' + contract)
+    if "'listen': 'tcp:" in work:
+        raise ValueError('private DNS management must not expose a host TCP listener')
+    counts['server_protected_capture_equivalence'] = 5
+    counts['installer_only_runner_enrollment'] = 2
+    counts['technitium_private_credential_fields'] = 6
+    counts['technitium_authenticated_backup_format'] = 3
+
+
+def check_codex_and_private_git(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Inspect account/credential boundaries as source, without managed imports."""
+    inputs = (
+        ROOT / 'tools/class_compiler.py', DEBIAN_ROOT / 'scripts/common/resolve-plan.awk',
+        DEBIAN_ROOT / 'scripts/common/ssh.sh', DEBIAN_ROOT / 'scripts/late/ssh/ssh-install.py',
+        DEBIAN_ROOT / 'scripts/late/codex.sh.tmpl', DEBIAN_ROOT / 'scripts/server/setup.py.tmpl',
+        DEBIAN_ROOT / 'scripts/desktop/components/user-config.sh',
+        TARGET_ROOT / 'usr/local/bin/server/codex.tmpl',
+    )
+    if not set(inputs).intersection(paths):
+        return
+    compiler, resolver, ssh, helper, provision, server, desktop, launcher = map(_read_text, inputs)
+    tree = ast.parse(compiler)
+    choices = [node.value for node in ast.walk(tree) if isinstance(node, ast.Assign)
+               and any(isinstance(target, ast.Name) and target.id == 'codex_enabled' for target in node.targets)]
+    if len(choices) != 1 or not isinstance(choices[0], ast.BoolOp) or not isinstance(choices[0].op, ast.Or):
+        raise ValueError('DevOps Codex ownership must be independent of CODEX_ONLY_ENABLE')
+    role_ids = {node.value for node in ast.walk(choices[0]) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    if not {'role/desktop/medium', 'role/desktop/full', 'role/server/devops'} <= role_ids:
+        raise ValueError('Codex native role owners are incomplete')
+    if ('codex_enabled=(family=="server" && profile_codex_only=="true") || ("role/server/devops" in selected)'
+            not in resolver or '("role/desktop/medium" in selected)' not in resolver
+            or '("role/desktop/full" in selected)' not in resolver
+            or 'codex_only_enable' not in resolver
+            or 'ref!="fragments/codex.cfg"' not in resolver):
+        raise ValueError('d-i resolver does not preserve independent DevOps Codex selection')
+    for source in (compiler, _read_text(ROOT / 'tools/source_layout.py')):
+        if 'shared-hosting.env' in source or 'hosts/profiles/shared.env' not in source:
+            raise ValueError('profile consumers disagree about common policy ownership')
+    if (DEBIAN_ROOT / 'hosts/profiles/shared-hosting.env').exists():
+        raise ValueError('retired shared-hosting profile remains a competing owner')
+    for name in ('desktop/shared-de.env', 'server/shared-srv.env'):
+        source = _read_text(DEBIAN_ROOT / 'hosts/profiles' / name)
+        if re.search(r'^DEVOPS_CODEX_TOOLS_ENABLE=', source, re.M):
+            raise ValueError('retired server Codex flag remains in family defaults')
+    helper_tree = ast.parse(helper)
+    functions = {node.name: ast.get_source_segment(helper, node) or ''
+                 for node in helper_tree.body if isinstance(node, ast.FunctionDef)}
+    for function in ('clone_obsidian', 'clone_netscape'):
+        if 'clone_desktop_repository(account, home, stage, agent_env, policy)' not in functions[function]:
+            raise ValueError('desktop private clones do not share their pinned publication boundary')
+    copy = functions['copy_private_checkout']
+    for value in ('os.scandir(source)', 'budget[0] -= 1', 'budget[1] -= info.st_size',
+                  'remaining -= len(block)', 'os.O_NOFOLLOW', 'os.fsync(destination)'):
+        if value not in copy:
+            raise ValueError('private Git checkout copy loses its bounded identity contract: ' + value)
+    if ('publication_uncertain = True' not in functions['clone_desktop_repository']
+            or 'publication_stage_ready and not publication_uncertain' not in functions['clone_desktop_repository']):
+        raise ValueError('private checkout loses retained evidence after uncertain publication')
+    for value in ('clone-obsidian:desktop|clone-netscape:desktop',
+                  'installer_cmdline_password_value git_ssh_passphrase', 'preseed_env_check_file /git_ed25519',
+                  'preseed_env_check_file /git_ed25519.pub', 'printf \'%s\' "$secret" | chroot',
+                  '"$saved_status" -eq 76'):
+        if value not in ssh:
+            raise ValueError('initrd private Git credential boundary is incomplete: ' + value)
+    for function in ('desktop_install_obsidian_repository', 'desktop_install_browser_repository'):
+        body = desktop.split(function + '() {', 1)[1].split('\n}', 1)[0]
+        if 'installer_tools_class_selected' in body or 'installer_fatal_status "$desktop_clone_status"' not in body:
+            raise ValueError('all-desktop private cloning loses tier or outcome ownership')
+    if (not any(value in provision for value in (
+            'ACCOUNT_USERNAME=$(installer_preseed_env_value primary_user)',
+            'ACCOUNT_USERNAME=$(installer_cmdline_value primary_user)'))
+            or 'FILE_SERVER_CODEX_LAUNCHER' not in provision
+            or 'getent group devops' not in provision):
+        raise ValueError('Codex does not provision the explicit primary account and shared storage group')
+    for value in ("'--password', '!'", "'/usr/sbin/nologin'", 'service identity has supplementary access',
+                  "operator_profile(account, '99-codex-srv.sh')", "operator_profile(account, '71-devops-srv.sh')"):
+        if value not in server:
+            raise ValueError('server service/operator account separation is incomplete: ' + value)
+    if any(value in launcher for value in ('labwc_managed_app', 'SSH_AUTH_SOCK', 'DOCKER_HOST=', 'CONTAINER_HOST=')):
+        raise ValueError('headless Codex imports desktop or runner authority')
+    for value in ("uid == 0", "'--unshare-all'", "'--cap-drop', 'ALL'", "'--ro-bind-data'",
+                  'resolver_snapshot()', 'os.execve(BWRAP, command, environment)'):
+        if value not in launcher:
+            raise ValueError('headless Codex loses its non-root namespace/resolver contract: ' + value)
+    backend = _read_text(TARGET_ROOT / 'etc/systemd/server/user/codex-app-server.service')
+    if 'rsyslog-app-run' in backend or 'ExecStart=__INSTALLER_DEVOPS_CODEX_WRAPPER_PATH__ app-server ' not in backend:
+        raise ValueError('headless Codex backend depends on the desktop log supervisor')
+    counts['codex_profile_and_role_contracts'] = 2
+    counts['desktop_private_git_clones'] = 2
+    counts['server_distinct_runner_identities'] = 2
+
+
+def check_server_podman_ownership(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Keep server Podman identities and persistent paths in shared-srv.env."""
+    profile_root = DEBIAN_ROOT / 'hosts/profiles'
+    watched = [profile_root / 'server/shared-srv.env', DEBIAN_ROOT / 'repo.env',
+               ROOT / 'tools/class_compiler.py',
+               DEBIAN_ROOT / 'scripts/server/setup.py.tmpl',
+               TARGET_ROOT / 'etc/skel-server/.profile.d/71-devops-srv.sh',
+               TARGET_ROOT / 'etc/systemd/server/system/ci-github.service.tmpl',
+               TARGET_ROOT / 'etc/systemd/server/system/ci-gitlab.service.tmpl']
+    if not set(watched).intersection(paths):
+        return
+    shared = _read_text(profile_root / 'server/shared-srv.env')
+    repo_env = _read_text(DEBIAN_ROOT / 'repo.env')
+    if 'FILE_TARGET_BIN_CI_RUNNERS="${DIR_TARGET_BIN_SERVER}/ci-runners"' not in repo_env:
+        raise ValueError('server-only runner control command must be owned by the server source tree')
+    if (TARGET_ROOT / 'usr/local/bin/common/ci-runners').exists():
+        raise ValueError('server-only runner control command leaked into the common source tree')
+    if not (TARGET_ROOT / 'usr/local/bin/server/ci-runners').is_file():
+        raise ValueError('server-only runner control command is missing from the server source tree')
+    keys = (
+        'PODMAN_ROOTLESS_STATE_BASE', 'PODMAN_GITHUB_STORAGE_DRIVER',
+        'PODMAN_GITHUB_GRAPHROOT', 'PODMAN_GITHUB_RUNROOT',
+        'PODMAN_GITHUB_IMAGE_COPY_TMP_DIR', 'PODMAN_GITLAB_STORAGE_DRIVER',
+        'PODMAN_GITLAB_GRAPHROOT', 'PODMAN_GITLAB_RUNROOT',
+        'PODMAN_GITLAB_IMAGE_COPY_TMP_DIR', 'PODMAN_DEVOPS_STORAGE_DRIVER',
+        'PODMAN_DEVOPS_GRAPHROOT_ROOT', 'PODMAN_DEVOPS_GRAPHROOT_SUBDIR',
+        'PODMAN_DEVOPS_RUNROOT_BASE', 'PODMAN_DEVOPS_IMAGE_COPY_TMP_ROOT',
+        'PODMAN_DEVOPS_IMAGE_COPY_TMP_SUBDIR', 'PODMAN_SERVICE_CPU_WEIGHT',
+        'PODMAN_SERVICE_IO_WEIGHT', 'PODMAN_SERVICE_TASKS_MAX',
+        'PODMAN_SERVICE_MEMORY_HIGH', 'PODMAN_SERVICE_MEMORY_MAX',
+        'PODMAN_GITHUB_USER', 'PODMAN_GITHUB_GROUP', 'PODMAN_GITHUB_RUNTIME_DIR',
+        'PODMAN_GITHUB_SOCKET', 'PODMAN_GITLAB_USER', 'PODMAN_GITLAB_GROUP',
+        'PODMAN_GITLAB_RUNTIME_DIR', 'PODMAN_GITLAB_SOCKET', 'PODMAN_DEVOPS_USER',
+        'PODMAN_DEVOPS_GROUP',
+        'CI_RUNNER_CPU_WEIGHT', 'CI_RUNNER_IO_WEIGHT', 'CI_RUNNER_TASKS_MAX',
+        'CI_RUNNER_MEMORY_HIGH', 'CI_RUNNER_MEMORY_MAX',
+    )
+    for key in keys:
+        if not re.search(r'^' + key + r'=', shared, re.M):
+            raise ValueError('server shared-srv.env lacks Podman/runner default: ' + key)
+    for profile in sorted((profile_root / 'server').glob('*.env')):
+        if profile.name == 'shared-srv.env':
+            continue
+        source = _read_text(profile)
+        for key in keys:
+            if re.search(r'^' + key + r'=', source, re.M):
+                raise ValueError('concrete server profile duplicates shared Podman policy: ' + profile.name + ':' + key)
+    for provider in ('GITHUB', 'GITLAB'):
+        unit = _read_text(TARGET_ROOT / ('etc/systemd/server/system/ci-' + provider.lower() + '.service.tmpl'))
+        suffixes = ('USER', 'GROUP', 'RUNTIME_DIR', 'SOCKET') if provider == 'GITHUB' else ('USER', 'GROUP', 'RUNTIME_DIR')
+        for suffix in suffixes:
+            token = '__INSTALLER_PODMAN_' + provider + '_' + suffix + '__'
+            if token not in unit:
+                raise ValueError('runner service account is not rendered from shared Podman policy: ' + token)
+    if '/pool/build' in shared and re.search(r'^PODMAN_[A-Z0-9_]+=', shared, re.M):
+        raise ValueError('server Podman policy points at the compilation pool')
+    counts['server_podman_shared_policy'] = len(keys)
+
+
+def check_server_ai_profile_ownership(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Keep Whisper/Llama release policy in paired concrete profiles only."""
+    profile_root = DEBIAN_ROOT / 'hosts/profiles'
+    watched = [profile_root / 'server/shared-srv.env', profile_root / 'desktop/btrfs-de-flex-duo.env',
+               profile_root / 'desktop/btrfs-de-flex.env', profile_root / 'desktop/f2fs-de-hp14.env',
+               profile_root / 'server/btrfs-srv-flex-duo.env', profile_root / 'server/btrfs-srv-flex.env',
+               profile_root / 'server/f2fs-srv-hp14.env', ROOT / 'tools/class_compiler.py']
+    if not set(watched).intersection(paths):
+        return
+    shared = _read_text(profile_root / 'server/shared-srv.env')
+    if re.search(r'^(?:WHISPER|LLAMA)_', shared, re.M):
+        raise ValueError('server shared-srv.env must not own Whisper/Llama policy')
+    pairs = {
+        'btrfs-srv-flex-duo.env': 'btrfs-de-flex-duo.env',
+        'btrfs-srv-flex.env': 'btrfs-de-flex.env',
+        'f2fs-srv-hp14.env': 'f2fs-de-hp14.env',
+    }
+    for server_name, desktop_name in pairs.items():
+        server = _read_text(profile_root / 'server' / server_name)
+        desktop = _read_text(profile_root / 'desktop' / desktop_name)
+        server_ai = [line for line in server.splitlines()
+                     if line.startswith(('WHISPER_', 'LLAMA_')) and not line.startswith(('WHISPER_ENABLE=', 'LLAMA_ENABLE='))]
+        desktop_ai = [line for line in desktop.splitlines() if line.startswith(('WHISPER_', 'LLAMA_'))]
+        if server_ai != desktop_ai:
+            raise ValueError('server AI policy differs from paired desktop profile: ' + server_name)
+    compiler = _read_text(ROOT / 'tools/class_compiler.py')
+    if "'whisper': 'WHISPER_CLI'" in compiler or "'whisper-model': 'WHISPER_MODEL'" in compiler:
+        raise ValueError('server artifact compiler still owns obsolete shared Whisper artifacts')
+    counts['paired_server_ai_profiles'] = len(pairs)
+
+
+def check_build_capture(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Inspect generation authority as AST; never import the serializer."""
+    owners = {'Makefile', 'tools/build.py', 'tools/class_compiler.py', 'tools/publication.py', 'tools/release_pointer.py'}
+    if not any(path.relative_to(ROOT).as_posix() in owners for path in paths):
+        return
+    builder = ast.parse(_read_text(ROOT / 'tools/build.py'), filename='tools/build.py')
+    functions = {node.name: node for node in builder.body if isinstance(node, ast.FunctionDef)}
+    captures = [node for node in builder.body if isinstance(node, ast.ClassDef) and node.name == 'SourceCapture']
+    if len(captures) != 1 or not {'build', 'serialize', 'generate_preseed'} <= functions.keys():
+        raise ValueError('generation requires one source capture and one byte serializer')
+    forbidden = {'system', 'popen', 'Popen', 'run', 'call', 'check_call', 'check_output'}
+    allowed_imports = {'__future__', 'collections', 'fcntl', 'gzip', 'hashlib', 'io', 'ipaddress',
+                       'itertools', 'json', 'os', 'pathlib', 're', 'shlex', 'stat', 'sys',
+                       'tarfile', 'tempfile', 'urllib.parse', 'class_compiler', 'publication'}
+    for name in ('build.py', 'class_compiler.py', 'publication.py'):
+        tree = ast.parse(_read_text(ROOT / 'tools' / name), filename=name)
+        for node in ast.walk(tree):
+            imports = ([alias.name for alias in node.names] if isinstance(node, ast.Import)
+                       else [node.module] if isinstance(node, ast.ImportFrom) else [])
+            if any(module not in allowed_imports for module in imports):
+                raise ValueError('generation imports an unreviewed execution path: ' + name)
+            if isinstance(node, ast.Call):
+                called = node.func.id if isinstance(node.func, ast.Name) else (
+                    node.func.attr if isinstance(node.func, ast.Attribute) else '')
+                if called in forbidden or (isinstance(node.func, ast.Name)
+                        and called in {'eval', 'exec', 'compile', '__import__'}):
+                    raise ValueError('generation path contains executable discovery: ' + name + '/' + called)
+    for name in ('serialize', 'generate_preseed'):
+        for node in ast.walk(functions[name]):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == 'tarfile'
+                    and node.func.attr == 'open' and any(key.arg == 'fileobj' for key in node.keywords)):
+                continue  # The sole archive writer consumes an in-memory buffer.
+            if isinstance(node, ast.Call) and ((isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {'open', 'read_text', 'read_bytes', 'stat', 'lstat', 'walk', 'rglob'})
+                    or (isinstance(node.func, ast.Name) and node.func.id == 'open')):
+                raise ValueError('serializer must consume captured bytes: ' + name)
+    steps = functions['build'].body
+    if (len(steps) != 1 or not isinstance(steps[0], ast.With)
+            or len(steps[0].items) != 1
+            or not isinstance(steps[0].items[0].context_expr, ast.Call)
+            or not isinstance(steps[0].items[0].context_expr.func, ast.Name)
+            or steps[0].items[0].context_expr.func.id != 'SourceCapture'):
+        raise ValueError('build must retain source ownership through serialization')
+    body = steps[0].body
+    if (len(body) < 3 or not isinstance(body[-1], ast.Return)
+            or not isinstance(body[-2], ast.Expr) or not isinstance(body[-2].value, ast.Call)
+            or not isinstance(body[-2].value.func, ast.Attribute)
+            or body[-2].value.func.attr != 'verify'):
+        raise ValueError('complete source membership must be checked before publication')
+    capture_source = ast.get_source_segment(_read_text(ROOT / 'tools/build.py'), captures[0]) or ''
+    for interface in ('os.O_PATH', 'os.O_NOFOLLOW', 'os.O_DIRECTORY', 'os.fstat', 'os.scandir',
+                      'SOURCE_ENTRY_LIMIT', 'SOURCE_MEMBER_LIMIT', 'SOURCE_BYTE_LIMIT', 'SOURCE_FILE_LIMIT'):
+        if interface not in capture_source:
+            raise ValueError('source capture lacks its bounded identity interface: ' + interface)
+    for node in ast.walk(captures[0]):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {
+                'read_text', 'read_bytes', 'rglob', 'walk', 'listdir'}:
+            raise ValueError('source capture must not reopen or enumerate inputs by pathname')
+    counts['generation_source_capture_contracts'] = 1
+    counts['generation_pure_modules'] = 3
+    main_source = ast.get_source_segment(_read_text(ROOT / 'tools/build.py'), functions['main']) or ''
+    for contract in ("with BuildOwnership(ROOT / 'd-i'):",
+                     "atomic_write(ROOT / 'd-i' / suite / name, data, 0o644)",
+                     "{'forky/preseed.cfg', 'trixie/preseed.cfg'}"):
+        if contract not in main_source:
+            raise ValueError('flat suite generation loses output ownership: ' + contract)
+    if any(value in main_source for value in ('publish_immutable_tree', '/releases', '/publications', "'releases'", "'publications'")):
+        raise ValueError('make build must overwrite flat suite files only')
+    counts['generation_flat_suite_output_contracts'] = 2
+    publication_source = _read_text(ROOT / 'tools/publication.py')
+    publication = ast.parse(publication_source, filename='tools/publication.py')
+    publication_functions = {node.name: node for node in publication.body if isinstance(node, ast.FunctionDef)}
+    if not {'atomic_write', 'publish_immutable_tree', '_products', '_verify_tree',
+            '_verify_file', '_atomic_write_at'} <= publication_functions.keys():
+        raise ValueError('publication lacks a bounded immutable-candidate boundary')
+    for node in ast.walk(publication):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr in {'read_bytes', 'read_text', 'walk', 'rglob', 'listdir', 'mkdtemp', 'mkstemp', 'resolve'}:
+            raise ValueError('publication must not reopen or enumerate paths through a mutable ancestor')
+        if not isinstance(node.func.value, ast.Name) or node.func.value.id != 'os':
+            continue
+        keys = {key.arg: key.value for key in node.keywords}
+        if node.func.attr in {'mkdir', 'stat', 'unlink'} and 'dir_fd' not in keys:
+            raise ValueError('publication mutation or metadata lookup lacks its pinned parent')
+        if node.func.attr == 'stat' and not (
+                isinstance(keys.get('follow_symlinks'), ast.Constant)
+                and keys['follow_symlinks'].value is False):
+            raise ValueError('publication metadata lookup may follow a replaced link')
+        if node.func.attr in {'rename', 'replace'} and not {'src_dir_fd', 'dst_dir_fd'} <= keys.keys():
+            raise ValueError('publication rename crosses a mutable pathname boundary')
+        if node.func.attr == 'open' and 'dir_fd' not in keys:
+            first = node.args[0] if node.args else None
+            root = isinstance(first, ast.Constant) and first.value == '/'
+            pinned = (isinstance(first, ast.JoinedStr) and len(first.values) == 2
+                      and isinstance(first.values[0], ast.Constant)
+                      and first.values[0].value == '/proc/self/fd/'
+                      and isinstance(first.values[1], ast.FormattedValue)
+                      and isinstance(first.values[1].value, ast.Name)
+                      and first.values[1].value.id == 'pinned')
+            if not root and not pinned:
+                raise ValueError('publication opens content through a mutable absolute pathname')
+    required = ('MEMBER_LIMIT', 'ENTRY_LIMIT', 'BYTE_LIMIT', 'FILE_LIMIT', 'PATH_LIMIT', 'DEPTH_LIMIT',
+                'os.O_PATH', 'os.O_NOFOLLOW', 'os.O_DIRECTORY', 'os.scandir(descriptor)',
+                'fcntl.LOCK_EX | fcntl.LOCK_NB', 'PublicationOutcomeUnknown',
+                "inspect(root, '', content=False) != identities", 'os.fchmod(descriptor, 0o755)',
+                'os.fchmod(root, 0o755)', 'os.fchmod(root, 0o700)')
+    if any(item not in publication_source for item in required):
+        raise ValueError('publication loses bounded capture, writer ownership or recovery evidence')
+    body = publication_functions['publish_immutable_tree'].body
+    product_validation = next((index for index, node in enumerate(body)
+                               if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                               and isinstance(node.value.func, ast.Name) and node.value.func.id == '_products'), None)
+    first_mutation = next((index for index, node in enumerate(body) if isinstance(node, ast.With)), None)
+    if product_validation is None or first_mutation is None or product_validation >= first_mutation:
+        raise ValueError('publication must validate the complete candidate before creating output paths')
+    counts['generation_publication_descriptor_contracts'] = 1
+    counts['generation_publication_recovery_contracts'] = 1
+    for name in ('build.py', 'release_pointer.py'):
+        tree = ast.parse(_read_text(ROOT / 'tools' / name), filename=name)
+        handlers = [node for node in ast.walk(tree) if isinstance(node, ast.ExceptHandler)
+                    and isinstance(node.type, ast.Name) and node.type.id == 'PublicationOutcomeUnknown']
+        if (len(handlers) != 1 or not any(isinstance(node, ast.Return)
+                and isinstance(node.value, ast.Constant) and node.value.value == 75
+                for node in ast.walk(handlers[0]))):
+            raise ValueError('publication caller collapses an uncertain mutation into ordinary failure: ' + name)
+    counts['publication_uncertain_result_adapters'] = 2
+
+
+def check_release_equality(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Compare both flat suite products with current source as data only."""
+    relevant = any(path.is_relative_to(DEBIAN_ROOT) or path.is_relative_to(ROOT / 'd-i/forky')
+                   or path.is_relative_to(ROOT / 'd-i/trixie') or path.name == 'build.py'
+                   or path.relative_to(ROOT).as_posix() in {'Makefile', 'tools/class_compiler.py', 'tools/publication.py', '.gitignore'}
+                   for path in paths)
+    if not relevant:
+        return
+    product_names = {'payload.tar.gz', 'payload.manifest', 'source.sh',
+                     'receipt.json', 'support-matrix.json'}
+    ignored_products = {'/d-i/debian/releases/', '/d-i/debian/publications/'}
+    if not ignored_products <= set(_read_text(ROOT / '.gitignore').splitlines()):
+        raise ValueError('local build-product roots must be explicitly ignored')
+    tracked_products = _run(['git', 'ls-files', '-z', '--',
+                             *(name.removeprefix('/').removesuffix('/')
+                               for name in sorted(ignored_products))])
+    if tracked_products.returncode or tracked_products.stdout:
+        raise ValueError('generated release/publication products must not be tracked')
+    counts['ignored_build_product_roots'] = len(ignored_products)
+    suite_products = [f'd-i/{suite}/{name}' for suite in ('forky', 'trixie')
+                      for name in product_names]
+    ignored_suite_products = _run(['git', 'check-ignore', '--', *suite_products])
+    if ignored_suite_products.returncode not in (0, 1) or ignored_suite_products.stdout:
+        raise ValueError('suite build products must remain visible to Git')
+    for suite in ('forky', 'trixie'):
+        if (ROOT / 'd-i' / suite / 'releases').exists():
+            raise ValueError('suite build products must be flat; releases directory is not allowed')
+    def member_name(name):
+        if (not isinstance(name, str) or not name or len(name) > 240 or name.startswith('/')
+                or any(part in ('', '.', '..') for part in name.split('/'))
+                or re.fullmatch(r'[A-Za-z0-9_./@+ -]+', name) is None):
+            raise ValueError('noncanonical release member path')
+        return name
+    def read(path, maximum=16777216):
+        # Never follow a changed artifact or receipt path to host data.
+        relative = path.relative_to(ROOT)
+        current = ROOT
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise ValueError('symlink in release/source input ancestry')
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        with os.fdopen(descriptor, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > maximum:
+                raise ValueError('release/source byte bound exceeded')
+            data = stream.read(maximum + 1)
+            if len(data) != info.st_size or len(data) > maximum:
+                raise ValueError('release/source changed during comparison')
+            return data
+    digest = lambda data: hashlib.sha256(data).hexdigest()
+    release_ids, preseeds = set(), {}
+    for suite in ('forky', 'trixie'):
+        preseed = read(ROOT / 'd-i' / suite / 'preseed.cfg')
+        ids = set(re.findall(rb'INSTALLER_RELEASE_ID=([0-9a-f]{64})', preseed))
+        if len(ids) != 1:
+            raise ValueError('frontend must bind exactly one immutable release: ' + suite)
+        release_ids.update(ids)
+        preseeds[suite] = preseed
+    if len(release_ids) != 1:
+        raise ValueError('the two frontends select different releases')
+    release_id = release_ids.pop().decode()
+    release = ROOT / 'd-i/forky'
+    receipt_bytes = read(release / 'receipt.json')
+    receipt = json.loads(receipt_bytes)
+    if receipt.get('format') != 1 or receipt.get('release') != release_id or receipt.get('suites') != ['forky', 'trixie']:
+        raise ValueError('release receipt identity differs')
+    if set(receipt['products']) != {'payload.tar.gz','payload.manifest','source.sh','support-matrix.json'}:
+        raise ValueError('release product vocabulary differs')
+    products = {name: read(release / name, 67108864) for name in receipt['products']}
+    for name, data in products.items():
+        if Path(name).name != name or digest(data) != receipt['products'][name]:
+            raise ValueError('release product differs from its receipt: ' + name)
+    manifest = products['payload.manifest'].decode().splitlines()
+    if not manifest or manifest[0] != 'format=3':
+        raise ValueError('unsupported current member manifest')
+    expected = {}
+    for line in manifest[1:]:
+        size, sha256, name = line.split('\t')
+        if name in expected or not size.isdecimal() or re.fullmatch('[0-9a-f]{64}', sha256) is None:
+            raise ValueError('duplicate or malformed manifest member')
+        expected[member_name(name)] = (int(size), sha256)
+    members, total = {}, 0
+    with tarfile.open(fileobj=io.BytesIO(products['payload.tar.gz']), mode='r:gz') as archive:
+        for member in archive:
+            total += member.size
+            if (not member.isfile() or member.name in members or member.name not in expected
+                    or member.mode != 0o644 or member.uid or member.gid or member.mtime
+                    or len(members) >= 10000 or member.size > 16777216 or total > 268435456):
+                raise ValueError('current payload has an unsafe or unexpected member')
+            stream = archive.extractfile(member)
+            if stream is None:
+                raise ValueError('current payload member has no bytes')
+            data = stream.read(member.size + 1)
+            if (len(data), digest(data)) != expected[member.name]:
+                raise ValueError('payload/member manifest differs: ' + member.name)
+            members[member.name] = data
+    if set(expected) != set(members) or receipt['members'] != len(members):
+        raise ValueError('payload membership differs from its complete manifest')
+    # Simulated rendering must not invent fields that the real shared renderer
+    # never emits. Read the actual serializer's fixed map as source data.
+    renderer = members['scripts/common/modules/files-logging.sh'].decode()
+    runtime_map = set(re.findall(r"printf '((?:PATH_)[A-Z0-9_]+)=", renderer))
+    used_runtime_fields = set()
+    for name, data in members.items():
+        used_runtime_fields.update(token.decode() for token in re.findall(rb'__INSTALLER_(PATH_[A-Z][A-Z0-9_]*)__', data))
+    if used_runtime_fields - runtime_map:
+        raise ValueError('target placeholder has no real publication-map producer: '
+                         + ', '.join(sorted(used_runtime_fields - runtime_map)))
+    counts['runtime_placeholder_producers'] = len(used_runtime_fields)
+    runtime_source = members['hosts/installer/runtime.env'].decode()
+    dropins = re.findall(r'^(DIR_SYSTEMD_(SYSTEM|USER)_[A-Z0-9_]+_DROPIN)="\$\{DIR_SYSTEMD_\2\}/([^"/]+\.d)"$',
+                         runtime_source, re.M)
+    dropin_paths = {(scope.lower(), unit): key for key, scope, unit in dropins}
+    if len(dropin_paths) != len(dropins) or ('system', 'nftables.service.d') not in dropin_paths:
+        raise ValueError('systemd drop-in directories have duplicate or missing canonical owners')
+    for key, _, _ in dropins:
+        if 'PATH_' + key not in runtime_map:
+            raise ValueError('systemd drop-in has no real placeholder producer: ' + key)
+    inline_dropin = re.compile(r'(?:__INSTALLER_PATH_DIR_(?:SYSTEMD_(?:SYSTEM|USER)|SYSTEMD_ETC|ETC)__/|\$\{DIR_SYSTEMD_(?:SYSTEM|USER)\}/|/etc/systemd/)(?:(?:systemd/)?(?:system|user)/)?[A-Za-z0-9@_.:-]+\.(?:service|socket|mount|slice|target|timer|scope|path)\.d(?:/|["\x27])')
+    dynamic_dropin = re.compile(r'(?:__INSTALLER_PATH_DIR_(?:SYSTEMD_(?:SYSTEM|USER)|SYSTEMD_ETC|ETC)__/|\$\{DIR_SYSTEMD_(?:SYSTEM|USER)\}/|/etc/systemd/)(?:(?:systemd/)?(?:system|user)/)?(?:[A-Za-z0-9@_.:-]*\$\{[A-Za-z_][A-Za-z0-9_]*\})+[A-Za-z0-9@_.:-]*\.d(?:/|["\x27])')
+    # Native numeric-UID instance names have no fixed directory to publish.
+    # Permit only these four exact negative file assertions in firstboot;
+    # the same spellings in an assignment, command or staging call still fail.
+    native_instance_absence = re.compile(r'\s*\[ ! -(?:e|L) "__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/(?:user@\$\{uid\}\.service|user-\$\{uid\}\.slice)\.d/50-podman-devops\.conf" \]\s*')
+    native_instance_checks = 0
+    for name, data in members.items():
+        unit = re.fullmatch(r'hooks/target/etc/systemd/[^/]+/(system|user)/([^/]+\.d)/.+', name)
+        if unit and (unit[1], unit[2]) not in dropin_paths:
+            raise ValueError('published unit drop-in lacks a canonical runtime directory: ' + name)
+        text = data.decode('utf-8', errors='replace')
+        if name.startswith(('scripts/', 'hooks/target/')):
+            if inline_dropin.search(text):
+                raise ValueError('fixed target unit drop-in reconstructs its directory: ' + name)
+            for line in text.splitlines():
+                if not dynamic_dropin.search(line):
+                    continue
+                if name == 'scripts/firstboot/04-validation.sh.tmpl' and native_instance_absence.fullmatch(line):
+                    native_instance_checks += 1
+                    continue
+                raise ValueError('dynamic target unit drop-in bypasses its canonical map: ' + name)
+    counts['canonical_systemd_dropin_directories'] = len(dropins)
+    counts['native_systemd_instance_absence_checks'] = native_instance_checks
+    for name, expected_sha in receipt['source_inputs'].items():
+        member_name(name)
+        physical = (ROOT / 'd-i' / name.removeprefix('frontends/')) if name.startswith('frontends/') else DEBIAN_ROOT / name
+        data = read(physical)
+        if digest(data) != expected_sha:
+            raise ValueError('current source differs from selected release: ' + name)
+        if name == 'repo.env':
+            if not members[name].startswith(data):
+                raise ValueError('payload selectors differ from their current authored prefix')
+            lines = []
+            for generated in sorted(members):
+                if not generated.startswith('catalog/compiled/') or generated.endswith('/release.tsv'):
+                    continue
+                token = re.sub('[^A-Z0-9]+', '_', generated.removeprefix('catalog/compiled/').upper()).strip('_')
+                lines.append('FILE_COMPILED_' + token + '="${DIR_CATALOG_COMPILED}/' + generated.removeprefix('catalog/compiled/') + '"\n')
+            if members[name] != data + ''.join(lines).encode():
+                raise ValueError('generated source selectors differ from compiled member identities')
+        elif members.get(name) != data:
+            raise ValueError('payload member differs from current source: ' + name)
+    for name, expected_sha in receipt['compiler_inputs'].items():
+        member_name(name)
+        if digest(read(ROOT / name)) != expected_sha:
+            raise ValueError('compiler input differs from selected release: ' + name)
+    if set(receipt['compiler_inputs']) != {'Makefile', 'tools/build.py', 'tools/class_compiler.py', 'tools/publication.py'}:
+        raise ValueError('compiler input ownership differs')
+    source_names = set(receipt['source_inputs'])
+    for path in paths:
+        if path.is_relative_to(DEBIAN_ROOT):
+            name = path.relative_to(DEBIAN_ROOT).as_posix()
+            parts = Path(name).parts
+            if any(part in {'tests','__pycache__','.git','.pytest_cache','releases','publications'} for part in parts):
+                continue
+            if path.name in {'AGENTS.md','AGENTS.override.md','preseed.env','git_ed25519','git_ed25519.pub','id_git_ed25519'}:
+                continue
+            if name not in source_names:
+                raise ValueError('changed shared source was not captured: ' + name)
+    for name, expected_sha in receipt['frontends'].items():
+        member_name(name)
+        if name.split('/')[0] not in ('forky','trixie'):
+            raise ValueError('unknown frontend owner')
+        data = read(ROOT / 'd-i' / name)
+        if digest(data) != expected_sha:
+            raise ValueError('frontend differs from captured source identity: ' + name)
+    for suite in ('forky', 'trixie'):
+        for name, data in {**products, 'receipt.json': receipt_bytes}.items():
+            if read(ROOT / 'd-i' / suite / name, 67108864) != data:
+                raise ValueError('suite products differ: ' + suite + '/' + name)
+    counts['suite_product_copies'] = 2 * len(product_names)
+    if products['source.sh'] != members['scripts/common/source.sh']:
+        raise ValueError('separate bootstrap differs from its payload member')
+    identity_lines = [sha256 + '  source/' + name + '\n' for name, sha256 in sorted(receipt['source_inputs'].items())]
+    identity_lines += [sha256 + '  compiler/' + name + '\n' for name, sha256 in sorted(receipt['compiler_inputs'].items())]
+    fingerprint = digest(''.join(sorted(identity_lines)).encode())
+    if fingerprint != receipt['source_fingerprint']:
+        raise ValueError('source/compiler fingerprint differs')
+    release_identity = fingerprint + '\n' + ''.join(digest(data) + '  ' + name + '\n'
+        for name, data in sorted(members.items()) if name != 'catalog/compiled/release.tsv')
+    if digest(release_identity.encode()) != release_id:
+        raise ValueError('release identifier differs from source and compiled members')
+    for suite, preseed in preseeds.items():
+        if b'INSTALLER_SUITE=' + suite.encode() not in preseed:
+            raise ValueError('preseed suite binding differs')
+        for product in ('source.sh', 'payload.manifest', 'payload.tar.gz'):
+            if digest(products[product]).encode() not in preseed:
+                raise ValueError('preseed lacks trusted product pin: ' + suite + '/' + product)
+    # Setup code is payload input, never a permanent installed target program.
+    setup_sources = ('scripts/common/network-profile-stage.py.tmpl',
+                     'scripts/common/snander-install.py.tmpl', 'scripts/server/setup.py.tmpl',
+                     'scripts/late/crypto-bootstrap.py.tmpl',
+                     'scripts/desktop/appearance-setup.py',
+                     *(f'scripts/desktop/appearance_setup/{module}.py' for module in (
+                         '__init__', 'defaults', 'release', 'theme_archive', 'theme_assets',
+                         'theme_resources', 'theme_install')))
+    if any(name not in members for name in setup_sources):
+        raise ValueError('installation-only source program is missing')
+    forbidden_setup = ('installer-ssh-authorize.py.tmpl', 'network-profile-stage.py.tmpl', 'snander-install',
+                       'crypto-bootstrap.py', 'crypto-bootstrap.py.tmpl',
+                       'labwc-appearance-defaults', 'labwc-appearance-themes',
+                       'theme_archive.py', 'theme_assets.py', 'theme_resources.py', 'theme_install.py')
+    if any(name.startswith('hooks/target/') and name.rsplit('/', 1)[-1] in forbidden_setup for name in members):
+        raise ValueError('installation-only helper remains in the persistent target tree')
+    runtime_source = members['hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl'].decode()
+    runtime_tree = ast.parse(runtime_source)
+    runtime_functions = {node.name for node in runtime_tree.body if isinstance(node, ast.FunctionDef)}
+    if runtime_functions & {'foundation', 'foundation_identity', 'account_skeleton', 'devops_account', 'install_profile_packages', 'install'}:
+        raise ValueError('persistent server controller retains installation-only operations')
+    if b'optional/ssh' in members['catalog/selection.json'] or any(name.endswith('/optional/ssh.cfg') for name in members):
+        raise ValueError('retired optional SSH class remains public')
+    counts['installation_only_source_programs'] = len(setup_sources)
+    for application in ('Tuta', 'Postman', 'Ledger'):
+        vendor_path = ('hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/'
+                       'APTRepoLocal/Servicing/' + application + '.pm')
+        vendor = members[vendor_path].decode()
+        if re.search(r'^sub apply\s*\{', vendor, re.M) or 'acquisition requires the native repository publisher' not in vendor:
+            raise ValueError('vendor acquisition retains an unused direct publisher: ' + application)
+    counts['vendor_native_publisher_guards'] = 3
+    matrix = json.loads(products['support-matrix.json'])['tuples']
+    roles = ('desktop/base','desktop/medium','desktop/full','server/github-actions',
+             'server/gitlab-cicd','server/technitium','server/devops')
+    required = {(suite, role, 'amd64', 'btrfs', 'fresh') for suite in ('forky','trixie') for role in roles}
+    actual = {(row['suite'],row['role'],row['architecture'],row['filesystem'],row['mode']) for row in matrix}
+    if not required <= actual:
+        raise ValueError('minimum suite/role plans are incomplete')
+    server_roles = ('server/devops','server/github-actions','server/gitlab-cicd','server/technitium')
+    for suite in ('forky','trixie'):
+        expected_selections = {tuple(role for bit, role in enumerate(server_roles[:-1]) if mask & (1 << bit)) for mask in range(1, 8)}
+        expected_selections.add(('server/technitium',))
+        generated_selections = {tuple(row['roles']) for row in matrix if row['suite']==suite and row['roles'][0].startswith('server/')}
+        if generated_selections != expected_selections:
+            raise ValueError('server role combination plans are incomplete')
+        for family in ('desktop', 'server'):
+            preference = members[f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/x11.pref'].decode()
+            if not all(token in preference for token in (
+                    'xserver-xorg*', 'xwayland', 'xserver-common', 'xvfb',
+                    'mesa-vulkan-drivers', 'vulkan-tools', 'vulkan-headers',
+                    'nvidia-vulkan-icd', 'Pin: version *', 'Pin-Priority: -1')):
+                raise ValueError('suite/family loses its universal system X11 exclusion')
+            xanmod = members[f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/15-kernel.pref'].decode()
+            if ('Pin: release o=xanmod\nPin-Priority: 1001' not in xanmod
+                    or 'Package: *\nPin: release o=xanmod\nPin-Priority: 100' not in xanmod):
+                raise ValueError('suite/family loses the XanMod repository policy')
+            cramerz = members[f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/16-cramerz.pref'].decode()
+            if ('home:cramerz:debian/Debian_Unstable' not in cramerz
+                    or 'Pin-Priority: -1' not in cramerz):
+                raise ValueError('suite/family loses the Cramerz repository policy')
+            vendors = members[f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/20-vendors.pref'].decode()
+            if ('Pin: origin pkgs.zabbly.com\nPin-Priority: 1001' not in vendors
+                    or 'Package: incus incus-base incus-client incus-ui-canonical' not in vendors):
+                raise ValueError('suite/family loses the Zabbly Incus repository policy')
+            if ('Pin: origin apt.llvm.org\nPin-Priority: 1001' in vendors
+                    or 'Pin: origin apt.llvm.org\nPin-Priority: -1' not in vendors):
+                raise ValueError('suite/family does not force LLVM and Clang packages to Debian archives')
+        suite_pref = members[f'frontends/{suite}/hooks/target/etc/apt/desktop/preferences.d/00-suite.pref'].decode()
+        fallback_pins = ('Pin: release o=Debian,n=sid\nPin-Priority: 100',
+                         'Pin: release o=Debian,n=experimental\nPin-Priority: 1')
+        if any(pin not in suite_pref for pin in fallback_pins):
+            raise ValueError('class-selected Debian fallback suites remain unavailable to pkgsel')
+        experimental_llvm_pin = ('Package: libclang-rt-24-dev\n'
+                                 'Pin: release o=Debian,n=experimental\nPin-Priority: 1001')
+        blocked_llvm_vendor_pin = ('Package: libclang-rt-24-dev\n'
+                                   'Pin: origin apt.llvm.org\nPin-Priority: -1')
+        if experimental_llvm_pin not in suite_pref or blocked_llvm_vendor_pin not in suite_pref:
+            raise ValueError('libclang-rt-24-dev is not pinned exclusively to Debian Experimental')
+        agent = members[f'frontends/{suite}/hooks/target/etc/apt/desktop/preferences.d/10-hyprpolkitagent.pref'].decode()
+        expected_agent_pin = ('Pin: release o=Debian,n=forky' if suite == 'forky'
+                              else 'Pin: release o=Debian,n=trixie-backports')
+        if (f'Package: hyprpolkitagent:any\n{expected_agent_pin}\nPin-Priority: 1001' not in agent
+                or re.search(r'^Pin: version ', agent, re.M)):
+            raise ValueError('Qt agent must have one explicit suite-scoped release preference without a version pin')
+        for tier in ('base', 'medium', 'full'):
+            role_source = members[f'frontends/{suite}/classes/class-select/role/desktop/{tier}.cfg'].decode()
+            if suite == 'forky' and re.search(r'^d-i apt-setup/[^\n]+/repository string .*\btrixie(?:-backports)?\b', role_source, re.M):
+                raise ValueError('Forky desktop class contains a foreign Trixie repository')
+            if suite == 'forky':
+                if tier != 'base' and 'https://pkgs.tailscale.com/stable/debian forky main' not in role_source:
+                    raise ValueError('Forky desktop does not use the published Tailscale Forky channel')
+                if tier == 'full':
+                    packages = set(re.findall(r'^d-i pkgsel/include string (.*)$', role_source, re.M)[0].split())
+                    if packages & {'powershell', 'mysql-shell'}:
+                        raise ValueError('Forky full selects vendor packages without a Forky archive')
+        if suite == 'forky':
+            apt_fragment = members[f'frontends/{suite}/fragments/apt.cfg'].decode()
+            if 'apparmor-profiles-extra/trixie' not in apt_fragment:
+                raise ValueError('Forky package policy does not target apparmor-profiles-extra to Trixie')
+            if ('https://mirrors.glesys.net/debian trixie main contrib non-free non-free-firmware'
+                    not in apt_fragment):
+                raise ValueError('Forky APT fragment omits the Debian Trixie compatibility archive')
+            foreign_repositories = re.findall(
+                r'^d-i apt-setup/[^\n]+/repository string ([^\n]+)$', apt_fragment, re.M)
+            if any('trixie' in row and not (
+                       'https://mirrors.glesys.net/debian trixie main' in row
+                       or 'pkgs.zabbly.com/incus/stable trixie main' in row
+                       or 'trixie-backports' in row)
+                   for row in foreign_repositories):
+                raise ValueError('Forky APT fragment contains an unapproved foreign Trixie repository')
+            if 'https://pkgs.zabbly.com/incus/stable trixie main' not in apt_fragment:
+                raise ValueError('Forky APT fragment omits the Zabbly Incus repository')
+            if 'https://downloadcontent.opensuse.org/repositories/home:/cramerz:/debian/Debian_Unstable/ /' not in apt_fragment:
+                raise ValueError('Forky APT fragment omits the Cramerz archive')
+            for backports in ('forky-backports', 'trixie-backports'):
+                if f'https://mirrors.glesys.net/debian {backports} main' not in apt_fragment:
+                    raise ValueError('Forky APT fragment omits the ' + backports + ' repository')
+        if suite == 'trixie':
+            apt_fragment = members[f'frontends/{suite}/fragments/apt.cfg'].decode()
+            if 'apparmor-profiles-extra/trixie' not in apt_fragment:
+                raise ValueError('Trixie package policy does not select apparmor-profiles-extra from Trixie')
+            if ('https://mirrors.glesys.net/debian forky main contrib non-free non-free-firmware'
+                    not in apt_fragment):
+                raise ValueError('Trixie APT fragment omits the Debian Forky compatibility archive')
+            for backports in ('forky-backports', 'trixie-backports'):
+                if f'https://mirrors.glesys.net/debian {backports} main' not in apt_fragment:
+                    raise ValueError('Trixie APT fragment omits the ' + backports + ' repository')
+            if 'https://pkgs.zabbly.com/incus/stable trixie main' not in apt_fragment:
+                raise ValueError('Trixie APT fragment omits the Zabbly Incus repository')
+            if 'https://downloadcontent.opensuse.org/repositories/home:/cramerz:/debian/Debian_Unstable/ /' not in apt_fragment:
+                raise ValueError('Trixie APT fragment omits the Cramerz archive')
+        for name, data in members.items():
+            if not (name.startswith(f'frontends/{suite}/classes/') and name.endswith('.cfg')):
+                continue
+            decoded = data.decode()
+            if re.search(r'(?<![A-Za-z0-9+.-])libclang-rt-24-dev(?!/experimental)(?![A-Za-z0-9+.-])',
+                          decoded):
+                raise ValueError('libclang-rt-24-dev must be selected explicitly from Experimental')
+            llvm_selector = re.compile(
+                r'^(?:clang(?:-[a-z0-9]+)*|clangd|llvm(?:-[a-z0-9]+)*|lldb?|'
+                r'libclang(?:-[a-z0-9]+)*|libllvm(?:-[a-z0-9]+)*|libpolly|python3-lldb)'
+                r'-(21|22|24)(?:-|$)')
+            for package_line in re.findall(r'^d-i pkgsel/include string ([^\n]+)$', decoded, re.M):
+                for package in package_line.split():
+                    package_name, separator, selected_suite = package.partition('/')
+                    match = llvm_selector.match(package_name)
+                    if not match:
+                        continue
+                    major = match.group(1)
+                    expected_suite = 'experimental' if major == '24' else (
+                        'trixie-backports' if suite == 'trixie' and major == '21' else None)
+                    if expected_suite is not None and (not separator or selected_suite != expected_suite):
+                        raise ValueError(
+                            f'{suite} LLVM {major} package {package} is not selected from Debian {expected_suite}')
+        apt_sources = members['scripts/common/apt-sources.sh'].decode()
+        if 'installer_apt_dedupe_source_list' not in apt_sources:
+            raise ValueError('shared APT source publication lacks duplicate-target cleanup')
+        apt_preferences_hook = members['hooks/installer/apt-setup/generators/99-apt-preferences'].decode()
+        if 'sources.list.new' not in apt_preferences_hook:
+            raise ValueError('apt-setup preference hook does not deduplicate generated sources.list.new')
+        repository_answers = []
+        for name, data in members.items():
+            if (name == f'frontends/{suite}/fragments/apt.cfg'
+                    or (name.startswith(f'frontends/{suite}/classes/') and name.endswith('.cfg'))):
+                repository_answers.extend(re.findall(
+                    r'^d-i apt-setup/local[0-9]+/repository string ([^\n]+)$',
+                    data.decode(), re.M))
+        preferences = []
+        for family in ('desktop', 'server'):
+            root = f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/'
+            preferences.extend(data.decode() for name, data in members.items()
+                               if name.startswith(root) and name.endswith('.pref'))
+        preference_text = '\n'.join(preferences)
+        for repository in sorted(set(repository_answers)):
+            url = repository.split()[0]
+            if 'mirrors.glesys.net/debian' in url:
+                components = repository.split()
+                marker = 'n=' + (components[1] if len(components) > 1 else '')
+            elif 'downloadcontent.opensuse.org/repositories/home:/cramerz' in url:
+                marker = 'home:cramerz:debian/Debian_Unstable'
+            elif 'developer.download.nvidia.com' in url:
+                marker = 'release o=NVIDIA,l=NVIDIA CUDA'
+            elif 'deb.xanmod.org' in url:
+                marker = 'release o=xanmod'
+            else:
+                host = re.sub(r'^https?://', '', url).split('/', 1)[0]
+                marker = 'origin ' + host
+            if marker not in preference_text:
+                raise ValueError('APT repository has no staged preference pin: ' + repository)
+        counts['apt_source_preference_contracts'] = counts.get('apt_source_preference_contracts', 0) + len(set(repository_answers))
+        dns_role = members[f'frontends/{suite}/classes/class-select/role/server/technitium.cfg'].decode()
+        if not {'incus-base', 'incus-client', 'tini'} <= set(re.findall(r'^d-i pkgsel/include string (.*)$', dns_role, re.M)[0].split()):
+            raise ValueError('Technitium class omits its native Incus runtime')
+    for row in matrix:
+        plan = json.loads(members[row['plan']])
+        if (plan['format'] != 2 or plan['roles'] != row['roles'] or not plan['answers']
+                or not plan['packages'] or not plan['stages'] or not plan['class_sources']
+                or any(sha256 != digest(members[name]) for name,sha256 in plan['class_sources'].items())):
+            raise ValueError('tuple plan has no current physical class/package/stage ownership')
+        if plan['family']=='desktop' and len(plan['roles']) != 1:
+            raise ValueError('desktop plan selects multiple tiers')
+        if 'server/technitium' in plan['roles'] and plan['roles'] != ['server/technitium']:
+            raise ValueError('Technitium is currently exclusive of other server classes')
+        if len({(s['phase'],s['selector']) for s in plan['stages']}) != len(plan['stages']):
+            raise ValueError('combined role plan runs a helper twice in its phase')
+        if plan['family'] == 'server' and 'openssh-server' not in plan['packages']:
+            raise ValueError('server tuple omits SSH')
+        if not {'crowdsec','timeshift'} <= set(plan['packages']):
+            raise ValueError('tuple omits universal security/snapshot class content')
+        kernel_packages = [name for name in plan['packages'] if name.startswith('linux-image-')]
+        if kernel_packages != ['linux-image-7.3.1-x64v2-xanmod1'] or 'linux-headers-7.3.1-x64v2-xanmod1' not in plan['packages']:
+            raise ValueError('minimum tuple omits the fixed XanMod EDGE image/header pair')
+        if 'os.kernel' not in {stage['id'] for stage in plan['stages']}:
+            raise ValueError('tuple omits the shared kernel verification/regulatory-data stage')
+        if (plan['crypto_root'] not in ('true', 'false') or plan['crypto_home'] not in ('true', 'false')
+                or plan['ssh_enable'] not in ('true', 'false') or not str(plan['ssh_port']).isdecimal()
+                or plan['wifi_enable'] not in ('true', 'false') or plan['ipv6_enable'] not in ('true', 'false')
+                or plan['snapshots'] != 'timeshift-btrfs' or not plan['primary_iface']):
+            raise ValueError('minimum tuple has incomplete explicit profile policy')
+        names = {re.split(r'[/:=]', item, maxsplit=1)[0] for item in plan['packages']}
+        system_x11 = {'dbus-x11', 'x11-xkb-utils', 'x11-xserver-utils', 'xauth',
+                      'xinit', 'xterm', 'xwayland', 'xserver-common', 'xorg',
+                      'xvfb', 'xnest', 'xserver-xephyr'}
+        if names & system_x11 or any(name.startswith('xserver-xorg') for name in names):
+            raise ValueError('tuple selects the forbidden system X11 runtime')
+        if plan['family'] == 'desktop':
+            if 'hyprpolkitagent' not in names or names & {'lxqt-policykit', 'mate-polkit', 'ukui-polkit'}:
+                raise ValueError('desktop does not retain the required Hyprpolkitagent')
+        if not {'perl', 'python3', 'initramfs-tools', 'cryptsetup-initramfs', 'systemd-cryptsetup', 'systemd-tpm'} <= names:
+            raise ValueError('tuple omits the universal language/initramfs/crypto package baseline')
+        if any(re.match(r'^python3\.\d|^python3[=/:]', package) for package in plan['packages']):
+            raise ValueError('tuple fixes a native Python minor version, suite override or package version')
+        if not {'auditd', 'audispd-plugins', 'apparmor', 'apparmor-profiles',
+                'apparmor-profiles-extra', 'apparmor-utils', 'nftables', 'fail2ban',
+                'python3-pyinotify', 'rsyslog', 'logrotate'} <= names:
+            raise ValueError('tuple omits the universal APT security baseline')
+        if any(reference.startswith('security/') for reference in plan['classes']):
+            raise ValueError('tuple selects a removed security class')
+        stages = {stage['id'] for stage in plan['stages']}
+        if not {'os.shared', 'os.uplinks', 'os.crypto', 'os.crowdsec', 'os.timeshift', 'os.sharing', 'os.services'} <= stages:
+            raise ValueError('tuple omits a shared phase helper')
+        if plan['roles'] == ['desktop/base']:
+            if not {'labwc', 'waybar', 'vivaldi-stable', 'spotify-client', 'l3afpad'} <= names:
+                raise ValueError('base omits its essential native desktop packages')
+            forbidden = {'podman','buildah','qemu-system-x86','incus','flashrom','flashprog','mise','sccache',
+                         'chromium', 'microsoft-edge-stable', 'mullvad-browser', 'firefox', 'firefox-esr'}
+            if names & forbidden or stages & {'desktop.devops','os.virtualization','os.firmware','desktop.whisper','desktop.ch341a','desktop.tailscale'}:
+                raise ValueError('base activates a specialist desktop class closure')
+        if plan['family'] == 'server':
+            if stages & {'desktop.storage','desktop.software','desktop.session'} or names & {'labwc','waybar','zsh','starship'}:
+                raise ValueError('a server tuple activates desktop/session content')
+            if 'incus-ui-canonical' in names:
+                raise ValueError('a headless server tuple includes the desktop Incus Web UI')
+        if plan['codex_only_enable'] not in ('true', 'false') or plan['codex_enable'] not in ('true', 'false'):
+            raise ValueError('tuple omits explicit Codex profile and resolved role policy')
+        if plan.get('whisper_enable') not in ('true', 'false') or plan.get('llama_enable') not in ('true', 'false'):
+            raise ValueError('tuple omits explicit Whisper/Llama profile policy')
+        if plan['family'] == 'server':
+            ai_stages = stages & {'server.whisper', 'server.llama'}
+            expected_ai = set()
+            if plan['whisper_enable'] == 'true':
+                expected_ai.add('server.whisper')
+            if plan['llama_enable'] == 'true':
+                expected_ai.add('server.llama')
+            if ai_stages != expected_ai:
+                raise ValueError('server AI stage differs from profile enablement')
+        elif plan['whisper_enable'] != 'false' or plan['llama_enable'] != 'false':
+            raise ValueError('desktop tuple carries server-only AI enablement')
+        codex = (plan['family'] == 'server' and plan['codex_only_enable'] == 'true'
+                 or bool(set(plan['roles']) & {'desktop/medium', 'desktop/full', 'server/devops'}))
+        if (plan['codex_enable'] == 'true') != codex or ('os.codex' in stages) != codex:
+            raise ValueError('Codex tuple stage differs from primary-account role/profile ownership')
+        if codex and not {'bubblewrap', 'openssh-client'} <= names:
+            raise ValueError('Codex tuple lacks its namespace and private Git prerequisites')
+        if ('server.devops.tools' in stages) != ('server/devops' in plan['roles']):
+            raise ValueError('server full toolchain activation differs from the DevOps class')
+        virtualization = (plan['roles'] in (['desktop/medium'], ['desktop/full']) or 'server/devops' in plan['roles'])
+        if virtualization != ('os.virtualization' in stages):
+            raise ValueError('shared virtualization phase differs from physical role ownership')
+        if virtualization != ('os.firmware' in stages):
+            raise ValueError('shared firmware phase differs from physical role ownership')
+        desktop_virtualization = plan['roles'] in (['desktop/medium'], ['desktop/full'])
+        if desktop_virtualization != ('desktop.virtualization' in stages):
+            raise ValueError('desktop virtualization integration differs from desktop role ownership')
+    # Inspect real source declarations and current member bytes. This does
+    # not execute a role predicate, render an installer shell, or read docs.
+    essential = (
+        'hooks/target/etc/apparmor.d/desktop/opt.Bitwarden.bitwarden',
+        'hooks/target/etc/apparmor.d/desktop/opt.tuta-mail.AppRun',
+        'hooks/target/etc/apparmor.d/desktop/opt.ledger-live.AppRun',
+        'hooks/target/etc/apparmor.d/desktop/sleek',
+        'hooks/target/etc/apparmor.d/desktop/tomat',
+        'hooks/target/etc/apparmor.d/desktop/usr.bin.spotify',
+        'hooks/target/usr/local/share/desktop/applications/sleek.desktop.tmpl',
+        'hooks/target/usr/local/share/desktop/applications/ledger-live.desktop.tmpl',
+        'hooks/target/etc/skel-desktop/.local/share/applications/tutanota-desktop.desktop.tmpl',
+        'hooks/target/etc/skel-desktop/.config/waybar/modules/app-sleek.tmpl',
+        'hooks/target/etc/skel-desktop/.config/waybar/modules/app-tuta.tmpl',
+        'hooks/target/etc/skel-desktop/.config/waybar/modules/tomat.tmpl',
+        'hooks/target/etc/apparmor.d/desktop/calendars',
+        'hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Bitwarden.pm',
+        'hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/integrity.py',
+        'hooks/target/usr/local/libexec/desktop/calix-fruux-bootstrap',
+        'hooks/target/usr/local/libexec/desktop/labwc-waycal-control',
+        'hooks/target/usr/local/libexec/desktop/labwc-calendar-worker',
+        'hooks/target/usr/local/share/desktop/applications/com.ianswope.Calix.desktop.tmpl',
+        'hooks/target/usr/local/share/desktop/applications/com.github.dahenson.agenda.desktop.tmpl',
+        'hooks/target/usr/local/share/desktop/agenda/schemas/90-desktop-agenda.gschema.override',
+        'hooks/target/etc/skel-desktop/.config/systemd/user/labwc-calendar-credentials.service',
+        'hooks/target/etc/skel-desktop/.config/waybar/modules/clock.tmpl',
+    )
+    if any(not members.get(name) for name in essential):
+        raise ValueError('essential desktop application/policy/schema/menu source is absent')
+    software = members['scripts/late/software.sh.tmpl'].decode()
+    app_owners = {label: set(classes.split()) for classes, label in re.findall(
+        r'^software_run_selected_app "([^"]+)" "([^"]+)" ', software, re.M)}
+    desktops = {'role/desktop/base', 'role/desktop/medium', 'role/desktop/full'}
+    for app in ('Bitwarden Desktop', 'Tuta Mail', 'Sleek', 'Tomat', 'Ledger Live', 'Obsidian'):
+        if app_owners.get(app) != desktops:
+            raise ValueError('common desktop application installer ownership differs: ' + app)
+    medium_apps = {'Zoom Workplace', 'Filen Desktop', 'Discord'}
+    for app in medium_apps:
+        if app_owners.get(app) != desktops - {'role/desktop/base'}:
+            raise ValueError('medium application installer ownership differs: ' + app)
+    for app in ('QoreDB', 'Postman', 'Tor Browser'):
+        if app_owners.get(app) != {'role/desktop/full'}:
+            raise ValueError('full-only application installer ownership differs: ' + app)
+    staging = members['scripts/desktop/components/stage-assets.sh'].decode()
+    predicate = staging.split('desktop_role_owns_target() {', 1)[1].split('\n}', 1)[0]
+    cases = predicate.split('case "$1" in', 1)[1].split(')\n', 1)[0]
+    patterns = [part.strip() for part in cases.replace('\\\n', '').split('|')]
+    for path in ('/bin/labwc-ai-copilots', '/bin/labwc-podman-menu',
+                 '/skel/.profile.d/71-devops-de.sh', '/skel/.profile.d/72-incus.sh',
+                 '/skel/.profile.d/75-firmware-workspace.sh', '/user/whisper-server.service'):
+        if not any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns):
+            raise ValueError('base specialist staging exclusion is absent: ' + path)
+    if 'installer_class_selected_any role/desktop/medium role/desktop/full' not in predicate:
+        raise ValueError('specialist staging is not owned by physical medium/full classes')
+    firstboot = members['scripts/firstboot/04-validation.sh.tmpl'].decode()
+    for contract in (
+            'desktop_selected_role=$(desktop_read_selected_role)',
+            '0:0:644:1:*', '"$receipt_size" -le 262144', 'NR>4096 || length($0)>4096',
+            'selected!=role', 'role !~ /^desktop\\/(base|medium|full)$/',
+            '[ "${desktop_selected_role:-}" = desktop/base ] || return 1',
+            'check_desktop_role_path "desktop-path-${desktop_path}" "$desktop_path"',
+            '"desktop-user-unit-${desktop_user_unit_path}"',
+            'desktop_role_excludes_path "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/$command_name"',
+            'whisper_template_link=__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/systemd/user/labwc-session.target.wants/whisper-server.service',
+            'desktop-user-unit-whisper-server-disabled'):
+        if contract not in firstboot:
+            raise ValueError('firstboot desktop class verification loses contract: ' + contract)
+    exclusions = firstboot.split('desktop_role_excludes_path() {', 1)[1].split('\n}', 1)[0]
+    clauses = exclusions.split('case "$1" in', 1)[1].split('esac', 1)[0].split(';;')
+    firstboot_patterns = []
+    for clause in clauses:
+        if ')' in clause and 'return 0' in clause:
+            firstboot_patterns.extend(part.strip() for part in clause.split(')', 1)[0].replace('\\\n', '').split('|'))
+    for path in ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/resctl-bench',
+                 '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/scrcpy', '/bin/labwc-ai-copilots',
+                 '/bin/labwc-adb-menu', '/bin/labwc-podman-menu', '/bin/labwc-qbittorrent',
+                 '/skel/user/labwc-adb-server.service', '/home/user/user/llama-server.service'):
+        if not any(fnmatch.fnmatchcase(path, pattern) for pattern in firstboot_patterns):
+            raise ValueError('firstboot still requires excluded base desktop activation: ' + path)
+    for path in ('/bin/labwc-calendar', '/bin/labwc-desktop-appearance', '/user/waybar.service',
+                 '/user/labwc-calendar-credentials.service', '/bin/tomat', '/bin/sleek'):
+        if any(fnmatch.fnmatchcase(path, pattern) for pattern in firstboot_patterns):
+            raise ValueError('firstboot excludes an essential desktop path: ' + path)
+    counts['firstboot_desktop_class_receipt_contracts'] = 1
+    counts['firstboot_desktop_absence_patterns'] = len(firstboot_patterns)
+    if any(any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns) for path in (
+            '/skel/.local/share/applications/tutanota-desktop.desktop',
+            '/skel/.config/sleek/userData/config.json', '/skel/.config/tomat/config.toml')):
+        raise ValueError('common desktop application configuration is excluded from base staging')
+    desktop_config = members['scripts/desktop/components/desktop-config.sh'].decode()
+    for function in ('desktop_waybar_modules_left_json', 'desktop_waybar_apps_drawer_json',
+                     'desktop_waybar_modules_right_json'):
+        body = desktop_config.split(function + '() {', 1)[1].split('\n}', 1)[0]
+        if 'class_selected' in body or 'INSTALLER_DESKTOP_ROLE' in body:
+            raise ValueError('desktop tier changes the shared Waybar contract: ' + function)
+    for tier in ('base', 'medium', 'full'):
+        for suite in ('forky', 'trixie'):
+            role_source = members[f'frontends/{suite}/classes/class-select/role/desktop/{tier}.cfg'].decode()
+            if ('spotify-client' not in re.findall(r'^d-i pkgsel/include string (.*)$', role_source, re.M)[0].split()
+                    or 'https://repository.spotify.com stable non-free' not in role_source):
+                raise ValueError('a desktop tier omits Spotify or its scoped vendor repository')
+    if '--appimage-extract' in software:
+        raise ValueError('desktop installation executes an AppImage runtime during extraction')
+    workspace_keys = ('LABWC_WORKSPACE_COUNT_INTERNAL', 'LABWC_WORKSPACE_COUNT_EXTERNAL')
+    profile_names = [name for name in members if name.startswith('hosts/profiles/desktop/')
+                     and name.endswith('.env')]
+    for name in profile_names:
+        source = members[name].decode()
+        for key in workspace_keys:
+            if re.search(r'^' + key + r'="(?:[1-9]|1[0-2])"$', source, re.M) is None:
+                raise ValueError('desktop profile lacks an explicit internal/external workspace policy: ' + name)
+        if re.search(r'^LABWC_WORKSPACE_COUNT=', source, re.M):
+            raise ValueError('retired single workspace profile policy remains: ' + name)
+    count_defaults = members['hooks/target/etc/labwc/desktop.conf.tmpl'].decode()
+    if any(key + '=__INSTALLER_' + key + '__' not in count_defaults for key in workspace_keys):
+        raise ValueError('desktop runtime defaults omit a workspace topology count')
+    watcher = members['hooks/target/usr/local/libexec/desktop/labwc-output-watch'].decode()
+    if not all(text in watcher for text in (*workspace_keys,
+            'reconcile_workspace_policy(load_saved_topology())', '.workspace-policy.previous.xml',
+            "'--reconfigure'", 'no_network => 1, load_ext_dtd => 0, expand_entities => 0')):
+        raise ValueError('native workspace topology policy or retained recovery is incomplete')
+    counts['desktop_workspace_profiles'] = len(profile_names)
+    verifier = members['scripts/desktop/verify.sh.tmpl'].decode()
+    for path in ('71-devops-de.sh', '72-incus.sh', '75-firmware-workspace.sh',
+                 'podman-devops-host', 'podman-devops-bootstrap.service', 'incus-host.service'):
+        if path not in verifier.split('if role == "desktop/base":', 1)[1]:
+            raise ValueError('base absent-activation verification omits ' + path)
+    for suite in ('forky', 'trixie'):
+        selected = {tuple(row['roles']): json.loads(members[row['plan']]) for row in matrix if row['suite'] == suite}
+        previous = set()
+        for tier in ('base', 'medium', 'full'):
+            package_set = set(selected[('desktop/' + tier,)]['packages'])
+            if not previous <= package_set:
+                raise ValueError('desktop class package inheritance is incomplete: ' + tier)
+            previous = package_set
+        medium = set(selected[('desktop/medium',)]['packages'])
+        if not {'telegram-desktop', 'qbittorrent', 'spotify-client', 'retroarch',
+                'microsoft-edge-stable', 'mullvad-browser', 'mullvad-vpn'} <= medium:
+            raise ValueError('explicit medium native application list is incomplete')
+    server_unit = members['hooks/target/etc/systemd/server/system/managed-buildbuddy.service.tmpl'].decode()
+    if any(line not in server_unit.splitlines() for line in (
+            'User=srv-devops', 'Slice=ci-workloads.slice', 'CapabilityBoundingSet=',
+            'IPAddressDeny=any', 'IPAddressAllow=localhost', 'Restart=no')):
+        raise ValueError('headless build cache service loses its private authority contract')
+    for artifact_name in ('bazelisk', 'buildbuddy'):
+        if "artifact('" + artifact_name + "'" in members['scripts/common/virtualization.sh'].decode():
+            raise ValueError('headless DevOps artifact leaked into the common virtualization stage')
+    firmware = members['hooks/target/usr/local/sbin/common/fwops-mode'].decode()
+    if re.search(r'>[^\n]*(?:driver_override|spidev/bind)', firmware) or 'return 69' not in firmware:
+        raise ValueError('firmware mode reintroduces identity-unsafe device mutation')
+    counts['essential_desktop_sources'] = len(essential)
+    counts['managed_application_owners'] = len(app_owners)
+    counts['desktop_package_inheritance'] = 6
+    counts['current_release_members'] = len(members)
+    counts['current_release_source_equality'] = len(source_names)
+    counts['current_release_frontend_equality'] = len(receipt['frontends'])
+    counts['minimum_tuple_plans'] = len(required)
+    if len(matrix) != 22:
+        raise ValueError('source plan matrix does not cover exactly the currently compatible role combinations')
+    counts['all_role_combination_plans'] = len(matrix)
+    counts['trusted_product_pins'] = 6
+    counts['system_x11_exclusion_policies'] = 4
+    counts['qt_agent_release_policies'] = 2
+    dns_source = members['hooks/target/usr/local/lib/server/technitium_incus.py.tmpl'].decode()
+    dns_tree = ast.parse(dns_source)
+    workload = next(node for node in dns_tree.body if isinstance(node, ast.ClassDef) and node.name == 'Workload')
+    methods = {node.name for node in workload.body if isinstance(node, ast.FunctionDef)}
+    if not {'image', 'image_stream', 'upload', 'prepare', 'transition', 'snapshot', 'restore_snapshot', 'export_config'} <= methods:
+        raise ValueError('Technitium persistent lifecycle has incomplete maintenance ownership')
+    dns_init = members['hooks/target/usr/local/lib/server/technitium-init.sh.tmpl'].decode()
+    if not all(item in dns_init for item in ('--reuid=2103', '--regid=2103', '--bounding-set=-all',
+                                            'DNS_SERVER_ADMIN_PASSWORD_FILE=', 'DNS_SERVER_RECURSION_NETWORK_ACL=',
+                                            'DNS_SERVER_PREFER_IPV6=__INSTALLER_IPV6_ENABLE__')):
+        raise ValueError('Technitium guest loses its non-root/private-policy boundary')
+    if ('DNS_SERVER_LOCAL_END_POINTS' in dns_init
+            or "'privileged': True" in dns_source or "'security.privileged': 'true'" in dns_source):
+        raise ValueError('Technitium uses an invented upstream setting or privileged guest')
+    counts['technitium_native_incus_contracts'] = 2
+    if 'pool_driver' not in methods or not all(token in dns_source for token in (
+            "'--mountpoint'", "filesystem == 'xfs'", "{'prjquota', 'pquota'}", "return 'dir'")):
+        raise ValueError('Technitium does not qualify its dedicated XFS data-pool backend')
+    if any(name in members for name in ('suites/forky/suite.json', 'suites/trixie/suite.json')):
+        raise ValueError('retired suite JSON became an installation input again')
+    if members['hooks/installer/suite-policy.tsv'] != members['catalog/compiled/suite-qualification.tsv']:
+        raise ValueError('compiled native-suite gate differs from the authored installer policy')
+    counts['native_suite_policy_rows'] = 4
+    gitbuild = members['hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/core.py'].decode()
+    worker = members['hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/worker.py.tmpl'].decode()
+    shell = members['hooks/target/etc/skel-server/.profile.d/71-devops-srv.sh'].decode()
+    if ("DISTRIBUTION = '__INSTALLER_GITBUILD_DISTRIBUTION__'" not in gitbuild
+            or "self.output = self.repo / 'target/gitbuild'" in gitbuild
+            or '__INSTALLER_PATH_DIR_POOL_TMP__' not in worker
+            or 'CARGO_TARGET_DIR=$server_devops_build/' not in shell
+            or 'server_devops_podman=__INSTALLER_PATH_DIR_POOL_PODMAN__/devops/$server_devops_user' not in shell
+            or 'CONTAINERS_STORAGE_CONF=$server_devops_podman/' not in shell):
+        raise ValueError('managed build/container outputs escape the dedicated data-pool contract')
+    counts['dedicated_pool_storage_contracts'] = 4
+    incus_host = members['hooks/target/usr/local/libexec/common/incus-host'].decode()
+    for key in ('storage.images_volume', 'storage.backups_volume', 'storage.logs_volume'):
+        if key not in incus_host or key not in dns_source:
+            raise ValueError('native Incus image/backup/log storage can escape the data pool: ' + key)
+    counts['native_incus_pool_volume_policies'] = 6
+    for suite in ('forky', 'trixie'):
+        arch_source = members[f'frontends/{suite}/classes/class-auto/arch/amd64.cfg'].decode()
+        kernel_answers = ('d-i base-installer/kernel/skip-install boolean true',
+                          'd-i base-installer/kernel/image select none',
+                          'd-i base-installer/kernel/linux/initrd boolean false')
+        if (any(answer not in arch_source for answer in kernel_answers)
+                or 'linux-image-amd64' in arch_source):
+            raise ValueError('amd64 restores a stock kernel fallback instead of the fixed EDGE pair')
+        for level in ('x64v2', 'x64v3'):
+            kernel_source = members[f'frontends/{suite}/classes/class-auto/kernel/{level}.cfg'].decode()
+            if (f'linux-image-7.3.1-{level}-xanmod1' not in kernel_source
+                    or f'linux-headers-7.3.1-{level}-xanmod1' not in kernel_source):
+                raise ValueError('suite omits a fixed XanMod EDGE CPU variant')
+    counts['fixed_xanmod_edge_pairs'] = 4
+
+
+def check_structured(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    parsed = 0
+    yaml_files = 0
+    for path in paths:
+        suffix = _logical_suffix(path)
+        try:
+            if suffix in BINARY_SUFFIXES:
+                if path.name.endswith(('.tar.gz', '.tgz')):
+                    with tarfile.open(path, 'r:*') as archive:
+                        total = 0
+                        seen = set()
+                        for number, member in enumerate(archive, 1):
+                            total += member.size
+                            if (number > 10000 or total > 512 * 1024 * 1024
+                                    or member.size > 32 * 1024 * 1024
+                                    or not member.isfile() or member.name.startswith('/')
+                                    or any(part in {'', '.', '..'} for part in member.name.split('/'))
+                                    or member.name in seen):
+                                raise ValueError('unsafe or excessive source archive structure')
+                            seen.add(member.name)
+                continue
+            text = _read_text(path)
+            waybar_root = TARGET_ROOT / 'etc/skel-desktop/.config/waybar'
+            if path.is_relative_to(waybar_root) and (
+                    path.name == 'config.tmpl' or path.parent == waybar_root / 'modules'):
+                # Numeric/list installer slots are the only unquoted tokens
+                # in these JSON templates. Parse as data without executing a
+                # renderer, and preserve quoted strings and action arguments.
+                json.loads(re.sub(r'__(?:THEME|INSTALLER)_[A-Z0-9_]+__(?=\s*[,}\]])',
+                                  '0', text))
+                parsed += 1
+            elif path.is_relative_to(waybar_root) and suffix in {'.xml', '.svg'}:
+                ElementTree.fromstring(text)
+                parsed += 1
+            elif suffix == '.json' and not path.name.endswith('.json.tmpl'):
+                json.loads(text)
+                parsed += 1
+            elif suffix in {'.yaml', '.yml'} and not path.name.endswith(('.yaml.tmpl', '.yml.tmpl')):
+                if yaml is None:
+                    errors.append(f'{path.relative_to(ROOT)}: YAML parser unavailable')
+                else:
+                    list(yaml.parse(text))
+                    yaml_files += 1
+                    parsed += 1
+            elif suffix == '.toml' and not path.name.endswith('.toml.tmpl'):
+                tomllib.loads(text)
+                parsed += 1
+            elif suffix in {'.xml', '.svg'} and not path.name.endswith(('.xml.tmpl', '.svg.tmpl')):
+                ElementTree.fromstring(text)
+                parsed += 1
+            elif suffix in {'.desktop', '.ini'} and not path.name.endswith('.tmpl'):
+                parser = configparser.ConfigParser(interpolation=None, strict=True)
+                parser.read_string(text)
+                parsed += 1
+            elif suffix == '.pref' and '/hooks/target/etc/apt/' in path.as_posix():
+                # APT preferences are RFC822 records, not shell assignments or
+                # arbitrary text. Parse the actual source without invoking APT.
+                records = []
+                record = {}
+                for line_number, line in enumerate([*text.splitlines(), ''], 1):
+                    if not line.strip():
+                        if record:
+                            records.append(record)
+                            record = {}
+                        continue
+                    if line.lstrip().startswith('#'):
+                        continue
+                    match = re.fullmatch(r'(Package|Pin|Pin-Priority|Explanation):[ \t]+(.+)', line)
+                    if match is None:
+                        raise ValueError(f'malformed APT preference at line {line_number}')
+                    key, value = match.groups()
+                    if key in record and key != 'Explanation':
+                        raise ValueError(f'duplicate APT preference field at line {line_number}')
+                    record[key] = value
+                if not records:
+                    raise ValueError('empty APT preference policy')
+                for record in records:
+                    if not {'Package', 'Pin', 'Pin-Priority'} <= record.keys():
+                        raise ValueError('incomplete APT preference record')
+                    if (re.fullmatch(r'-?[0-9]{1,5}', record['Pin-Priority']) is None
+                            or not re.fullmatch(r'(?:version|release|origin) .+', record['Pin'])):
+                        raise ValueError('invalid APT preference pin or priority')
+                    if record['Pin'].startswith('version ') and record['Pin'] != 'version *':
+                        raise ValueError('native package versions must follow suite candidates')
+                counts['apt_preference_records'] = counts.get('apt_preference_records', 0) + len(records)
+                parsed += 1
+            elif suffix in {'.service', '.timer'} and not path.name.endswith('.tmpl'):
+                for line_number, line in enumerate(text.splitlines(), 1):
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith(('#', ';')):
+                        continue
+                    if stripped.startswith('[') and stripped.endswith(']'):
+                        continue
+                    if '=' not in line or not re.match(r'^[A-Za-z][A-Za-z0-9]+=', line):
+                        raise ValueError(f'malformed unit assignment at line {line_number}')
+                parsed += 1
+            elif path == DEBIAN_ROOT / 'hooks/installer/class-dispatch.tsv':
+                rows = text.splitlines()
+                if not rows or rows[0] != 'format\t1' or len(rows) > 1000:
+                    raise ValueError('invalid class dispatch format or bounds')
+                for line_number, line in enumerate(rows[1:], 2):
+                    if not line or line.startswith('#'):
+                        continue
+                    cells = line.split('\t')
+                    if cells[0] not in {'class', 'stage'} or len(cells) != (5 if cells[0] == 'class' else 7):
+                        raise ValueError(f'invalid class dispatch record at line {line_number}')
+                    if any(not cell or re.fullmatch(r'[A-Za-z0-9_./,-]+', cell) is None for cell in cells):
+                        raise ValueError(f'invalid class dispatch cell at line {line_number}')
+                parsed += 1
+            elif path == DEBIAN_ROOT / 'hooks/installer/suite-policy.tsv':
+                rows = text.splitlines()
+                if not rows or rows[0] != 'format\t1' or len(rows) != 5:
+                    raise ValueError('native suite policy must contain one format header and four records')
+                owners = set()
+                for row in rows[1:]:
+                    cells = row.split('\t')
+                    if (len(cells) != 5 or cells[0] not in {'forky', 'trixie'}
+                            or cells[1] not in {'desktop', 'server'}
+                            or cells[2] not in {'blocked', 'source-candidate'}
+                            or re.fullmatch(r'[a-z][a-z0-9-]{1,80}', cells[3]) is None
+                            or re.fullmatch(r'[A-Za-z0-9 .;:/,()-]{1,320}', cells[4]) is None
+                            or tuple(cells[:2]) in owners):
+                        raise ValueError('invalid or duplicate native suite policy record')
+                    owners.add(tuple(cells[:2]))
+                parsed += 1
+            elif suffix == '.tsv' and not path.name.endswith('.tsv.tmpl'):
+                widths = {len(line.split('\t')) for line in text.splitlines() if line and not line.startswith('#')}
+                if len(widths) > 1:
+                    raise ValueError('inconsistent tabular field count')
+                parsed += 1
+            elif suffix == '.env' and not path.name.endswith('.env.tmpl'):
+                for line_number, line in enumerate(text.splitlines(), 1):
+                    if line and not line.startswith('#') and not re.fullmatch(r'[A-Z][A-Z0-9_]*=.*', line):
+                        raise ValueError(f'malformed environment assignment at line {line_number}')
+                parsed += 1
+        except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError,
+                tomllib.TOMLDecodeError, ElementTree.ParseError, configparser.Error,
+                YAML_ERROR) as error:
+            errors.append(f'{path.relative_to(ROOT)}: structured syntax: {error}')
+    counts['structured_files'] = parsed
+    counts['yaml_files'] = yaml_files
+
+
+def check_plain_classes(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Class .cfg files are plain preseed data; comments never carry dispatch."""
+    roots = [ROOT / 'd-i' / suite / 'classes' for suite in ('forky', 'trixie')]
+    files = [path for path in paths if path.suffix == '.cfg' and any(path.is_relative_to(root) for root in roots)]
+    for path in files:
+        pending = ''
+        for number, line in enumerate(_read_text(path).splitlines(), 1):
+            if line.lstrip().startswith('#'):
+                if re.match(r'^\s*#\s*Installer-', line):
+                    errors.append(f'{path.relative_to(ROOT)}:{number}: class comment directives are forbidden')
+                continue
+            if not line.strip():
+                continue
+            if re.search(r'\$\{|\$[A-Za-z_(]|__INSTALLER_', line):
+                errors.append(f'{path.relative_to(ROOT)}:{number}: class variables are forbidden')
+            pending += line.lstrip() if pending else line
+            if pending.endswith(' \\'):
+                pending = pending[:-1]
+                continue
+            fields = pending.split(None, 3)
+            if (len(fields) < 3 or fields[2] not in {'string', 'boolean', 'select', 'multiselect', 'password', 'note', 'text', 'seen'}
+                    or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9+_.-]*', fields[0]) is None
+                    or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9+_./:-]*', fields[1]) is None):
+                errors.append(f'{path.relative_to(ROOT)}:{number}: expected an ordinary preseed answer')
+            pending = ''
+        if pending:
+            errors.append(f'{path.relative_to(ROOT)}: incomplete preseed continuation')
+    counts['plain_preseed_classes'] = len(files)
+
+
+def check_asset_partitions(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    checked = 0
+    changed = {path.relative_to(TARGET_ROOT).as_posix(): path for path in paths if path.is_relative_to(TARGET_ROOT)}
+    for relative, path in changed.items():
+        for group in ASSET_GROUPS:
+            if not relative.startswith(group + '/'):
+                continue
+            leaf = relative[len(group) + 1:]
+            family, separator, name = leaf.partition('/')
+            if family not in {'common', 'desktop', 'server'} or not separator:
+                errors.append(f'{path.relative_to(ROOT)}: target source lacks physical family ownership')
+                break
+            checked += 1
+            for other in ({'desktop', 'server'} if family == 'common' else {'common'}):
+                candidate = TARGET_ROOT / group / other / name
+                alternatives = {candidate, candidate.with_name(candidate.name.removesuffix('.tmpl')),
+                                candidate.with_name(candidate.name + '.tmpl')}
+                if any(item.is_file() and not item.is_symlink() for item in alternatives):
+                    errors.append(f'{path.relative_to(ROOT)}: overlapping common/family source owner')
+                    break
+            break
+    common_policy = TARGET_ROOT / 'etc/apparmor.d/common/incus-host.tmpl'
+    common_backend = TARGET_ROOT / 'usr/local/libexec/common/incus-host'
+    if common_policy in paths or common_backend in paths:
+        for source in (common_policy, common_backend):
+            text = _read_text(source)
+            if any(value in text for value in ('/incus/ui/', 'INCUS_UI=', 'INCUS_MANAGED_WEB_UI_ENABLE', '<abstractions/wrapper-desktop>', '<abstractions/wrapper-gui>')):
+                errors.append(f'{source.relative_to(ROOT)}: desktop UI contract leaked into common Incus backend')
+    counts['partitioned_target_sources'] = checked
+
+
+def check_apparmor(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    policy_root = TARGET_ROOT / 'etc/apparmor.d'
+    files = [path for path in paths if path.is_relative_to(policy_root)]
+    file_rule = re.compile(
+        r'\s*((?:(?:audit|deny|allow|owner)\s+)*)'
+        r'(?:"[^"\n]+"|/[^\s"]*|@\{[A-Za-z0-9_]+\}[^\s]*)\s+'
+        r'([A-Za-z]+)(?:\s+->\s+[^\s,]+)?\s*,\s*(?:#.*)?'
+    )
+    for path in files:
+        text = _read_text(path)
+        depth = 0
+        for line_number, raw in enumerate(text.splitlines(), 1):
+            stripped = raw.lstrip()
+            line = '' if stripped.startswith('#') else raw
+            rule = file_rule.fullmatch(line)
+            if (rule and 'deny' not in rule.group(1).split()
+                    and re.search(r'(?<![ipPcCuU])x', rule.group(2))):
+                errors.append(f'{path.relative_to(ROOT)}:{line_number}: '
+                              'AppArmor allow execute permission requires an execution qualifier')
+            for column, char in enumerate(line, 1):
+                if char == '{':
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth < 0:
+                        errors.append(f'{path.relative_to(ROOT)}:{line_number}:{column}: unmatched closing brace')
+                        depth = 0
+            if ('{' in line and '}' not in line and not stripped.startswith('profile ')
+                    and ('/' in line or stripped.startswith(('owner ', 'deny owner ')))):
+                errors.append(f'{path.relative_to(ROOT)}:{line_number}: multiline path/owner brace rule')
+            if stripped.startswith('profile ') and not stripped.endswith('{'):
+                errors.append(f'{path.relative_to(ROOT)}:{line_number}: profile declaration lacks opening brace')
+            # AppArmor's unix addr= conditional describes abstract or anonymous
+            # socket addresses. Filesystem pathname sockets are mediated by
+            # ordinary file rules; reject the parser-invalid form early,
+            # including when it appears inside peer=(addr=...).
+            if (re.match(r'^\s*(?:deny\s+)?unix\b', line)
+                    and re.search(r"\baddr\s*=\s*(?:\(\s*)?[\"']?/", line)):
+                errors.append(f'{path.relative_to(ROOT)}:{line_number}: '
+                              'AppArmor unix addr= cannot be a filesystem path; use a file rule')
+        if depth:
+            errors.append(f'{path.relative_to(ROOT)}:EOF: unclosed brace depth {depth}')
+        if not text.endswith('\n'):
+            errors.append(f'{path.relative_to(ROOT)}:EOF: missing final newline')
+    counts['apparmor_files'] = len(files)
+
+
+def check_diff(errors: list[str]) -> None:
+    for command in (
+        ['git', 'diff', '--check'],
+        ['git', 'diff', '--cached', '--check'],
+    ):
+        result = _run(command)
+        if result.returncode:
+            _report_command(errors, ' '.join(command), result)
+
+
+def main() -> int:
+    errors: list[str] = []
+    counts: dict[str, int] = {}
+    try:
+        paths = _changed_paths()
+        counts['changed_files'] = len(paths)
+        check_text_files(paths, errors, counts)
+        check_python(paths, errors, counts)
+        check_shell(paths, errors, counts)
+        check_preseed_commands(paths, errors, counts)
+        check_markers(paths, errors, counts)
+        check_structured(paths, errors, counts)
+        check_plain_classes(paths, errors, counts)
+        check_appearance_registry(paths, errors, counts)
+        check_appearance_wiring(paths, errors, counts)
+        check_appearance_render_preservation(paths, errors, counts)
+        check_waybar_render_contract(paths, errors, counts)
+        check_waybar_geometry_contract(paths, errors, counts)
+        check_asset_partitions(paths, errors, counts)
+        check_apparmor(paths, errors, counts)
+        check_payload_archive(paths, errors, counts)
+        check_desktop_resources(paths, errors, counts)
+        check_crypto_boot_contract(paths, errors, counts)
+        check_class_selection(paths, errors, counts)
+        check_timeshift_profile_policy(paths, errors, counts)
+        check_server_configuration(paths, errors, counts)
+        check_private_server_setup(paths, errors, counts)
+        check_codex_and_private_git(paths, errors, counts)
+        check_server_podman_ownership(paths, errors, counts)
+        check_server_ai_profile_ownership(paths, errors, counts)
+        check_build_capture(paths, errors, counts)
+        check_release_equality(paths, errors, counts)
+        check_diff(errors)
+    except (OSError, UnicodeError, RuntimeError, ValueError) as error:
+        errors.append(f'checker failure: {error}')
+    print('post-change static audit: ' + ('PASS' if not errors else 'FAIL'))
+    print('counts: ' + ', '.join(f'{key}={value}' for key, value in sorted(counts.items())))
+    if errors:
+        for error in errors:
+            print('ERROR: ' + error, file=sys.stderr)
+        return 1
+    print('checks: changed-file Python, shell, ShellCheck, decoded preseed commands, theme markers, JSON/YAML/TOML/XML/INI-like data, AppArmor structure, git diff')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

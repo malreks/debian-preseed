@@ -1,0 +1,738 @@
+#!/usr/bin/python3 -I
+"""Privileged, installer-only Git identity provisioning. No secret in argv/env.
+
+Inputs: an encrypted private/public pair in private staging, passphrase on stdin.
+SSH_ASKPASS reads an anonymous sealed memfd. Only the encrypted key and a
+GPG-encrypted passphrase survive. This program never downloads a private key.
+"""
+from __future__ import annotations
+import argparse
+import base64
+import contextlib
+import ctypes
+import fcntl
+import os
+from pathlib import Path
+from pathlib import PurePosixPath
+import pwd
+import re
+import resource
+import secrets
+import selectors
+import shutil
+import signal
+import stat
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+
+HOSTS = '__INSTALLER_PATH_DIR_ETC__/ssh/git_known_hosts'
+ASKPASS = str(Path(__file__).with_name('ssh-install-askpass'))
+BASE_ENV = {'PATH': '__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__', 'LC_ALL': 'C.UTF-8',
+            'HOME': '__INSTALLER_PATH_DIR_ROOT_HOME__', 'USER': 'root', 'LOGNAME': 'root'}
+
+class InstallError(ValueError):
+    pass
+
+class CleanupUnknown(InstallError):
+    pass
+
+
+def repository_policy(action: str) -> dict[str, str]:
+    values = {
+        'codex_url': os.environ.get('DEVOPS_CODEX_REPOSITORY_URL', ''),
+        'codex_branch': os.environ.get('DEVOPS_CODEX_REPOSITORY_BRANCH', ''),
+        'obsidian_url': os.environ.get('OBSIDIAN_GIT_REPOSITORY_URL', ''),
+        'obsidian_branch': os.environ.get('OBSIDIAN_GIT_REPOSITORY_BRANCH', ''),
+        'obsidian_directory': os.environ.get('OBSIDIAN_GIT_DIRECTORY', ''),
+        'netscape_url': os.environ.get('BROWSER_NETSCAPE_REPOSITORY_URL', ''),
+        'netscape_branch': os.environ.get('BROWSER_NETSCAPE_REPOSITORY_BRANCH', ''),
+        'netscape_directory': os.environ.get('BROWSER_NETSCAPE_DIRECTORY', ''),
+        'codex_root': os.environ.get('DEVOPS_CODEX_ROOT', ''),
+    }
+    scopes = {'clone-codex': 'codex', 'clone-obsidian': 'obsidian', 'clone-netscape': 'netscape'}
+    if action not in scopes:
+        raise InstallError('unregistered Git clone policy scope')
+    scope = scopes[action]
+    values['scope'] = scope
+    for label in (scope + '_url',):
+        value = values[label]
+        if (not re.fullmatch(r'git@[A-Za-z0-9.-]+:[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+', value)
+                or '..' in value or '//' in value or value.endswith('/')):
+            raise InstallError(f'{label} is not a valid configured Git SSH source')
+    for label in (scope + '_branch',):
+        value = values[label]
+        if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]*', value)
+                or value.endswith('/') or '//' in value or '..' in value):
+            raise InstallError(f'{label} is not a valid configured branch')
+    for label in (() if scope == 'codex' else (scope + '_directory',)):
+        value = values[label]
+        path = PurePosixPath(value)
+        if (not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', value)
+                or len(path.parts) != 2 or any(part in {'.', '..'} for part in path.parts)):
+            raise InstallError(f'{label} must contain exactly two safe relative path components')
+    value = values['codex_root']
+    if scope == 'codex' and (not re.fullmatch(r'/[A-Za-z0-9._/-]+', value)
+            or '//' in value or '/./' in value or '/../' in f'/{value.strip("/")}/'):
+        raise InstallError('DEVOPS_CODEX_ROOT is not a valid configured absolute path')
+    return values
+
+def stop_owned(proc: subprocess.Popen, grace: float = 0) -> None:
+    """Keep the direct leader unreaped until the last process-group signal."""
+    if proc.returncode is not None:
+        return
+    def signal_owned(signum):
+        try:
+            os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            if os.getsid(proc.pid) != proc.pid:
+                raise CleanupUnknown('installer child session identity changed')
+        except OSError as exc:
+            raise CleanupUnknown('installer child identity unavailable; no group signal sent') from exc
+        try:
+            os.killpg(proc.pid, signum)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            raise CleanupUnknown('installer child group termination could not be confirmed') from exc
+    if grace:
+        signal_owned(signal.SIGTERM)
+        end = time.monotonic() + grace
+        while time.monotonic() < end:
+            try:
+                if os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT):
+                    break
+            except OSError as exc:
+                raise CleanupUnknown('installer child identity lost during termination') from exc
+            time.sleep(min(.05, max(0, end - time.monotonic())))
+    signal_owned(signal.SIGKILL)
+    try:
+        proc.wait(timeout=2)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        raise CleanupUnknown('installer child termination outcome unknown') from exc
+
+def checked(argv: list[str], *, env: dict[str, str] | None = None,
+            data: bytes | None = None, timeout: int = 120,
+            umask: int = -1) -> bytes:
+    """Bound input, streaming, completion and final reaping; hide child output."""
+    data = data or b''
+    if len(data) > 16 * 1024 * 1024:
+        raise InstallError('installer command input exceeds its limit')
+    proc = subprocess.Popen(argv, env=env or BASE_ENV, stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            start_new_session=True, umask=umask)
+    try:
+        end = time.monotonic() + timeout
+        output = bytearray()
+        offset = 0
+        with selectors.DefaultSelector() as selector:
+            os.set_blocking(proc.stdout.fileno(), False)
+            selector.register(proc.stdout, selectors.EVENT_READ)
+            if data:
+                os.set_blocking(proc.stdin.fileno(), False)
+                selector.register(proc.stdin, selectors.EVENT_WRITE)
+            else:
+                proc.stdin.close()
+            while selector.get_map():
+                remaining = end - time.monotonic()
+                if remaining <= 0:
+                    raise InstallError('installer command deadline exceeded')
+                for key, _ in selector.select(remaining):
+                    if key.fileobj is proc.stdin:
+                        try:
+                            count = os.write(key.fd, data[offset:offset + 65536])
+                        except BlockingIOError:
+                            continue
+                        except BrokenPipeError:
+                            selector.unregister(proc.stdin); proc.stdin.close(); continue
+                        if count <= 0:
+                            raise InstallError('installer command input made no progress')
+                        offset += count
+                        if offset == len(data):
+                            selector.unregister(proc.stdin); proc.stdin.close()
+                    else:
+                        try:
+                            chunk = os.read(key.fd, 65536)
+                        except BlockingIOError:
+                            continue
+                        if not chunk:
+                            selector.unregister(proc.stdout); continue
+                        if len(output) + len(chunk) > 4 * 1024 * 1024:
+                            raise InstallError('installer command output exceeds its limit')
+                        output.extend(chunk)
+        while not os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT):
+            if time.monotonic() >= end:
+                raise InstallError('installer command completion deadline exceeded')
+            time.sleep(min(.05, max(0, end - time.monotonic())))
+    finally:
+        try:
+            stop_owned(proc)
+        finally:
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                if stream is not None:
+                    stream.close()
+    if proc.returncode:
+        raise InstallError(f'{Path(argv[0]).name} failed (status {proc.returncode})')
+    return bytes(output)
+
+def read_direct(path: Path, limit: int, uid: int = 0, *, public: bool = False) -> bytes:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        st = os.fstat(fd)
+        if (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_uid != uid
+                or stat.S_IMODE(st.st_mode) not in ((0o600, 0o644) if public else (0o600,))
+                or st.st_size > limit):
+            raise InstallError('unsafe identity input metadata')
+        value = os.read(fd, limit + 1)
+        if not value or len(value) > limit:
+            raise InstallError('empty or oversized identity input')
+        return value
+    finally:
+        os.close(fd)
+
+def encrypted_openssh(data: bytes) -> None:
+    """Reject unencrypted keys before asking ssh-add to validate the full key."""
+    lines = data.strip().splitlines()
+    if (not lines or lines[0] != b'-----BEGIN OPENSSH PRIVATE KEY-----'
+            or lines[-1] != b'-----END OPENSSH PRIVATE KEY-----'):
+        raise InstallError('an encrypted OpenSSH private key is required')
+    try:
+        raw = base64.b64decode(b''.join(lines[1:-1]), validate=True)
+        if not raw.startswith(b'openssh-key-v1\0'):
+            raise ValueError()
+        offset = 15
+        fields = []
+        for _ in range(3):
+            length = struct.unpack_from('>I', raw, offset)[0]
+            offset += 4
+            if length > len(raw) - offset:
+                raise ValueError()
+            fields.append(raw[offset:offset+length]); offset += length
+        if fields[0] == b'none' or fields[1] != b'bcrypt' or not fields[2]:
+            raise ValueError()
+    except (ValueError, struct.error) as exc:
+        raise InstallError('private key is malformed or not passphrase-encrypted') from exc
+
+@contextlib.contextmanager
+def temporary_agent(stage: Path, secret: bytes):
+    """Private, supervised agent. The secret's only file is anonymous RAM."""
+    fd = os.memfd_create('ssh-passphrase', os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+    agent = None
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, secret + b'\n')
+        os.lseek(fd, 0, os.SEEK_SET)
+        fcntl.fcntl(fd, fcntl.F_ADD_SEALS,
+                    fcntl.F_SEAL_SEAL | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_GROW | fcntl.F_SEAL_WRITE)
+        sock = stage / 'agent.sock'
+        env = dict(BASE_ENV, SSH_AUTH_SOCK=str(sock), SSH_ASKPASS=ASKPASS,
+                   SSH_ASKPASS_REQUIRE='force',
+                   MANAGED_SSH_PASSPHRASE_FD=f'__INSTALLER_PATH_DIR_PROC__/{os.getpid()}/fd/{fd}')
+        agent = subprocess.Popen(['__INSTALLER_PATH_DIR_USR_BIN__/ssh-agent', '-D', '-a', str(sock)],
+                                 env=BASE_ENV, stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
+        for _ in range(100):
+            if agent.poll() is not None:
+                raise InstallError('temporary SSH agent exited')
+            try:
+                socket_metadata = sock.lstat()
+            except OSError:
+                socket_metadata = None
+            if socket_metadata is not None and stat.S_ISSOCK(socket_metadata.st_mode):
+                break
+            time.sleep(.05)
+        else:
+            raise InstallError('temporary SSH agent did not become ready')
+        checked(['__INSTALLER_PATH_DIR_USR_BIN__/ssh-add', '-q', str(stage/'private')], env=env)
+        checked(['__INSTALLER_PATH_DIR_USR_BIN__/ssh-add', '-T', str(stage/'public')], env=env)
+        if len(checked(['__INSTALLER_PATH_DIR_USR_BIN__/ssh-add', '-L'], env=env).splitlines()) != 1:
+            raise InstallError('temporary agent must contain exactly one identity')
+        # Neither the SSH client nor Git needs the askpass channel after loading.
+        for name in ('SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE', 'MANAGED_SSH_PASSPHRASE_FD'):
+            env.pop(name)
+        yield env
+    finally:
+        try:
+            if agent is not None:
+                stop_owned(agent, grace=5)
+            (stage/'agent.sock').unlink(missing_ok=True)
+        finally:
+            os.close(fd)
+
+def directory(path: Path, uid: int, gid: int) -> None:
+    """No symlinked or other-user-writable parent in a managed destination."""
+    if path == Path('/'):
+        return
+    directory(path.parent, uid, gid)
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        path.mkdir(mode=0o700)
+        os.chown(path, uid, gid)
+        st = path.lstat()
+    if (not stat.S_ISDIR(st.st_mode) or st.st_uid not in (0, uid)
+            or stat.S_IMODE(st.st_mode) & 0o022):
+        raise InstallError('unsafe destination directory')
+
+def publish(path: Path, data: bytes, uid: int, gid: int, mode: int = 0o600) -> None:
+    directory(path.parent, uid, gid)
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        st = None
+    except OSError as exc:
+        raise InstallError('cannot inspect existing managed identity file') from exc
+    if st is not None:
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_uid != uid:
+            raise InstallError('unsafe existing managed identity file')
+    fd, name = tempfile.mkstemp(prefix='.ssh-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            os.fchmod(stream.fileno(), mode); os.fchown(stream.fileno(), uid, gid)
+            stream.write(data); stream.flush(); os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+def publish_pair(home: Path, private: bytes, public: bytes, uid: int, gid: int) -> None:
+    values = {home/'.local/share/ssh/private/id_git_ed25519': private,
+              home/'.ssh/id_git_ed25519.pub': public}
+    saved = {}
+    for path in values:
+        directory(path.parent,uid,gid)
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            metadata = None
+        except OSError as exc:
+            raise InstallError('cannot inspect existing managed identity file') from exc
+        saved[path] = (read_direct(path, 16384, uid, public=path.name.endswith('.pub')),
+                       stat.S_IMODE(metadata.st_mode)) if metadata is not None else None
+    written = []
+    try:
+        for path,data in values.items():
+            publish(path,data,uid,gid)
+            written.append(path)
+    except BaseException:
+        for path in written:
+            if saved[path] is None:
+                path.unlink(missing_ok=True)
+            else:
+                publish(path,saved[path][0],uid,gid,saved[path][1])
+        raise
+
+def gpg_key_records(listing: bytes, primary_kind: str) -> list[tuple[list[str], str]]:
+    """Parse only key/fingerprint records from GnuPG's stable colon format.
+
+    Do not confuse a subkey fingerprint with its primary, or accept a truncated
+    record. UIDs and keygrips are not used as recipient selectors.
+    """
+    kinds = (primary_kind, 'sub' if primary_kind == 'pub' else 'ssb')
+    records: list[tuple[list[str], str]] = []
+    pending: list[str] | None = None
+    for line in listing.decode('utf-8', 'strict').splitlines():
+        fields = line.split(':')
+        if fields[0] in ('pub', 'sub', 'sec', 'ssb'):
+            if pending is not None or fields[0] not in kinds or len(fields) < 12:
+                raise InstallError('malformed managed GPG key listing')
+            pending = fields
+        elif fields[0] == 'fpr':
+            if pending is None or len(fields) < 10 or not re.fullmatch(
+                    r'(?:[0-9A-F]{40}|[0-9A-F]{64})', fields[9]):
+                raise InstallError('malformed managed GPG fingerprint record')
+            records.append((pending, fields[9]))
+            pending = None
+    if (pending is not None or not records or records[0][0][0] != primary_kind
+            or sum(fields[0] == primary_kind for fields, _ in records) != 1
+            or len({fingerprint for _, fingerprint in records}) != len(records)):
+        raise InstallError('exactly one selected managed GPG primary is required')
+    return records
+
+
+def gpg_key_usable(fields: list[str]) -> bool:
+    # D is in the capability field, not necessarily the validity field. Preserve
+    # case: lowercase e means this key; uppercase E is the usable whole key.
+    return fields[1][:1] not in ('r', 'e', 'd', 'i', 'n', 'w') and 'D' not in fields[11]
+
+
+def seal(account: pwd.struct_passwd, home: Path, secret: bytes,
+         fingerprint: str) -> None:
+    # This fingerprint comes from the successful desktop bootstrap. The same
+    # keyring can also contain Aptly signing keys and unrelated user identities.
+    # Never guess from keyring order, count all keys, or select by a short ID.
+    if not re.fullmatch(r'(?:[0-9A-F]{40}|[0-9A-F]{64})', fingerprint):
+        raise InstallError('a full managed desktop GPG fingerprint is required')
+    gnupg = home/'.gnupg'
+    st = gnupg.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != account.pw_uid or stat.S_IMODE(st.st_mode) != 0o700:
+        raise InstallError('managed GPG home is not ready')
+    user_prefix = ['__INSTALLER_PATH_DIR_USR_SBIN__/runuser', '-u', account.pw_name, '--', '__INSTALLER_PATH_DIR_USR_BIN__/env', '-i',
+                   f'HOME={home}', f'GNUPGHOME={gnupg}', f'USER={account.pw_name}',
+                   f'LOGNAME={account.pw_name}', 'PATH=__INSTALLER_PATH_DIR_USR__/bin:__INSTALLER_PATH_DIR_BIN__', 'LC_ALL=C.UTF-8']
+    prefix = user_prefix + ['__INSTALLER_PATH_DIR_USR_BIN__/gpg', '--no-options', '--batch', '--no-tty']
+    try:
+        public = gpg_key_records(checked(prefix + [
+            '--fixed-list-mode', '--with-colons', '--with-fingerprint', '--with-fingerprint',
+            '--list-keys', '--', fingerprint]), 'pub')
+        primary = public[0][0]
+        if public[0][1] != fingerprint:
+            raise InstallError('GPG returned a different managed primary identity')
+        if not gpg_key_usable(primary) or 'E' not in primary[11]:
+            raise InstallError('selected managed desktop GPG key cannot encrypt')
+        if primary[8] != 'u':
+            raise InstallError('selected managed desktop GPG key lacks ultimate owner trust')
+        private = gpg_key_records(checked(prefix + [
+            '--fixed-list-mode', '--with-colons', '--with-fingerprint', '--with-fingerprint',
+            '--with-secret', '--list-secret-keys', '--', fingerprint]), 'sec')
+        if private[0][1] != fingerprint or not gpg_key_usable(private[0][0]):
+            raise InstallError('selected managed GPG secret identity is unavailable')
+        # A public encryption subkey is insufficient: the local managed agent
+        # must later be able to decrypt. '+' in field 15 denotes local material;
+        # '#' / card stubs are not suitable for this managed software-key flow.
+        local = {fp for fields, fp in private if gpg_key_usable(fields)
+                 and len(fields) > 14 and fields[14] == '+' and 'e' in fields[11]}
+        candidates = [(fields[5], fp) for fields, fp in public
+                      if gpg_key_usable(fields) and 'e' in fields[11] and fp in local]
+        if not candidates or any(not created.isdecimal() for created, _ in candidates):
+            raise InstallError('selected managed GPG identity has no usable local encryption key')
+        # Pick the newest usable local encryption (sub)key of THIS primary.
+        # Exact subkey selection avoids GPG choosing an offline/card-only subkey
+        # when a keyring contains more than one encryption subkey.
+        recipient = max(candidates, key=lambda item: (int(item[0]), item[1]))[1]
+        ciphertext = checked(prefix + ['--trust-model', 'always', '--recipient', recipient + '!',
+                                       '--output', '-', '--encrypt'], data=secret)
+        if not ciphertext or ciphertext == secret:
+            raise InstallError('GPG did not produce ciphertext')
+    finally:
+        # Secret-key listing can autostart an agent after bootstrap stopped it.
+        # The installer owns this temporary account agent; leave no daemon/cache
+        # behind. Runtime desktop agents are not involved in this action.
+        checked(user_prefix + ['__INSTALLER_PATH_DIR_USR_BIN__/gpgconf', '--kill', 'gpg-agent'], timeout=15)
+    publish(home/'.local/share/ssh/git-key-passphrase.gpg', ciphertext,
+            account.pw_uid, account.pw_gid)
+
+def clone(destination: Path, stage: Path, agent_env: dict[str, str], *,
+          url: str, branch: str, policy: dict[str, str]) -> None:
+    # Only the approved URL/branch, an empty template and explicit SSH policy.
+    # Do not consult root's or the user's Git/SSH configuration during install.
+    scope = policy['scope']
+    if (url, branch) != (policy[scope + '_url'], policy[scope + '_branch']):
+        raise InstallError('Git clone source differs from its selected action')
+    if scope == 'codex':
+        approved = re.fullmatch(
+            re.escape(policy['codex_root']) + r'/\.home-clone\.[A-Za-z0-9]+/repository',
+            str(destination),
+        )
+    elif scope in {'obsidian', 'netscape'}:
+        approved = destination == stage/'repository'
+    else:
+        approved = False
+    if not approved:
+        raise InstallError('unapproved managed clone destination or source')
+    if destination.exists() or destination.is_symlink():
+        raise InstallError('managed clone destination already exists')
+    parent = destination.parent.lstat()
+    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or stat.S_IMODE(parent.st_mode) != 0o700:
+        # The allocator must clear inherited setgid; do not accept 2700 here.
+        # Metadata only: never disclose keys, passphrases or child output.
+        raise InstallError(
+            'unsafe Codex clone staging parent: expected root-owned direct directory '
+            f'mode 0700; found uid={parent.st_uid}, '
+            f'mode={stat.S_IMODE(parent.st_mode):04o}, '
+            f'directory={stat.S_ISDIR(parent.st_mode)}')
+    ssh_config = stage/'ssh_config'
+    template = read_direct(Path(__file__).with_name('clone.conf.tmpl'), 16384).decode('utf-8')
+    marker = '__' + 'INSTALLER_'
+    stage_token, hosts_token = marker + 'STAGE__', marker + 'HOSTS__'
+    if template.count(stage_token) != 1 or template.count(hosts_token) != 1:
+        raise InstallError('invalid SSH clone template')
+    content = template.replace(stage_token, str(stage)).replace(hosts_token, HOSTS)
+    ssh_config.write_text(content, encoding='utf-8')
+    ssh_config.chmod(0o600)
+    # Staging names are generated from a fixed safe alphabet above.
+    env = dict(agent_env, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='__INSTALLER_PATH_DIR_DEV__/null',
+               GIT_TERMINAL_PROMPT='0', GIT_SSH_VARIANT='ssh',
+               GIT_SSH_COMMAND=f'__INSTALLER_PATH_DIR_USR_BIN__/ssh -F {ssh_config}')
+    # Only Git's checkout child uses ordinary repository modes. Its enclosing
+    # stage is still root-only 0700; the parent and credential commands retain
+    # umask 077. Otherwise published root-owned __INSTALLER_PATH_DIR_ETC__/codex files stay unreadable.
+    checked(['__INSTALLER_PATH_DIR_USR_BIN__/git', '-c', 'core.hooksPath=__INSTALLER_PATH_DIR_DEV__/null', 'clone', '--template=',
+             '--no-hardlinks', '--single-branch', '--branch', branch,
+             '--no-tags', '--', url, str(destination)], env=env, timeout=300,
+            umask=0o022)
+    actual = checked(['__INSTALLER_PATH_DIR_USR_BIN__/git', '-C', str(destination), 'symbolic-ref', '--short', 'HEAD'], env=env)
+    upstream = checked(['__INSTALLER_PATH_DIR_USR_BIN__/git', '-C', str(destination), 'rev-parse', '--abbrev-ref', '@{upstream}'], env=env)
+    if actual.strip() != branch.encode() or upstream.strip() != b'origin/'+branch.encode():
+        raise InstallError(f'managed clone is not tracking origin/{branch}')
+    # -c core.hooksPath is process-only; no installer agent/config path persists.
+
+
+def copy_private_checkout(source: int, destination: int, uid: int, gid: int,
+                          budget: list[int] | None = None, depth: int = 0) -> None:
+    """Copy regular Git entries through pinned directory descriptors only."""
+    if budget is None:
+        budget = [100000, 1024 * 1024 * 1024]
+    if depth > 64:
+        raise InstallError('private checkout exceeds its directory-depth bound')
+    # Bound discovery during work, before allocating a complete member list.
+    with os.scandir(source) as entries:
+        for entry in entries:
+            name = entry.name
+            budget[0] -= 1
+            if budget[0] < 0:
+                raise InstallError('private checkout exceeds its member bound')
+            info = os.stat(name, dir_fd=source, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                os.mkdir(name, 0o700, dir_fd=destination)
+                source_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=source)
+                try:
+                    current = os.fstat(source_fd)
+                    if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                        raise InstallError('private checkout directory changed during publication')
+                    target_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=destination)
+                    try:
+                        copy_private_checkout(source_fd, target_fd, uid, gid, budget, depth + 1)
+                    finally:
+                        os.close(target_fd)
+                finally:
+                    os.close(source_fd)
+            elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                if info.st_size < 0 or info.st_size > budget[1]:
+                    raise InstallError('private checkout exceeds its aggregate byte bound')
+                budget[1] -= info.st_size
+                source_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=source)
+                try:
+                    current = os.fstat(source_fd)
+                    if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                            or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino)):
+                        raise InstallError('private checkout entry changed during publication')
+                    target_fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                        0o600, dir_fd=destination)
+                    with os.fdopen(target_fd, 'wb') as output:
+                        remaining = info.st_size
+                        while remaining:
+                            block = os.read(source_fd, min(remaining, 1024 * 1024))
+                            if not block:
+                                raise InstallError('private checkout entry was truncated')
+                            output.write(block)
+                            remaining -= len(block)
+                        after = os.fstat(source_fd)
+                        if (os.read(source_fd, 1) or (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                                != (info.st_size, info.st_mtime_ns, info.st_ctime_ns)):
+                            raise InstallError('private checkout entry changed during its bounded copy')
+                        os.fchown(output.fileno(), uid, gid)
+                        os.fchmod(output.fileno(), 0o700 if info.st_mode & 0o111 else 0o600)
+                        output.flush()
+                        os.fsync(output.fileno())
+                finally:
+                    os.close(source_fd)
+            else:
+                raise InstallError('private checkout requires direct directories and single-link regular files')
+    os.fchown(destination, uid, gid)
+    os.fchmod(destination, 0o700)
+    os.fsync(destination)
+
+
+def clone_desktop_repository(account: pwd.struct_passwd, home: Path, stage: Path,
+                             agent_env: dict[str, str], policy: dict[str, str]) -> None:
+    """Publish a private checkout atomically, preserving any existing user files."""
+    scope = policy['scope']
+    if scope not in {'obsidian', 'netscape'}:
+        raise InstallError('unapproved desktop repository scope')
+    url, branch = policy[scope + '_url'], policy[scope + '_branch']
+    if account.pw_uid == 0 or not home.is_absolute() or home.resolve(strict=True) != home:
+        raise InstallError('unsafe desktop checkout home')
+    directory = PurePosixPath(policy[scope + '_directory'])
+    workspace_name, checkout_name = directory.parts
+    home_fd = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(home_fd)
+        if (info.st_uid != account.pw_uid or info.st_gid != account.pw_gid
+                or stat.S_IMODE(info.st_mode) != 0o700):
+            raise InstallError('desktop checkout home must be account-owned mode 0700')
+        created = False
+        try:
+            os.mkdir(workspace_name, 0o700, dir_fd=home_fd)
+            created = True
+        except FileExistsError:
+            pass
+        workspace_fd = os.open(workspace_name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=home_fd)
+        try:
+            if created:
+                if os.fstat(workspace_fd).st_uid != 0:
+                    raise InstallError('desktop checkout parent changed during creation')
+                os.fchown(workspace_fd, account.pw_uid, account.pw_gid)
+                os.fchmod(workspace_fd, 0o700)
+            info = os.fstat(workspace_fd)
+            if (info.st_uid != account.pw_uid or info.st_gid != account.pw_gid
+                    or stat.S_IMODE(info.st_mode) != 0o700):
+                raise InstallError('desktop checkout parent must be account-owned mode 0700')
+            try:
+                os.stat(checkout_name, dir_fd=workspace_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise InstallError('desktop checkout already exists; refusing to replace user files')
+            source = stage/'repository'
+            clone(source, stage, agent_env, url=url, branch=branch, policy=policy)
+            # The home filesystem can differ from /tmp. Pin both ends of the
+            # final rename so account-writable path components cannot redirect it.
+            candidate = '.' + scope + '-clone.' + secrets.token_hex(12)
+            os.mkdir(candidate, 0o700, dir_fd=workspace_fd)
+            candidate_fd = os.open(candidate, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=workspace_fd)
+            publication_stage_ready = False
+            publication_uncertain = False
+            try:
+                candidate_info = os.fstat(candidate_fd)
+                if (candidate_info.st_uid != 0 or stat.S_IMODE(candidate_info.st_mode) != 0o700
+                        or os.listdir(candidate_fd)):
+                    raise InstallError('desktop publication stage must be empty, root-owned mode 0700')
+                publication_stage_ready = True
+                os.mkdir('repository', 0o700, dir_fd=candidate_fd)
+                tree_fd = os.open('repository', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=candidate_fd)
+                try:
+                    source_fd = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                    try:
+                        copy_private_checkout(source_fd, tree_fd, account.pw_uid, account.pw_gid)
+                    finally:
+                        os.close(source_fd)
+                finally:
+                    os.close(tree_fd)
+                libc = ctypes.CDLL(None, use_errno=True)
+                libc.renameat2.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                                           ctypes.c_char_p, ctypes.c_uint)
+                if libc.renameat2(candidate_fd, b'repository', workspace_fd,
+                                  os.fsencode(checkout_name), 1) != 0:
+                    raise OSError(ctypes.get_errno(), 'cannot publish desktop checkout without replacement')
+                try:
+                    os.fsync(workspace_fd)
+                except OSError as error:
+                    publication_uncertain = True
+                    raise CleanupUnknown('private checkout published; directory durability is uncertain') from error
+            finally:
+                # Never follow a substituted path or remove a concurrent entry.
+                try:
+                    if publication_stage_ready and not publication_uncertain:
+                        if 'repository' in os.listdir(candidate_fd):
+                            shutil.rmtree('repository', dir_fd=candidate_fd)
+                        try:
+                            entry = os.stat(candidate, dir_fd=workspace_fd, follow_symlinks=False)
+                            current = os.fstat(candidate_fd)
+                            if (entry.st_dev, entry.st_ino) == (current.st_dev, current.st_ino):
+                                os.rmdir(candidate, dir_fd=workspace_fd)
+                        except FileNotFoundError:
+                            pass
+                finally:
+                    os.close(candidate_fd)
+        finally:
+            os.close(workspace_fd)
+    finally:
+        os.close(home_fd)
+
+
+def clone_obsidian(account: pwd.struct_passwd, home: Path, stage: Path,
+                   agent_env: dict[str, str], policy: dict[str, str]) -> None:
+    if policy['scope'] != 'obsidian':
+        raise InstallError('Obsidian clone requires its exact private source policy')
+    clone_desktop_repository(account, home, stage, agent_env, policy)
+
+
+def clone_netscape(account: pwd.struct_passwd, home: Path, stage: Path,
+                   agent_env: dict[str, str], *, url: str, branch: str,
+                   policy: dict[str, str]) -> None:
+    if policy['scope'] != 'netscape' or (url, branch) != (policy['netscape_url'], policy['netscape_branch']):
+        raise InstallError('unapproved browser repository or branch')
+    clone_desktop_repository(account, home, stage, agent_env, policy)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=('provision', 'seal', 'clone-codex', 'clone-obsidian', 'clone-netscape'))
+    parser.add_argument('account')
+    parser.add_argument('stage', type=Path)
+    parser.add_argument('destination', nargs='?', type=Path)
+    parser.add_argument('--gpg-fingerprint', help='full desktop primary fingerprint; required for seal')
+    parser.add_argument('--repository-url', help='approved SSH source; required for clone-netscape')
+    parser.add_argument('--repository-branch', help='approved branch; required for clone-netscape')
+    args = parser.parse_args()
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    os.umask(0o077)
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(signum, lambda number, _frame: sys.exit(128 + number))
+    try:
+        policy = repository_policy(args.action) if args.action.startswith('clone-') else {}
+        if (args.action == 'seal') != (args.gpg_fingerprint is not None):
+            raise InstallError('--gpg-fingerprint is required only for the seal action')
+        if args.action == 'clone-netscape':
+            if (args.repository_url, args.repository_branch) != (
+                policy['netscape_url'], policy['netscape_branch']
+            ):
+                raise InstallError('clone-netscape requires the approved SSH repository and branch')
+        elif args.repository_url is not None or args.repository_branch is not None:
+            raise InstallError('repository options are accepted only for clone-netscape')
+        if args.action != 'clone-codex' and args.destination is not None:
+            raise InstallError('a destination is accepted only for clone-codex')
+        if os.geteuid() != 0:
+            raise InstallError('installer action requires root')
+        if not re.fullmatch(r'/tmp/git-ssh\.[A-Za-z0-9]+', str(args.stage)):
+            raise InstallError('unapproved installer staging path')
+        st = args.stage.lstat()
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != 0 or stat.S_IMODE(st.st_mode) != 0o700:
+            raise InstallError('unsafe installer staging directory')
+        secret = sys.stdin.buffer.read(4097)
+        if not secret or len(secret) > 4096 or any(b < 32 or b == 127 for b in secret):
+            raise InstallError('passphrase must be nonempty single-line text, at most 4096 bytes')
+        account = pwd.getpwnam(args.account)
+        home = Path(account.pw_dir)
+        if account.pw_uid == 0 or not str(home).startswith('__INSTALLER_PATH_DIR_HOME__/'):
+            raise InstallError('primary desktop account/home is invalid')
+        private = read_direct(args.stage/'private', 16384)
+        public = read_direct(args.stage/'public', 4096)
+        encrypted_openssh(private)
+        if len(public.splitlines()) != 1 or not public.startswith(b'ssh-ed25519 '):
+            raise InstallError('exactly one Ed25519 public key is required')
+        with temporary_agent(args.stage, secret) as env:
+            if args.action == 'provision':
+                publish_pair(home,private,public,account.pw_uid,account.pw_gid)
+            elif args.action == 'seal':
+                # Reject mismatched staging versus already-provisioned identity.
+                if read_direct(home/'.local/share/ssh/private/id_git_ed25519', 16384, account.pw_uid) != private:
+                    raise InstallError('installed SSH identity differs from the initrd identity')
+                if read_direct(home/'.ssh/id_git_ed25519.pub', 4096, account.pw_uid, public=True) != public:
+                    raise InstallError('installed SSH public key differs from initrd')
+                seal(account, home, secret, args.gpg_fingerprint)
+            elif args.action == 'clone-codex':
+                if args.destination is None:
+                    raise InstallError('Codex clone destination is required')
+                clone(args.destination, args.stage, env,
+                      url=policy['codex_url'], branch=policy['codex_branch'], policy=policy)
+            else:
+                if read_direct(home/'.local/share/ssh/private/id_git_ed25519', 16384, account.pw_uid) != private:
+                    raise InstallError('installed SSH identity differs from the initrd identity')
+                if args.action == 'clone-netscape':
+                    clone_netscape(account, home, args.stage, env,
+                                   url=args.repository_url, branch=args.repository_branch,
+                                   policy=policy)
+                else:
+                    clone_obsidian(account, home, args.stage, env, policy)
+    except CleanupUnknown as exc:
+        marker = args.stage / 'cleanup-outcome-unknown'
+        try:
+            descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(descriptor, 'w') as stream:
+                stream.write('owning installer process tree must be reconciled before cleanup\n')
+                stream.flush(); os.fsync(stream.fileno())
+        except OSError:
+            print('ssh-install: recovery marker could not be persisted; cleanup remains blocked by exit status 76', file=sys.stderr)
+        print(f'ssh-install: cleanup outcome unknown; private staging retained: {args.stage}', file=sys.stderr)
+        return 76
+    except (OSError, KeyError, ValueError, subprocess.SubprocessError) as exc:
+        # No child output, passphrase, key bytes or environment in diagnostics.
+        print(f'ssh-install: {type(exc).__name__}: {exc}', file=sys.stderr)
+        return 1
+    return 0
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,0 +1,33 @@
+{
+  "authority": "profile booleans, not role family; GUI integration remains desktop-only",
+  "execution": "source inspection only; native behavior unverified",
+  "format": 1,
+  "moves": {
+    "hooks/target/etc/systemd/desktop/system/apparmor-modes.service": "hooks/target/etc/systemd/common/system/apparmor-modes.service",
+    "hooks/target/etc/systemd/desktop/system/filen-sync@.service.tmpl": "hooks/target/etc/systemd/common/system/filen-sync@.service.tmpl",
+    "hooks/target/etc/systemd/desktop/system/hardware-tuning-autostart.service": "hooks/target/etc/systemd/common/system/hardware-tuning-autostart.service",
+    "hooks/target/etc/systemd/desktop/system/hardware-tuning-sleep.service": "hooks/target/etc/systemd/common/system/hardware-tuning-sleep.service",
+    "hooks/target/etc/systemd/desktop/system/hardware-tuning.service.tmpl": "hooks/target/etc/systemd/common/system/hardware-tuning.service.tmpl",
+    "hooks/target/etc/systemd/desktop/system/hardware-tuning.socket.tmpl": "hooks/target/etc/systemd/common/system/hardware-tuning.socket.tmpl",
+    "hooks/target/etc/systemd/desktop/system/network-sharing-identity.service": "hooks/target/etc/systemd/common/system/network-sharing-identity.service",
+    "hooks/target/etc/systemd/desktop/system/network-sharing-report.service.tmpl": "hooks/target/etc/systemd/common/system/network-sharing-report.service.tmpl",
+    "hooks/target/etc/systemd/desktop/system/nfs-idmapd.service.d/60-network-sharing.conf": "hooks/target/etc/systemd/common/system/nfs-idmapd.service.d/60-network-sharing.conf",
+    "hooks/target/etc/systemd/desktop/system/nfs-mountd.service.d/60-network-sharing.conf": "hooks/target/etc/systemd/common/system/nfs-mountd.service.d/60-network-sharing.conf",
+    "hooks/target/etc/systemd/desktop/system/nfs-server.service.d/60-network-sharing.conf.tmpl": "hooks/target/etc/systemd/common/system/nfs-server.service.d/60-network-sharing.conf.tmpl",
+    "hooks/target/etc/systemd/desktop/system/power-profiles-daemon.service.d/50-hardware-tuning.conf.tmpl": "hooks/target/etc/systemd/common/system/power-profiles-daemon.service.d/50-hardware-tuning.conf.tmpl",
+    "hosts/installer/hosting.env": "hosts/profiles/shared-hosting.env",
+    "scripts/desktop/filen-install.py": "scripts/common/filen-install.py",
+    "scripts/desktop/filen.sh": "scripts/common/filen.sh",
+    "scripts/desktop/hardware-tuning-assets.list": "scripts/common/hardware-tuning-assets.list",
+    "scripts/desktop/hardware-tuning-config.py": "scripts/common/hardware-tuning-config.py",
+    "scripts/desktop/hardware-tuning.sh": "scripts/common/hardware-tuning.sh"
+  },
+  "source_root": "d-i/debian",
+  "split_owners": {
+    "apparmor-modes profile": "hooks/target/etc/apparmor.d/apparmor-modes",
+    "hooks/target/usr/local/bin/labwc-network-sharing": {
+      "menu_wrapper": "hooks/target/usr/local/bin/labwc-network-sharing",
+      "shared_cli": "hooks/target/usr/local/bin/network-sharing"
+    }
+  }
+}

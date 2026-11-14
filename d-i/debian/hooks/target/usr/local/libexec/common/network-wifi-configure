@@ -1,0 +1,361 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Apply the shared physical-uplink policy and open the authorized native UI.
+
+The public policy contains addresses and adapter identities, never AP secrets.
+NetworkManager owns association, saved secrets and link activation. Both links
+may stay connected; route metrics choose the primary and preserve the fallback.
+"""
+from __future__ import annotations
+import configparser
+import fcntl
+import ipaddress
+import json
+import os
+from pathlib import Path
+import re
+import selectors
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+POLICY = Path('__INSTALLER_PATH_FILE_NETWORK_UPLINK_POLICY__')
+PREPARED = Path('__INSTALLER_PATH_DIR_ETC__/network/wifi.nmconnection')
+PROFILE = Path('__INSTALLER_PATH_DIR_ETC__/NetworkManager/system-connections/wifi.nmconnection')
+FIRSTBOOT_DONE = Path('__INSTALLER_PATH_DIR_VAR_LIB__/network-wifi/firstboot.complete')
+PROFILE_UUID = '3f1b70be-cc3f-4e77-9e31-66f7a5e16994'
+ENVIRONMENT = {'PATH': '__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:/sbin:/bin', 'LC_ALL': 'C.UTF-8'}
+NMCLI = '__INSTALLER_PATH_DIR_USR_BIN__/nmcli'
+LOCK_WAIT_TIMEOUT = 45.0
+
+
+class ConfigurationError(ValueError):
+    """A safe diagnostic containing no private input or subprocess output."""
+
+
+def owned_parents(path):
+    for parent in path.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+            raise ConfigurationError('unsafe network configuration ancestry')
+
+
+def read_owned(path, modes=(0o600,)):
+    owned_parents(path)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) not in modes or info.st_size > 65536):
+            raise ConfigurationError('unsafe network configuration file')
+        data = stream.read(65537)
+    if len(data) > 65536 or len(data) != info.st_size:
+        raise ConfigurationError('network configuration changed or exceeds its bound')
+    return data.decode('utf-8')
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ConfigurationError('duplicate network policy field')
+        result[key] = value
+    return result
+
+
+def uplinks():
+    policy = json.loads(read_owned(POLICY, (0o644,)), object_pairs_hook=unique_object)
+    expected = {'format', 'family', 'mode', 'primary_iface', 'wifi_preconfigured', 'ipv6_enabled',
+                'links', 'addresses4', 'addresses6', 'gateway4', 'dns4', 'gateway6', 'dns6', 'dns_mode'}
+    if (not isinstance(policy, dict) or set(policy) != expected or type(policy['format']) is not int
+            or policy['format'] != 1 or policy['family'] not in ('desktop', 'server')
+            or policy['mode'] not in ('dhcp', 'static') or type(policy['ipv6_enabled']) is not bool
+            or type(policy['wifi_preconfigured']) is not bool or not isinstance(policy['links'], dict)
+            or not policy['links'] or not set(policy['links']) <= {'ethernet', 'wifi'}
+            or policy['dns_mode'] not in ('link', 'global')):
+        raise ConfigurationError('invalid physical-uplink policy')
+    interfaces = []
+    for kind, link in policy['links'].items():
+        if (not isinstance(link, dict) or set(link) != {'iface', 'mac', 'metric'}
+                or not isinstance(link['iface'], str) or re.fullmatch(r'[A-Za-z0-9_-]{1,15}', link['iface']) is None
+                or link['iface'] == 'lo' or not isinstance(link['mac'], str)
+                or re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', link['mac']) is None
+                or type(link['metric']) is not int
+                or link['metric'] != (100 if link['iface'] == policy['primary_iface'] else 600)):
+            raise ConfigurationError('invalid physical adapter identity or priority')
+        interfaces.append(link['iface'])
+    if len(set(interfaces)) != len(interfaces) or policy['primary_iface'] not in interfaces:
+        raise ConfigurationError('ambiguous primary adapter')
+    for family in (4, 6):
+        addresses = policy['addresses' + str(family)]
+        if not isinstance(addresses, dict) or not set(addresses) <= set(policy['links']):
+            raise ConfigurationError('invalid per-adapter addresses')
+        parsed = {kind: ipaddress.ip_interface(value) for kind, value in addresses.items()}
+        if any(value.version != family for value in parsed.values()):
+            raise ConfigurationError('address family mismatch')
+        if 'ethernet' in parsed and 'wifi' in parsed:
+            if (parsed['ethernet'].network != parsed['wifi'].network
+                    or int(parsed['wifi'].ip) != int(parsed['ethernet'].ip) + 1):
+                raise ConfigurationError('Wi-Fi must use the Ethernet address plus one')
+        dns = policy['dns' + str(family)]
+        if not isinstance(dns, list) or len(dns) > 5 or any(ipaddress.ip_address(x).version != family for x in dns):
+            raise ConfigurationError('invalid resolver policy')
+        if addresses and (not dns or ipaddress.ip_address(policy['gateway' + str(family)]).version != family):
+            raise ConfigurationError('missing gateway or resolver policy')
+    if not policy['ipv6_enabled'] and (policy['addresses6'] or policy['dns6'] or policy['gateway6']):
+        raise ConfigurationError('disabled IPv6 contains active IPv6 settings')
+    return policy
+
+
+def publish(path, text):
+    owned_parents(path)
+    if path.exists() or path.is_symlink():
+        read_owned(path)
+    descriptor, temporary = tempfile.mkstemp(prefix='.wifi-', dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+            identity = os.fstat(stream.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            os.fsync(directory)
+            after = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+            if (after.st_dev, after.st_ino) != (identity.st_dev, identity.st_ino):
+                raise ConfigurationError('network publication outcome unknown; retain evidence')
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def remove_prepared_profile(text):
+    """Remove the private staging copy only after native publication succeeds."""
+    if PREPARED.is_symlink():
+        raise ConfigurationError('prepared Wi-Fi profile must not be a symlink')
+    if not PREPARED.exists():
+        return
+    if read_owned(PREPARED) != text:
+        raise ConfigurationError('prepared Wi-Fi profile differs from the published profile')
+    parent = os.open(PREPARED.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.unlink(PREPARED.name, dir_fd=parent)
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+
+
+def run(argv, *, output=False, timeout=32):
+    # Native nmcli is a non-daemonizing direct child. Bound its pipe during the
+    # read, not after communicate(); all commands use fixed argv and no secrets.
+    process = subprocess.Popen(argv, env=ENVIRONMENT, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE if output else subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, close_fds=True)
+    deadline = time.monotonic() + timeout
+    data = bytearray()
+    try:
+        if output:
+            with selectors.DefaultSelector() as selector:
+                os.set_blocking(process.stdout.fileno(), False)
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while selector.get_map():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError
+                    for key, _ in selector.select(min(remaining, 0.2)):
+                        chunk = os.read(key.fd, 4096)
+                        if not chunk:
+                            selector.unregister(key.fd)
+                        elif len(data) + len(chunk) > 16384:
+                            raise ConfigurationError('native network reply exceeds its bound')
+                        else:
+                            data.extend(chunk)
+        status = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        if status:
+            raise ConfigurationError('native network operation failed; activation may require operator review')
+        return data.decode('utf-8') if output else ''
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
+        if process.stdout is not None:
+            process.stdout.close()
+
+
+def saved_profile(policy, *, allow_empty=False):
+    source = PROFILE if PROFILE.exists() or PROFILE.is_symlink() else PREPARED
+    if not source.exists() and not source.is_symlink():
+        return False
+    text = read_owned(source)
+    parser = configparser.ConfigParser(interpolation=None, strict=True, delimiters=('=',))
+    parser.read_string(text)
+    wifi = policy['links'].get('wifi')
+    if (not wifi or parser.defaults() or parser.get('connection', 'uuid') != PROFILE_UUID
+            or parser.get('connection', 'type') != 'wifi'
+            or parser.get('connection', 'interface-name') != wifi['iface']):
+        raise ConfigurationError('saved Wi-Fi profile differs from its physical adapter owner')
+    if source == PREPARED:
+        if not parser.get('wifi', 'ssid', fallback='') and not allow_empty:
+            return False
+        PROFILE.parent.mkdir(mode=0o700, exist_ok=True)
+        publish(PROFILE, text)
+        run([NMCLI, '--wait', '30', 'connection', 'load', str(PROFILE)])
+        remove_prepared_profile(text)
+    elif PREPARED.exists() or PREPARED.is_symlink():
+        # A prior implementation could leave a duplicate staging file. Remove
+        # it only when it is the exact, protected bytes already published.
+        remove_prepared_profile(text)
+    return True
+
+
+def normalized_value(field, value):
+    if field == '802-11-wireless.mac-address':
+        return value.strip().lower()
+    if field in ('ipv4.addresses', 'ipv6.addresses', 'ipv4.dns', 'ipv6.dns'):
+        return tuple(part for part in re.split(r'[ ,;]+', value.strip()) if part)
+    if field == 'connection.autoconnect':
+        return 'yes' if value in ('yes', 'true') else value
+    return value.strip()
+
+
+def reconcile(policy, interface):
+    chosen = [(kind, link) for kind, link in policy['links'].items() if link['iface'] == interface]
+    if len(chosen) != 1:
+        return
+    kind, link = chosen[0]
+    identity = run([NMCLI, '--wait', '5', '--escape', 'no', '--get-values', 'GENERAL.CON-UUID',
+                    'device', 'show', interface], output=True, timeout=7).strip()
+    if identity in ('', '--'):
+        return
+    if re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', identity) is None:
+        raise ConfigurationError('invalid active connection identity')
+    required = {'connection.interface-name': interface,
+                'ipv4.route-metric': str(link['metric']), 'ipv6.route-metric': str(link['metric'])}
+    if kind == 'wifi':
+        if 'wifi' not in policy['addresses4']:
+            raise ConfigurationError('a saved Wi-Fi AP requires the paired Ethernet installation address')
+        required.update({'connection.autoconnect': 'yes', 'connection.permissions': '',
+                         '802-11-wireless.mac-address': link['mac'],
+                         'ipv4.method': 'manual', 'ipv4.addresses': policy['addresses4']['wifi'],
+                         'ipv4.gateway': policy['gateway4'], 'ipv4.dns': ','.join(policy['dns4']) if policy['dns_mode'] == 'link' else '',
+                         'ipv4.ignore-auto-dns': 'yes', 'ipv4.ignore-auto-routes': 'yes'})
+    required['ipv6.method'] = 'manual' if policy['ipv6_enabled'] else 'disabled'
+    if policy['ipv6_enabled']:
+        required.update({'ipv6.addresses': policy['addresses6'][kind], 'ipv6.gateway': policy['gateway6'],
+                         'ipv6.dns': ','.join(policy['dns6']) if policy['dns_mode'] == 'link' else '', 'ipv6.ignore-auto-dns': 'yes',
+                         'ipv6.ignore-auto-routes': 'yes'})
+    else:
+        required.update({'ipv6.addresses': '', 'ipv6.gateway': '', 'ipv6.dns': ''})
+    fields = list(required)
+    reply = run([NMCLI, '--wait', '5', '--escape', 'no', '--get-values', ','.join(fields),
+                 'connection', 'show', 'uuid', identity], output=True, timeout=7)
+    actual = reply.splitlines()
+    if len(actual) != len(fields):
+        raise ConfigurationError('native network property shape differs from the requested fields')
+    modifications = []
+    changed_method = False
+    for field, current in zip(fields, actual):
+        expected = required[field]
+        if normalized_value(field, current) != normalized_value(field, expected):
+            modifications += [field, expected]
+            changed_method |= field in ('ipv4.method', 'ipv6.method')
+    if not modifications:
+        return
+    run([NMCLI, '--wait', '30', 'connection', 'modify', 'uuid', identity, *modifications])
+    # NM cannot reapply every address-method change. Re-activate only that exact
+    # validated UUID on its policy-bound physical adapter; no host-wide reset.
+    if changed_method:
+        run([NMCLI, '--wait', '30', 'connection', 'up', 'uuid', identity, 'ifname', interface])
+    else:
+        run([NMCLI, '--wait', '30', 'device', 'reapply', interface])
+
+
+def firstboot(policy):
+    saved_profile(policy)
+    for link in policy['links'].values():
+        reconcile(policy, link['iface'])
+    FIRSTBOOT_DONE.parent.mkdir(mode=0o700, exist_ok=True)
+    publish(FIRSTBOOT_DONE, 'profile-priority-applied; native association may remain pending\n')
+
+
+def configure(policy, interface, ui_args=()):
+    wifi = policy['links'].get('wifi')
+    if not wifi or wifi['iface'] != interface:
+        raise ConfigurationError('the selected Wi-Fi adapter is outside the profile')
+    saved_profile(policy, allow_empty=True)
+    print('The saved AP uses the profile address pair and primary-interface preference.')
+    print('Save the AP password in NetworkManager to allow automatic reconnect before login.')
+    run(['__INSTALLER_PATH_DIR_USR_SBIN__/rfkill', 'unblock', 'wlan'])
+    run([NMCLI, '--wait', '30', 'radio', 'wifi', 'on'])
+    environment = dict(ENVIRONMENT, TERM=os.environ.get('TERM', 'xterm-256color'))
+    result = subprocess.run(['__INSTALLER_PATH_DIR_USR_BIN__/nmtui', *ui_args], env=environment, timeout=900)
+    if result.returncode:
+        raise ConfigurationError('native network UI did not complete')
+    reconcile(policy, interface)
+
+
+def main():
+    args = sys.argv[1:]
+    boot = args == ['--firstboot']
+    dispatcher = len(args) == 3 and args[0] == '--dispatcher' and args[2] in ('up', 'down', 'dhcp4-change', 'dhcp6-change')
+    carrier = len(args) == 2 and args[0] == '--carrier'
+    native = bool(args) and args[0] == '--nmtui'
+    interactive = not boot and not dispatcher and not carrier
+    if os.geteuid() or (interactive and not sys.stdin.isatty()):
+        raise ConfigurationError('an authorized root terminal or boot/dispatcher entrypoint is required')
+    if interactive:
+        if native:
+            if len(args) > 3 or args[1:] and args[1] not in ('edit', 'connect', 'hostname', '--help', '--version'):
+                raise ConfigurationError('unsupported native network UI command')
+        elif (len(args) != 1 or re.fullmatch(r'[A-Za-z0-9_-]{1,15}', args[0]) is None
+              or re.fullmatch(r'[1-9][0-9]*', os.environ.get('PKEXEC_UID', '')) is None):
+            raise ConfigurationError('use the authorized desktop Wi-Fi action')
+    os.umask(0o077)
+    lock_path = Path('__INSTALLER_PATH_DIR_RUN__/lock/wifi.lock')
+    owned_parents(lock_path)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    with os.fdopen(fd, 'r+') as lock:
+        info = os.fstat(lock.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1 or info.st_mode & 0o077:
+            raise ConfigurationError('unsafe shared physical-network lock')
+        deadline = time.monotonic() + (LOCK_WAIT_TIMEOUT if boot else 0)
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    if dispatcher or carrier:
+                        return
+                    raise ConfigurationError('physical-network policy is busy')
+                time.sleep(0.1)
+        policy = uplinks()
+        if dispatcher:
+            if args[2] != 'down':
+                reconcile(policy, args[1])
+        elif carrier:
+            # Link-down route suppression is kernel-owned; do not disconnect
+            # the fallback AP or change radio state from a carrier event.
+            return
+        elif boot:
+            firstboot(policy)
+        else:
+            configure(policy, policy['links'].get('wifi', {}).get('iface', '') if native else args[0], args[1:] if native else ())
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, configparser.Error,
+            subprocess.TimeoutExpired, EOFError, KeyboardInterrupt, TimeoutError):
+        print('physical-network policy did not complete; review the owned policy and native NetworkManager state', file=sys.stderr)
+        raise SystemExit(1)

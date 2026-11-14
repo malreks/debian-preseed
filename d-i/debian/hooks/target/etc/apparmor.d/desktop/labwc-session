@@ -1,0 +1,510 @@
+# Managed by unattended-installer. Profiles attach at exec, including user
+# services; systemd AppArmorProfile= is not supported by the user manager.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+profile labwc-compositor __INSTALLER_PATH_DIR_USR__/bin/labwc flags=(attach_disconnected, mediate_deleted) {
+  signal (receive) set=(hup) peer=labwc-output-watch,
+  owner __INSTALLER_PATH_DIR_TMP__/.org.chromium.Chromium.* rw,
+  __INSTALLER_PATH_DIR_OPT__/postman/app/resources/app/assets/icon.png r,
+  __INSTALLER_PATH_DIR_OPT_TOR_BROWSER__/Browser/browser/chrome/icons/default/default128.png r,
+  owner @{HOME}/.local/share/icons/{,**} r,
+  # The virtual keyboard transfers its unlinked, user-owned keymap fd.
+  owner __INSTALLER_PATH_DIR_TMP__/wtype-?????? rw,
+  # Upstream passes its unlinked O_RDWR gamma-ramp FD through SCM_RIGHTS.
+  # AppArmor file_receive checks BOTH open modes, even though wlroots reads it.
+  owner __INSTALLER_PATH_DIR_TMP__/wlsunset-shared-?????? rw,
+  # Do not include desktop-graphics: its client policy denies primary
+  # DRM nodes. Only this compositor domain owns the seat/input/card interfaces.
+  #include <abstractions/base>
+  include if exists <abstractions/fonts>
+  include if exists <abstractions/dbus-session>
+  include if exists <abstractions/nameservice-strict>
+  unix,
+  network netlink raw,
+  network netlink dgram,
+  capability sys_nice,
+  __INSTALLER_PATH_DIR_USR__/bin/labwc mr,
+  ptrace (readby) peer=session-controls,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/** r,
+  __INSTALLER_PATH_DIR_ETC__/{labwc,xdg,fonts}/** r,
+  __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf,localtime,machine-id,drirc,libva.conf} r,
+  __INSTALLER_PATH_DIR_ETC__/{vulkan,glvnd}/** r,
+  __INSTALLER_PATH_DIR_SYS__/ r,
+  __INSTALLER_PATH_DIR_SYS__/** r,
+  __INSTALLER_PATH_DIR_PROC__/ r,
+  __INSTALLER_PATH_DIR_PROC__/{cpuinfo,meminfo,stat,uptime,sys/kernel/osrelease,sys/dev/i915/perf_stream_paranoid} r,
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/{cmdline,comm,status,stat,fd/,fd/*} rw,
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/uid_map r,
+  __INSTALLER_PATH_DIR_PROC__/driver/nvidia/** r,
+  __INSTALLER_PATH_DIR_DEV__/{dri,input}/ r,
+  __INSTALLER_PATH_DIR_DEV__/{dri,input}/** rw,
+  __INSTALLER_PATH_DIR_DEV__/nvidia* rw,
+  __INSTALLER_PATH_DIR_DEV__/nvidia-caps/** rw,
+  __INSTALLER_PATH_DIR_DEV__/char/ r,
+  include if exists <local/desktop-graphics>
+  deny __INSTALLER_PATH_DIR_DEV__/char/*:* l,
+  __INSTALLER_PATH_DIR_DEV__/{tty,tty[0-9]*,udmabuf} rw,
+  __INSTALLER_PATH_DIR_DEV__/rfkill r,
+  __INSTALLER_PATH_DIR_DEV__/shm/ r,
+  owner __INSTALLER_PATH_DIR_DEV__/shm/** rwkl,
+  __INSTALLER_PATH_DIR_RUN__/seatd.sock rw,
+  __INSTALLER_PATH_DIR_RUN__/udev/data/** r,
+  owner __INSTALLER_PATH_DIR_TMP__/.X[0-9]*-lock rwk,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ rw,
+  # The compositor receives user-owned transient FDs from same-UID Wayland
+  # clients through SCM_RIGHTS.  Keep the owner qualifier: a confined
+  # compositor may create, replace, lock, and receive any object below its
+  # own runtime directory, while files owned by another UID remain denied.
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/** rwkl,
+  # Hotkeys submit transient services directly to the user's manager.
+  __INSTALLER_PATH_DIR_RUN__/ r,
+  __INSTALLER_PATH_DIR_RUN_USER__/ r,
+  __INSTALLER_PATH_DIR_RUN__/systemd/system/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/private rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-greeter.*/** rwkl,
+  owner @{HOME}/ r,
+  owner @{HOME}/.config/labwc/ r,
+  owner @{HOME}/.config/labwc/** r,
+  owner @{HOME}/.config/labwc/{autostart,shutdown} rix,
+  owner @{HOME}/.config/{gtk-3.0,gtk-4.0}/** r,
+  owner @{HOME}/.local/share/applications/ r,
+  owner @{HOME}/.local/share/applications/*.desktop r,
+  owner @{HOME}/.cache/ rw,
+  owner @{HOME}/.cache/{fontconfig,mesa_shader_cache*,nvidia}/ rw,
+  owner @{HOME}/.cache/{fontconfig,mesa_shader_cache*,nvidia}/** rwkl,
+  owner @{HOME}/.nv/ rw,
+  owner @{HOME}/.nv/** rwkl,
+  # Fontconfig may probe the package-owned cache before falling back to the
+  # writable per-session cache; ordinary users must never alter this tree.
+  deny __INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/ w,
+  deny __INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/** w,
+  /{,usr/}bin/{sh,dash,bash} rix,
+  # env is a short-lived launcher helper, not a separately profiled payload.
+  # Keep compositor confinement until its final executable's normal transition.
+  __INSTALLER_PATH_DIR_USR__/bin/env rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{false,systemctl,dbus-update-activation-environment} rix,
+  # This controller must inherit confinement and the session environment.
+  # The exact rule takes precedence over the generic application transition.
+  __INSTALLER_PATH_DIR_USR__/bin/systemd-run rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL__/{bin,sbin,libexec}/** rPx,
+  __INSTALLER_PATH_DIR_USR__/bin/* rPx,
+  # Lifecycle signals are delivered by the user manager/session controller.
+  signal (send, receive),
+  include if exists <local/usr.bin.labwc>
+}
+
+# The status trampoline deliberately retains this profile while closing
+# inherited FDs; only its final exec enters the destination helper profile.
+profile waybar __INSTALLER_PATH_DIR_USR__/{bin/waybar,local/libexec/labwc-waybar-exec} flags=(attach_disconnected) {
+  #include <abstractions/session-client>
+  # Persistent custom status readers have explicit domains. A generic rPx
+  # fallback would create a null child and audit Python imports in complain mode.
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-battery rPx -> labwc-waybar-battery,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events rPx -> labwc-waybar-events,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu rPx -> labwc-waybar-menu,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state rPx -> labwc-waybar-state,
+  # Native Bluetooth status uses only BlueZ object/property notifications.
+  __INSTALLER_PATH_DIR_RUN__/dbus/system_bus_socket rw,
+  include if exists <abstractions/dbus-strict>
+  dbus (send, receive) bus=system peer=(name=org.bluez),
+  # Native backlight constructs a logind proxy even when scrolling is routed
+  # to brightnessctl. Permit proxy property reads, never SetBrightness.
+  dbus (send) bus=system path=/org/freedesktop/login1/session/{auto,self}
+    interface=org.freedesktop.DBus.Properties member=GetAll peer=(name=org.freedesktop.login1),
+  dbus (receive) bus=system path=/org/freedesktop/login1/session/**
+    interface=org.freedesktop.DBus.Properties member=PropertiesChanged peer=(name=org.freedesktop.login1),
+  # The Python status trampoline probes this root-owned import directory.
+  # Directory metadata only: no new recursive read or write permission.
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,
+  # Click callbacks dispatch through this user manager, not panel-owned children.
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/private rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-fuzzel.pid r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-main-menu.pid r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-menu-action rPx -> labwc-system-menu-action,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run rPx -> labwc-waybar-run,
+  # Keep direct/future panel btop launches in the dedicated monitor domain;
+  # the current click path still uses the transient terminal service.
+  __INSTALLER_PATH_DIR_USR__/bin/btop rPx -> desktop-btop,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rPx -> session-glycin-bwrap,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/satty/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/satty/** r,
+  owner @{HOME}/.config/waybar/ r,
+  owner @{HOME}/.config/waybar/** r,
+  owner @{HOME}/.cache/waybar/ rw,
+  owner @{HOME}/.cache/waybar/** rwkl,
+  owner @{HOME}/.cache/glycin/ rw,
+  owner @{HOME}/.cache/glycin/** rwkl,
+  # Waybar's network module reads counters through its own procfs view.
+  __INSTALLER_PATH_DIR_PROC__/[0-9]*/net/dev r,
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/task/[0-9]*/comm rw,
+  __INSTALLER_PATH_DIR_DEV__/rfkill r,
+  owner @{HOME}/.local/share/gvfs-metadata/ r,
+  owner @{HOME}/.local/share/gvfs-metadata/{root,root-*.log} r,
+  owner @{HOME}/.local/share/tutanota-desktop/ r,
+  owner @{HOME}/Desktop/ r,
+  # Network/weather modules can use the network, without reading credentials.
+  network inet stream,
+  network inet6 stream,
+  signal (send) set=(kill) peer=session-glycin-bwrap,
+  signal (send) set=(term) peer={labwc-tomat,tomat},
+  signal (send) set=(term kill) peer={labwc-waybar-battery,labwc-waybar-events},
+  signal (receive) set=(chld) peer={labwc-waybar-battery,labwc-waybar-events},
+  signal (receive) set=(usr2) peer=labwc-session-check,
+  ptrace (readby) peer=labwc-session-check,
+  signal (receive) set=(int, term, hup, usr1, usr2, kill) peer=unconfined,
+  # Keyboard refresh: glibc RTMIN+7 (41); AppArmor's RTMIN base is 32.
+  signal (receive) set=(rtmin+9) peer=unconfined,
+  # Main-menu marker refresh: Waybar signal 8 maps to AppArmor rtmin+10.
+  signal (receive) set=(rtmin+10) peer=unconfined,
+  signal (send) set=(chld) peer=unconfined,
+  include if exists <local/usr.bin.waybar>
+}
+
+profile labwc-waybar-run __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run flags=(attach_disconnected) {
+  # The action wrapper owns only fixed systemd-run policy. The transient
+  # service receives its own executable attachment after the user manager
+  # starts it; this profile never executes a caller-supplied program itself.
+  #include <abstractions/wrapper-python>
+  #include <abstractions/dbus-session-strict>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run rix,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,
+  __INSTALLER_PATH_DIR_USR__/bin/systemd-run rix,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,systemd/private} rw,
+  # AppArmor checks inherited descriptors at the profile transition, before
+  # Python can call close_range(2).  Waybar's native rfkill reader can leave
+  # this one read-only descriptor open; permit that exact handoff and close it
+  # before systemd-run is entered.  No child may reopen or write the device.
+  __INSTALLER_PATH_DIR_DEV__/rfkill r,
+  # close_range(2) runs before systemd-run.  This transition deliberately has
+  # no additional device access, so storage/system-action children cannot
+  # retain the compositor's Bluetooth descriptor.
+  signal (receive) set=(int, term, hup, kill) peer=unconfined,
+  signal (send) set=(chld) peer=waybar,
+  include if exists <local/usr.local.libexec.labwc-waybar-run>
+}
+
+profile labwc-waybar-menu __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu flags=(attach_disconnected) {
+  # The popup owner reads only the user-owned rendered XML/module contract and
+  # delegates every selected action back through labwc-waybar-run.
+  #include <abstractions/wrapper-python>
+  # GTK/XKB resources are scoped by the repository's GUI wrapper abstraction;
+  # it grants the package-owned schema, icon, theme and XKB roots read-only.
+  # No generic __INSTALLER_PATH_DIR_USR__/share tree is exposed to the popup domain.
+  #include <abstractions/wrapper-gui>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run rPx -> labwc-waybar-run,
+  __INSTALLER_PATH_DIR_PYTHON3_SYSTEM_PACKAGES__/gi/{,**} mr,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/ r,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/{Gdk,Gtk,Gio,GLib,GLibUnix,GObject,GModule,GIRepository}-*.typelib mr,
+  owner @{HOME}/.config/waybar/modules/{notifications,power,tomat,wayscriber} r,
+  owner @{HOME}/.config/waybar/gtk/{notifications,power,tomat,wayscriber}-menu.xml r,
+  owner @{HOME}/.config/waybar/style/gtk.css r,
+  # xkbcommon first resolves the package symlink through the canonical X11
+  # root; keep that package-owned tree read-only and scoped to this popup.
+  __INSTALLER_PATH_DIR_USR_SHARE_X11__/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE_XKB__/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE_XKB__/** r,
+  signal (receive) set=(int, term, hup, kill) peer=unconfined,
+  signal (send) set=(chld) peer=waybar,
+  include if exists <local/usr.local.libexec.labwc-waybar-menu>
+}
+
+profile labwc-waybar-events __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  include if exists <abstractions/dbus-session-strict>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_waybar_state.py r,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE_GLIB_SCHEMAS__/gschemas.compiled r,
+  __INSTALLER_PATH_DIR_ETC__/machine-id r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/bus rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-waybar-state/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-waybar-state/{,**} r,
+  network unix stream,
+  dbus (send) bus=session path=/fr/emersion/Mako
+    interface=fr.emersion.Mako member=ListModes peer=(name=org.freedesktop.Notifications),
+  dbus (receive) bus=session path=/fr/emersion/Mako
+    interface=org.freedesktop.DBus.Properties member=PropertiesChanged peer=(name=org.freedesktop.Notifications),
+  dbus (send) bus=session path=/org/freedesktop/systemd1
+    interface=org.freedesktop.systemd1.Manager member=Subscribe peer=(name=org.freedesktop.systemd1),
+  dbus (send) bus=session path=/org/freedesktop/systemd1/unit/labwc_2dscreen_2drecording_2eservice
+    interface=org.freedesktop.DBus.Properties member=Get peer=(name=org.freedesktop.systemd1),
+  dbus (receive) bus=session path=/org/freedesktop/systemd1
+    interface=org.freedesktop.systemd1.Manager member={UnitNew,UnitRemoved} peer=(name=org.freedesktop.systemd1),
+  dbus (receive) bus=session path=/org/freedesktop/systemd1/unit/labwc_2dscreen_2drecording_2eservice
+    interface=org.freedesktop.DBus.Properties member=PropertiesChanged peer=(name=org.freedesktop.systemd1),
+  dbus (receive) bus=session path=/org/freedesktop/DBus
+    interface=org.freedesktop.DBus member=NameOwnerChanged peer=(name=org.freedesktop.DBus),
+  signal (receive) set=(int term hup kill) peer=waybar,
+  signal (send) set=(chld) peer=waybar,
+  include if exists <local/usr.local.libexec.labwc-waybar-events>
+}
+
+profile labwc-waybar-battery __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-battery flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  network netlink dgram,
+  signal (receive) set=(int term hup kill) peer=waybar,
+  signal (send) set=(chld) peer=waybar,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-battery r,
+  __INSTALLER_PATH_DIR_SYS__/class/power_supply/ r,
+  __INSTALLER_PATH_DIR_SYS__/devices/**/power_supply/ r,
+  __INSTALLER_PATH_DIR_SYS__/devices/**/power_supply/*/ r,
+  __INSTALLER_PATH_DIR_SYS__/devices/**/power_supply/*/{type,online,capacity,status,energy_now,energy_full,energy_full_design,charge_full,charge_full_design,cycle_count} r,
+  __INSTALLER_PATH_DIR_PROC__/sys/vm/overcommit_memory r,
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/maps r,
+  include if exists <local/usr.local.libexec.labwc-waybar-battery>
+}
+
+profile crystal-dock __INSTALLER_PATH_DIR_USR__/bin/crystal-dock flags=(attach_disconnected, mediate_deleted) {
+  __INSTALLER_PATH_DIR_OPT__/postman/app/resources/app/assets/icon.png r,
+  __INSTALLER_PATH_DIR_OPT_TOR_BROWSER__/Browser/browser/chrome/icons/default/default128.png r,
+  #include <abstractions/session-client>
+  owner @{HOME}/.config/{crystal-dock,crystal-dockrc}* rwkl,
+  owner "@{HOME}/.config/Crystal Dock*" rwkl,
+  owner @{HOME}/.config/crystal-dock/** rwkl,
+  # QSaveFile links a named temporary file to this disconnected inode form.
+  owner "@{HOME}/.config/crystal-dock/labwc/#[0-9]*" rwkl,
+  owner link "@{HOME}/.config/crystal-dock/labwc/appearance.conf.*" -> "@{HOME}/.config/crystal-dock/labwc/#[0-9]*",
+  owner "@{HOME}/.config/Crystal Dock/**" rwkl,
+  owner @{HOME}/.local/share/{crystal-dock,applications}/ r,
+  owner @{HOME}/.local/share/crystal-dock/** rwkl,
+  owner @{HOME}/.local/share/applications/** r,
+  owner @{HOME}/.cache/crystal-dock/ rw,
+  owner @{HOME}/.cache/crystal-dock/** rwkl,
+  signal (receive) set=(int, term, hup, usr1, usr2, kill) peer=labwc-panel-run,
+  signal (send) set=(chld) peer=labwc-panel-run,
+  include if exists <local/usr.bin.crystal-dock>
+}
+
+profile ksecretd __INSTALLER_PATH_DIR_USR__/bin/ksecretd flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/desktop-runtime>
+  include if exists <abstractions/user-tmp>
+  unix,
+  __INSTALLER_PATH_DIR_USR__/bin/ksecretd mr,
+  __INSTALLER_PATH_DIR_USR__/bin/gpg{,2,conf} rix,
+  # GPGME probes its S/MIME engine even when the wallet uses an OpenPGP key.
+  # Inherit this wallet's confinement, as with the existing GPG engines.
+  __INSTALLER_PATH_DIR_USR__/bin/gpgsm rix,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/** r,
+  __INSTALLER_PATH_DIR_ETC__/{gcrypt,gnupg}/** r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/kernel/core_pattern r,
+  owner @{PROC}/[0-9]*/mountinfo r,
+  __INSTALLER_PATH_DIR_RUN__/mount/utab r,
+  owner @{HOME}/.config/{kwallet*,ksecret*,kdeglobals}* rwkl,
+  owner @{HOME}/.config/qt6ct/qt6ct.conf r,
+  owner "@{HOME}/.config/#[0-9]*" rwkl,
+  owner link "@{HOME}/.config/kwalletrc.*" -> "@{HOME}/.config/#[0-9]*",
+  owner @{HOME}/.local/share/{kwalletd,ksecretd}/ rw,
+  owner @{HOME}/.local/share/{kwalletd,ksecretd}/** rwklm,
+  owner "@{HOME}/.local/share/kwalletd/#[0-9]*" rwklm,
+  # QSaveFile also commits the Secret Service attributes JSON atomically.
+  owner link "@{HOME}/.local/share/kwalletd/*.{kwl,json}.*" -> "@{HOME}/.local/share/kwalletd/#[0-9]*",
+  owner @{HOME}/.gnupg/ rw,
+  owner @{HOME}/.gnupg/** rwklm,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,gnupg/**,kwallet*} rwkl,
+  owner __INSTALLER_PATH_DIR_DEV__/shm/** rwkl,
+  include if exists <local/usr.bin.ksecretd>
+}
+
+profile session-controls __INSTALLER_PATH_DIR_USR__/bin/{kanshi,swaybg,swayidle,swaylock,wlr-randr,wlrctl,wlopm,wdisplays,pavucontrol,labwc-tweaks,nwg-look,qt6ct,wayscriber,mako,makoctl,grim,slurp,wl-copy,wl-paste} flags=(attach_disconnected, mediate_deleted) {
+  __INSTALLER_PATH_DIR_DEV__/tty rw,
+  # Labwc Tweaks uses the compositor inspection API. Keep this capability in
+  # the shared desktop-control profile so the packaged helper is not denied
+  # before its existing peer-scoped ptrace rule is evaluated.
+  capability sys_ptrace,
+  __INSTALLER_PATH_DIR_PROC__/version r,
+  __INSTALLER_PATH_DIR_ETC__/magic r,
+  owner @{PROC}/[0-9]*/mountinfo r,
+  # Wayscriber starts its overlay from the daemon executable and reads the
+  # inherited environment through /proc. Same-UID ownership is mandatory.
+  owner @{PROC}/[0-9]*/environ r,
+  # The greeter output watcher owns short-lived wlr-randr children in this
+  # profile and may terminate them during bounded command cleanup.
+  signal (receive) set=(term kill) peer=labwc-greeter-output,
+  signal (receive) set=(hup) peer=desktop-launcher,
+  # Labwc Tweaks applies input changes by asking the running compositor to
+  # reload its user-owned rc.xml.  The executable remains confined to this
+  # profile; only the fixed HUP delivery is allowed across the service edge.
+  signal (send) set=(hup) peer=labwc-compositor,
+  signal (receive) set=(term kill) peer=labwc-swaybg,
+  __INSTALLER_PATH_DIR_USR__/bin/labwc rix,
+  ptrace (readby) peer=waypaper//waypaper-ps,
+  signal (send) set=(chld) peer=labwc-swaybg,
+  # Read-only inherited Bluetooth status descriptor; never rfkill writes.
+  __INSTALLER_PATH_DIR_DEV__/rfkill r,
+  #include <abstractions/session-client>
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rPx -> session-glycin-bwrap,
+  #include <abstractions/user-documents>
+  #include <abstractions/authentication>
+  __INSTALLER_PATH_DIR_ETC__/{pam.d,security}/** r,
+  # Control surfaces do not perform direct Internet requests. Browser or
+  # network-capable actions must transition to their dedicated profiles.
+  deny network inet,
+  deny network inet6,
+  # authentication abstraction supplies the dedicated unix_chkpwd transition.
+  owner @{HOME}/.config/{kanshi,swaylock,labwc,qt6ct,gtk-3.0,gtk-4.0,wayscriber,mako,nwg-look}/ rw,
+  owner @{HOME}/.config/{kanshi,swaylock,labwc,qt6ct,gtk-3.0,gtk-4.0,wayscriber,mako,nwg-look}/** rwkl,
+  owner @{HOME}/.config/{pavucontrol.ini,qt6ct.conf,gtkrc-2.0}* rwkl,
+  owner @{HOME}/.local/share/{labwc,wayscriber}/ rw,
+  owner @{HOME}/.local/share/{labwc,wayscriber}/** rwkl,
+  owner @{HOME}/.cache/{nwg-look,qt6ct,wayscriber}/ rw,
+  owner @{HOME}/.cache/{nwg-look,qt6ct,wayscriber}/** rwkl,
+  owner @{HOME}/.cache/glycin/ rw,
+  owner @{HOME}/.cache/glycin/** rwkl,
+  ptrace (read) peer=labwc-compositor,
+  # Browser notifications hand Mako a PNG from their private scoped temp dir.
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-{chromium,microsoft-edge,vivaldi}-tmp/.*.scoped_dir.*/icon.png r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-capture/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-capture/satty-source.*.png rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/wayscriber/ rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/wayscriber/** rwkl,
+  __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-swaylock.lock a,
+  signal (send) set=(kill) peer=session-glycin-bwrap,
+  include if exists <local/session-controls>
+}
+
+profile session-glycin-bwrap flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/base>
+  #include <abstractions/bwrap-common>
+  include if exists <abstractions/fonts>
+
+  signal (receive) set=(kill, term) peer=waybar,
+  signal (receive) set=(kill, term) peer=labwc-calendar-actions,
+  signal (receive) set=(kill, term) peer=session-controls,
+  signal (receive) set=(kill, term) peer=waypaper-swaybg,
+  __INSTALLER_PATH_DIR_DEV__/rfkill r,
+  __INSTALLER_PATH_DIR_USR__/bin/true rix,
+  # Bubblewrap has already set no_new_privs; image loaders inherit this domain.
+  __INSTALLER_PATH_DIR_USR_LIBEXEC__/glycin-loaders/2+/{glycin-image-rs,glycin-svg} rix,
+  __INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/** r,
+  __INSTALLER_PATH_DIR_USR_SHARE_MIME__/mime.cache r,
+  # Image-loader children inherit descriptors for any selected system icon
+  # or wallpaper, not only the installer's initial three images.
+  __INSTALLER_PATH_DIR_USR__/{,local/}share/icons/ r,
+  __INSTALLER_PATH_DIR_USR__/{,local/}share/icons/** r,
+  __INSTALLER_PATH_DIR_USR_SHARE_BACKGROUNDS__/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE_BACKGROUNDS__/** r,
+  owner @{HOME}/Pictures/{,**} r,
+  # Preserve the same read bound when the icon is passed to an image loader.
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-{chromium,microsoft-edge,vivaldi}-tmp/.*.scoped_dir.*/icon.png r,
+  owner __INSTALLER_PATH_DIR_TMP__/gdk-pixbuf-glycin-tmp.* rwk,
+  owner @{HOME}/.config/swaylock/config r,
+  owner @{HOME}/.cache/fontconfig/ r,
+  owner @{HOME}/.cache/fontconfig/** r,
+  owner @{HOME}/.cache/glycin/ rw,
+  owner @{HOME}/.cache/glycin/** rwkl,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-swaylock.lock a,
+}
+
+profile labwc-session-check __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  include if exists <abstractions/dbus-session-strict>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check r,
+  __INSTALLER_PATH_DIR_USR__/bin/{systemctl,busctl} rix,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-session-closing r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,systemd/private,wayland-*} rw,
+  owner @{HOME}/.config/labwc/rc.xml r,
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/ r,
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/exe r,
+  __INSTALLER_PATH_DIR_USR__/bin/waybar r,
+  ptrace (read) peer=waybar,
+  signal (send) set=(usr2) peer=waybar,
+  include if exists <local/usr.local.libexec.labwc-session-check>
+}
+
+# Fixed foreground dock supervisor: no arbitrary executable, home-data or
+# network access. Waybar is directly supervised by the user manager.
+profile labwc-panel-run __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-panel-run flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-panel-run r,
+  # Re-raise the child termination signal without granting access to other peers.
+  signal (send, receive) peer=labwc-panel-run,
+  __INSTALLER_PATH_DIR_USR__/bin/crystal-dock rPx -> crystal-dock,
+  signal (receive) set=(int, term, hup, usr1, usr2, kill) peer=unconfined,
+  signal (receive) set=(chld) peer=crystal-dock,
+  signal (send) set=(int, term, hup, usr1, usr2, kill) peer=crystal-dock,
+}
+
+profile wpctl __INSTALLER_PATH_DIR_USR__/bin/wpctl flags=(attach_disconnected) {
+  #include <abstractions/base>
+  / r,
+  # Read-only Bluetooth status descriptor inherited from the compositor.
+  __INSTALLER_PATH_DIR_DEV__/rfkill r,
+  #include <abstractions/pipewire-audio>
+  unix,
+  __INSTALLER_PATH_DIR_USR__/bin/wpctl mr,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE_WIREPLUMBER__/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/wireplumber/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf,machine-id} r,
+  __INSTALLER_PATH_DIR_SYS__/devices/virtual/dmi/id/{bios_vendor,board_vendor,product_name,sys_vendor} r,
+  __INSTALLER_PATH_DIR_PROC__/self/comm rw,
+  owner @{PROC}/[0-9]*/task/[0-9]*/comm rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
+  __INSTALLER_PATH_DIR_DEV__/tty rw,
+  owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+  signal (receive) peer=labwc-compositor,
+  signal (send) set=(chld) peer=labwc-compositor,
+}
+
+# Short-lived user-manager controller. systemd-run/systemctl inherit this
+# profile; an environment-scrubbing exec transition would break secure_getenv.
+profile labwc-wlsunset __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wlsunset flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/dbus-session-strict>
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wlsunset rix,
+  / r,
+  __INSTALLER_PATH_DIR_ETC__/ r,
+  __INSTALLER_PATH_DIR_ETC__/labwc/ r,
+  __INSTALLER_PATH_DIR_USR__/bin/{systemctl,systemd-run} rix,
+  __INSTALLER_PATH_DIR_ETC__/default/ r,
+  __INSTALLER_PATH_DIR_ETC__/labwc/wlsunset.conf r,
+  __INSTALLER_PATH_DIR_ETC__/machine-id r,
+  __INSTALLER_PATH_DIR_RUN__/ r,
+  __INSTALLER_PATH_DIR_RUN_USER__/ r,
+  __INSTALLER_PATH_DIR_RUN__/systemd/system/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,systemd/private,wayland-[0-9]*} rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc/ rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc/output-refresh.lock rwk,
+  unix (create, connect, send, receive, shutdown, getattr, getopt, setopt) type=stream,
+  dbus (send) bus=session peer=(name=org.freedesktop.systemd1),
+  dbus (receive) bus=session peer=(label=unconfined),
+  signal (send, receive) peer=labwc-wlsunset,
+  signal (receive) peer=unconfined,
+  signal (receive) peer=labwc-autostart,
+  signal (send) set=(chld) peer=labwc-autostart,
+  deny network inet,
+  deny network inet6,
+  include if exists <local/usr.local.bin.labwc-wlsunset>
+}
+
+# Native gamma client: no GPU device, system/session D-Bus, home data or network.
+# Executable attachment is used because user systemd cannot set AppArmorProfile=.
+profile wlsunset __INSTALLER_PATH_DIR_USR__/bin/wlsunset flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/base>
+  __INSTALLER_PATH_DIR_USR__/bin/wlsunset mr,
+  __INSTALLER_PATH_DIR_ETC__/localtime r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/zoneinfo/{,**} r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/wayland-[0-9]* rw,
+  owner __INSTALLER_PATH_DIR_TMP__/wlsunset-shared-?????? rw,
+  unix (create, shutdown, getattr, getopt, setopt) type=stream,
+  unix (connect, send, receive) type=stream peer=(label=labwc-compositor),
+  signal (receive) set=(term int kill) peer=unconfined,
+  signal (receive) set=(alrm) peer=wlsunset,
+  signal (send) set=(chld) peer=unconfined,
+  deny network inet,
+  deny network inet6,
+  deny __INSTALLER_PATH_DIR_DEV__/dri/** rw,
+  deny __INSTALLER_PATH_DIR_DEV__/nvidia* rw,
+  include if exists <local/usr.bin.wlsunset>
+}

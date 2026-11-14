@@ -1,0 +1,50 @@
+# Managed by unattended-installer. Capability-free qBittorrent payload policy.
+
+#include <abstractions/desktop-runtime>
+#include <abstractions/user-documents>
+include if exists <abstractions/user-tmp>
+
+network inet stream,
+network inet6 stream,
+network inet dgram,
+network inet6 dgram,
+
+__INSTALLER_PATH_DIR_USR__/bin/qbittorrent mr,
+__INSTALLER_PATH_DIR_ETC__/qbittorrent/ r,
+__INSTALLER_PATH_DIR_ETC__/qbittorrent/qBittorrent.conf.d/ r,
+__INSTALLER_PATH_DIR_ETC__/qbittorrent/qBittorrent.conf.d/10-security.conf r,
+__INSTALLER_PATH_DIR_USR_SHARE__/qt6ct/{,colors/,colors/*.conf} r,
+__INSTALLER_PATH_DIR_USR_SHARE__/qbittorrent/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/qbittorrent/** r,
+
+# libtorrent drive_info reads device numbers and rotational/DAX hints. These
+# sysfs text leaves are metadata, never raw /dev block access or writable sysfs.
+__INSTALLER_PATH_DIR_SYS__/block/ r,
+__INSTALLER_PATH_DIR_SYS__/block/*/{dev,queue/{rotational,dax}} r,
+__INSTALLER_PATH_DIR_SYS__/devices/**/block/*/{dev,queue/{rotational,dax}} r,
+__INSTALLER_PATH_DIR_SYS__/devices/**/nvme/nvme[0-9]*/nvme[0-9]*n[0-9]*/{dev,queue/{rotational,dax}} r,
+# External links remain in the payload's no_new_privs domain; xdg-open uses
+# desktop IPC rather than requesting an unconfined exec.
+__INSTALLER_PATH_DIR_USR__/bin/{xdg-open,printf} rix,
+@{PROC}/version r,
+# Read-only socket diagnostics; the bwrap payload has private PID and netns.
+@{PROC}/@{pid}/net/{tcp,tcp6,udp,udp6} r,
+# qBittorrent's diagnostics read process metadata in both host and PID namespaces.
+# Restrict these reads and terminal I/O to objects owned by the invoking user.
+owner @{PROC}/@{pid}/{cmdline,stat} r,
+owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+
+owner @{HOME}/.cache/qBittorrent/ rw,
+owner @{HOME}/.cache/qBittorrent/** rwk,
+owner @{HOME}/.config/#[0-9]* rwkl,
+owner @{HOME}/.config/qBittorrent/ rw,
+owner @{HOME}/.config/qBittorrent/** rwkl,
+owner @{HOME}/.config/qt6ct/ rw,
+owner @{HOME}/.config/qt6ct/** rwkl,
+owner @{HOME}/.local/share/qBittorrent/ rw,
+owner @{HOME}/.local/share/qBittorrent/** rwkl,
+owner @{HOME}/@{XDG_DOWNLOAD_DIR}/ rw,
+owner @{HOME}/@{XDG_DOWNLOAD_DIR}/** rwkl,
+owner __INSTALLER_PATH_DIR_RUN__/media/*/bittorrent/ rw,
+owner __INSTALLER_PATH_DIR_RUN__/media/*/bittorrent/** rwkl,
+@{PROC}/[0-9]*/mountinfo r,

@@ -1,0 +1,46 @@
+# Managed by unattended-installer.
+
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+
+#include <tunables/global>
+
+profile spotify __INSTALLER_PATH_DIR_USR__/bin/spotify flags=(attach_disconnected) {
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/glib-2.0/gio-launch-desktop rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app rPx -> labwc-app,
+  #include <abstractions/electron-application>
+  #include <abstractions/pipewire-audio>
+  include if exists <abstractions/user-tmp>
+
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+
+  signal (receive) set=(hup int term kill) peer=labwc-app,
+  signal (send) set=(chld) peer=labwc-app,
+  __INSTALLER_PATH_DIR_USR__/bin/spotify rix,
+  __INSTALLER_PATH_DIR_PROC__/self/exe rix,
+  __INSTALLER_PATH_DIR_USR_SHARE__/spotify/ r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/spotify/** mrix,
+
+  owner @{HOME}/.cache/spotify/ rw,
+  owner @{HOME}/.cache/spotify/** rwk,
+  # Spotify loads its downloaded Widevine CDM from this exact
+  # versioned cache path; other cached files retain non-executable access.
+  owner @{HOME}/.cache/spotify/WidevineCdm/[0-9]*.[0-9]*.[0-9]*.[0-9]*/_platform_specific/linux_x64/libwidevinecdm.so mr,
+  owner @{HOME}/.config/spotify/ rw,
+  owner @{HOME}/.config/spotify/** rwk,
+  owner @{HOME}/.local/share/spotify/ rw,
+  owner @{HOME}/.local/share/spotify/** rwk,
+  owner @{HOME}/@{XDG_MUSIC_DIR}/ r,
+  owner @{HOME}/@{XDG_MUSIC_DIR}/** r,
+  # User-selected local music can live on the managed NFS shares. Keep this
+  # read-only; encrypted streaming downloads remain in Spotify's own cache.
+  __INSTALLER_PATH_DIR_DATA__/ r,
+  __INSTALLER_PATH_DIR_DATA__/sharing/ r,
+  __INSTALLER_PATH_DIR_DATA__/sharing/{nfs-client,nfs-server}/{,**} r,
+  owner @{HOME}/Sharing/ r,
+  @{HOME}/Sharing/{nfs-client,nfs-server}/{,**} r,
+
+  include if exists <local/usr.bin.spotify>
+}

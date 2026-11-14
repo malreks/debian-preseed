@@ -1,0 +1,28 @@
+[Unit]
+Description=On-demand proxy for the managed Codex app server
+Documentation=man:systemd-socket-proxyd(8)
+Requires=codex-app-server.socket codex-app-server.service
+PartOf=codex-app-server.socket
+After=codex-app-server.socket codex-app-server.service
+ConditionFileIsExecutable=__INSTALLER_PATH_DIR_USR__/lib/systemd/systemd-socket-proxyd
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=notify
+ExecStart=__INSTALLER_PATH_DIR_USR__/lib/systemd/systemd-socket-proxyd --exit-idle-time=10min __INSTALLER_DEVOPS_CODEX_APP_SERVER_BACKEND_SOCKET__
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=90s
+TimeoutStopSec=15s
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+# Recent Codex publishes an alias to its fixed protected /tmp socket. Share
+# only that read-only, per-UID directory with this proxy's private /tmp.
+BindReadOnlyPaths=-__INSTALLER_PATH_DIR_TMP__/codex-daemon-%U
+RestrictAddressFamilies=AF_UNIX
+StandardOutput=null
+StandardError=null
+SyslogIdentifier=codex-app-server-proxy

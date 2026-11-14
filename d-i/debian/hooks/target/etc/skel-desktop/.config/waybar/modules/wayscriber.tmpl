@@ -1,0 +1,29 @@
+{
+  "custom/wayscriber": {
+    "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-exec __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state status wayscriber",
+    "return-type": "json",
+    "signal": 8,
+    "format": " ",
+    "align": 0.5,
+    "justify": "center",
+    "cursor": true,
+    "tooltip": true,
+    "tooltip-format": "Wayscriber",
+    "on-click-release": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --menu=wayscriber",
+    "on-click-right-release": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayscriber-toggle",
+    "menu-file": "~/.config/waybar/gtk/wayscriber-menu.xml",
+    "menu-actions": {
+      "wayscriber_open": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --active",
+      "wayscriber_read_only": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --light-toggle",
+      "wayscriber_freeze": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --freeze",
+      "wayscriber_toggle": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --daemon-toggle",
+      "wayscriber_light_draw": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --light-draw-toggle",
+      "wayscriber_session_info": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --session-info",
+      "wayscriber_open_config": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayscriber-config",
+      "wayscriber_about": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --about",
+      "wayscriber_clear_session": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --clear-session",
+      "wayscriber_clear_tool_state": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --clear-tool-state",
+      "wayscriber_languages": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR__/bin/wayscriber --list-languages"
+    }
+  }
+}

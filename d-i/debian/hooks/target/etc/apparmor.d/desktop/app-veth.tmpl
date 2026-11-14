@@ -1,0 +1,109 @@
+#include <tunables/global>
+
+# The sole privileged network constructor has no user files, shells, package
+# execution, payload exec, host namespace request, or arbitrary command path.
+profile app-veth __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/app-veth flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/nameservice-strict>
+  capability net_admin,
+  capability sys_admin,
+  network unix seqpacket,
+  network unix dgram,
+  network inet stream,
+  network inet dgram,
+  network netlink raw,
+  network netlink dgram,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/app-veth r,
+  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/app_veth_policy.py r,
+  __INSTALLER_PATH_DIR_ETC__/app-veth.json r,
+  __INSTALLER_PATH_DIR_ETC__/app-veth.nft r,
+  __INSTALLER_PATH_DIR_SYS__/class/net/*/{wireless,phy80211}/ r,
+  __INSTALLER_PATH_DIR_SYS__/devices/**/net/*/{wireless,phy80211}/ r,
+  __INSTALLER_PATH_DIR_SYS__/class/ieee80211/*/ r,
+  __INSTALLER_PATH_DIR_SYS__/devices/**/ieee80211/*/ r,
+  __INSTALLER_PATH_DIR_ETC__/iproute2/{,**} r,
+  __INSTALLER_PATH_DIR_USR__/lib/iproute2/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/iproute2/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/protocols r,
+  __INSTALLER_PATH_DIR_ETC__/services r,
+  __INSTALLER_PATH_DIR_ETC__/nftables/{,**} r,
+  # Forky resolves the compatibility __INSTALLER_PATH_DIR_USR__/sbin/ip symlink to __INSTALLER_PATH_DIR_USR__/bin/ip.
+  __INSTALLER_PATH_DIR_USR__/{bin,sbin}/ip rix,
+  __INSTALLER_PATH_DIR_USR__/{bin,sbin}/conntrack rix,
+  __INSTALLER_PATH_DIR_USR__/sbin/{nft,sysctl} rix,
+  __INSTALLER_PATH_DIR_USR__/bin/nsenter rix,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/lib*.so* mr,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/xtables/*.so* mr,
+  __INSTALLER_PATH_DIR_RUN__/app-veth/ rw,
+  __INSTALLER_PATH_DIR_RUN__/app-veth/control.sock rw,
+  __INSTALLER_PATH_DIR_RUN__/systemd/notify w,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/ipv4/ip_forward r,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/ipv4/conf/__INSTALLER_APP_VETH_HOST_INTERFACE_PREFIX__[0-9]*__INSTALLER_APP_VETH_HOST_INTERFACE_SUFFIX__/{route_localnet,rp_filter} rw,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/ipv6/conf/all/disable_ipv6 rw,
+  @{PROC}/[0-9]*/ns/{net,user} r,
+  owner @{PROC}/@{pid}/{mounts,stat,status} r,
+  owner @{PROC}/@{pid}/fd/{,[0-9]*} r,
+  # Forky's nsfs handle is mediated as "/" with attach_disconnected, even
+  # when opened via __INSTALLER_PATH_DIR_PROC__/self/ns/net. This exact read is not recursive.
+  / r,
+  /net:\[[0-9]*\] r,
+  /user:\[[0-9]*\] r,
+  owner __INSTALLER_PATH_DIR_TMP__/{,**} rw,
+  signal (send, receive) peer=app-veth,
+  signal (receive) set=(term,kill,int) peer=unconfined,
+}
+
+# Podman uses a fixed configured helper ABI for its rootless uplink. This
+# helper has no capabilities and sends a namespace FD to the constructor.
+profile app-veth-podman __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/app-veth-podman flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/app-veth-client>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/app-veth-podman r,
+  owner __INSTALLER_PATH_DIR_RUN__/podman-devops/** r,
+  # nsfs bind mounts retain root-owned inode metadata. Permit only Netavark's
+  # rootless namespace endpoint independently of the ordinary devops files.
+  __INSTALLER_PATH_DIR_RUN__/podman-devops/**/rootless-netns/rootless-netns r,
+  /net:\[[0-9]*\] r,
+  __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+  signal (receive) peer=unconfined,
+  signal (send) set=(chld) peer=unconfined,
+  ptrace (readby) peer=unconfined,
+}
+
+# Named service profiles avoid changing the distribution's dnsmasq attachment
+# used by NetworkManager or virtual machines. PID 1 selects these exact labels.
+profile app-veth-dns-cache flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/base>
+  __INSTALLER_PATH_DIR_USR__/sbin/dnsmasq rix,
+  __INSTALLER_PATH_DIR_ETC__/dnsmasq-app-veth.conf r,
+  __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf,host.conf,hosts,gai.conf} r,
+  owner __INSTALLER_PATH_DIR_RUN__/dnsmasq-app-veth/{,dnsmasq.pid} rw,
+  @{PROC}__INSTALLER_PATH_DIR_SYS__/net/ipv6/conf/*/mtu r,
+  owner @{PROC}/@{pid}/fd/{,[0-9]*} r,
+  network inet stream,
+  network inet dgram,
+  network netlink raw,
+  signal (send, receive) peer=app-veth-dns-cache,
+  signal (receive) set=(term,kill,int,hup,usr1) peer=unconfined,
+}
+
+profile app-veth-dns-tls flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/base>
+  __INSTALLER_PATH_DIR_USR__/bin/stubby rix,
+  __INSTALLER_PATH_DIR_ETC__/stubby/stubby.yml r,
+  __INSTALLER_PATH_DIR_ETC__/stubby/ca/ r,
+  __INSTALLER_PATH_DIR_ETC__/stubby/ca/upstream-custom.pem r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/dns/root.key r,
+  __INSTALLER_PATH_DIR_ETC__/ssl/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/{passwd,group,nsswitch.conf,host.conf,hosts,resolv.conf,gai.conf} r,
+  __INSTALLER_PATH_DIR_RUN__/systemd/resolve/{resolv.conf,stub-resolv.conf} r,
+  owner __INSTALLER_PATH_DIR_RUN__/stubby/{,**} rw,
+  owner __INSTALLER_PATH_DIR_VAR_CACHE__/{,private/}stubby/{,**} rwk,
+  __INSTALLER_PATH_DIR_RUN__/systemd/notify w,
+  network inet stream,
+  network inet dgram,
+  network inet6 stream,
+  network unix dgram,
+  signal (send, receive) peer=app-veth-dns-tls,
+  signal (receive) set=(term,kill,int,hup) peer=unconfined,
+}

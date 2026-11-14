@@ -1,0 +1,7 @@
+[storage]
+driver = "@DRIVER@"
+graphroot = "__INSTALLER_PATH_DIR_POOL__/podman/storage"
+runroot = "__INSTALLER_PATH_DIR_RUN__/podman-devops/containers"
+# Images stay in graphroot; no hidden second image store or driver fallback.
+[storage.options]
+additionalimagestores = []

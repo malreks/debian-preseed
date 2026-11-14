@@ -1,0 +1,63 @@
+# Managed by unattended-installer.
+#
+# Enforced Visual Studio Code attachment. Code is an IDE, so its child tools
+# may execute from the system tool path and extension tree, while file access
+# remains bounded to Code state, user configuration, and managed work roots.
+
+#include <abstractions/electron-application>
+#include <abstractions/pipewire-audio>
+#include <abstractions/user-documents>
+include if exists <abstractions/consoles>
+include if exists <abstractions/user-tmp>
+include if exists <abstractions/xdg-open>
+
+network inet stream,
+network inet6 stream,
+network inet dgram,
+network inet6 dgram,
+network netlink raw,
+
+__INSTALLER_PATH_DIR_ETC__/shells r,
+__INSTALLER_PATH_DIR_USR_SHARE__/code/ r,
+__INSTALLER_PATH_DIR_USR_SHARE__/code/** mrix,
+__INSTALLER_PATH_DIR_USR__/bin/ r,
+__INSTALLER_PATH_DIR_USR__/bin/** rix,
+__INSTALLER_PATH_DIR_USR_LIBEXEC__/ r,
+__INSTALLER_PATH_DIR_USR_LIBEXEC__/** rix,
+__INSTALLER_PATH_DIR_USR__/lib/git-core/ r,
+__INSTALLER_PATH_DIR_USR__/lib/git-core/** rix,
+
+__INSTALLER_PATH_DIR_DEV__/ptmx rw,
+__INSTALLER_PATH_DIR_DEV__/pts/ r,
+__INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/vscode-ipc-*.sock rw,
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/vscode-* rw,
+
+owner @{HOME}/.cache/Code/ rw,
+owner @{HOME}/.cache/Code/** rwk,
+owner @{HOME}/.cache/Microsoft/ rw,
+owner @{HOME}/.cache/Microsoft/DeveloperTools/ rw,
+owner @{HOME}/.cache/Microsoft/DeveloperTools/** rwkl,
+owner @{HOME}/.config/Code/ rw,
+owner @{HOME}/.config/Code/** rwkl,
+owner @{HOME}/.local/share/code/ rw,
+owner @{HOME}/.local/share/code/** rwkl,
+owner @{HOME}/.vscode/ rw,
+owner @{HOME}/.vscode/** rwklm,
+owner @{HOME}/.vscode-shared/ rw,
+owner @{HOME}/.vscode-shared/** rwklm,
+
+owner @{HOME}/.gitconfig r,
+owner @{HOME}/.config/git/ r,
+owner @{HOME}/.config/git/** r,
+owner @{HOME}/.ssh/config r,
+owner @{HOME}/.ssh/known_hosts r,
+owner @{HOME}/.ssh/known_hosts.old r,
+
+owner @{HOME}/Workspace/ rw,
+owner @{HOME}/Workspace/** rwklm,
+owner @{HOME}/@{XDG_DOCUMENTS_DIR}/ rw,
+owner @{HOME}/@{XDG_DOCUMENTS_DIR}/** rwklm,
+owner @{HOME}/@{XDG_DOWNLOAD_DIR}/ rw,
+owner @{HOME}/@{XDG_DOWNLOAD_DIR}/** rwklm,

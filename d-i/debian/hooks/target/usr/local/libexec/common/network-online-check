@@ -1,0 +1,30 @@
+#!/bin/sh
+# ExecCondition: check current DNS, TLS and HTTP access before scheduled work.
+set -eu
+
+PATH=__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin
+export PATH
+
+[ "$#" -eq 0 ] || exit 255
+for required in __INSTALLER_PATH_DIR_USR__/bin/curl __INSTALLER_PATH_DIR_USR__/bin/env __INSTALLER_PATH_DIR_USR__/bin/timeout; do
+  [ -x "$required" ] || {
+    printf '%s\n' 'event=network_readiness status=error reason=missing-delegate' >&2
+    exit 255
+  }
+done
+
+# A boot-time network-online.target remains reached after a link goes down.
+# Probe a fixed public Debian endpoint now. No redirects, proxy credentials,
+# caller curl configuration, response body, or unbounded DNS/transport wait.
+if response=$(__INSTALLER_PATH_DIR_USR__/bin/timeout --signal=TERM --kill-after=2s 10s \
+  __INSTALLER_PATH_DIR_USR__/bin/env -i PATH=__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin LC_ALL=C HOME=/nonexistent \
+  __INSTALLER_PATH_DIR_USR__/bin/curl -q --head --fail --silent --noproxy '*' --proto '=https' \
+    --connect-timeout 3 --max-time 8 --max-redirs 0 --output __INSTALLER_PATH_DIR_DEV__/null \
+    --write-out '%{http_code}' https://deb.debian.org/debian/ 2>__INSTALLER_PATH_DIR_DEV__/null); then
+  [ "$response" != 200 ] || exit 0
+fi
+
+# 1..254 skips an ExecCondition without failing the service. Timers retain
+# their normal next run; an offline laptop does not enter a restart loop.
+printf '%s\n' 'event=network_readiness status=skipped reason=internet-unconfirmed'
+exit 1

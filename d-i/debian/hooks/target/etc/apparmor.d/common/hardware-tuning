@@ -1,0 +1,189 @@
+# Managed by unattended-installer; installed only when a hardware gate succeeds.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+profile hardware-tuning-broker __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuningd flags=(attach_disconnected, mediate_deleted) {
+  # Deliberately NOT wrapper-python: that abstraction permits shells.
+  #include <abstractions/base>
+  #include <abstractions/python>
+  __INSTALLER_PATH_DIR_USR__/bin/python3 rix,
+  __INSTALLER_PATH_DIR_USR__/bin/python3.[0-9]* rix,
+  __INSTALLER_PATH_DIR_ETC__/{group,nsswitch.conf,passwd} r,
+  deny owner @{HOME}/.local/lib/python*/** mrwkl,
+  deny owner @{HOME}/.cache/Python/** rwkl,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuningd r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/ r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/{common,broker}.py r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-worker rPx -> hardware-tuning-worker,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-policy rPx -> hardware-tuning-policy,
+  unix,
+  signal (receive) peer=unconfined,
+  signal (receive, send) peer=hardware-tuning-worker,
+  signal (receive, send) peer=hardware-tuning-policy,
+  __INSTALLER_PATH_DIR_PROC__/[0-9]*/attr/{current,apparmor/current} r,
+  __INSTALLER_PATH_DIR_RUN__/systemd/{seats,sessions,users}/ r,
+  __INSTALLER_PATH_DIR_RUN__/systemd/{seats,sessions,users}/** r,
+  __INSTALLER_PATH_DIR_SYS__/class/power_supply/ r,
+  __INSTALLER_PATH_DIR_SYS__/class/power_supply/** r,
+  __INSTALLER_PATH_DIR_SYS__/devices/**/{online,type} r,
+  __INSTALLER_PATH_DIR_ETC__/hardware-tuning/ r,
+  __INSTALLER_PATH_DIR_ETC__/hardware-tuning/broker.json r,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/ rw,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/control.sock rw,
+  __INSTALLER_PATH_DIR_RUN__/systemd/notify w,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/controls.json rw,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/.controls.json.tuning-* rw,
+  # No direct unit-file writes; PID 1 applies allowlisted policy operations.
+  __INSTALLER_PATH_DIR_SYSTEMD_ETC__/system/multi-user.target.wants/hardware-tuning-autostart.service r,
+  __INSTALLER_PATH_DIR_SYSTEMD_ETC__/system/hardware-tuning-autostart.service r,
+  # No sysfs writes, device nodes, capabilities, arbitrary exec, or network.
+}
+
+profile hardware-tuning-power-profiles __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-power-profiles flags=(attach_disconnected, mediate_deleted) {
+  # Unprivileged API only: no worker execution, hardware writes or unit control.
+  #include <abstractions/base>
+  #include <abstractions/python>
+  #include <abstractions/dbus-strict>
+  __INSTALLER_PATH_DIR_USR__/bin/python3 rix,
+  __INSTALLER_PATH_DIR_USR__/bin/python3.[0-9]* rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-power-profiles r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/ r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/{common,client,power_profiles}.py r,
+  __INSTALLER_PATH_DIR_PYTHON3_SYSTEM_PACKAGES__/gi/{,**} mr,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/ r,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/{GLib,GLibUnix,GObject,GModule,Gio,GioUnix}-2.0.typelib mr,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/GIRepository-{2.0,3.0}.typelib mr,
+  __INSTALLER_PATH_DIR_ETC__/{group,nsswitch.conf,passwd,machine-id} r,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/ r,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/control.sock rw,
+  __INSTALLER_PATH_DIR_RUN__/dbus/system_bus_socket rw,
+  unix,
+  dbus (bind) bus=system name={org.freedesktop.UPower.PowerProfiles,net.hadess.PowerProfiles},
+  dbus (send) bus=system path=/org/freedesktop/DBus
+    interface=org.freedesktop.DBus
+    member={Hello,RequestName,ReleaseName,AddMatch,RemoveMatch,GetConnectionUnixUser}
+    peer=(name=org.freedesktop.DBus),
+  dbus (receive) bus=system peer=(name=org.freedesktop.DBus),
+  dbus (send, receive) bus=system
+    path={/org/freedesktop/UPower/PowerProfiles,/net/hadess/PowerProfiles}
+    interface={org.freedesktop.UPower.PowerProfiles,net.hadess.PowerProfiles,org.freedesktop.DBus.Properties,org.freedesktop.DBus.Introspectable,org.freedesktop.DBus.Peer},
+  signal (receive) peer=unconfined,
+  deny owner @{HOME}/.local/lib/python*/** mrwkl,
+  deny owner @{HOME}/.cache/Python/** rwkl,
+}
+
+profile hardware-tuning-worker __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-worker flags=(attach_disconnected, mediate_deleted) {
+  # Deliberately NOT wrapper-python: that abstraction permits shells.
+  #include <abstractions/base>
+  #include <abstractions/python>
+  __INSTALLER_PATH_DIR_USR__/bin/python3 rix,
+  __INSTALLER_PATH_DIR_USR__/bin/python3.[0-9]* rix,
+  __INSTALLER_PATH_DIR_ETC__/{group,nsswitch.conf,passwd} r,
+  deny owner @{HOME}/.local/lib/python*/** mrwkl,
+  deny owner @{HOME}/.cache/Python/** rwkl,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-worker r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/ r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/{common,engine}.py r,
+  __INSTALLER_PATH_DIR_PROC__/[0-9]*/attr/{current,apparmor/current} r,
+  signal (receive) peer=unconfined,
+  signal (receive, send) peer=hardware-tuning-broker,
+  __INSTALLER_PATH_DIR_ETC__/hardware-tuning/ r,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/ rw,
+  # Exact vendor permissions are absent if that vendor was not installed.
+  include if exists <abstractions/hardware-tuning-intel>
+  include if exists <abstractions/hardware-tuning-nvidia>
+  deny __INSTALLER_PATH_DIR_DEV__/cpu/*/msr rw,
+  deny __INSTALLER_PATH_DIR_DEV__/mem rw,
+  deny __INSTALLER_PATH_DIR_DEV__/kmem rw,
+  # No shell/command execution, control-socket access, internet, or user-home access.
+}
+
+profile hardware-tuning-client __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-hardware-tuning flags=(attach_disconnected, mediate_deleted) {
+  owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
+  ptrace (readby) peer=desktop-launcher,
+  ptrace (readby) peer=waypaper//waypaper-ps,
+  # Deliberately NOT wrapper-python: that abstraction permits shells.
+  #include <abstractions/base>
+  #include <abstractions/python>
+  __INSTALLER_PATH_DIR_USR__/bin/python3 rix,
+  __INSTALLER_PATH_DIR_USR__/bin/python3.[0-9]* rix,
+  __INSTALLER_PATH_DIR_ETC__/{group,nsswitch.conf,passwd} r,
+  deny owner @{HOME}/.local/lib/python*/** mrwkl,
+  deny owner @{HOME}/.cache/Python/** rwkl,
+  include if exists <abstractions/dbus-session-strict>
+  dbus (send) bus=session path=/org/freedesktop/Notifications
+    interface=org.freedesktop.Notifications member={Notify,GetCapabilities,GetServerInformation}
+    peer=(name=org.freedesktop.Notifications),
+  signal (send) set=(chld) peer=desktop-launcher,
+  signal (send) set=(chld) peer=labwc-computer-management,
+  ptrace (read) peer=desktop-launcher,
+  # DevOps lifetime tracking reads the same user's terminal parent via /proc.
+  ptrace (read) peer=desktop-terminal,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-hardware-tuning r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/ r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/{common,client}.py r,
+  unix,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/ r,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/control.sock rw,
+  __INSTALLER_PATH_DIR_USR__/bin/{systemd-run,notify-send} rix,
+  __INSTALLER_PATH_DIR_USR_SHARE__/locale/** r,
+  __INSTALLER_PATH_DIR_RUN__/systemd/{sessions,users}/** r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,systemd/private} rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/notify w,
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/ r,
+  # notify-send/libsystemd resolves its own cgroup identity. No proc write or
+  # cross-user read is granted; retain confinement for inherited execution.
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/{stat,status,cgroup} r,
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/attr/{current,apparmor/current} r,
+  __INSTALLER_PATH_DIR_PROC__/sys/kernel/pid_max r,
+  signal (receive) peer=unconfined,
+  signal (receive) peer=hardware-tuning-client,
+  signal (send, receive) peer=labwc-fuzzel,
+  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-fuzzel rPx -> labwc-fuzzel,
+  owner @{HOME}/ r,
+  owner @{HOME}/.local/ rw,
+  owner @{HOME}/.local/state/ rw,
+  owner @{HOME}/.local/state/hardware-tuning/ rw,
+  owner @{HOME}/.local/state/hardware-tuning/*.{txt,json} rw,
+  # No hardware files, configuration/state writes, sudo, or privileged exec.
+}
+
+# Unit-management authority is NOT granted to the network-facing broker,
+# desktop client, or hardware worker. Only this root-only fixed-operation
+# helper may ask PID 1 to manage PPD and the autostart marker. AppArmor D-Bus
+# rules do not filter method arguments: the helper's immutable unit allowlist
+# is therefore part of the trusted boundary, not a claim about bus filtering.
+profile hardware-tuning-policy __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-policy flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/base>
+  #include <abstractions/python>
+  __INSTALLER_PATH_DIR_USR__/bin/python3 rix,
+  __INSTALLER_PATH_DIR_USR__/bin/python3.[0-9]* rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-policy r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/ r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/{common,policy_owner,system_state}.py r,
+  __INSTALLER_PATH_DIR_ETC__/{group,nsswitch.conf,passwd} r,
+  __INSTALLER_PATH_DIR_ETC__/hardware-tuning/ r,
+  __INSTALLER_PATH_DIR_ETC__/hardware-tuning/broker.json r,
+  __INSTALLER_PATH_DIR_PROC__/[0-9]*/attr/{current,apparmor/current} r,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/ rw,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/policy-owner.json rw,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/.policy-owner.json.tuning-* rw,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/policy-owner.lock rwk,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/{intel,nvidia}.json r,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/{intel,nvidia}.lock rwk,
+  __INSTALLER_PATH_DIR_RUN__/dbus/system_bus_socket rw,
+  unix,
+  dbus (send) bus=system path=/org/freedesktop/DBus
+    interface=org.freedesktop.DBus member=Hello peer=(name=org.freedesktop.DBus),
+  dbus (send, receive) bus=system path=/org/freedesktop/systemd1
+    interface=org.freedesktop.systemd1.Manager
+    member={LoadUnit,GetUnitFileState,EnableUnitFiles,DisableUnitFiles,MaskUnitFiles,UnmaskUnitFiles,Reload,StartUnit,StopUnit}
+    peer=(name=org.freedesktop.systemd1),
+  dbus (send, receive) bus=system path=/org/freedesktop/systemd1{,/unit/*,/job/[0-9]*}
+    interface=org.freedesktop.DBus.Properties member=Get peer=(name=org.freedesktop.systemd1),
+  dbus (send, receive) bus=system path=/org/freedesktop/systemd1/job/[0-9]*
+    interface=org.freedesktop.systemd1.Job member=Cancel peer=(name=org.freedesktop.systemd1),
+  signal (receive) peer=unconfined,
+  signal (receive, send) peer=hardware-tuning-broker,
+  # No systemctl, shell, arbitrary exec, sysfs writes, or device access.
+}

@@ -1,0 +1,277 @@
+#!/bin/sh
+# Canonical initrd credential reader, imported by both common entrypoints
+# from the protected installer payload through bootstrap_source_module.
+# /preseed.env is bounded assignment data. Quotes delimit literal values when
+# present; neither parameter expansion nor command substitution is evaluated.
+# Return codes: 0=value, 1=unmapped/missing/empty, 2=unsafe or unreadable file.
+
+preseed_env_variable_name() {
+  case "${1:-}" in
+    wifi_interface) printf '%s\n' PRESEED_WIFI_INTERFACE ;;
+    wifi_essid) printf '%s\n' PRESEED_WIFI_ESSID ;;
+    wifi_security) printf '%s\n' PRESEED_WIFI_SECURITY ;;
+    wifi_cidr) printf '%s\n' PRESEED_WIFI_CIDR ;;
+    wifi_wep) printf '%s\n' PRESEED_WIFI_PASSPHRASE ;;
+    netcfg/wireless_wpa|wireless_wpa|wifi_wpa) printf '%s\n' PRESEED_WIFI_PASSPHRASE ;;
+    fruux_username) printf '%s\n' PRESEED_FRUUX_USERNAME ;;
+    fruux_password) printf '%s\n' PRESEED_FRUUX_PASSWORD ;;
+    primary_user) printf '%s\n' PRESEED_PRIMARY_USERNAME ;;
+    primary_fullname) printf '%s\n' PRESEED_PRIMARY_FULLNAME ;;
+    primary_password) printf '%s\n' PRESEED_PRIMARY_PASSWORD ;;
+    primary_gpg_passphrase) printf '%s\n' PRESEED_PRIMARY_GPG_PASSPHRASE ;;
+    git_ssh_passphrase) printf '%s\n' PRESEED_GIT_SSH_PASSPHRASE ;;
+    shim_signed_passphrase) printf '%s\n' PRESEED_SHIM_SIGNED_PASSPHRASE ;;
+    dns_upstream_tls_ca_name_custom) printf '%s\n' PRESEED_DNS_UPSTREAM_TLS_CA_NAME_CUSTOM ;;
+    root_password) printf '%s\n' PRESEED_ROOT_PASSWORD ;;
+    crowdsec_token|crowdsec_enroll_token|crowdsec_attachment_key) printf '%s\n' PRESEED_CROWDSEC_TOKEN ;;
+    urlhaus_authkey) printf '%s\n' PRESEED_URLHAUS_AUTHKEY ;;
+    tailscale_authkey|tailscale_auth_key) printf '%s\n' PRESEED_TAILSCALE_TOKEN ;;
+    filen_priv_email) printf '%s\n' PRESEED_FILEN_PRIV_EMAIL ;;
+    filen_priv_password) printf '%s\n' PRESEED_FILEN_PRIV_PASSWORD ;;
+    filen_priv_2fa_seed) printf '%s\n' PRESEED_FILEN_PRIV_2FA_SEED ;;
+    filen_offsec_email) printf '%s\n' PRESEED_FILEN_OFFSEC_EMAIL ;;
+    filen_offsec_password) printf '%s\n' PRESEED_FILEN_OFFSEC_PASSWORD ;;
+    filen_offsec_2fa_seed) printf '%s\n' PRESEED_FILEN_OFFSEC_2FA_SEED ;;
+    telegram_chat_id) printf '%s\n' PRESEED_TELEGRAM_CHAT_ID ;;
+    telegram_api_key) printf '%s\n' PRESEED_TELEGRAM_API_KEY ;;
+    cf_r2_access_key) printf '%s\n' PRESEED_CF_APTLY_ACCESS_KEY ;;
+    cf_r2_secret_key) printf '%s\n' PRESEED_CF_APTLY_SECRET_KEY ;;
+    obs_username) printf '%s\n' PRESEED_OBS_USERNAME ;;
+    obs_password) printf '%s\n' PRESEED_OBS_PASSWORD ;;
+    ci_github_token) printf '%s\n' PRESEED_CI_GITHUB_TOKEN ;;
+    ci_gitlab_token) printf '%s\n' PRESEED_CI_GITLAB_TOKEN ;;
+    technitium_username) printf '%s\n' PRESEED_TECHNITIUM_USERNAME ;;
+    technitium_password) printf '%s\n' PRESEED_TECHNITIUM_PASSWORD ;;
+    technitium_web_username) printf '%s\n' PRESEED_TECHNITIUM_WEB_USERNAME ;;
+    technitium_web_password) printf '%s\n' PRESEED_TECHNITIUM_WEB_PASSWORD ;;
+    technitium_tls_passphrase) printf '%s\n' PRESEED_TECHNITIUM_TLS_PASSPHRASE ;;
+    technitium_backup_passphrase) printf '%s\n' PRESEED_TECHNITIUM_BACKUP_PASSPHRASE ;;
+    *) return 1 ;;
+  esac
+}
+
+# Credential-valued boot keys are classified before any command-line value is
+# consumed. Every registered PRESEED_* field may be supplied as an explicit
+# command-line override; when it is absent, the resolver falls back to the
+# protected initrd/preseed file. Unrecognized secret-looking parameters are
+# ignored by the command-line filters; they never abort installation or become
+# credential inputs.
+preseed_env_is_secret_key() {
+  case "${1:-}" in
+    wifi_wep|netcfg/wireless_wpa|wireless_wpa|wifi_wpa|fruux_password|\
+    primary_password|primary_gpg_passphrase|git_ssh_passphrase|shim_signed_passphrase|\
+    root_password|crowdsec_token|crowdsec_enroll_token|crowdsec_attachment_key|\
+    urlhaus_authkey|tailscale_authkey|tailscale_auth_key|filen_priv_password|\
+    filen_priv_2fa_seed|filen_offsec_password|filen_offsec_2fa_seed|telegram_api_key|\
+    cf_r2_access_key|cf_r2_secret_key|obs_password|ci_github_token|ci_gitlab_token|\
+    technitium_password|technitium_web_password|technitium_tls_passphrase|\
+    technitium_backup_passphrase|password|passphrase|token|secret|psk|key|credential|\
+    *[._/-]password*|*[._/-]passphrase*|*[._/-]token*|*[._/-]secret*|\
+    *[._/-]psk*|*[._/-]key*|*[._/-]credential*|*authkey*)
+      return 0 ;;
+  esac
+  return 1
+}
+
+preseed_env_cmdline_secret_allowed() {
+  # Recognized credential fields may be supplied on the kernel command line as
+  # an explicit override. If the field is absent there, the normal resolver
+  # falls back to the protected /preseed.env input. Unknown secret-looking
+  # parameters are filtered before this resolver can consume them.
+  if preseed_env_variable_name "${1:-}" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+preseed_env_cmdline_secret_forbidden() {
+  preseed_env_is_secret_key "${1:-}" || return 1
+  preseed_env_cmdline_secret_allowed "${1:-}" && return 1
+  return 0
+}
+
+preseed_env_error() {
+  # Never include file contents, command-line text, or a secret in diagnostics.
+  printf '[credentials] error: %s\n' "$*" >&2
+  return 2
+}
+
+preseed_env_check_file() (
+  set +x
+  set +v
+  set -f
+  IFS=' 	
+'
+  preseed_check_path=$1
+  preseed_check_kind=${2:-private}
+  case "$preseed_check_kind" in
+    private|input) ;;
+    *) preseed_env_error 'credential file check kind is invalid'; return 2 ;;
+  esac
+  case "$preseed_check_path" in
+    /*) ;;
+    *) preseed_env_error 'credential file path must be absolute'; return 2 ;;
+  esac
+  case "$preseed_check_path" in
+    *[![:print:]]*|*/../*|*/./*|*//*)
+      preseed_env_error 'credential file path is not canonical'; return 2 ;;
+  esac
+  if [ -L "$preseed_check_path" ]; then
+    preseed_env_error 'credential file must not be a symlink'; return 2
+  fi
+  [ -e "$preseed_check_path" ] || return 1
+  if [ ! -f "$preseed_check_path" ] || [ ! -r "$preseed_check_path" ]; then
+    preseed_env_error 'credential file must be a readable regular file'; return 2
+  fi
+  preseed_check_uid=$(id -u) || {
+    preseed_env_error 'cannot determine installer UID'; return 2;
+  }
+  # Debian busybox-udeb deliberately has no stat applet. Numeric ls metadata
+  # uses applets present in the real initrd, not just full desktop BusyBox.
+  preseed_check_metadata=$(LC_ALL=C ls -ldn "$preseed_check_path" 2>/dev/null) || {
+    preseed_env_error 'cannot inspect credential file with ls -ldn'; return 2;
+  }
+  set -- $preseed_check_metadata
+  if [ "$#" -lt 4 ] || [ "$3" != "$preseed_check_uid" ] || [ "$2" != 1 ]; then
+    preseed_env_error 'credential file must be owned by the installer UID (root in d-i) and have one hard link'; return 2
+  fi
+  preseed_check_mode=$1
+  if [ "$preseed_check_kind" = private ]; then
+    case "$preseed_check_mode" in
+      -r--------|-rw-------) ;;
+      -r--r-----|-r-----r--|-r--r--r--|-rw-r-----|-rw----r--|-rw-r--r--)
+        # Initrd builders often preserve 0644. These files are not writable by
+        # other users: reduce read access before parsing private assets.
+        ;;
+      *)
+        preseed_env_error 'credential file has unsafe permissions; use root ownership and mode 0400 or 0600'; return 2 ;;
+    esac
+  fi
+  # Reject replaceable path components before parsing root-owned literal data.
+  # A root/invoking-UID-owned sticky directory (e.g. /tmp) is safe for files
+  # owned by that UID. Do not follow symlinked directories.
+  preseed_check_parent=${preseed_check_path%/*}
+  [ -n "$preseed_check_parent" ] || preseed_check_parent=/
+  while :; do
+    if [ -L "$preseed_check_parent" ] || [ ! -d "$preseed_check_parent" ]; then
+      preseed_env_error 'credential file has a symlinked or invalid parent directory'; return 2
+    fi
+    preseed_check_metadata=$(LC_ALL=C ls -ldn "$preseed_check_parent" 2>/dev/null) || {
+      preseed_env_error 'cannot inspect credential parent directory'; return 2;
+    }
+    set -- $preseed_check_metadata
+    if [ "$#" -lt 4 ] || { [ "$3" != 0 ] && [ "$3" != "$preseed_check_uid" ]; }; then
+      preseed_env_error 'credential parent directory is not trusted'; return 2
+    fi
+    case "$1" in
+      ?????w????|????????w?)
+        case "$1" in
+          ?????????t|?????????T) ;;
+          *) preseed_env_error 'credential parent directory is writable by other users without sticky protection'; return 2 ;;
+        esac ;;
+    esac
+    [ "$preseed_check_parent" != / ] || break
+    preseed_check_parent=${preseed_check_parent%/*}
+    [ -n "$preseed_check_parent" ] || preseed_check_parent=/
+  done
+  if [ "$preseed_check_kind" = private ]; then
+    case "$preseed_check_mode" in
+      -r--------|-rw-------) ;;
+      *)
+        chmod 0600 "$preseed_check_path" 2>/dev/null || {
+          preseed_env_error 'cannot make private credential asset private; rebuild the initrd with mode 0600'; return 2;
+        }
+        preseed_check_metadata=$(LC_ALL=C ls -ldn "$preseed_check_path" 2>/dev/null) || return 2
+        set -- $preseed_check_metadata
+        if [ "$1:$2:$3" != "-rw-------:1:$preseed_check_uid" ]; then
+          preseed_env_error 'credential file metadata changed while hardening'; return 2
+        fi
+        printf '[credentials] made private credential asset private (0600)\n' >&2
+        ;;
+    esac
+  fi
+)
+
+preseed_env_read_value() (
+  set +x
+  set +v
+  set -f
+  IFS=' 	
+'
+  umask 077
+  preseed_read_name=$(preseed_env_variable_name "${1:-}") || return 1
+  preseed_read_file=${INSTALLER_PRESEED_ENV_FILE:-/preseed.env}
+  # The initrd credential input has no chmod requirement. Keep the regular
+  # file, owner, link-count and parent checks, but do not mutate its mode.
+  preseed_env_check_file "$preseed_read_file" input || return $?
+
+  # Normalize only line terminators and an initial UTF-8 BOM. A private copy
+  # avoids changing the file's data bytes. Parsing never sources this file;
+  # neither assignment values nor parser errors may enter credential logs.
+  preseed_read_tmp=$(mktemp /tmp/preseed-env.XXXXXX) || {
+    preseed_env_error 'cannot create private credential staging file'; return 2;
+  }
+  trap 'rm -f "$preseed_read_tmp"' 0
+  trap 'exit 2' 1 2 3 15
+  preseed_read_cr=$(printf '\r')
+  preseed_read_bom=$(printf '\357\273\277')
+  if ! LC_ALL=C sed "1s/^${preseed_read_bom}//;s/${preseed_read_cr}\$//" \
+      "$preseed_read_file" >"$preseed_read_tmp" 2>/dev/null; then
+    preseed_env_error 'cannot normalize credential file'; return 2
+  fi
+  preseed_data_parser=$(bootstrap_parser_asset_path "$(bootstrap_repo_file_value FILE_COMMON_CREDENTIAL_DATA)") || return 2
+  if preseed_read_result=$(LC_ALL=C awk -v mode=credential \
+      -v wanted="$preseed_read_name" -f "$preseed_data_parser" "$preseed_read_tmp"); then
+    :
+  else
+    preseed_data_status=$?
+    [ "$preseed_data_status" = 1 ] && return 1
+    preseed_env_error 'credential file violates the restricted assignment grammar'; return 2
+  fi
+  if [ "$preseed_read_name" = PRESEED_WIFI_SECURITY ]; then
+    # Preserve the distinction between a missing setting and an explicit empty
+    # value. The network consumer owns its accepted security modes.
+    : # Parser success already distinguishes an explicitly empty value.
+  else
+    [ -n "$preseed_read_result" ] || return 1
+  fi
+  case "$preseed_read_name" in
+    PRESEED_URLHAUS_AUTHKEY)
+      # URLhaus embeds this value in an HTTPS path. Accept only URL-unreserved
+      # ASCII data, without shell/config interpolation or URL delimiters.
+      case "$preseed_read_result" in
+        *[!a-zA-Z0-9._~-]*) preseed_env_error 'URLhaus Auth-Key must contain only URL-unreserved ASCII characters'; return 2 ;;
+      esac
+      [ "${#preseed_read_result}" -le 256 ] || {
+        preseed_env_error 'URLhaus Auth-Key exceeds the supported length'; return 2;
+      }
+      ;;
+    PRESEED_WIFI_*)
+      case "$preseed_read_result" in
+        *[![:print:]]*) preseed_env_error 'Wi-Fi values must be printable single-line data'; return 2 ;;
+      esac
+      ;;
+    PRESEED_PRIMARY_USERNAME|PRESEED_PRIMARY_FULLNAME|PRESEED_PRIMARY_PASSWORD)
+      # Check BEFORE command substitution can strip trailing newlines. Never
+      # include a primary identity/password value in the diagnostic.
+      case "$preseed_read_result" in
+        *[![:print:]]*)
+          preseed_env_error 'primary account values must be printable single-line data'; return 2 ;;
+      esac
+      ;;
+    PRESEED_FILEN_*)
+      # Preserve UTF-8 and literal punctuation in account passwords. Reject
+      # CR/LF here before command substitution can remove trailing newlines.
+      case "$preseed_read_result" in
+        *"$preseed_read_cr"*|*'
+'*) preseed_env_error 'Filen credentials must be single-line data'; return 2 ;;
+      esac
+      ;;
+    PRESEED_DNS_UPSTREAM_TLS_CA_NAME_CUSTOM)
+      case "$preseed_read_result" in
+        *[![:print:]]*) preseed_env_error 'custom DNS CA name must be printable single-line data'; return 2 ;;
+      esac
+      ;;
+  esac
+  printf '%s\n' "$preseed_read_result"
+)

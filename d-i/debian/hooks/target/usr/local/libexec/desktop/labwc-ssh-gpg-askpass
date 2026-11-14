@@ -1,0 +1,8 @@
+#!/bin/sh
+# shellcheck disable=SC2154
+set -eu
+umask 077
+# shellcheck disable=SC1091
+. __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/ssh-checks
+managed_ssh_context || exit 1
+exec __INSTALLER_PATH_DIR_USR__/bin/gpg --quiet --no-options --no-tty --pinentry-mode ask --decrypt -- "$blob"

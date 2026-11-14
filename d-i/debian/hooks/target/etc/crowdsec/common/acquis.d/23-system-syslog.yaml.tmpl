@@ -1,0 +1,9 @@
+# journald ReadKMsg=no: rsyslog imklog owns the managed kernel stream.
+# Firewall packets are routed to their dedicated file before this fallback.
+# Follow current kernel content through notifications, without stat polling.
+source: file
+filenames:
+  - __INSTALLER_LOG_KERNEL_FILE__
+poll_without_inotify: false
+labels:
+  type: syslog

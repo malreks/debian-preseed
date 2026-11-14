@@ -1,0 +1,186 @@
+#!/bin/sh
+set -eu
+
+PROG=${0##*/}
+# Fixed selectors must not inherit fzf shell hooks or caller-selected defaults.
+unset FZF_DEFAULT_OPTS FZF_DEFAULT_OPTS_FILE FZF_DEFAULT_COMMAND
+require_command() {
+  command -v "$1" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
+    printf '%s: missing command: %s\n' "$PROG" "$1" >&2
+    return 69
+  }
+}
+run_tool() {
+  require_command "$1" || return "$?"
+  "$@"
+}
+pause() {
+  printf '\nPress Enter to return...'
+  IFS= read -r _ || return 0
+}
+choose() {
+  __INSTALLER_PATH_DIR_USR__/bin/env -i PATH=__INSTALLER_PATH_DIR_USR__/bin:/bin HOME="$HOME" TERM="${TERM:-xterm-256color}" \
+    LANG=C.UTF-8 LC_ALL=C.UTF-8 __INSTALLER_PATH_DIR_USR__/bin/fzf \
+    --no-multi --no-sort --exact --layout=reverse --border --height=80% \
+    --bind=esc:abort,ctrl-c:abort --prompt="$1 > " --header='Enter: select  Esc: back'
+}
+open_terminal() {
+  # labwc-terminal already hands off to the managed native terminal service.
+  # Launch directly so its working directory is the caller's repository and
+  # startup errors return here. Each terminal owns its complete child tree.
+  LABWC_MENU_ACTION_WAIT=0 __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal -e \
+    __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labmgmt --action "$1"
+}
+run_gitops_action() {
+  case "$1" in
+    'Branch initialize/self-heal') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-branch-init ;;
+    'Create branch')
+      printf 'Branch name (mcr/...): '
+      IFS= read -r name || return 0
+      [ -n "$name" ] || return 0
+      __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-branch-create -- "$name"
+      ;;
+    'Promote branches') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-branch-push ;;
+    'Fork initialize') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-init ;;
+    'Fork sync') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-sync ;;
+    'Fork CI/CD promotion') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-cicd ;;
+    'Fork update') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-update ;;
+    'Fork push') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-push ;;
+    'Fork check patches') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-check ;;
+    'Fork verify protected sync') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-fork-verify-protected-sync ;;
+    'Salsa initialize') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-init ;;
+    'Salsa sync') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-sync ;;
+    'Salsa CI/CD promotion') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-cicd ;;
+    'Salsa update') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-update ;;
+    'Salsa push') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-push ;;
+    'Salsa check patches') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-check ;;
+    'Salsa verify protected sync') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-salsa-verify-protected-sync ;;
+    'Git status') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-repo-status ;;
+    'Show tags') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops mcr-tag-show ;;
+    'Show protected-path configuration') __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops config ;;
+    *) printf '%s: unknown GitOps action\n' "$PROG" >&2; return 64 ;;
+  esac
+}
+
+run_gitops_menu() {
+  require_command __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitops || return "$?"
+  require_command __INSTALLER_PATH_DIR_USR__/bin/git || return "$?"
+  require_command __INSTALLER_PATH_DIR_USR__/bin/fzf || return "$?"
+  # A menu opened from the desktop often starts in HOME. Do not guess which
+  # repository should receive Git mutations; require an explicit directory.
+  while ! __INSTALLER_PATH_DIR_USR__/bin/git -c core.hooksPath=__INSTALLER_PATH_DIR_DEV__/null -c core.fsmonitor=false \
+      rev-parse --show-toplevel >__INSTALLER_PATH_DIR_DEV__/null 2>&1; do
+    printf 'Absolute Git repository directory (empty to return): '
+    IFS= read -r repository || return 0
+    [ -n "$repository" ] || return 0
+    case "$repository" in
+      /*) cd -P -- "$repository" || return 1 ;;
+      *) printf '%s: use an absolute repository directory\n' "$PROG" >&2 ;;
+    esac
+  done
+  printf 'GitOps working directory: %s\n' "$PWD"
+  while :; do
+    action=$(
+      printf '%s\n' \
+        'Branch initialize/self-heal' 'Create branch' 'Promote branches' \
+        'Fork initialize' 'Fork sync' 'Fork CI/CD promotion' 'Fork update' 'Fork push' \
+        'Fork check patches' 'Fork verify protected sync' \
+        'Salsa initialize' 'Salsa sync' 'Salsa CI/CD promotion' 'Salsa update' 'Salsa push' \
+        'Salsa check patches' 'Salsa verify protected sync' \
+        'Git status' 'Show tags' 'Show protected-path configuration' 'Back' | choose GitOps
+    ) || {
+      status=$?
+      case "$status" in 1|130) return 0 ;; *) return "$status" ;; esac
+    }
+    case "$action" in
+      Back|'') return 0 ;;
+    esac
+    if run_gitops_action "$action"; then :; else
+      status=$?
+      printf '%s: GitOps action failed with status %s\n' "$PROG" "$status" >&2
+    fi
+    pause
+  done
+}
+
+run_selected() {
+  case "$1" in
+    'Key Manager') run_tool __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/key-manager ;;
+    GitBuild) run_tool __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/gitbuild ;;
+    'Debug System') run_tool __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/debugsys ;;
+    'APT Repository')
+      require_command __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/apt-repo-init || return "$?"
+      run_tool __INSTALLER_PATH_DIR_USR__/bin/sudo -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/apt-repo-init --menu
+      ;;
+    GitOps) run_gitops_menu ;;
+    'AI & Copilots') run_tool __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-ai-copilots ;;
+    'YouTube Downloader') run_tool __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/youtube-dl --menu ;;
+    'XSSH Retrieve') run_tool __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/xssh-retrieve --menu ;;
+    'XSSH Send') run_tool __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/xssh-send --menu ;;
+    *) printf '%s: unknown management action\n' "$PROG" >&2; return 64 ;;
+  esac
+}
+
+require_terminal() {
+  [ "$(__INSTALLER_PATH_DIR_USR__/bin/id -u)" -ne 0 ] || {
+    printf '%s: run as the desktop account, not root/sudo\n' "$PROG" >&2
+    exit 64
+  }
+  [ -t 0 ] && [ -t 1 ] || {
+    printf '%s: an interactive terminal is required\n' "$PROG" >&2
+    exit 64
+  }
+}
+
+case "${1:-}" in
+  --gitops)
+    [ "$#" -eq 1 ] || { printf '%s: --gitops takes no arguments\n' "$PROG" >&2; exit 64; }
+    require_command __INSTALLER_PATH_DIR_USR__/bin/fzf
+    require_terminal
+    run_gitops_menu
+    exit 0
+    ;;
+  --action)
+    [ "$#" -eq 2 ] || exit 64
+    require_terminal
+    if run_selected "$2"; then status=0; else status=$?; fi
+    printf '\n%s: action finished with status %s\n' "$PROG" "$status"
+    pause
+    exit "$status"
+    ;;
+  --help|-h)
+    printf '%s\n' 'Usage: labmgmt' '       labmgmt --gitops (repository menu)' >&2
+    exit 0
+    ;;
+  '') [ "$#" -eq 0 ] || exit 64 ;;
+  *)
+    printf '%s: unsupported option: %s\n' "$PROG" "$1" >&2
+    exit 64
+    ;;
+esac
+
+require_command __INSTALLER_PATH_DIR_USR__/bin/fzf
+require_terminal
+while :; do
+  selection=$(
+    printf '%s\n' \
+      'Key Manager' 'GitBuild' 'Debug System' 'APT Repository' 'GitOps' \
+      'AI & Copilots' 'YouTube Downloader' 'XSSH Retrieve' 'XSSH Send' 'Exit' |
+      choose 'Lab Management'
+  ) || {
+    status=$?
+    case "$status" in 1|130) exit 0 ;; *) exit "$status" ;; esac
+  }
+  case "$selection" in
+    ''|Exit) exit 0 ;;
+    *)
+      if open_terminal "$selection"; then
+        :
+      else
+        status=$?
+        printf '%s: %s exited with status %s\n' "$PROG" "$selection" "$status" >&2
+        pause
+      fi
+      ;;
+  esac
+done

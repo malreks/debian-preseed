@@ -1,0 +1,28 @@
+[Unit]
+Description=Provision and verify disk-backed journal sealing state
+After=systemd-journal-flush.service
+RequiresMountsFor=__INSTALLER_PATH_DIR_VAR_LOG__/journal __INSTALLER_PATH_DIR_VAR_LIB__/journal-sealing
+
+[Service]
+Type=oneshot
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/journal-sealing --setup
+User=root
+Group=root
+UMask=0077
+StateDirectory=journal-sealing
+StateDirectoryMode=0700
+ReadWritePaths=-__INSTALLER_PATH_DIR_VAR_LOG__/journal
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+LimitCORE=0
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+# Server authentication acquisition; includes SSH without a desktop account.
+source: file
+filenames:
+  - __INSTALLER_LOG_AUTH_FILE__
+poll_without_inotify: false
+labels:
+  type: syslog

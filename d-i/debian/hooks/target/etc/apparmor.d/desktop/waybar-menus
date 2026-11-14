@@ -1,0 +1,33 @@
+# Managed by unattended-installer.
+abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
+#include <tunables/global>
+
+# Read-only native notification-center UI, sharing the already running Mako
+# daemon. Notification strings are plain GTK labels, never markup or commands.
+profile labwc-notifications __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications flags=(attach_disconnected, mediate_deleted) {
+  #include <abstractions/wrapper-python>
+  #include <abstractions/desktop-runtime>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-notifications rix,
+  __INSTALLER_PATH_DIR_USR__/bin/makoctl rix,
+  __INSTALLER_PATH_DIR_USR__/bin/systemd-run rix,
+  __INSTALLER_PATH_DIR_USR__/lib/** mr,
+  __INSTALLER_PATH_DIR_USR_SHARE__/{glib-2.0,gir-1.0,locale,themes,icons}/{,**} r,
+  owner @{HOME}/.cache/ rw,
+  owner @{HOME}/.cache/{fontconfig,mesa_shader_cache,mesa_shader_cache_db}/{,**} rwkl,
+  owner @{HOME}/.config/{gtk-3.0,gtk-4.0}/{,**} r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-notifications/ rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-notifications/{control.lock,expiry.json,.expiry-*} rwk,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,systemd/private,wayland-[0-9]*} rw,
+  unix (create, connect, send, receive, shutdown, getattr, getopt, setopt) type=stream,
+  dbus (bind) bus=session name=org.labwc.NotificationCenter,
+  dbus (send, receive) bus=session peer=(name=org.freedesktop.systemd1),
+  signal (send, receive) peer=labwc-notifications,
+  signal (receive) peer={unconfined,waybar},
+  signal (send) set=(chld) peer={unconfined,waybar},
+  deny network inet,
+  deny network inet6,
+  deny __INSTALLER_PATH_DIR_DEV__/{video,media}[0-9]* rw,
+  deny __INSTALLER_PATH_DIR_DEV__/input/** rw,
+  include if exists <local/labwc-notifications>
+}

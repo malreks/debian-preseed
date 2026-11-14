@@ -1,0 +1,129 @@
+#!/bin/sh
+set -eu
+
+export PYTHONDONTWRITEBYTECODE=1
+
+effective_ctype=${LC_ALL:-${LC_CTYPE:-${LANG:-}}}
+case "$effective_ctype" in
+  ''|C|POSIX)
+    LANG=C.UTF-8
+    LC_ALL=C.UTF-8
+    export LANG LC_ALL
+    ;;
+esac
+
+if [ -r __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf ]; then
+  # shellcheck disable=SC1091
+  . __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf
+fi
+
+# Notes use Micro's native unnamed-buffer Save As, relative to this directory.
+# File arguments (including relative filenames) deliberately retain the caller cwd.
+if [ "${1:-}" = --micro ]; then
+  shift
+  if [ "$#" -eq 0 ]; then
+    for notes_dir in "$HOME/Syncthing" "$HOME/Syncthing/micro"; do
+      [ ! -L "$notes_dir" ] || { printf 'fatal: notes directory is a symlink\n' >&2; exit 1; }
+      (umask 077; __INSTALLER_PATH_DIR_USR__/bin/mkdir -p -- "$notes_dir")
+      [ -d "$notes_dir" ] && [ -O "$notes_dir" ] || {
+        printf 'fatal: notes directory is not owned by this user\n' >&2
+        exit 1
+      }
+    done
+    cd -- "$HOME/Syncthing/micro"
+  fi
+  set -- -e __INSTALLER_PATH_DIR_USR__/bin/micro "$@"
+fi
+
+# Waybar monitor/storage launches receive a title from the fixed transient
+# action wrapper.  Validate the generated value again here before passing it
+# to a terminal; direct callers cannot smuggle arbitrary terminal options.
+terminal_title=${LABWC_TERMINAL_TITLE:-}
+case "$terminal_title" in
+  '') ;;
+  *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-]*)
+    printf 'fatal: invalid managed terminal title\n' >&2
+    exit 1
+    ;;
+esac
+[ "${#terminal_title}" -le 64 ] || {
+  printf 'fatal: managed terminal title is too long\n' >&2
+  exit 1
+}
+
+# Accept xterm-style `-e` for callers, but normalize it before we reach Kitty.
+xterm_execute_mode=0
+case "${1:-}" in
+  -e|--execute)
+    xterm_execute_mode=1
+    exec_flag=$1
+    shift
+    [ "$#" -gt 0 ] || {
+      printf 'fatal: labwc-terminal requires a command after %s\n' "$exec_flag" >&2
+      exit 1
+    }
+    ;;
+esac
+
+# The literal config paths are expanded by this wrapper because Waybar invokes
+# it with an argv array; no shell expansion is involved in the caller.
+if [ "${1:-}" = btop ] && [ "${2:-}" = --config ]; then
+  case "${3:-}" in
+    '~/.config/btop/btop-cpu.conf') set -- "$1" "$2" "$HOME/.config/btop/btop-cpu.conf" ;;
+    '~/.config/btop/btop-memory.conf') set -- "$1" "$2" "$HOME/.config/btop/btop-memory.conf" ;;
+  esac
+fi
+
+# A footclient would move every shell into the persistent server's cgroup.
+# Standalone terminals and their PTYs instead live in one transient service.
+seen_terminals=' '
+for terminal_cmd in "${LABWC_TERMINAL_PRIMARY:-foot}" "${LABWC_TERMINAL_FALLBACK:-kitty}" foot kitty terminal-emulator; do
+  [ -n "$terminal_cmd" ] || continue
+  case "$terminal_cmd" in
+    foot|footclient|*/foot|*/footclient)
+      terminal_exec=foot
+      ;;
+    *)
+      terminal_exec=$terminal_cmd
+      ;;
+  esac
+  case "$seen_terminals" in
+    *" $terminal_exec "*) continue ;;
+  esac
+  seen_terminals="${seen_terminals}${terminal_exec} "
+  if command -v "$terminal_exec" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    case "$terminal_exec" in
+      foot)
+        if [ "$xterm_execute_mode" -eq 1 ]; then
+          if [ -n "$terminal_title" ]; then
+            exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" --title "$terminal_title" -e "$@"
+          fi
+          exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" -e "$@"
+        fi
+        if [ -n "$terminal_title" ]; then
+          exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" --title "$terminal_title" "$@"
+        fi
+        exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" "$@"
+        ;;
+      kitty|*/kitty)
+        if [ -n "$terminal_title" ]; then
+          exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" --title "$terminal_title" "$@"
+        fi
+        exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" "$@"
+        ;;
+    esac
+    if [ "$xterm_execute_mode" -eq 1 ]; then
+      if [ -n "$terminal_title" ]; then
+        exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" --title "$terminal_title" -e "$@"
+      fi
+      exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" -e "$@"
+    fi
+    if [ -n "$terminal_title" ]; then
+      exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" --title "$terminal_title" "$@"
+    fi
+    exec __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- "$terminal_exec" "$@"
+  fi
+done
+
+printf 'fatal: no supported terminal is installed\n' >&2
+exit 1
