@@ -512,24 +512,7 @@ class PrimaryIdentityTests(CredentialFixture):
         for key in ('PRESEED_PRIMARY_PASSWORD', 'PRESEED_ROOT_PASSWORD'):
             self.assertNotIn(self.values[key], result.stdout + result.stderr)
 
-    def test_late_loader_publishes_identity_for_separate_addon_shells(self):
-        # Exercise the real account loader. Only network fetching is omitted;
-        # all policy loading, credential resolution and publication are real.
-        late = self.dir/'late'
-        late.mkdir()
-        (late/'account.env').write_text(payload_read_text(SEED/'hosts/installer/account.env'))
-        (late/'runtime-common.sh').write_text(payload_read_text(SEED/'scripts/runtime/common.sh'))
-        (late/'account-runtime.sh').write_text(payload_read_text(SEED/'scripts/runtime/account.sh'))
-        script = 'set -eu\n. ' + shlex.quote(str(SEED/'scripts/late/core.sh')) + '\n'
-        script += 'late_command_ensure_host_policy_envs() { :; }\n'
-        script += 'TMP_ENV_DIR=' + shlex.quote(str(late)) + '\n'
-        script += 'LATE_COMMAND_ACCOUNT_ENV=' + shlex.quote(str(late/'account.env')) + '\n'
-        script += 'late_command_load_account_env\n'
-        script += '/bin/sh -eu -c \' . "$1"; printf "%s\\n" "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" \' addon "$LATE_COMMAND_ACCOUNT_ENV"\n'
-        result = subprocess.run(['/bin/sh', '-c', script], env=self.env,
-                                text=True, capture_output=True, timeout=15)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, 'fixtureuser\n/home/fixtureuser\n')
-        effective = (late/'account.env').read_text()
-        self.assertNotIn(self.values['PRESEED_PRIMARY_PASSWORD'], effective)
-        self.assertNotIn(self.values['PRESEED_ROOT_PASSWORD'], effective)
+    # Fresh-shell handoff and core phase ordering are exercised against the
+    # authenticated flat suite products in test_modular_installer.py. The old
+    # standalone fixture supplied public policy as an already resolved account
+    # and replaced the acquisition boundary, hiding incompatible loader calls.

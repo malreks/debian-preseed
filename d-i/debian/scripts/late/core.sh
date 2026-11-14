@@ -195,10 +195,9 @@ late_command_account_env_path() {
   printf '%s\n' "$LATE_COMMAND_ACCOUNT_ENV"
 }
 
-late_command_ensure_host_policy_envs() {
+late_command_ensure_profile_env() {
   late_command_ensure_env_paths || return $?
   late_command_host_env=$LATE_COMMAND_HOST_ENV
-  late_command_account_env=$LATE_COMMAND_ACCOUNT_ENV
 
   if [ ! -s "$late_command_host_env" ]; then
     installer_operation_context_repo FILE_LATE_CORE 204 installer_fetch_host_env
@@ -210,23 +209,12 @@ late_command_ensure_host_policy_envs() {
     }
     LATE_COMMAND_PROFILE_ENV_LOADED=0
   fi
-
-  if [ ! -s "$late_command_account_env" ]; then
-    installer_operation_context_repo FILE_LATE_CORE 215 prepare_late_account_env
-    installer_prepare_late_account_env "$SEED_BASE" "$late_command_account_env" || {
-      late_command_env_status=$?
-      installer_fatal_status "$late_command_env_status" \
-        "failed to prepare resolved account environment: destination=${late_command_account_env}"
-      return "$late_command_env_status"
-    }
-    LATE_COMMAND_ACCOUNT_ENV_LOADED=0
-  fi
 }
 
 late_command_load_profile_env() {
   [ "${LATE_COMMAND_PROFILE_ENV_LOADED:-0}" = 1 ] && return 0
 
-  late_command_ensure_host_policy_envs || return $?
+  late_command_ensure_profile_env || return $?
   late_command_host_env=$LATE_COMMAND_HOST_ENV
   [ -r "$late_command_host_env" ] || installer_fatal "host policy env is missing: ${late_command_host_env}"
   # shellcheck disable=SC1090,SC1091
@@ -239,9 +227,22 @@ late_command_load_profile_env() {
 late_command_load_account_env() {
   [ "${LATE_COMMAND_ACCOUNT_ENV_LOADED:-0}" = 1 ] && return 0
 
-  late_command_ensure_host_policy_envs || return $?
+  # Profile rendering and runtime fetching must not depend on account state.
+  # Resolve once per caller shell after the public profile, through the same
+  # atomic publisher used by the dispatcher and standalone addon fallbacks.
+  late_command_load_profile_env || return $?
   late_command_account_env=$LATE_COMMAND_ACCOUNT_ENV
-  [ -r "$late_command_account_env" ] || installer_fatal "account policy env is missing: ${late_command_account_env}"
+  installer_operation_context_repo FILE_LATE_CORE 236 prepare_late_account_env
+  installer_prepare_late_account_env "$SEED_BASE" "$late_command_account_env" || {
+    late_command_env_status=$?
+    installer_fatal_status "$late_command_env_status" \
+      "failed to prepare resolved account environment: destination=${late_command_account_env}"
+    return "$late_command_env_status"
+  }
+  [ -f "$late_command_account_env" ] && [ ! -L "$late_command_account_env" ] &&
+    [ -s "$late_command_account_env" ] && [ -r "$late_command_account_env" ] ||
+    installer_fatal "resolved account env is missing or unsafe: ${late_command_account_env}"
+  unset ACCOUNT_USERNAME ACCOUNT_HOME
   # shellcheck disable=SC1090,SC1091
   installer_load_data_env "$late_command_account_env" || return $?
   [ -r "$TMP_ENV_DIR/runtime-common.sh" ] || installer_fatal "runtime common helper is missing: ${TMP_ENV_DIR}/runtime-common.sh"
@@ -250,10 +251,10 @@ late_command_load_account_env() {
   [ -r "$TMP_ENV_DIR/account-runtime.sh" ] || installer_fatal "runtime account helper is missing: ${TMP_ENV_DIR}/account-runtime.sh"
   # shellcheck disable=SC1090,SC1091
   . "$TMP_ENV_DIR/account-runtime.sh" || return $?
+  unset RUNTIME_ACCOUNT_CREDENTIALS_READY
   runtime_apply_account_from_credentials || return $?
-  # Addons run in separate shells and read this file. Publish the resolved
-  # identity/home paths, without primary/root passwords, before they start.
-  runtime_write_effective_account_env "$late_command_account_env" || return $?
+  # The publisher already wrote the complete snapshot. Do not truncate it
+  # outside its lock when loading private credentials for this caller.
   LATE_COMMAND_ACCOUNT_ENV_LOADED=1
 }
 

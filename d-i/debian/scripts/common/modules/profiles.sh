@@ -253,7 +253,7 @@ installer_fetch_account_env() {
 }
 
 # Public account policy has no resolved human identity. Publish one private
-# snapshot before late providers enter their separate shells, for both roles.
+# snapshot for pre-pkgsel and before late providers enter their separate shells.
 # Keep credential values and runtime helper scratch variables in this subshell.
 installer_prepare_late_account_env() (
   set -eu
@@ -279,7 +279,7 @@ installer_prepare_late_account_env() (
     late_account_status=$?
     trap - 0 HUP INT TERM
     if [ -n "$late_account_work" ]; then
-      if ! { rm -f "$late_account_work/policy.env" "$late_account_work/account.env" &&
+      if ! { rm -f "$late_account_work/profile.env" "$late_account_work/policy.env" "$late_account_work/account.env" &&
              rmdir "$late_account_work"; }; then
         installer_error "account snapshot cleanup failed; private evidence and lock retained: ${late_account_work}"
         exit 125
@@ -291,10 +291,23 @@ installer_prepare_late_account_env() (
   trap late_account_cleanup 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   late_account_work=$(mktemp -d "${late_account_parent}/.account-env.XXXXXX") || exit "$?"
+  # Standalone pre-pkgsel/late callers need not have loaded the target roots.
+  # Resolve them from this exact compiled profile, never an inherited DIR_HOME.
+  installer_fetch_host_env "$late_account_seed" "${INSTALLER_HOST_PROFILE:?validated host profile is required}" \
+    "$late_account_work/profile.env" 0600 || exit "$?"
+  installer_load_data_env "$late_account_work/profile.env" || exit "$?"
   installer_fetch_account_env "$late_account_seed" "$late_account_work/policy.env" 0600 || exit "$?"
   installer_load_data_env "$late_account_work/policy.env" || exit "$?"
-  bootstrap_source_module "$(installer_repo_file_value FILE_RUNTIME_COMMON)" || exit "$?"
-  bootstrap_source_module "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" || exit "$?"
+  for late_account_selector in FILE_RUNTIME_COMMON FILE_RUNTIME_ACCOUNT; do
+    late_account_module=$(installer_repo_file_value "$late_account_selector") || exit "$?"
+    if bootstrap_source_module "$late_account_module"; then
+      :
+    else
+      late_account_module_status=$?
+      installer_fatal_status "$late_account_module_status" \
+        "resolved account runtime could not be loaded: selector=${late_account_selector} source=${late_account_module}"
+    fi
+  done
   # A parent's cache flag or inherited account must never substitute for the
   # current installer's validated cmdline/protected credential inputs.
   unset RUNTIME_ACCOUNT_CREDENTIALS_READY

@@ -103,6 +103,10 @@ installer_fetch_account_env() {
   case "$2" in "$FIXTURE_ROOT"/state/.account-env.*/policy.env) ;; *) return 93 ;; esac
   cp "$FIXTURE_ROOT/account-policy.env" "$2" && chmod "$3" "$2"
 }
+installer_fetch_host_env() {
+  case "$3" in "$FIXTURE_ROOT"/state/.account-env.*/profile.env) ;; *) return 93 ;; esac
+  cp "$FIXTURE_ROOT/profile.env" "$3" && chmod "$4" "$3"
+}
 installer_repo_file_value() {
   case "$1" in
     FILE_RUNTIME_COMMON) printf '%s\n' scripts/runtime/common.sh ;;
@@ -278,6 +282,8 @@ class PrimaryAccountContractTests(unittest.TestCase):
             "ROOT_LOGIN='true'\nACCOUNT_DEFAULT_GROUPS='audio video sudo'\n"
             "SSHD_CONFIG_SOURCE='ssh/sshd_config'\nSSH_USER_CONFIG_SOURCE='ssh/config'\n"
             "SSH_PUBLIC_KEY_MAX_BYTES='4096'\nSSH_CONFIG_MAX_BYTES='65536'\n", encoding='ascii')
+        (self.root / 'profile.env').write_text(
+            'DIR_HOME=' + shlex.quote(str(self.root / 'home')) + '\n', encoding='utf-8')
         return self.root / 'state/account.env'
 
     def test_late_snapshot_reaches_a_fresh_shell_without_storage_stage(self) -> None:

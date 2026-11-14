@@ -16,7 +16,6 @@ _isolation_sys.path.pop(0)
 _require_test_isolation()
 
 import hashlib
-import os
 from pathlib import Path
 import shlex
 import shutil
@@ -36,16 +35,22 @@ class RealModuleLoader(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.runtime = self.root / 'runtime'
-        self.env = dict(os.environ, INSTALLER_RUNTIME_DIR=str(self.runtime),
-                        INSTALLER_SOURCE_ROOT=str(SEED), INSTALLER_CMDLINE='',
-                        INSTALLER_SUITE='forky')
-        archive = hashlib.sha256((SEED / 'payload.tar.gz').read_bytes()).hexdigest()
-        manifest = hashlib.sha256((SEED / 'payload.manifest').read_bytes()).hexdigest()
-        self.prelude = f'''. {Q(str(SEED / 'scripts/common/source.sh'))}
-source_prepare_payload {Q(str(SEED))} {archive} {manifest}
-source_fetch {Q(str(SEED))} scripts/common/bootstrap.sh "$INSTALLER_RUNTIME_DIR/bootstrap/bootstrap.sh" 0600
+        self.env = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C',
+                    'HOME': str(self.root), 'TMPDIR': str(self.root),
+                    'FIXTURE_ROOT': str(self.root), 'INSTALLER_CMDLINE': 'quiet'}
+        self.use_product('forky')
+
+    def use_product(self, suite):
+        product = SEED.parent / suite
+        self.env.update(INSTALLER_RUNTIME_DIR=str(self.runtime),
+                        INSTALLER_SOURCE_ROOT=str(product), INSTALLER_SUITE=suite)
+        archive = hashlib.sha256((product / 'payload.tar.gz').read_bytes()).hexdigest()
+        manifest = hashlib.sha256((product / 'payload.manifest').read_bytes()).hexdigest()
+        self.prelude = f'''. {Q(str(product / 'source.sh'))}
+source_prepare_payload {Q(str(product))} {archive} {manifest}
+source_fetch {Q(str(product))} scripts/common/bootstrap.sh "$INSTALLER_RUNTIME_DIR/bootstrap/bootstrap.sh" 0600
 . "$INSTALLER_RUNTIME_DIR/bootstrap/bootstrap.sh"
-bootstrap_persist_seed_source {Q(str(SEED))}
+bootstrap_persist_seed_source {Q(str(product))}
 '''
 
     def run_shell(self, code, *, shell=None, prepare=True):
@@ -91,6 +96,140 @@ printf 'standalone-hook-loaded\\n'
 ''', prepare=False)
         self.assert_ok(result)
         self.assertEqual(result.stdout, 'standalone-hook-loaded\n')
+
+    def test_account_entrypoints_use_real_loader_and_storage_siblings_stay_rejected(self):
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                result = self.run_shell('''
+bootstrap_source_common_lib "$INSTALLER_SOURCE_ROOT"
+bootstrap_source_module "$(bootstrap_repo_file_value FILE_RUNTIME_COMMON)"
+bootstrap_source_module "$(bootstrap_repo_file_value FILE_RUNTIME_ACCOUNT)"
+command -v runtime_write_effective_account_env >/dev/null
+for selector in FILE_RUNTIME_BTRFS FILE_RUNTIME_F2FS; do
+  if bootstrap_source_module "$(bootstrap_repo_file_value "$selector")"; then exit 88; fi
+done
+printf 'account-entrypoints-loaded\\n'
+''', shell=shell)
+                self.assert_ok(result)
+                self.assertEqual(result.stdout, 'account-entrypoints-loaded\n')
+
+    def account_case(self, suite, family, phase, username):
+        # Every case has a private runtime/cache and synthetic credentials.
+        self.runtime = self.root / suite / family / phase / username / 'runtime'
+        self.runtime.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.use_product(suite)
+        credentials = self.runtime.parent / 'credentials.env'
+        credentials.write_text("PRESEED_PRIMARY_USERNAME='fileuser'\n"
+                               "PRESEED_PRIMARY_FULLNAME='Fixture User'\n"
+                               "PRESEED_PRIMARY_PASSWORD='fixture-password'\n"
+                               "PRESEED_ROOT_PASSWORD='fixture-root-password'\n", encoding='ascii')
+        credentials.chmod(0o600)
+        profile = 'btrfs-de' if family == 'desktop' else 'btrfs-srv-flex'
+        self.env.update(INSTALLER_PRESEED_ENV_FILE=str(credentials),
+                        INSTALLER_HOST_VARIANT=family, INSTALLER_HOST_PROFILE_ENV_NAME=profile,
+                        INSTALLER_HOST_PROFILE=profile, FIXTURE_USERNAME=username,
+                        FIXTURE_ENV_DIR=str(self.runtime.parent / 'phase-env'),
+                        INSTALLER_CMDLINE='quiet' if username == 'fileuser' else 'primary_username=bootuser')
+
+    def assert_private_snapshot(self):
+        snapshot = Path(self.env['FIXTURE_ENV_DIR']) / 'account.env'
+        data = snapshot.read_text(encoding='utf-8')
+        self.assertEqual(snapshot.stat().st_mode & 0o777, 0o600)
+        self.assertIn("ACCOUNT_USERNAME='" + self.env['FIXTURE_USERNAME'] + "'", data)
+        self.assertNotIn('fixture-password', data)
+        self.assertNotIn('fixture-root-password', data)
+        self.assertFalse(list(snapshot.parent.glob('.account-env*')))
+
+    def test_real_publisher_resolves_both_username_sources_without_inherited_profile(self):
+        for suite in ('forky', 'trixie'):
+            for family in ('desktop', 'server'):
+                for username in ('fileuser', 'bootuser'):
+                    for shell in SHELLS:
+                        with self.subTest(suite=suite, family=family, username=username, shell=shell):
+                            self.account_case(suite, family, 'standalone-' + Path(shell[0]).name, username)
+                            result = self.run_shell('''
+bootstrap_source_common_lib "$INSTALLER_SOURCE_ROOT"
+unset DIR_HOME
+ACCOUNT_USERNAME=inherited
+ACCOUNT_HOME=inherited
+RUNTIME_ACCOUNT_CREDENTIALS_READY=1
+installer_prepare_late_account_env "$INSTALLER_SOURCE_ROOT" "$FIXTURE_ENV_DIR/account.env"
+[ "${DIR_HOME+x}" != x ]
+[ "$ACCOUNT_USERNAME:$ACCOUNT_HOME" = inherited:inherited ]
+''', shell=shell)
+                            self.assert_ok(result)
+                            self.assert_private_snapshot()
+                            # A separate shell reads the actual restricted-data
+                            # snapshot; no storage provider or inherited user.
+                            reader = self.run_shell('''
+bootstrap_source_common_lib "$INSTALLER_SOURCE_ROOT"
+installer_fetch_host_env "$INSTALLER_SOURCE_ROOT" "$INSTALLER_HOST_PROFILE" "$FIXTURE_ENV_DIR/host.env" 0600
+installer_load_data_env "$FIXTURE_ENV_DIR/host.env"
+unset ACCOUNT_USERNAME ACCOUNT_HOME
+installer_load_data_env "$FIXTURE_ENV_DIR/account.env"
+[ "$ACCOUNT_USERNAME" = "$FIXTURE_USERNAME" ]
+[ "$ACCOUNT_HOME" = "$DIR_HOME/$FIXTURE_USERNAME" ]
+''', shell=shell)
+                            self.assert_ok(reader)
+
+    def test_real_core_separates_profile_and_account_at_both_phase_boundaries(self):
+        for suite in ('forky', 'trixie'):
+            for family in ('desktop', 'server'):
+                for phase in ('pre-pkgsel', 'late'):
+                    for shell in SHELLS:
+                        with self.subTest(suite=suite, family=family, phase=phase, shell=shell):
+                            self.account_case(suite, family, phase + '-' + Path(shell[0]).name, 'fileuser')
+                            result = self.run_shell('''
+bootstrap_source_common_lib "$INSTALLER_SOURCE_ROOT"
+TMP_ENV_DIR=$FIXTURE_ENV_DIR
+install -d -m 0700 "$TMP_ENV_DIR"
+for selector in FILE_LATE_CORE FILE_RUNTIME_COMMON FILE_RUNTIME_ACCOUNT; do
+  case "$selector" in
+    FILE_LATE_CORE) leaf=core.sh ;;
+    FILE_RUNTIME_COMMON) leaf=runtime-common.sh ;;
+    FILE_RUNTIME_ACCOUNT) leaf=account-runtime.sh ;;
+  esac
+  bootstrap_fetch_seed_file "$INSTALLER_SOURCE_ROOT" "$(bootstrap_repo_file_value "$selector")" "$TMP_ENV_DIR/$leaf" 0600
+done
+. "$TMP_ENV_DIR/core.sh"
+# Theme publication and storage/target actions are outside this handoff fixture.
+# The profile loader, parser, publisher and module loader remain the real code.
+late_command_load_themes() { :; }
+SEED_BASE=$INSTALLER_SOURCE_ROOT
+HOST_PROFILE=$INSTALLER_HOST_PROFILE
+unset DIR_HOME ACCOUNT_USERNAME ACCOUNT_HOME RUNTIME_ACCOUNT_CREDENTIALS_READY
+late_command_load_profile_env
+[ -n "$DIR_HOME" ]
+[ ! -e "$TMP_ENV_DIR/account.env" ]
+late_command_load_host_env
+[ "$ACCOUNT_USERNAME" = "$FIXTURE_USERNAME" ]
+[ "$ACCOUNT_HOME" = "$DIR_HOME/$FIXTURE_USERNAME" ]
+[ "$LATE_COMMAND_PROFILE_ENV_LOADED:$LATE_COMMAND_ACCOUNT_ENV_LOADED" = 1:1 ]
+late_command_load_host_env
+''', shell=shell)
+                            self.assert_ok(result)
+                            self.assert_private_snapshot()
+
+    def test_real_publisher_preserves_previous_snapshot_if_authenticated_runtime_is_missing(self):
+        self.account_case('forky', 'desktop', 'missing-runtime', 'fileuser')
+        snapshot = Path(self.env['FIXTURE_ENV_DIR']) / 'account.env'
+        snapshot.parent.mkdir(mode=0o700)
+        previous = b"ACCOUNT_USERNAME='previous'\nACCOUNT_HOME='/previous-home'\n"
+        snapshot.write_bytes(previous)
+        snapshot.chmod(0o600)
+        result = self.run_shell('''
+bootstrap_source_common_lib "$INSTALLER_SOURCE_ROOT"
+cache=$(source_cache_root "$INSTALLER_SOURCE_ROOT")
+rm "$cache/$(bootstrap_repo_file_value FILE_RUNTIME_ACCOUNT)"
+installer_prepare_late_account_env "$INSTALLER_SOURCE_ROOT" "$FIXTURE_ENV_DIR/account.env"
+''')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('selector=FILE_RUNTIME_ACCOUNT', result.stderr)
+        self.assertIn('resolved account runtime could not be loaded', result.stderr)
+        self.assertEqual(snapshot.read_bytes(), previous)
+        self.assertFalse(list(snapshot.parent.glob('.account-env*')))
+        self.assertNotIn('fixture-password', result.stdout + result.stderr)
+        self.assertNotIn('fixture-root-password', result.stdout + result.stderr)
 
     def test_missing_authenticated_module_never_falls_back_to_local_source_or_stale_copy(self):
         result = self.run_shell('''

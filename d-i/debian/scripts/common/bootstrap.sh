@@ -702,7 +702,17 @@ bootstrap_module_path() (
   # same validated shell module after the shared renderer has run.
   case "${1%.tmpl}" in
     "${DIR_SCRIPTS_COMMON}/"*.sh|"${DIR_SCRIPTS_COMMON_MODULES}/"*.sh|"${DIR_SCRIPTS_RUNTIME_MODULES}/"*.sh|"${DIR_SCRIPTS_DESKTOP_COMPONENTS}/"*.sh|"${DIR_SCRIPTS_LATE_DEVOPS}/"*.sh) ;;
-    *) bootstrap_log "fatal: unsupported module path: $1"; exit 1 ;;
+    *)
+      # Account publication runs before a storage-family runtime is loaded.
+      # Permit only its two definition-only entrypoints here; storage runtimes
+      # and arbitrary siblings remain outside the shell-module interface.
+      module_common_entry=$(bootstrap_repo_file_value FILE_RUNTIME_COMMON) || exit "$?"
+      module_account_entry=$(bootstrap_repo_file_value FILE_RUNTIME_ACCOUNT) || exit "$?"
+      case "$1" in
+        "$module_common_entry"|"$module_account_entry") ;;
+        *) bootstrap_log "fatal: unsupported module path: $1"; exit 1 ;;
+      esac
+      ;;
   esac
   bootstrap_load_source_library "${INSTALLER_SOURCE_ROOT:-}" || exit 1
   source_validate_relative "$1" || exit 1
