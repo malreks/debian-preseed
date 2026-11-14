@@ -1,0 +1,16 @@
+// Managed installer policy: every executable APT hook is explicitly staged.
+// Clear inherited hook lists before the numbered managed hooks append theirs.
+#clear DPkg::Pre-Invoke;
+#clear DPkg::Pre-Install-Pkgs;
+#clear DPkg::Post-Invoke;
+#clear DPkg::Tools::Options;
+#clear APT::Update::Pre-Invoke;
+#clear APT::Update::Post-Invoke;
+#clear APT::Update::Post-Invoke-Success;
+// Media trust is owned by 00trustcdrom; network archive defaults stay strict.
+// Optional CUDA-legacy owns its exact per-source exception and its dedicated
+// command-line overrides. Do not turn that opt-in into a global relaxation.
+Acquire::AllowInsecureRepositories "false";
+Acquire::AllowWeakRepositories "false";
+Acquire::AllowDowngradeToInsecureRepositories "false";
+APT::Get::AllowUnauthenticated "false";

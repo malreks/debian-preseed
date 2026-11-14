@@ -1,3 +1,6 @@
+// Install after the wrapper, runtime modules and confinement are published.
+// Package actions use FD 3; preflight wraps candidates before dpkg runs, then
+// postflight reconciles installed entries without starting the desktop.
 DPkg::Pre-Install-Pkgs { "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files --apt-pre"; };
 DPkg::Tools::Options::__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files::Version "2";
 DPkg::Tools::Options::__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files::InfoFD "3";

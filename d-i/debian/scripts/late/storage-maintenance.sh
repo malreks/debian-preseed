@@ -98,10 +98,6 @@ END {
 
 managed_target_policy_assets() {
   cat <<'EOF'
-etc/apt/apt.conf.d/20auto-upgrades|__INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/20auto-upgrades|0644
-etc/apt/apt.conf.d/25no-pdiffs|__INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/25no-pdiffs|0644
-etc/apt/apt.conf.d/52unattended-upgrades|__INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/52unattended-upgrades|0644
-etc/apt/apt.conf.d/99noinstall-recommends|__INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/99noinstall-recommends|0644
 etc/login.defs|__INSTALLER_PATH_DIR_ETC__/login.defs|0644
 etc/pam.d/polkit-1|__INSTALLER_PATH_DIR_ETC__/pam.d/polkit-1|0644
 etc/pam.d/systemd-user|__INSTALLER_PATH_DIR_ETC__/pam.d/systemd-user|0644
@@ -113,6 +109,7 @@ EOF
 }
 
 stage_target_apt_login_policy_assets() {
+  installer_apt_install_target_policy "$TARGET_ROOT" install
   while IFS='|' read -r repo_relpath target_path mode || [ -n "$repo_relpath" ]; do
     [ -n "$repo_relpath" ] || continue
     stage_target_asset "$(installer_repo_asset_path DIR_HOOKS_TARGET "$repo_relpath")" "$target_path" "$mode"

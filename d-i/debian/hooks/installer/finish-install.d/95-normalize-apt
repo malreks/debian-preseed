@@ -235,34 +235,6 @@ remove_cuda_legacy_repo_state() {
   log "removed all staged legacy CUDA Debian 12 source artifacts and keyring state"
 }
 
-install_default_release_policy() {
-  default_release_dir="${TARGET}${DIR_APT_CONF_D}"
-  default_release_file=00suite-default-release
-  default_release_suite=${INSTALLER_SUITE:-}
-  case "$default_release_suite" in
-    forky|trixie) ;;
-    *) log "cannot select target APT suite: ${default_release_suite:-unset}"; return 1 ;;
-  esac
-
-  install -d -m 0755 "$default_release_dir"
-  for inactive_path in \
-    "${default_release_dir}/00suite-default-release" \
-    "${default_release_dir}/95default-release-forky" \
-    "${default_release_dir}/95default-release-trixie"
-  do
-    [ "$inactive_path" = "${default_release_dir}/${default_release_file}" ] || rm -f "$inactive_path"
-  done
-
-  default_release_path="${default_release_dir}/${default_release_file}"
-  default_release_tmp="${default_release_path}.tmp.$$"
-  {
-    printf 'APT::Default-Release "%s";\n' "$default_release_suite"
-  } >"$default_release_tmp"
-  chmod 0644 "$default_release_tmp"
-  mv "$default_release_tmp" "$default_release_path"
-  log "installed managed apt default-release policy for ${default_release_suite}"
-}
-
 [ -d "$TARGET" ] || exit 0
 target_is_mounted || exit 0
 [ -d "${TARGET}${DIR_APT_SOURCES_LIST_D}" ] || install -d -m 0755 "${TARGET}${DIR_APT_SOURCES_LIST_D}"
@@ -283,6 +255,8 @@ run_in_target env DEBIAN_FRONTEND=noninteractive APT_LISTCHANGES_FRONTEND=none a
 log "normalizing apt sources after apt modernize-sources"
 run_in_target "$FILE_INSTALLER_APT_NORMALIZE_SOURCES"
 rewrite_apt_http_to_https
-install_default_release_policy
+# Publish after source modernization: the default-release must not precede the
+# selected archive. Drop any package defaults introduced by later transactions.
+installer_apt_install_target_policy "$TARGET" final
 
 log "normalized apt sources into .sources layout"

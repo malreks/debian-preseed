@@ -1,0 +1,8 @@
+// Managed by unattended-installer.
+// Debian base-installer and apt-cdrom use this target media mount interface.
+
+Acquire::cdrom {
+  mount "__INSTALLER_PATH_DIR_MEDIA_CDROM__";
+};
+
+Dir::Media::MountPath "__INSTALLER_PATH_DIR_MEDIA_CDROM__";

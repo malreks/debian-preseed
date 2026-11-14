@@ -353,6 +353,30 @@ target_log_command_failure() {
   installer_log_target_command_output "$TARGET_LOG_CATEGORY" "$TARGET_LOG_STAGE" in-target "$4" "$3" || true
 }
 
+# Ordinary target commands stream diagnostics while retaining their exact
+# status. Capture/quiet/interactive entrypoints keep their existing interfaces.
+# Explicit status records avoid the POSIX pipeline-status loss without Bash
+# pipefail, a detached follower, or a long-lived FIFO reader.
+target_exec_logged() (
+  target_stream_output=$1
+  shift
+  target_stream_work=$(mktemp -d "${target_stream_output}.stream.XXXXXX") || exit 125
+  trap 'rm -f "$target_stream_work/status" "$target_stream_work/copied"; rmdir "$target_stream_work"' 0
+  trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  (
+    if target_exec "$@" </dev/null 2>&1; then target_stream_status=0; else target_stream_status=$?; fi
+    printf '%s\n' "$target_stream_status" >"$target_stream_work/status"
+  ) | (
+    if tee "$target_stream_output"; then : >"$target_stream_work/copied"; fi
+  ) | installer_stream_tty4
+  IFS= read -r target_stream_status <"$target_stream_work/status" || exit 125
+  case "$target_stream_status" in ''|*[!0-9]*) exit 125 ;; esac
+  [ "$target_stream_status" -le 255 ] || exit 125
+  # A failed command remains the primary failure, even if output capture fails.
+  [ "$target_stream_status" -eq 0 ] || exit "$target_stream_status"
+  [ -f "$target_stream_work/copied" ] || exit 125
+)
+
 run_in_target() {
   label=$1
   shift
@@ -360,7 +384,7 @@ run_in_target() {
 
   installer_info "in-target: ${label}"
   target_log_command_start "$label"
-  if target_exec "$@" </dev/null >"$output" 2>&1; then
+  if target_exec_logged "$output" "$@"; then
     target_log_command_complete "$label" "$output"
     if target_log_should_emit info; then
       filter_in_target_noise <"$output"
@@ -388,7 +412,7 @@ attempt_in_target() {
 
   installer_info "in-target: ${label}"
   target_log_command_start "$label"
-  if target_exec "$@" </dev/null >"$output" 2>&1; then
+  if target_exec_logged "$output" "$@"; then
     target_log_command_complete "$label" "$output"
     if target_log_should_emit info; then
       filter_in_target_noise <"$output"

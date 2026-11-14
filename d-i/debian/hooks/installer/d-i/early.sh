@@ -112,6 +112,11 @@ family_d_i_early_main() {
     "$(installer_repo_apt_file APT_CONF_D_99NOINSTALL_RECOMMENDS)" \
     "$TMP_ENV_DIR/99noinstall-recommends"
   chmod 0644 "$TMP_ENV_DIR/99noinstall-recommends"
+  fetch_hook_file \
+    "$(installer_repo_apt_file APT_CONF_D_25NO_PDIFFS)" \
+    "$TMP_ENV_DIR/25no-pdiffs"
+  installer_apt_publish_metadata_policy "$TMP_ENV_DIR/25no-pdiffs" \
+    "${DIR_INSTALLER_APT_CONF_D}/25no-pdiffs"
 
   fetch_hook_file "$(installer_repo_file_value FILE_INST_APT_99_APT_PREFERENCES)" "${DIR_INSTALLER_APT_SETUP_GENERATORS}/99-apt-preferences"
   fetch_hook_file "$(installer_repo_file_value FILE_INST_APT_98_CUDA_LEGACY_SOURCE)" "${DIR_INSTALLER_APT_SETUP_GENERATORS}/98-cuda-legacy-source"

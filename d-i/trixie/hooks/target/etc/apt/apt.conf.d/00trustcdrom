@@ -1,0 +1,5 @@
+// Managed by unattended-installer.
+// Match Debian's explicit trust for root-configured installation media.
+// This does not relax authentication for HTTP or HTTPS archives.
+
+APT::Authentication::TrustCDROM "true";

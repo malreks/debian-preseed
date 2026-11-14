@@ -18,8 +18,13 @@ installer_stage_profile_asset() (
   output=$(mktemp "$parent/.profile-asset.XXXXXX")
   trap 'rm -f "$input" "$output"' 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  if command -v installer_info >/dev/null 2>&1; then
+    installer_info "staging target asset source=${source_path} destination=${target_path}"
+  fi
   installer_fetch_file "$(installer_seed_base "")" "$source_path" "$input" 0600
-  names=$(LC_ALL=C grep -oE '__INSTALLER_[A-Z][A-Z0-9_]*__' "$input" | sort -u || true)
+  # An identifier segment cannot consume the closing delimiter and an adjacent
+  # token. Greedy underscore matching turns two required fields into one name.
+  names=$(LC_ALL=C grep -oE '__INSTALLER_[A-Z][A-Z0-9]*(_[A-Z0-9]+)*__' "$input" | sort -u || true)
   set --
   for token in $names; do
     name=${token#__INSTALLER_}; name=${name%__}

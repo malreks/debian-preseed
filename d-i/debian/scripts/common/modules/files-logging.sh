@@ -218,6 +218,8 @@ installer_runtime_path_placeholder_map() {
   [ -n "${DIR_ROOT_HOME:-}" ] && printf 'PATH_DIR_ROOT_HOME=%s\n' "$DIR_ROOT_HOME"
   [ -n "${DIR_HOME:-}" ] && printf 'PATH_DIR_HOME=%s\n' "$DIR_HOME"
   [ -n "${DIR_BOOT:-}" ] && printf 'PATH_DIR_BOOT=%s\n' "$DIR_BOOT"
+  [ -n "${DIR_MEDIA:-}" ] && printf 'PATH_DIR_MEDIA=%s\n' "$DIR_MEDIA"
+  [ -n "${DIR_MEDIA_CDROM:-}" ] && printf 'PATH_DIR_MEDIA_CDROM=%s\n' "$DIR_MEDIA_CDROM"
   [ -n "${DIR_OPT:-}" ] && printf 'PATH_DIR_OPT=%s\n' "$DIR_OPT"
   [ -n "${DIR_SRV:-}" ] && printf 'PATH_DIR_SRV=%s\n' "$DIR_SRV"
   [ -n "${DIR_POOL:-}" ] && printf 'PATH_DIR_POOL=%s\n' "$DIR_POOL"
@@ -893,19 +895,29 @@ installer_apply_scalar_placeholders() {
     rm -f "$installer_placeholder_script" "$installer_path_placeholder_map"
     return 1
   fi
-  while IFS= read -r installer_path_placeholder_record ||
-    [ -n "$installer_path_placeholder_record" ]; do
-    installer_path_placeholder_name=${installer_path_placeholder_record%%=*}
-    installer_path_placeholder_value=${installer_path_placeholder_record#*=}
-    [ -n "$installer_path_placeholder_name" ] || continue
-    installer_escaped_placeholder_value=$(installer_escape_sed_replacement "$installer_path_placeholder_value")
-    printf 's|__INSTALLER_%s__|%s|g\n' \
-      "$installer_path_placeholder_name" \
-      "$installer_escaped_placeholder_value" >>"$installer_placeholder_script" || {
-        rm -f "$installer_placeholder_script" "$installer_path_placeholder_map"
-        return 1
+  # The canonical path map is single-line NAME=value data. Escape all of it
+  # in one process, rather than launching sed for every path on every asset.
+  # Keep the same sed renderer and scalar/block replacement semantics.
+  if ! LC_ALL=C awk '
+    function replacement(value, output, position, character) {
+      output = ""
+      for (position = 1; position <= length(value); position++) {
+        character = substr(value, position, 1)
+        if (character == "\\" || character == "&" || character == "|") output = output "\\"
+        output = output character
       }
-  done <"$installer_path_placeholder_map"
+      return output
+    }
+    NF {
+      separator = index($0, "=")
+      name = substr($0, 1, separator - 1)
+      if (separator < 2 || name !~ /^[A-Z][A-Z0-9_]*$/) exit 1
+      print "s|__INSTALLER_" name "__|" replacement(substr($0, separator + 1)) "|g"
+    }
+  ' "$installer_path_placeholder_map" >>"$installer_placeholder_script"; then
+    rm -f "$installer_placeholder_script" "$installer_path_placeholder_map"
+    return 1
+  fi
   rm -f "$installer_path_placeholder_map"
   sed -f "$installer_placeholder_script" "$installer_placeholder_src" >"$installer_placeholder_dest" || {
     rm -f "$installer_placeholder_script" "$installer_placeholder_dest" "$installer_path_placeholder_map"

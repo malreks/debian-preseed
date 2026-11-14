@@ -1,0 +1,3 @@
+// Keep automatic dependency expansion identical for installation and servicing.
+APT::Install-Recommends "false";
+APT::Install-Suggests "false";

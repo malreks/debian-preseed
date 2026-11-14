@@ -1,0 +1,14 @@
+// Full package indexes only, in the installer and installed system.
+// Keep full English descriptions only; do not inherit locale-selected languages.
+Acquire::PDiffs "false";
+#clear Acquire::Languages;
+Acquire::Languages "en";
+Acquire::IndexTargets::deb::Translations::DefaultEnabled "true";
+// No graphical software catalog consumes DEP-11 in these managed roles.
+// Retain this guard if a package reintroduces its AppStream configuration.
+Acquire::IndexTargets::deb::DEP-11::DefaultEnabled "false";
+Acquire::IndexTargets::deb::DEP-11-icons-small::DefaultEnabled "false";
+Acquire::IndexTargets::deb::DEP-11-icons::DefaultEnabled "false";
+Acquire::IndexTargets::deb::DEP-11-icons-hidpi::DefaultEnabled "false";
+Acquire::IndexTargets::deb::DEP-11-icons-large::DefaultEnabled "false";
+Acquire::IndexTargets::deb::DEP-11-icons-large-hidpi::DefaultEnabled "false";

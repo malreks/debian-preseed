@@ -507,7 +507,7 @@ installer_cuda_source_line() (
   [ "$suite" = / ] && [ -z "$components" ] || {
     installer_fatal 'legacy CUDA must use a flat archive with no components'; exit 1;
   }
-  printf 'deb [arch=amd64 signed-by=%s trusted=yes allow-insecure=yes allow-weak=yes allow-downgrade-to-insecure=yes check-valid-until=no check-date=no] %s /\n' "$keyring" "$repository"
+  printf 'deb [arch=amd64 signed-by=%s trusted=yes allow-insecure=yes allow-weak=yes allow-downgrade-to-insecure=yes check-valid-until=no check-date=no pdiffs=no lang=en] %s /\n' "$keyring" "$repository"
 )
 
 installer_cuda_stage_target_key() (
@@ -658,6 +658,8 @@ installer_cuda_refresh_target_apt() (
   # the main configuration and source parts disabled, no ordinary
   # Debian/vendor source receives them and the command cannot silently fall
   # back to the target's regular source list.
+  # Disabling parts also bypasses 25no-pdiffs: repeat its acquisition controls
+  # explicitly for this isolated source-list refresh.
   run_in_target 'refresh explicitly trusted legacy CUDA metadata' \
     env -u APT_SEQUOIA_CRYPTO_POLICY -u SEQUOIA_CRYPTO_POLICY \
     LC_ALL=C DEBIAN_FRONTEND=noninteractive apt-get \
@@ -668,6 +670,8 @@ installer_cuda_refresh_target_apt() (
     -o Acquire::AllowWeakRepositories=true \
     -o Acquire::AllowDowngradeToInsecureRepositories=true \
     -o APT::Get::AllowUnauthenticated=true \
+    -o Acquire::PDiffs=false -o Acquire::Languages=en \
+    -o Acquire::IndexTargets::deb::Translations::DefaultEnabled=true \
     -o APT::Update::Error-Mode=any \
     -o Acquire::Retries=3 -o Acquire::http::Timeout=45 \
     -o Acquire::https::Timeout=45 -o DPkg::Use-Pty=0 update

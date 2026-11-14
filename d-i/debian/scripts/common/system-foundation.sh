@@ -24,6 +24,10 @@ if [ -f "${DIR_INSTALLER_ENV}/runtime.env" ]; then layout_env="${DIR_INSTALLER_E
 ZRAM_BACKING_RAW_PARTUUID=$(blkid -s PARTUUID -o value "$ZRAM_BACKING_RAW_DEVICE")
 case "$ZRAM_BACKING_RAW_PARTUUID" in ''|*[!a-fA-F0-9-]*) installer_fatal 'invalid raw zram PARTUUID' ;; esac
 ZRAM_ENABLE=1
+# Unit dependencies and sysfs names are derived from the canonical layout,
+# rather than requiring redundant fields in every host profile.
+ZRAM_SETUP_UNIT=${FILE_ZRAM_SETUP_SERVICE##*/}
+ZRAM_SWAP_DEVICE_NAME=${ZRAM_SWAP_DEVICE##*/}
 ZRAM_SYSFS="${DIR_SYS}/block/${ZRAM_SWAP_DEVICE##*/}"
 ZRAM_RUNTIME_DIR="${DIR_RUN}/zram"
 ZRAM_LOCK_FILE="${ZRAM_RUNTIME_DIR}/zram-writeback.lock"
@@ -58,10 +62,7 @@ installer_stage_profile_file FILE_TARGET_UNIT_APPARMOR_MODES_SERVICE "${DIR_SYST
 installer_stage_profile_file FILE_TARGET_APPARMOR_COMMON_MODES "${DIR_ETC}/apparmor/modes.conf" 0644
 installer_stage_offline_unit_link "${DIR_SYSTEMD_SYSTEM}/apparmor-modes.service"
 
-installer_stage_profile_file "$(installer_repo_apt_selector APT_CONF_D_20AUTO_UPGRADES)" "${DIR_APT_CONF_D}/20auto-upgrades" 0644
-installer_stage_profile_file "$(installer_repo_apt_selector APT_CONF_D_25NO_PDIFFS)" "${DIR_APT_CONF_D}/25no-pdiffs" 0644
-installer_stage_profile_file "$(installer_repo_apt_selector APT_CONF_D_52UNATTENDED_UPGRADES)" "${DIR_APT_CONF_D}/52unattended-upgrades" 0644
-installer_stage_profile_file "$(installer_repo_apt_selector APT_CONF_D_99NOINSTALL_RECOMMENDS)" "${DIR_APT_CONF_D}/99noinstall-recommends" 0644
+installer_apt_install_target_policy "$TARGET_ROOT" install
 # The raw fallback is distinct from the writeback device; both identities come
 # from the frozen partman layout. Never activate swap in the installer here.
 : "${SWAP_FALLBACK_RAW_DEVICE:?missing raw swap partition}"

@@ -14,7 +14,7 @@ TMP_ENV_DIR=$DIR_INSTALLER_LATE_ENV
 profile="${TMP_ENV_DIR}/server-boot.env"
 installer_fetch_host_env "$SEED_BASE" "$INSTALLER_HOST_PROFILE" "$profile" 0600
 installer_load_data_env "$profile"
-ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || installer_fatal 'server boot signing requires the explicit primary operator'
+installer_load_primary_account
 installer_assert_class_plan
 bootstrap_source_common_support_libs "$SEED_BASE" "${TMP_ENV_DIR}/server-boot-support" fetch hook target
 for module in FILE_LATE_CORE FILE_LATE_TARGET_ASSETS FILE_LATE_GRUB; do
@@ -32,6 +32,7 @@ if [ -f "${DIR_INSTALLER_ENV}/runtime.env" ]; then layout_env="${DIR_INSTALLER_E
 # Private installer-produced state, owned by the frozen partman plan.
 # shellcheck disable=SC1090
 . "$layout_env"
+late_command_require_class_policy_env
 : "${DEV_PART_BOOT:?missing boot partition}"
 : "${DEV_PART_EFI:?missing EFI partition}"
 : "${DEV_PART_ROOT:?missing root partition}"
@@ -98,7 +99,9 @@ EOF
 done <"$profile_work/map"
 installer_stage_profile_file FILE_TARGET_DEFAULT_GRUB_PROFILES_TMPL "${DIR_ETC_DEFAULT}/grub-profiles" 0600
 installer_stage_profile_file FILE_SERVER_GRUB_DEFAULT "${DIR_GRUB_DEFAULT}/05-bootprofiles.cfg" 0644
-GRUB_OS_PROBER_DISABLED=true
+GRUB_DISABLE_OS_PROBER=true
+GRUB_MOK_MANAGER_EFI_PATH=$INSTALLER_GRUB_MOK_MANAGER_EFI_PATH
+GRUB_REMOVABLE_BOOT_EFI_PATH=$INSTALLER_GRUB_REMOVABLE_BOOT_EFI_PATH
 : "${GRUB_NVME_FLAGS:=}" "${GRUB_SYSTEMD_MASK_FLAGS:=}" "${GRUB_BLACKLIST_FLAGS:=}" "${GRUB_VFIO_FLAGS:=}" "${GRUB_ASPM_FLAGS:=}"
 for fragment in 10-rootfs 15-initramfs 20-nvme 25-systemd-mask 30-cgroup 35-security-core 40-blacklist 42-vfio 45-memory-core 50-os-prober 60-hardening 70-aspm; do
   installer_stage_profile_asset "$(installer_repo_asset_path DIR_TARGET_DEFAULT_GRUB_D "${fragment}.cfg.tmpl")" \

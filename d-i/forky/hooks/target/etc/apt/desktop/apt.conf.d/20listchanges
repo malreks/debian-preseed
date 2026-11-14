@@ -1,0 +1,7 @@
+// Only staged when apt-listchanges is installed. Its managed mail frontend is
+// noninteractive and --no-network prevents an extra apt-get changelog request.
+DPkg::Pre-Install-Pkgs { "__INSTALLER_PATH_DIR_USR_BIN__/apt-listchanges --apt --no-network || test $? -lt 10"; };
+DPkg::Tools::Options::__INSTALLER_PATH_DIR_USR_BIN__/apt-listchanges::Version "2";
+DPkg::Tools::Options::__INSTALLER_PATH_DIR_USR_BIN__/apt-listchanges::InfoFD "20";
+Dir::Etc::apt-listchanges-main "listchanges.conf";
+Dir::Etc::apt-listchanges-parts "listchanges.conf.d";

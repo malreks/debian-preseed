@@ -45,7 +45,8 @@ SOURCE_PATH = 'etc/apt/sources.list'
 FINGERPRINT = 'EB693B3035CD5710E231E123A4B469963BF863CC'
 KEY_PATH = '/etc/apt/keyrings/cuda-legacy-archive-key.asc'
 REQUIRED = ('arch=amd64', f'signed-by={KEY_PATH}', 'trusted=yes', 'allow-insecure=yes', 'allow-weak=yes',
-            'allow-downgrade-to-insecure=yes', 'check-valid-until=no', 'check-date=no')
+            'allow-downgrade-to-insecure=yes', 'check-valid-until=no', 'check-date=no',
+            'pdiffs=no', 'lang=en')
 
 
 def shell(text: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
@@ -168,7 +169,9 @@ installer_cuda_refresh_target_apt
                 for required in ('Acquire::AllowInsecureRepositories=true',
                                  'Acquire::AllowWeakRepositories=true',
                                  'Acquire::AllowDowngradeToInsecureRepositories=true',
-                                 'APT::Get::AllowUnauthenticated=true'):
+                                 'APT::Get::AllowUnauthenticated=true',
+                                 'Acquire::PDiffs=false', 'Acquire::Languages=en',
+                                 'Acquire::IndexTargets::deb::Translations::DefaultEnabled=true'):
                     self.assertIn(required, text)
                 self.assertIn('-u APT_SEQUOIA_CRYPTO_POLICY -u SEQUOIA_CRYPTO_POLICY', text)
                 for forbidden in ('Acquire::AllowInsecureRepositories=false',
@@ -469,7 +472,7 @@ class RealAptTests(unittest.TestCase):
                     # explicitly so this fixture's Suite: fixture metadata is
                     # evaluated independently of the development host suite.
                     'APT::Default-Release': '',
-                    'Acquire::Languages': 'none', 'Acquire::Retries': '0',
+                    'Acquire::Languages': 'en', 'Acquire::Retries': '0',
                     'Acquire::http::Proxy': 'DIRECT', 'Acquire::http::Timeout': '3',
                     'Acquire::AllowInsecureRepositories': 'false',
                     'Acquire::AllowWeakRepositories': 'false',

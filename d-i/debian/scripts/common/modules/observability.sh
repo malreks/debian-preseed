@@ -222,14 +222,33 @@ installer_safe_log_filename() {
 }
 
 installer_redact_log_stream() {
-  sed \
-    -e 's/\([Pp][Aa][Ss][Ss][^=[:space:]]*[= ][= ]*\)[^[:space:]]*/\1REDACTED/g' \
-    -e 's/\([Ss][Ee][Cc][Rr][Ee][Tt][^=[:space:]]*[= ][= ]*\)[^[:space:]]*/\1REDACTED/g' \
-    -e 's/\([Tt][Oo][Kk][Ee][Nn][^=[:space:]]*[= ][= ]*\)[^[:space:]]*/\1REDACTED/g' \
-    -e 's/\([Tt][Ee][Ll][Ee][Gg][Rr][Aa][Mm]_[Aa][Pp][Ii]_[Kk][Ee][Yy][= ][= ]*\)[^[:space:]]*/\1REDACTED/g' \
-    -e 's/\([Tt][Ee][Ll][Ee][Gg][Rr][Aa][Mm]_[Cc][Hh][Aa][Tt]_[Ii][Dd][= ][= ]*\)[^[:space:]]*/\1REDACTED/g' \
-    -e 's/\([Ww][Pp][Aa][^=[:space:]]*[= ][= ]*\)[^[:space:]]*/\1REDACTED/g' \
-    -e 's/[Pp][Rr][Ee][Ss][Ee][Ee][Dd]/installer/g'
+  # fflush is supported by d-i BusyBox awk and Debian mawk. A buffered sed
+  # pipeline hides progress until its buffer fills or the command exits.
+  LC_ALL=C awk '
+    function redact(value, pattern, result, end) {
+      result = ""
+      while (match(tolower(value), pattern)) {
+        end = RSTART + RLENGTH
+        result = result substr(value, 1, end - 1) "REDACTED"
+        value = substr(value, end)
+        sub(/^[^[:space:]]*/, "", value)
+      }
+      return result value
+    }
+    {
+      line = redact($0, "pass[^=[:space:]]*[= ][= ]*")
+      line = redact(line, "secret[^=[:space:]]*[= ][= ]*")
+      line = redact(line, "token[^=[:space:]]*[= ][= ]*")
+      line = redact(line, "(telegram_chat_id|api[_-]?key|telegram_api_key)[= ][= ]*")
+      line = redact(line, "wpa[^=[:space:]]*[= ][= ]*")
+      line = redact(line, "authorization:[[:space:]]*(bearer|basic)[[:space:]]+")
+      gsub(/\/\/[^\/[:space:]@]+@/, "//REDACTED@", line)
+      # Keep stage/component/source identifiers intact. Only values are secret.
+      gsub(/[[:cntrl:]]/, " ", line)
+      print line
+      fflush()
+    }
+  '
 }
 
 installer_archive_live_installer_logs_to_target() {
@@ -329,4 +348,3 @@ installer_ensure_system_identity() {
     *) installer_fatal "SYSTEM_HOSTNAME must match SYSTEM_PREFIX-###" ;;
   esac
 }
-

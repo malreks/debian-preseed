@@ -1,7 +1,7 @@
 #!/bin/sh
-# First target APT update. Base media may supply debootstrap, but never an
-# unauthenticated/obsolete CD-ROM APT source. Keep the BASE suite until apt-setup
-# installs the selected mixed-suite policy and preferences.
+# First target APT update uses the authenticated network archive. Preserve the
+# native media configuration for the later apt-setup scan, even when the first
+# update replaces media sources. Apt-setup supplies mixed-suite policy and pins.
 set -eu
 runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
 . "$runtime/bootstrap/source.sh"
@@ -57,6 +57,7 @@ host=$RET
 db_get "mirror/$protocol/directory"
 directory=$RET
 target=${INSTALLER_TARGET_DIR:-${TARGET_ROOT}}
+installer_apt_install_target_policy "$target" bootstrap
 # Match d-i's base-installer ordering: remove media sources and publish the
 # authenticated Debian source before the first target update.  The managed
 # APT::Default-Release file is intentionally written later by the
@@ -78,5 +79,7 @@ printf 'stage=base_install level=info component=network-apt normalized sources b
 installer_operation_context_repo FILE_PRESEED_NETWORK_APT 67 base_network_apt_update
 installer_run_supervised in-target env LC_ALL=C DEBIAN_FRONTEND=noninteractive \
   apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=3 \
+  -o Acquire::PDiffs=false -o Acquire::Languages=en \
+  -o Acquire::IndexTargets::deb::Translations::DefaultEnabled=true \
   -o Acquire::http::Timeout=45 -o Acquire::https::Timeout=45 update
 installer_lifecycle_complete

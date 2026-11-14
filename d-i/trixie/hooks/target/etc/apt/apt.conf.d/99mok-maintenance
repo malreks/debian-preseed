@@ -1,0 +1,6 @@
+// Publish only after the MOK helper and its configuration exist. Run last so
+// another preflight cannot leave signing storage open. FD 3 carries APT actions;
+// stdin stays available for the helper's intentional passphrase interaction.
+DPkg::Pre-Install-Pkgs { "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-mok-prehook"; };
+DPkg::Tools::Options::__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-mok-prehook::Version "2";
+DPkg::Tools::Options::__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-mok-prehook::InfoFD "3";

@@ -309,20 +309,37 @@ installer_emit_console_error() {
     "$installer_console_component" \
     "$installer_console_message" \
     "$installer_console_context")
-  printf '%s stage=%s level=%s component=%s %s\n' \
-    "$(installer_log_timestamp)" \
-    "$installer_console_stage" \
-    "$installer_console_level" \
-    "$installer_console_component" \
-    "$installer_console_message $installer_console_context" >&2
+  if command -v installer_redact_log_stream >/dev/null 2>&1; then
+    installer_console_record=$(printf '%s\n' "$installer_console_record" | installer_redact_log_stream)
+  fi
+  printf '%s\n' "$installer_console_record" >&2
   if [ -c /dev/console ] && [ -w /dev/console ]; then
-    printf '%s' "$installer_console_record" >/dev/console || :
+    printf '%s\n' "$installer_console_record" >/dev/console || :
   fi
   if [ -c /dev/tty4 ] && [ -w /dev/tty4 ]; then
-    printf '%s' "$installer_console_record" >/dev/tty4 || :
+    printf '%s\n' "$installer_console_record" >/dev/tty4 || :
   fi
   if command -v logger >/dev/null 2>&1; then
     logger -t preseed-installer "$installer_console_record" 2>/dev/null || :
+  fi
+}
+
+# tty4 is Debian Installer's diagnostic console. Keep stdout available for
+# debconf, captures and generated answers; never mirror those data streams.
+installer_emit_tty4() {
+  [ -c /dev/tty4 ] && [ -w /dev/tty4 ] || return 0
+  command -v installer_redact_log_stream >/dev/null 2>&1 || return 0
+  printf '%s\n' "$*" | installer_redact_log_stream >/dev/tty4 || :
+}
+
+installer_stream_tty4() {
+  if [ -c /dev/tty4 ] && [ -w /dev/tty4 ] &&
+     command -v installer_redact_log_stream >/dev/null 2>&1; then
+    # The redactor flushes each line so long-running package commands remain
+    # visible. Console loss is advisory; consume the pipe to avoid SIGPIPE.
+    installer_redact_log_stream >/dev/tty4 || cat >/dev/null
+  else
+    cat >/dev/null
   fi
 }
 
@@ -463,12 +480,14 @@ installer_log_record() {
   if ! installer_log_should_emit "$log_level"; then
     return 0
   fi
-  printf '%s stage=%s level=%s component=%s %s\n' \
+  installer_log_line=$(printf '%s stage=%s level=%s component=%s %s' \
     "$(installer_log_timestamp)" \
     "$(installer_log_stage)" \
     "$log_level" \
     "$(installer_log_tag)" \
-    "$*" >&2
+    "$*")
+  printf '%s\n' "$installer_log_line" >&2
+  installer_emit_tty4 "$installer_log_line"
 }
 
 installer_log() {

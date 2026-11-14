@@ -1,3 +1,0 @@
-// Close signing storage before any other final package hook can fail.
-// The private marker limits cleanup to storage opened by the MOK prehook.
-DPkg::Post-Invoke { "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-mok-prehook --post"; };

@@ -1,9 +1,4 @@
-// Managed by unattended-installer.
-//
-// Keep package metadata fresh and let unattended-upgrades apply eligible
-// security/stable updates. The work is intentionally left to apt's timers so
-// first boot is not blocked by package maintenance.
-
+// Managed maintenance uses apt timers; never block first boot with an upgrade.
 APT::Periodic::Enable "1";
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Download-Upgradeable-Packages "1";

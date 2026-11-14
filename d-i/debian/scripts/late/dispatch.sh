@@ -171,6 +171,10 @@ while IFS='|' read -r stage_id stage_phase stage_selector || [ -n "$stage_id" ];
     [ "$stage_status" = 1 ] && continue
     installer_fatal_status "$stage_status" 'cannot claim late phase stage ownership'
   fi
+  INSTALLER_LOG_STAGE=late_command
+  INSTALLER_LOG_TAG=$stage_id
+  export INSTALLER_LOG_STAGE INSTALLER_LOG_TAG
+  installer_info "starting selected stage ${stage_id}"
   case "$stage_id:$INSTALLER_HOST_VARIANT" in
     desktop.storage:desktop) dispatch_storage_foundation ;;
     *)
@@ -187,4 +191,5 @@ while IFS='|' read -r stage_id stage_phase stage_selector || [ -n "$stage_id" ];
       ;;
   esac
   installer_phase_stage_finish "$stage_phase" "$stage_id"
+  installer_info "completed selected stage ${stage_id}"
 done <"$plan_stages"

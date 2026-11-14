@@ -1,4 +1,4 @@
-// Managed by unattended-installer.
+// Managed server maintenance policy; selected by the installer role.
 //
 // Automatic maintenance policy:
 // - accept upgrade candidates only from explicitly approved repository sites;
@@ -35,6 +35,7 @@ Unattended-Upgrade::Origins-Pattern {
 };
 
 // Python regular expressions are matched against binary package names.
+#clear Unattended-Upgrade::Package-Blacklist;
 Unattended-Upgrade::Package-Blacklist {
         // Keep byte-identical to apt-mok-prehook.RELEVANT. Both use re.match;
         // regression checks enforce coverage of every MOK-gated package.

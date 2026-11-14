@@ -451,7 +451,8 @@ installer_repo_asset_path() {
   if [ "$1" = DIR_HOOKS_TARGET ]; then
     case "${2:-}" in
       etc/apt/apt.conf.d/*)
-        installer_repo_asset_requested=$(installer_repo_join_var DIR_TARGET_APT_APT_CONF_D "${2#etc/apt/apt.conf.d/}")
+        installer_repo_apt_conf_asset_path "${2#etc/apt/apt.conf.d/}"
+        return "$?"
         ;;
       etc/apt/*)
         case "${INSTALLER_HOST_VARIANT:-}" in desktop) apt_dir_selector=DIR_TARGET_APT_DESKTOP ;; server) apt_dir_selector=DIR_TARGET_APT_SERVER ;; *) installer_fatal 'APT family is unavailable' ;; esac
@@ -706,12 +707,48 @@ installer_fetch_file() {
 installer_repo_apt_selector() {
   case "${INSTALLER_HOST_VARIANT:-}" in desktop) apt_family=DESKTOP ;; server) apt_family=SERVER ;; *) installer_fatal 'validated APT role family is required' ;; esac
   case "${1:-}" in ''|*[!A-Z0-9_]*) installer_fatal 'invalid APT source selector' ;; esac
-  printf 'FILE_TARGET_APT_%s_%s\n' "$apt_family" "$1"
+  # Common and role policy have distinct source owners. Reject duplicate owners
+  # instead of silently selecting a stale role copy of a common drop-in.
+  printf '%s' "${INSTALLER_REPO_FILE_INDEX:-}" |
+    awk -F '|' -v common="FILE_TARGET_APT_$1" -v selected="FILE_TARGET_APT_${apt_family}_$1" '
+      $1==common || $1==selected {count++; selector=$1}
+      END {if(count!=1) exit 1; print selector}' ||
+    installer_fatal "missing or ambiguous APT policy selector: $1"
 }
 
 installer_repo_apt_file() {
   installer_repo_file_value "$(installer_repo_apt_selector "$1")"
 }
+
+# Enumerate only authenticated immediate drop-ins from the suite's common and
+# selected role directories. repo.env, not a filesystem glob, owns membership.
+installer_repo_apt_conf_catalog() (
+  set -eu
+  case "${INSTALLER_HOST_VARIANT:-}" in
+    desktop) apt_role_dir=DIR_TARGET_APT_DESKTOP_APT_CONF_D ;;
+    server) apt_role_dir=DIR_TARGET_APT_SERVER_APT_CONF_D ;;
+    *) installer_fatal 'validated APT role family is required' ;;
+  esac
+  apt_common=$(installer_repo_dir_value DIR_TARGET_APT_APT_CONF_D) || exit "$?"
+  apt_role=$(installer_repo_dir_value "$apt_role_dir") || exit "$?"
+  printf '%s' "$INSTALLER_REPO_FILE_INDEX" |
+    awk -F '|' -v common="$apt_common/" -v role="$apt_role/" '
+      index($2,common)==1 {leaf=substr($2,length(common)+1)}
+      index($2,role)==1 {leaf=substr($2,length(role)+1)}
+      index($2,common)!=1 && index($2,role)!=1 {next}
+      leaf !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/ {exit 1}
+      {sub(/[.]tmpl$/, "", leaf); if(seen[leaf]++) exit 1; print leaf "|" $1; count++}
+      END {if(!count) exit 1}'
+)
+
+installer_repo_apt_conf_asset_path() (
+  set -eu
+  apt_catalog=$(installer_repo_apt_conf_catalog) || exit "$?"
+  apt_selector=$(printf '%s\n' "$apt_catalog" | awk -F '|' -v leaf="$1" '
+    $1==leaf {selector=$2; count++} END {if(count!=1) exit 1; print selector}') ||
+    installer_fatal 'missing or ambiguous APT drop-in source owner'
+  installer_repo_file_value "$apt_selector"
+)
 
 installer_stage_suite_apt_preferences() {
   installer_assert_class_plan || return "$?"

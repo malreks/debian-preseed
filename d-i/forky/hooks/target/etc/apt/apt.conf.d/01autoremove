@@ -1,0 +1,15 @@
+// Preserve installed kernels, firmware and task ownership during manual cleanup.
+// These are APT's documented package/section interfaces, independent of suite.
+#clear APT::NeverAutoRemove;
+APT::NeverAutoRemove {
+    "^firmware-.*";
+    "^linux-firmware$";
+    "^linux-image-.*";
+    "^(intel|amd64)-microcode$";
+};
+#clear APT::VersionedKernelPackages;
+APT::VersionedKernelPackages { "linux-.*"; ".*-modules"; ".*-kernel"; };
+#clear APT::Never-MarkAuto-Sections;
+APT::Never-MarkAuto-Sections { "metapackages"; "tasks"; };
+#clear APT::Move-Autobit-Sections;
+APT::Move-Autobit-Sections { "oldlibs"; };
