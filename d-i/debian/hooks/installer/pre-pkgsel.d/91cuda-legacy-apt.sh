@@ -128,11 +128,13 @@ cuda_repository_components() {
 }
 
 stage_cuda_legacy_source() {
+  installer_operation_context_repo FILE_INST_PREPKG_91CUDA_LEGACY_APT 131 stage_cuda_legacy_source
   installer_cuda_stage_target_source \
     "$(cuda_repository_url)" "$(cuda_repository_suite)" "$(cuda_repository_components)"
 }
 
 prepare_cuda_legacy_target_apt_dirs() {
+  installer_operation_context_repo FILE_INST_PREPKG_91CUDA_LEGACY_APT 137 repair_cuda_legacy_target_apt_dirs
   run_in_target "repair legacy CUDA target apt directories" /bin/sh -eu -c '
 var_root=$1
 cache_root=$2
@@ -147,6 +149,7 @@ install -d -m 1777 "$tmp_root" "$var_root/tmp"
 }
 
 refresh_cuda_legacy_target_apt_metadata() {
+  installer_operation_context_repo FILE_INST_PREPKG_91CUDA_LEGACY_APT 152 refresh_cuda_legacy_target_apt_metadata
   installer_cuda_refresh_target_apt
 }
 

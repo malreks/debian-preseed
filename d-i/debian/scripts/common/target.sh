@@ -353,6 +353,40 @@ target_log_command_failure() {
   installer_log_target_command_output "$TARGET_LOG_CATEGORY" "$TARGET_LOG_STAGE" in-target "$4" "$3" || true
 }
 
+# Copy diagnostic text to the capture descriptor and the console pipe using
+# shell builtins only. Debian Installer does not necessarily provide tee.
+# Keep backslashes, whitespace and the final line's original newline state.
+# A failed sink must not stop draining the target command's output.
+target_copy_diagnostic_output() {
+  target_relay_capture_ok=true
+  target_relay_console_ok=true
+  while :; do
+    target_relay_line=
+    if IFS= read -r target_relay_line; then
+      target_relay_terminated=true
+    else
+      [ -n "$target_relay_line" ] || break
+      target_relay_terminated=false
+    fi
+    if [ "$target_relay_capture_ok" = true ]; then
+      if [ "$target_relay_terminated" = true ]; then
+        printf '%s\n' "$target_relay_line" >&4
+      else
+        printf '%s' "$target_relay_line" >&4
+      fi || target_relay_capture_ok=false
+    fi
+    if [ "$target_relay_console_ok" = true ]; then
+      if [ "$target_relay_terminated" = true ]; then
+        printf '%s\n' "$target_relay_line"
+      else
+        printf '%s' "$target_relay_line"
+      fi 2>/dev/null || target_relay_console_ok=false
+    fi
+    [ "$target_relay_terminated" = true ] || break
+  done
+  [ "$target_relay_capture_ok" = true ]
+}
+
 # Ordinary target commands stream diagnostics while retaining their exact
 # status. Capture/quiet/interactive entrypoints keep their existing interfaces.
 # Explicit status records avoid the POSIX pipeline-status loss without Bash
@@ -365,13 +399,26 @@ target_exec_logged() (
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   (
     if target_exec "$@" </dev/null 2>&1; then target_stream_status=0; else target_stream_status=$?; fi
-    printf '%s\n' "$target_stream_status" >"$target_stream_work/status"
+    printf '%s\n' "$target_stream_status" >"$target_stream_work/status" || exit 125
   ) | (
-    if tee "$target_stream_output"; then : >"$target_stream_work/copied"; fi
+    umask 077
+    # Scope SIGPIPE handling to this relay. A lost console must not terminate
+    # the target command or prevent its remaining output from being captured.
+    trap '' PIPE
+    if target_copy_diagnostic_output 4>"$target_stream_output"; then
+      : >"$target_stream_work/copied"
+    else
+      # Opening/writing the capture can fail too. Consume the remaining input
+      # without invoking another optional installer applet or retrying work.
+      cat >/dev/null
+    fi
   ) | installer_stream_tty4
   IFS= read -r target_stream_status <"$target_stream_work/status" || exit 125
   case "$target_stream_status" in ''|*[!0-9]*) exit 125 ;; esac
   [ "$target_stream_status" -le 255 ] || exit 125
+  if [ ! -f "$target_stream_work/copied" ]; then
+    printf '%s\n' '[in-target] error: target command output capture failed' >&2
+  fi
   # A failed command remains the primary failure, even if output capture fails.
   [ "$target_stream_status" -eq 0 ] || exit "$target_stream_status"
   [ -f "$target_stream_work/copied" ] || exit 125

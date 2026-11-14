@@ -5,7 +5,7 @@ installer_profile_plan_policy() (
   set -eu
   policy_seed=$1
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 7 profile_policy
+    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 8 profile_policy
   fi
   policy_file=$(mktemp "$(installer_runtime_state_dir)/profile-policy.XXXXXX") || exit "$?"
   trap 'rm -f "$policy_file"' 0
@@ -126,7 +126,7 @@ installer_load_data_env() {
     installer_data_had_context=1
   fi
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 111 load_data_env
+    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 129 load_data_env
   fi
   installer_data_path=$1
   [ -f "$installer_data_path" ] && [ ! -L "$installer_data_path" ] || return 1
@@ -174,6 +174,8 @@ EOF
      command -v installer_operation_context >/dev/null 2>&1; then
     installer_operation_context "$installer_data_previous_source" \
       "$installer_data_previous_line" "$installer_data_previous_operation"
+  elif [ "$installer_data_had_context" -eq 0 ]; then
+    unset INSTALLER_FAILURE_SOURCE INSTALLER_FAILURE_LINE INSTALLER_FAILURE_OPERATION
   fi
   unset installer_data_had_context installer_data_previous_source \
     installer_data_previous_line installer_data_previous_operation
@@ -181,8 +183,17 @@ EOF
 }
 
 installer_fetch_host_env() {
+  host_fetch_had_context=0
+  host_fetch_previous_source=${INSTALLER_FAILURE_SOURCE:-}
+  host_fetch_previous_line=${INSTALLER_FAILURE_LINE:-}
+  host_fetch_previous_operation=${INSTALLER_FAILURE_OPERATION:-}
+  if [ "${INSTALLER_FAILURE_SOURCE+x}" = x ] ||
+     [ "${INSTALLER_FAILURE_LINE+x}" = x ] ||
+     [ "${INSTALLER_FAILURE_OPERATION+x}" = x ]; then
+    host_fetch_had_context=1
+  fi
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 158 fetch_host_env
+    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 196 fetch_host_env
   fi
   host_seed_base=$1
   host_profile=$2
@@ -204,6 +215,17 @@ installer_fetch_host_env() {
     host_data_status=$?
     installer_fatal_status "$host_data_status" "invalid compiled profile data for ${host_profile}"
   fi
+  # Acquisition/validation failures retain their own context. Successful
+  # acquisition must not label later target commands as fetch_host_env errors.
+  if [ "$host_fetch_had_context" -eq 1 ] &&
+     command -v installer_operation_context >/dev/null 2>&1; then
+    installer_operation_context "$host_fetch_previous_source" \
+      "$host_fetch_previous_line" "$host_fetch_previous_operation"
+  elif [ "$host_fetch_had_context" -eq 0 ]; then
+    unset INSTALLER_FAILURE_SOURCE INSTALLER_FAILURE_LINE INSTALLER_FAILURE_OPERATION
+  fi
+  unset host_fetch_had_context host_fetch_previous_source \
+    host_fetch_previous_line host_fetch_previous_operation
 }
 
 installer_fetch_account_env() {
