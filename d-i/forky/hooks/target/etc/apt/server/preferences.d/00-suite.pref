@@ -6,10 +6,20 @@ Pin-Priority: 900
 # package-qualified pkgsel request from being captured by the apt.llvm.org
 # wildcard policy in 20-vendors.pref.
 Package: libclang-rt-24-dev
-Pin: release o=Debian,n=experimental
+Pin: release o=Debian,a=experimental
 Pin-Priority: 1001
 
 Package: libclang-rt-24-dev
+Pin: origin apt.llvm.org
+Pin-Priority: -1
+
+# Keep the LLDB 24 runtime and Python binding on one Debian Experimental
+# snapshot; the generic dependency names otherwise admit a mixed vendor build.
+Package: lldb-24 liblldb-24 python3-lldb-24
+Pin: release o=Debian,a=experimental
+Pin-Priority: 1001
+
+Package: lldb-24 liblldb-24 python3-lldb-24
 Pin: origin apt.llvm.org
 Pin-Priority: -1
 
@@ -26,7 +36,7 @@ Pin: release o=Debian,n=rc-buggy
 Pin-Priority: -1
 
 Package: *
-Pin: release o=Debian,n=experimental
+Pin: release o=Debian,a=experimental
 Pin-Priority: 1
 
 Package: *

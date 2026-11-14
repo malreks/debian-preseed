@@ -2398,15 +2398,21 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
                 raise ValueError('suite/family does not force LLVM and Clang packages to Debian archives')
         suite_pref = members[f'frontends/{suite}/hooks/target/etc/apt/desktop/preferences.d/00-suite.pref'].decode()
         fallback_pins = ('Pin: release o=Debian,n=sid\nPin-Priority: 100',
-                         'Pin: release o=Debian,n=experimental\nPin-Priority: 1')
+                         'Pin: release o=Debian,a=experimental\nPin-Priority: 1')
         if any(pin not in suite_pref for pin in fallback_pins):
             raise ValueError('class-selected Debian fallback suites remain unavailable to pkgsel')
         experimental_llvm_pin = ('Package: libclang-rt-24-dev\n'
-                                 'Pin: release o=Debian,n=experimental\nPin-Priority: 1001')
+                                 'Pin: release o=Debian,a=experimental\nPin-Priority: 1001')
         blocked_llvm_vendor_pin = ('Package: libclang-rt-24-dev\n'
                                    'Pin: origin apt.llvm.org\nPin-Priority: -1')
         if experimental_llvm_pin not in suite_pref or blocked_llvm_vendor_pin not in suite_pref:
             raise ValueError('libclang-rt-24-dev is not pinned exclusively to Debian Experimental')
+        experimental_lldb_pin = ('Package: lldb-24 liblldb-24 python3-lldb-24\n'
+                                 'Pin: release o=Debian,a=experimental\nPin-Priority: 1001')
+        blocked_lldb_vendor_pin = ('Package: lldb-24 liblldb-24 python3-lldb-24\n'
+                                   'Pin: origin apt.llvm.org\nPin-Priority: -1')
+        if experimental_lldb_pin not in suite_pref or blocked_lldb_vendor_pin not in suite_pref:
+            raise ValueError('LLDB 24 runtime and Python binding are not pinned exclusively to Debian Experimental')
         agent = members[f'frontends/{suite}/hooks/target/etc/apt/desktop/preferences.d/10-hyprpolkitagent.pref'].decode()
         expected_agent_pin = ('Pin: release o=Debian,n=forky' if suite == 'forky'
                               else 'Pin: release o=Debian,n=trixie-backports')
@@ -2460,6 +2466,8 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
                 raise ValueError('Trixie APT fragment omits the Zabbly Incus repository')
             if 'https://downloadcontent.opensuse.org/repositories/home:/cramerz:/debian/Debian_Unstable/ /' not in apt_fragment:
                 raise ValueError('Trixie APT fragment omits the Cramerz archive')
+        if 'wget curl libcurl4t64 unzip' not in apt_fragment:
+            raise ValueError(f'{suite} APT fragment does not request libcurl4t64 alongside curl')
         for name, data in members.items():
             if not (name.startswith(f'frontends/{suite}/classes/') and name.endswith('.cfg')):
                 continue
@@ -2469,10 +2477,14 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
                 raise ValueError('libclang-rt-24-dev must be selected explicitly from Experimental')
             llvm_selector = re.compile(
                 r'^(?:clang(?:-[a-z0-9]+)*|clangd|llvm(?:-[a-z0-9]+)*|lldb?|'
-                r'libclang(?:-[a-z0-9]+)*|libllvm(?:-[a-z0-9]+)*|libpolly|python3-lldb)'
+                r'libclang(?:-[a-z0-9]+)*|libllvm(?:-[a-z0-9]+)*|liblldb(?:-[a-z0-9]+)*|'
+                r'libpolly|python3-lldb)'
                 r'-(21|22|24)(?:-|$)')
             for package_line in re.findall(r'^d-i pkgsel/include string ([^\n]+)$', decoded, re.M):
-                for package in package_line.split():
+                packages = package_line.split()
+                if 'lldb' in packages and any(item.startswith('lldb-') for item in packages):
+                    raise ValueError('generic lldb meta-package conflicts with a versioned LLDB binding')
+                for package in packages:
                     package_name, separator, selected_suite = package.partition('/')
                     match = llvm_selector.match(package_name)
                     if not match:
@@ -2506,7 +2518,9 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
             url = repository.split()[0]
             if 'mirrors.glesys.net/debian' in url:
                 components = repository.split()
-                marker = 'n=' + (components[1] if len(components) > 1 else '')
+                archive = components[1] if len(components) > 1 else ''
+                marker = ('a=experimental' if archive == 'experimental'
+                          else 'n=' + archive)
             elif 'downloadcontent.opensuse.org/repositories/home:/cramerz' in url:
                 marker = 'home:cramerz:debian/Debian_Unstable'
             elif 'developer.download.nvidia.com' in url:
