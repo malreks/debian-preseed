@@ -55,8 +55,8 @@ late_command_shared_init() {
 
   TMP_ENV_DIR=${DIR_INSTALLER_LATE_ENV}
   RUNTIME_DIR=$(installer_runtime_dir)
-  LATE_COMMAND_HOST_ENV="${TMP_ENV_DIR}/host.env"
-  LATE_COMMAND_ACCOUNT_ENV="${TMP_ENV_DIR}/account.env"
+  LATE_COMMAND_HOST_ENV=${INSTALLER_LATE_HOST_ENV:-${TMP_ENV_DIR}/host.env}
+  LATE_COMMAND_ACCOUNT_ENV=${INSTALLER_LATE_ACCOUNT_ENV:-${TMP_ENV_DIR}/account.env}
   mkdir -p "$TMP_ENV_DIR" "$RUNTIME_DIR"
   bootstrap_source_common_support_libs "$SEED_BASE" "$TMP_ENV_DIR" fetch hook target ssh || {
     installer_fatal "failed to source installer late support libraries"
@@ -181,8 +181,8 @@ late_command_collect_installer_logs() {
 
 late_command_ensure_env_paths() {
   [ -n "${TMP_ENV_DIR:-}" ] || late_command_bootstrap_fatal "late-command environment directory is not initialized"
-  : "${LATE_COMMAND_HOST_ENV:=${TMP_ENV_DIR}/host.env}"
-  : "${LATE_COMMAND_ACCOUNT_ENV:=${TMP_ENV_DIR}/account.env}"
+  : "${LATE_COMMAND_HOST_ENV:=${INSTALLER_LATE_HOST_ENV:-${TMP_ENV_DIR}/host.env}}"
+  : "${LATE_COMMAND_ACCOUNT_ENV:=${INSTALLER_LATE_ACCOUNT_ENV:-${TMP_ENV_DIR}/account.env}}"
 }
 
 late_command_host_env_path() {
@@ -201,7 +201,7 @@ late_command_ensure_host_policy_envs() {
   late_command_account_env=$LATE_COMMAND_ACCOUNT_ENV
 
   if [ ! -s "$late_command_host_env" ]; then
-    installer_operation_context_repo FILE_LATE_CORE 205 installer_fetch_host_env
+    installer_operation_context_repo FILE_LATE_CORE 204 installer_fetch_host_env
     installer_fetch_host_env "$SEED_BASE" "$HOST_PROFILE" "$late_command_host_env" 0600 || {
       late_command_env_status=$?
       installer_fatal_status "$late_command_env_status" \
@@ -212,11 +212,11 @@ late_command_ensure_host_policy_envs() {
   fi
 
   if [ ! -s "$late_command_account_env" ]; then
-    installer_operation_context_repo FILE_LATE_CORE 216 installer_fetch_account_env
-    installer_fetch_account_env "$SEED_BASE" "$late_command_account_env" 0600 || {
+    installer_operation_context_repo FILE_LATE_CORE 215 prepare_late_account_env
+    installer_prepare_late_account_env "$SEED_BASE" "$late_command_account_env" || {
       late_command_env_status=$?
       installer_fatal_status "$late_command_env_status" \
-        "failed to fetch account policy environment: destination=${late_command_account_env}"
+        "failed to prepare resolved account environment: destination=${late_command_account_env}"
       return "$late_command_env_status"
     }
     LATE_COMMAND_ACCOUNT_ENV_LOADED=0

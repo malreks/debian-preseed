@@ -251,3 +251,62 @@ installer_fetch_account_env() {
   fi
 
 }
+
+# Public account policy has no resolved human identity. Publish one private
+# snapshot before late providers enter their separate shells, for both roles.
+# Keep credential values and runtime helper scratch variables in this subshell.
+installer_prepare_late_account_env() (
+  set -eu
+  set +x
+  set +v
+  umask 077
+  late_account_seed=$1
+  late_account_destination=$2
+  installer_operation_context_repo FILE_COMMON_MOD_PROFILES 265 prepare_late_account_env
+  installer_apt_safe_path "$late_account_destination" ||
+    installer_fatal 'unsafe resolved account snapshot destination'
+  if [ -e "$late_account_destination" ] || [ -L "$late_account_destination" ]; then
+    [ -f "$late_account_destination" ] && [ ! -L "$late_account_destination" ] ||
+      installer_fatal 'resolved account snapshot destination is not a regular file'
+  fi
+  late_account_parent=${late_account_destination%/*}
+  install -d -m 0700 "$late_account_parent" || exit "$?"
+  late_account_lock="${late_account_parent}/.account-env.lock"
+  mkdir -m 0700 "$late_account_lock" ||
+    installer_fatal 'another publisher owns the resolved account snapshot'
+  late_account_work=
+  late_account_cleanup() {
+    late_account_status=$?
+    trap - 0 HUP INT TERM
+    if [ -n "$late_account_work" ]; then
+      if ! { rm -f "$late_account_work/policy.env" "$late_account_work/account.env" &&
+             rmdir "$late_account_work"; }; then
+        installer_error "account snapshot cleanup failed; private evidence and lock retained: ${late_account_work}"
+        exit 125
+      fi
+    fi
+    rmdir "$late_account_lock" || late_account_status=125
+    exit "$late_account_status"
+  }
+  trap late_account_cleanup 0
+  trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  late_account_work=$(mktemp -d "${late_account_parent}/.account-env.XXXXXX") || exit "$?"
+  installer_fetch_account_env "$late_account_seed" "$late_account_work/policy.env" 0600 || exit "$?"
+  installer_load_data_env "$late_account_work/policy.env" || exit "$?"
+  bootstrap_source_module "$(installer_repo_file_value FILE_RUNTIME_COMMON)" || exit "$?"
+  bootstrap_source_module "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" || exit "$?"
+  # A parent's cache flag or inherited account must never substitute for the
+  # current installer's validated cmdline/protected credential inputs.
+  unset RUNTIME_ACCOUNT_CREDENTIALS_READY
+  runtime_write_effective_account_env "$late_account_work/account.env" || exit "$?"
+  # Validate the whole candidate before replacing a previous complete snapshot.
+  (installer_load_data_env "$late_account_work/account.env") || exit "$?"
+  installer_apt_safe_path "$late_account_destination" ||
+    installer_fatal 'resolved account snapshot ancestry changed before publication'
+  if [ -e "$late_account_destination" ] || [ -L "$late_account_destination" ]; then
+    [ -f "$late_account_destination" ] && [ ! -L "$late_account_destination" ] ||
+      installer_fatal 'resolved account snapshot destination changed before publication'
+  fi
+  chmod 0600 "$late_account_work/account.env" || exit "$?"
+  mv -fT -- "$late_account_work/account.env" "$late_account_destination" || exit "$?"
+)

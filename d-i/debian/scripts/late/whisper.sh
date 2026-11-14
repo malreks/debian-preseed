@@ -1049,11 +1049,12 @@ esac
 
 account_env=${INSTALLER_LATE_ACCOUNT_ENV:-${DIR_INSTALLER_LATE_ENV}/account.env}
 host_env=${INSTALLER_LATE_HOST_ENV:-${DIR_INSTALLER_LATE_ENV}/host.env}
-[ -r "$account_env" ] || installer_fetch_account_env "$seed_base" "$account_env" 0600
+[ -r "$account_env" ] || installer_prepare_late_account_env "$seed_base" "$account_env"
 [ -r "$host_env" ] ||
   installer_fetch_host_env "$seed_base" "$(installer_resolve_host_profile "")" "$host_env" 0600
 
 # shellcheck disable=SC1090,SC1091
+unset ACCOUNT_USERNAME ACCOUNT_HOME
 installer_load_data_env "$account_env"
 # shellcheck disable=SC1090,SC1091
 installer_load_data_env "$host_env"

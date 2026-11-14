@@ -202,12 +202,12 @@ installer_class_selected_any role/desktop/medium role/desktop/full 2>__INSTALLER
 host_profile=${INSTALLER_HOST_PROFILE:-$(installer_resolve_host_profile "" 2>__INSTALLER_PATH_DIR_DEV__/null || true)}
 [ -n "$host_profile" ] || tailscale_fatal "selected host profile is unavailable for tailscale helper"
 
-host_env=${DIR_INSTALLER_LATE_ENV}/host.env
-account_env=${DIR_INSTALLER_LATE_ENV}/account.env
+host_env=${INSTALLER_LATE_HOST_ENV:-${DIR_INSTALLER_LATE_ENV}/host.env}
+account_env=${INSTALLER_LATE_ACCOUNT_ENV:-${DIR_INSTALLER_LATE_ENV}/account.env}
 runtime_common=${DIR_INSTALLER_LATE_ENV}/runtime-common.sh
 account_runtime=${DIR_INSTALLER_LATE_ENV}/account-runtime.sh
 [ -r "$host_env" ] || installer_fetch_host_env "$seed_base" "$host_profile" "$host_env" 0600
-[ -r "$account_env" ] || installer_fetch_account_env "$seed_base" "$account_env" 0600
+[ -r "$account_env" ] || installer_prepare_late_account_env "$seed_base" "$account_env"
 [ -r "$runtime_common" ] || fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_COMMON)" "$runtime_common"
 [ -r "$account_runtime" ] || fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" "$account_runtime"
 runtime_env_file=${INSTALLER_RUNTIME_ENV_FILE:-${DIR_INSTALLER_ENV}/runtime.env}
@@ -221,6 +221,7 @@ dbus_helper="${tmp_env_dir}/dbus-broker.sh"
 # shellcheck disable=SC1090,SC1091
 installer_load_data_env "$host_env"
 # shellcheck disable=SC1090,SC1091
+unset ACCOUNT_USERNAME ACCOUNT_HOME
 installer_load_data_env "$account_env"
 # shellcheck disable=SC1090,SC1091
 . "$runtime_env_file"

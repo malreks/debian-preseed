@@ -93,7 +93,7 @@ late_dispatch_module_source() {
 installer_fetch_file "$seed_base" "$shared_hook_path" "$shared_hook_dest" 0644
 install -d -m 0700 "$shared_module_dir"
 for shared_module in $shared_modules; do
-  installer_operation_context_repo FILE_LATE_DISPATCH 98 "fetch_shared_module:${shared_module}"
+  installer_operation_context_repo FILE_LATE_DISPATCH 96 "fetch_shared_module:${shared_module}"
   shared_module_source=$(late_dispatch_module_source "$shared_module") || {
     late_dispatch_status=$?
     installer_fatal_status "$late_dispatch_status" \
@@ -110,7 +110,7 @@ install -d -m 0700 "$helper_dir"
 dispatch_storage_foundation() {
 case "$hook_family" in
   btrfs|vm)
-    installer_operation_context_repo FILE_LATE_DISPATCH 118 "run_btrfs_family_late_command:${hook_family}"
+    installer_operation_context_repo FILE_LATE_DISPATCH 113 "run_btrfs_family_late_command:${hook_family}"
     if INSTALLER_BOOTSTRAP_LIB=$BOOTSTRAP_LIB \
        INSTALLER_LATE_MODULE_DIR=$shared_module_dir \
        SHARED_LATE_COMMAND=$shared_hook_dest \
@@ -125,7 +125,7 @@ case "$hook_family" in
     fi
     ;;
   f2fs)
-    installer_operation_context_repo FILE_LATE_DISPATCH 133 run_f2fs_family_late_command
+    installer_operation_context_repo FILE_LATE_DISPATCH 128 run_f2fs_family_late_command
     if INSTALLER_BOOTSTRAP_LIB=$BOOTSTRAP_LIB \
        INSTALLER_LATE_MODULE_DIR=$shared_module_dir \
        SHARED_LATE_COMMAND=$shared_hook_dest \
@@ -159,6 +159,12 @@ run_helper_script() {
 # Every late provider is selected, ordered and deduplicated by the frozen plan.
 installer_assert_class_plan
 installer_publish_class_receipt
+# Every provider, including CrowdSec and server Whisper, needs the resolved
+# identity independently of the optional desktop storage stage's execution.
+INSTALLER_LATE_ACCOUNT_ENV=${INSTALLER_LATE_ACCOUNT_ENV:-${DIR_INSTALLER_LATE_ENV}/account.env}
+export INSTALLER_LATE_ACCOUNT_ENV
+installer_operation_context_repo FILE_LATE_DISPATCH 166 prepare_late_account_env
+installer_prepare_late_account_env "$seed_base" "$INSTALLER_LATE_ACCOUNT_ENV"
 plan_stages="${RUNTIME_DIR}/state/late-stages.tsv"
 awk -F '\t' '$1=="stage" {split($2, fields, "|"); if(fields[2]=="late") print $2}' \
   "$(installer_class_plan_path)" >"$plan_stages"

@@ -85,6 +85,45 @@ install() {
 . "$FIXTURE_SOURCE/scripts/common/system-foundation.sh"
 '''
 
+LATE_ACCOUNT_SETUP = r'''
+# Fetch and path-authority mocks are confined to this owned isolated fixture.
+# The credential reader, restricted-data loader and account writer are real.
+installer_operation_context_repo() { :; }
+installer_apt_safe_path() {
+  fixture_probe=$1
+  case "$fixture_probe" in "$FIXTURE_ROOT"/*) ;; *) return 92 ;; esac
+  case "$fixture_probe" in */../*|*/./*|*//*) return 92 ;; esac
+  while [ "$fixture_probe" != "$FIXTURE_ROOT" ]; do
+    [ ! -L "$fixture_probe" ] || return 92
+    fixture_probe=${fixture_probe%/*}
+  done
+  [ ! -L "$FIXTURE_ROOT" ]
+}
+installer_fetch_account_env() {
+  case "$2" in "$FIXTURE_ROOT"/state/.account-env.*/policy.env) ;; *) return 93 ;; esac
+  cp "$FIXTURE_ROOT/account-policy.env" "$2" && chmod "$3" "$2"
+}
+installer_repo_file_value() {
+  case "$1" in
+    FILE_RUNTIME_COMMON) printf '%s\n' scripts/runtime/common.sh ;;
+    FILE_RUNTIME_ACCOUNT) printf '%s\n' scripts/runtime/account.sh ;;
+    *) return 94 ;;
+  esac
+}
+bootstrap_source_module() {
+  case "$1" in
+    scripts/runtime/common.sh)
+      # Only the common definitions used by the real account writer are needed.
+      . "$FIXTURE_SOURCE/scripts/runtime/modules/base.sh"
+      . "$FIXTURE_SOURCE/scripts/runtime/modules/identity.sh"
+      ;;
+    scripts/runtime/account.sh) . "$FIXTURE_SOURCE/$1" ;;
+    *) return 94 ;;
+  esac
+}
+RUNTIME_ACCOUNT_CREDENTIALS_READY=1
+'''
+
 
 class PrimaryAccountContractTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -229,3 +268,147 @@ class PrimaryAccountContractTests(unittest.TestCase):
                     rendered = (self.root / 'target/site-perl/Root.pm').read_text(encoding='utf-8')
                     self.assertIn(f"default => sub {{ '{expected}' }}", rendered)
                     self.assertNotIn('__INSTALLER_', rendered)
+
+    def prepare_late_account_policy(self) -> Path:
+        with self.credentials.open('a', encoding='utf-8') as stream:
+            stream.write("PRESEED_PRIMARY_FULLNAME='Fixture User'\n"
+                         "PRESEED_PRIMARY_PASSWORD='fixture-password'\n"
+                         "PRESEED_ROOT_PASSWORD='fixture-root-password'\n")
+        (self.root / 'account-policy.env').write_text(
+            "ROOT_LOGIN='true'\nACCOUNT_DEFAULT_GROUPS='audio video sudo'\n"
+            "SSHD_CONFIG_SOURCE='ssh/sshd_config'\nSSH_USER_CONFIG_SOURCE='ssh/config'\n"
+            "SSH_PUBLIC_KEY_MAX_BYTES='4096'\nSSH_CONFIG_MAX_BYTES='65536'\n", encoding='ascii')
+        return self.root / 'state/account.env'
+
+    def test_late_snapshot_reaches_a_fresh_shell_without_storage_stage(self) -> None:
+        account = self.prepare_late_account_policy()
+        for shell_name, shell in self.shells:
+            for suite in ('forky', 'trixie'):
+                for family in ('desktop', 'server'):
+                    for cmdline, expected in (('quiet', 'fileuser'), ('primary_username=bootuser', 'bootuser')):
+                        with self.subTest(shell=shell_name, suite=suite, family=family, cmdline=cmdline):
+                            self.environment.update(INSTALLER_SUITE=suite, INSTALLER_HOST_VARIANT=family)
+                            result = self.run_code(LATE_ACCOUNT_SETUP + r'''
+installer_prepare_late_account_env fixture "$FIXTURE_ROOT/state/account.env"
+# Child credential resolution and scratch variables must not change the parent.
+[ "$ACCOUNT_USERNAME" = inherited ]
+''', cmdline=cmdline, shell=shell)
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            data = account.read_text(encoding='utf-8')
+                            self.assertNotIn('fixture-password', data + result.stdout + result.stderr)
+                            self.assertNotIn('fixture-root-password', data + result.stdout + result.stderr)
+                            self.assertNotIn('ACCOUNT_PASSWORD=', data)
+                            self.assertNotIn('ROOT_PASSWORD=', data)
+                            self.assertEqual(account.stat().st_mode & 0o777, 0o600)
+                            self.assertFalse(list((self.root / 'state').glob('.account-env*')))
+                            # No storage stage runs here. This checks the shared
+                            # snapshot interface with a fresh data-reader shell;
+                            # it does not replay individual installer providers.
+                            consumer = self.run_code(r'''
+unset ACCOUNT_USERNAME ACCOUNT_HOME
+installer_load_data_env "$FIXTURE_ROOT/state/account.env"
+printf '%s|%s\n' "$ACCOUNT_USERNAME" "$ACCOUNT_HOME"
+''', cmdline=cmdline, shell=shell)
+                            self.assertEqual(consumer.returncode, 0, consumer.stderr)
+                            self.assertEqual(consumer.stdout, f'{expected}|{self.root}/home/{expected}\n')
+
+    def test_late_snapshot_preserves_previous_bytes_on_writer_and_rename_failure(self) -> None:
+        account = self.prepare_late_account_policy()
+        previous = b"ACCOUNT_USERNAME='previous'\nACCOUNT_HOME='/previous-home'\n"
+        for failure in ('writer', 'rename', 'policy'):
+            with self.subTest(failure=failure):
+                self.environment['FIXTURE_EXPECTED_STATUS'] = '2' if failure == 'policy' else '42'
+                account.write_bytes(previous)
+                account.chmod(0o600)
+                if failure == 'writer':
+                    injected = r'''
+printf() {
+  case "$1" in 'ACCOUNT_HOME=%s\n') return 42 ;; esac
+  command printf "$@"
+}
+'''
+                elif failure == 'rename':
+                    injected = 'mv() { return 42; }\n'
+                else:
+                    (self.root / 'account-policy.env').write_text('ROOT_LOGIN=$(false)\n', encoding='ascii')
+                    injected = ''
+                result = self.run_code(LATE_ACCOUNT_SETUP + injected + r'''
+if installer_prepare_late_account_env fixture "$FIXTURE_ROOT/state/account.env"; then
+  exit 95
+else
+  status=$?
+fi
+[ "$status" = "$FIXTURE_EXPECTED_STATUS" ]
+''')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(account.read_bytes(), previous)
+                self.assertFalse(list((self.root / 'state').glob('.account-env*')))
+
+    def test_late_snapshot_rejects_indirect_destination_and_another_publisher(self) -> None:
+        account = self.prepare_late_account_policy()
+        sentinel = self.root / 'sentinel.env'
+        sentinel.write_bytes(b'preserve unrelated fixture bytes\n')
+        sentinel.chmod(0o600)
+        account.symlink_to(sentinel)
+        result = self.run_code(LATE_ACCOUNT_SETUP + '\ninstaller_prepare_late_account_env fixture "$FIXTURE_ROOT/state/account.env"\n')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(sentinel.read_bytes(), b'preserve unrelated fixture bytes\n')
+        self.assertTrue(account.is_symlink())
+        account.unlink()
+        lock = self.root / 'state/.account-env.lock'
+        lock.mkdir(mode=0o700)
+        result = self.run_code(LATE_ACCOUNT_SETUP + '\ninstaller_prepare_late_account_env fixture "$FIXTURE_ROOT/state/account.env"\n')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(lock.is_dir())
+        self.assertFalse(account.exists())
+
+    def test_late_snapshot_retains_evidence_when_cleanup_fails(self) -> None:
+        account = self.prepare_late_account_policy()
+        result = self.run_code(LATE_ACCOUNT_SETUP + r'''
+rmdir() {
+  case "$1" in "$FIXTURE_ROOT"/state/.account-env.*) return 51 ;; esac
+  command rmdir "$@"
+}
+if installer_prepare_late_account_env fixture "$FIXTURE_ROOT/state/account.env"; then
+  exit 95
+else
+  status=$?
+fi
+[ "$status" = 125 ]
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(account.is_file())
+        self.assertTrue((self.root / 'state/.account-env.lock').is_dir())
+        self.assertTrue(list((self.root / 'state').glob('.account-env.??????')))
+        self.assertIn('private evidence and lock retained', result.stderr)
+        self.assertNotIn('fixture-password', result.stdout + result.stderr)
+        self.assertNotIn('fixture-root-password', result.stdout + result.stderr)
+
+    def test_late_snapshot_rejects_destination_replacement_before_publication(self) -> None:
+        account = self.prepare_late_account_policy()
+        previous = b"ACCOUNT_USERNAME='previous'\nACCOUNT_HOME='/previous-home'\n"
+        account.write_bytes(previous)
+        account.chmod(0o600)
+        sentinel = self.root / 'sentinel.env'
+        sentinel.write_bytes(b'preserve unrelated fixture bytes\n')
+        sentinel.chmod(0o600)
+        result = self.run_code(LATE_ACCOUNT_SETUP + r'''
+fixture_path_checks=0
+installer_apt_safe_path() {
+  [ "$1" = "$FIXTURE_ROOT/state/account.env" ] || return 92
+  fixture_path_checks=$((fixture_path_checks + 1))
+  if [ "$fixture_path_checks" -eq 2 ]; then
+    mv "$1" "$FIXTURE_ROOT/retained-account.env" || return 92
+    ln -s "$FIXTURE_ROOT/sentinel.env" "$1" || return 92
+    return 92
+  fi
+  [ ! -L "$1" ]
+}
+installer_prepare_late_account_env fixture "$FIXTURE_ROOT/state/account.env"
+''')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('ancestry changed before publication', result.stderr)
+        self.assertEqual(sentinel.read_bytes(), b'preserve unrelated fixture bytes\n')
+        self.assertEqual((self.root / 'retained-account.env').read_bytes(), previous)
+        self.assertTrue(account.is_symlink())
+        self.assertFalse(list((self.root / 'state').glob('.account-env*')))

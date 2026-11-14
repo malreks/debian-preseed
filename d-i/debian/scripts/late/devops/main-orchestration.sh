@@ -23,7 +23,7 @@ esac
 account_env=${INSTALLER_LATE_ACCOUNT_ENV:-${DIR_INSTALLER_LATE_ENV}/account.env}
 host_env=${INSTALLER_LATE_HOST_ENV:-${DIR_INSTALLER_LATE_ENV}/host.env}
 [ -r "$account_env" ] ||
-  installer_fetch_account_env "$seed_base" "$account_env" 0600
+  installer_prepare_late_account_env "$seed_base" "$account_env"
 [ -r "$host_env" ] ||
   installer_fetch_host_env \
     "$seed_base" \
@@ -32,14 +32,10 @@ host_env=${INSTALLER_LATE_HOST_ENV:-${DIR_INSTALLER_LATE_ENV}/host.env}
     0600
 
 # shellcheck disable=SC1090,SC1091
+unset ACCOUNT_USERNAME ACCOUNT_HOME
 installer_load_data_env "$account_env"
 # shellcheck disable=SC1090,SC1091
 installer_load_data_env "$host_env"
-if [ "$INSTALLER_HOST_VARIANT" = server ]; then
-  ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || devops_fatal "missing server operator"
-  devops_validate_account_name "$ACCOUNT_USERNAME"
-  ACCOUNT_HOME="${DIR_HOME}/$ACCOUNT_USERNAME"
-fi
 
 : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set before DevOps provisioning}"
 : "${ACCOUNT_HOME:?ACCOUNT_HOME must be set before DevOps provisioning}"
