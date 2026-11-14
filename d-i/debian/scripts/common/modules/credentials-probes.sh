@@ -62,6 +62,9 @@ installer_cmdline_parameter_present() (
 
 installer_cmdline_fallback_blocked() {
   case "${1:-}" in
+    primary_username|primary_user)
+      set -- primary_username primary_user
+      ;;
     netcfg/wireless_wpa|wireless_wpa|wifi_wpa)
       set -- netcfg/wireless_wpa wireless_wpa wifi_wpa
       ;;
@@ -101,21 +104,52 @@ installer_cmdline_value() (
   installer_cmdline_key=$1
   installer_cmdline_args=$(installer_cmdline) || return "$?"
   for installer_cmdline_arg in $installer_cmdline_args; do
+    preseed_env_cmdline_key_matches "$installer_cmdline_key" "${installer_cmdline_arg%%=*}" || continue
     case "$installer_cmdline_arg" in
-      "$installer_cmdline_key")
-        printf '\n'
-        return 0
-        ;;
-      "$installer_cmdline_key"=*)
+      *=*)
         printf '%s\n' "${installer_cmdline_arg#*=}"
-        return 0
         ;;
+      *) printf '\n' ;;
     esac
+    return 0
   done
 
   installer_cmdline_fallback_blocked "$installer_cmdline_key" && return 1
   installer_preseed_env_value "$installer_cmdline_key"
 )
+
+# Each late provider runs in its own shell. Public profiles deliberately omit
+# the human identity, and inherited account values are not credential input.
+# Resolve only the identity here: early account setup owns password handling.
+installer_load_primary_account() {
+  set +x
+  set +v
+  if command -v installer_operation_context_repo >/dev/null 2>&1; then
+    installer_operation_context_repo FILE_COMMON_MOD_CREDENTIALS_PROBES 124 load_primary_account
+  fi
+  if installer_primary_account_username=$(installer_cmdline_value primary_username); then
+    :
+  else
+    installer_primary_account_status=$?
+    installer_fatal_status "$installer_primary_account_status" \
+      'primary username is required from primary_username or PRESEED_PRIMARY_USERNAME in the installer credential input'
+    return "$installer_primary_account_status"
+  fi
+  if ! printf '%s\n' "$installer_primary_account_username" | LC_ALL=C grep -Eq '^[a-z_][a-z0-9_-]{0,31}$'; then
+    installer_fatal 'primary username must match ^[a-z_][a-z0-9_-]{0,31}$'
+    return 2
+  fi
+  case "$installer_primary_account_username" in
+    root|nobody|nogroup)
+      installer_fatal 'primary username must be a primary human account'
+      return 2
+      ;;
+  esac
+  : "${DIR_HOME:?canonical home root is required}"
+  ACCOUNT_USERNAME=$installer_primary_account_username
+  ACCOUNT_HOME="${DIR_HOME}/${ACCOUNT_USERNAME}"
+  unset installer_primary_account_username
+}
 
 installer_cmdline_password_value() (
   # Password/passphrase readers share the normal first-cmdline-parameter

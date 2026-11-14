@@ -11,6 +11,7 @@ installer_ensure_context_loaded "$seed_base"
 profile_env="${DIR_INSTALLER_LATE_ENV}/foundation-profile.env"
 installer_fetch_host_env "$seed_base" "$INSTALLER_HOST_PROFILE" "$profile_env" 0600
 installer_load_data_env "$profile_env"
+installer_load_primary_account
 installer_assert_class_plan
 bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/foundation-support" fetch target
 layout_env="$(installer_runtime_state_dir)/runtime.env"

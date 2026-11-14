@@ -50,6 +50,15 @@ Optional [URLhaus authentication](docs/clamav-urlhaus.md) uses
 `PRESEED_URLHAUS_AUTHKEY` from the private installer credential input. A missing
 or empty value leaves URLhaus disabled while the other ClamAV feeds continue.
 
+The primary account uses `primary_username=<name>` from the installer kernel
+command line, falling back to `PRESEED_PRIMARY_USERNAME` in the protected
+installer credential input. The historical `primary_user=<name>` spelling is
+also accepted. The first occurrence of either spelling wins; an explicit
+empty or invalid username fails validation. Early account creation and late
+asset staging use the same selection, with no profile or inherited-account
+fallback. Shared late stages resolve the username and canonical home before
+rendering account-dependent assets in their own shells.
+
 `url=` and `preseed/url=` accept HTTP, HTTPS, and local `file=` sources. The
 installer does not perform HTTP/HTTPS certificate, authority, downgrade, or
 redirect validation; it passes HTTP and HTTPS to the available d-i `wget` and

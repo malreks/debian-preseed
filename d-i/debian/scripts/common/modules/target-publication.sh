@@ -4,6 +4,9 @@
 installer_stage_profile_asset() (
   set -eu
   source_path=$1; target_path=$2; asset_mode=$3
+  if command -v installer_operation_context >/dev/null 2>&1; then
+    installer_operation_context "$source_path" 1 stage_profile_asset
+  fi
   installer_repo_assert_asset_family "$source_path"
   case "$target_path" in /*) ;; *) installer_fatal 'target path must be absolute' ;; esac
   case "$asset_mode" in 0[0-7][0-7][0-7]) ;; *) installer_fatal 'invalid target asset mode' ;; esac
@@ -24,7 +27,7 @@ installer_stage_profile_asset() (
     # Only a validated identifier enters indirection. Profile bytes are data.
     present=; value=
     eval "present=\${$name+x}; value=\${$name-}"
-    [ "$present" = x ] || installer_fatal "profile asset lacks required field: $name"
+    [ "$present" = x ] || installer_fatal "profile asset lacks required field: $name (asset=$source_path)"
     set -- "$@" "$name" "$value"
   done
   installer_apply_scalar_placeholders "$input" "$output" "$@"

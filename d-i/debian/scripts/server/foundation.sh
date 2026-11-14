@@ -12,7 +12,8 @@ installer_ensure_context_loaded "$seed_base"
 server_env="${DIR_INSTALLER_LATE_ENV}/server.env"
 installer_fetch_host_env "$seed_base" "$INSTALLER_HOST_PROFILE" "$server_env" 0600
 installer_load_data_env "$server_env"
-server_operator=$(installer_cmdline_value primary_user) || installer_fatal 'server operator identity is missing'
+installer_load_primary_account
+server_operator=$ACCOUNT_USERNAME
 server_ssh_users=${SSH_SERVER_USER_ALLOW:-$server_operator}
 case " $server_ssh_users " in
   *" $server_operator "*) ;;

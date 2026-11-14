@@ -15,7 +15,7 @@ preseed_env_variable_name() {
     netcfg/wireless_wpa|wireless_wpa|wifi_wpa) printf '%s\n' PRESEED_WIFI_PASSPHRASE ;;
     fruux_username) printf '%s\n' PRESEED_FRUUX_USERNAME ;;
     fruux_password) printf '%s\n' PRESEED_FRUUX_PASSWORD ;;
-    primary_user) printf '%s\n' PRESEED_PRIMARY_USERNAME ;;
+    primary_username|primary_user) printf '%s\n' PRESEED_PRIMARY_USERNAME ;;
     primary_fullname) printf '%s\n' PRESEED_PRIMARY_FULLNAME ;;
     primary_password) printf '%s\n' PRESEED_PRIMARY_PASSWORD ;;
     primary_gpg_passphrase) printf '%s\n' PRESEED_PRIMARY_GPG_PASSPHRASE ;;
@@ -48,6 +48,16 @@ preseed_env_variable_name() {
     technitium_backup_passphrase) printf '%s\n' PRESEED_TECHNITIUM_BACKUP_PASSPHRASE ;;
     *) return 1 ;;
   esac
+}
+
+# The documented username spelling and the historical spelling select the
+# same input. Readers scan once in boot order, so the first spelling present
+# wins, including an explicit empty value; neither can revive file fallback.
+preseed_env_cmdline_key_matches() {
+  case "$1:$2" in
+    primary_username:primary_user|primary_user:primary_username) return 0 ;;
+  esac
+  [ "$1" = "$2" ]
 }
 
 # Credential-valued boot keys are classified before any command-line value is

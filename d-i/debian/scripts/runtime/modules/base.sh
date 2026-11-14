@@ -84,16 +84,14 @@ runtime_cmdline_value() (
   runtime_cmdline_key=$1
   runtime_cmdline_args=$(runtime_cmdline) || return "$?"
   for runtime_cmdline_arg in $runtime_cmdline_args; do
+    preseed_env_cmdline_key_matches "$runtime_cmdline_key" "${runtime_cmdline_arg%%=*}" || continue
     case "$runtime_cmdline_arg" in
-      "$runtime_cmdline_key")
-        printf '\n'
-        return 0
-        ;;
-      "$runtime_cmdline_key"=*)
+      *=*)
         printf '%s\n' "${runtime_cmdline_arg#*=}"
-        return 0
         ;;
+      *) printf '\n' ;;
     esac
+    return 0
   done
 
   runtime_preseed_env_value "$runtime_cmdline_key"

@@ -12,6 +12,7 @@ TMP_ENV_DIR=$DIR_INSTALLER_LATE_ENV
 LATE_COMMAND_HOST_ENV="${TMP_ENV_DIR}/system-services.env"
 installer_fetch_host_env "$SEED_BASE" "$INSTALLER_HOST_PROFILE" "$LATE_COMMAND_HOST_ENV" 0600
 installer_load_data_env "$LATE_COMMAND_HOST_ENV"
+installer_load_primary_account
 installer_assert_class_plan
 bootstrap_source_common_support_libs "$SEED_BASE" "${TMP_ENV_DIR}/system-service-support" fetch hook target
 for module in FILE_LATE_CORE FILE_LATE_TARGET_ASSETS FILE_LATE_TEMPLATES FILE_LATE_STORAGE_MAINTENANCE FILE_LATE_VOLATILE_STORAGE; do
