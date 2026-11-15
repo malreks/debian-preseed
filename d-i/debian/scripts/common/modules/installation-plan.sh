@@ -5,6 +5,11 @@ installer_class_plan_path() {
   printf '%s/installation-plan.tsv\n' "$(installer_runtime_state_dir)"
 }
 
+installer_multiboot_profile_selected() {
+  case "${INSTALLER_HOST_PROFILE_ENV_NAME:-}" in *-duo|*-trio) return 0 ;; esac
+  return 1
+}
+
 installer_class_selected() {
   case "${1:-}" in ''|*[!a-z0-9/-]*|*../*|*/..|*//*|/*) return 1 ;; esac
   class_plan=$(installer_class_plan_path) || return "$?"
@@ -77,10 +82,11 @@ installer_prepare_class_plan() (
       installer_nvidia_gpu_detected || installer_fatal 'an explicit NVIDIA driver requires detected NVIDIA display hardware before partitioning'
       ;;
   esac
-  case "$plan_profile" in *-duo) installer_fatal 'dualboot preservation is quarantined before partitioning' ;; esac
-  case " $INSTALLER_SELECTED_CLASS_REFS " in
-    *' optional/dualboot '*) installer_fatal 'dualboot preservation is not qualified; refusing before partitioning' ;;
-  esac
+  # The registered profile owns multiboot selection; disk safety is checked
+  # against the actual selected-disk inventory before any partman mutation.
+  plan_mode=fresh
+  case "$plan_profile" in *-duo|*-trio) plan_mode=multiboot ;; esac
+  [ "${INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE:?reuse policy required}" != true ] || plan_mode=reuse
   case " $plan_roles :$INSTALLER_HOST_FAMILY" in
     *' server/technitium '*:f2fs) installer_fatal 'Technitium requires project quotas on /pool; the selected F2FS layout provides ext4 without qualified project quotas' ;;
   esac
@@ -109,7 +115,7 @@ installer_prepare_class_plan() (
   plan_whisper_enable=${INSTALLER_PROFILE_WHISPER_ENABLE:?explicit Whisper policy required}
   plan_llama_enable=${INSTALLER_PROFILE_LLAMA_ENABLE:?explicit Llama policy required}
   case "$plan_whisper_enable:$plan_llama_enable" in true:true|true:false|false:true|false:false) ;; *) installer_fatal 'invalid frozen AI policy' ;; esac
-  plan_key=$(printf '%s\n' "$INSTALLER_SUITE|$plan_roles|$plan_profile|amd64|$INSTALLER_SELECTED_CLASS_REFS|$plan_release|$plan_snapshots|$plan_crypto_root|$plan_crypto_home|$plan_wifi_enable|$plan_primary_iface|$plan_ipv6_enable|$plan_ssh_enable|$plan_ssh_port|$plan_codex_only|$plan_whisper_enable|$plan_llama_enable" | source_hash)
+  plan_key=$(printf '%s\n' "$INSTALLER_SUITE|$plan_roles|$plan_profile|amd64|$INSTALLER_SELECTED_CLASS_REFS|$plan_release|$plan_snapshots|$plan_crypto_root|$plan_crypto_home|$plan_wifi_enable|$plan_primary_iface|$plan_ipv6_enable|$plan_ssh_enable|$plan_ssh_port|$plan_codex_only|$plan_whisper_enable|$plan_llama_enable|$plan_mode|$INSTALLER_PROFILE_PARTMAN_CEILING_ENABLE|$INSTALLER_PROFILE_PARTMAN_CEILING_MB|$INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE|$INSTALLER_PROFILE_PARTMAN_REUSE_START" | source_hash)
   plan_key=${plan_key%% *}
   if [ -e "$plan_path" ]; then
     [ ! -L "$plan_path" ] && [ "$(installer_plan_value input_key)" = "$plan_key" ] ||
@@ -123,12 +129,15 @@ installer_prepare_class_plan() (
   trap 'rm -f "$plan_work" "$plan_error_file"; rmdir "$plan_lock"' 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   {
-    printf 'input_key\t%s\nrelease\t%s\nprofile\t%s\nfilesystem\t%s\nmode\tfresh\nsnapshots\t%s\n' \
-      "$plan_key" "$plan_release" "$INSTALLER_HOST_VARIANT/$plan_profile" "$INSTALLER_HOST_FAMILY" "$plan_snapshots"
+    printf 'input_key\t%s\nrelease\t%s\nprofile\t%s\nfilesystem\t%s\nmode\t%s\nsnapshots\t%s\n' \
+      "$plan_key" "$plan_release" "$INSTALLER_HOST_VARIANT/$plan_profile" "$INSTALLER_HOST_FAMILY" "$plan_mode" "$plan_snapshots"
     printf 'crypto_root\t%s\ncrypto_home\t%s\nwifi_enable\t%s\nprimary_iface\t%s\nipv6_enable\t%s\n' \
       "$plan_crypto_root" "$plan_crypto_home" "$plan_wifi_enable" "$plan_primary_iface" "$plan_ipv6_enable"
     printf 'ssh_enable\t%s\nssh_port\t%s\n' "$plan_ssh_enable" "$plan_ssh_port"
     printf 'whisper_enable\t%s\nllama_enable\t%s\n' "$plan_whisper_enable" "$plan_llama_enable"
+    printf 'partman_ceiling_enable\t%s\npartman_ceiling_mb\t%s\npartman_reuse_enable\t%s\npartman_reuse_start\t%s\n' \
+      "$INSTALLER_PROFILE_PARTMAN_CEILING_ENABLE" "$INSTALLER_PROFILE_PARTMAN_CEILING_MB" \
+      "$INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE" "$INSTALLER_PROFILE_PARTMAN_REUSE_START"
     case "$plan_snapshots" in
       timeshift-btrfs) printf 'timeshift_enable\ttrue\n' ;;
       none) printf 'timeshift_enable\tfalse\n' ;;
@@ -184,7 +193,7 @@ installer_publish_class_receipt() {
   install -d -m 0755 "$receipt_parent" || return "$?"
   [ ! -L "$receipt_parent" ] && [ ! -L "$receipt_path" ] || return 1
   receipt_work=$(mktemp "$receipt_parent/.classes.XXXXXX") || return "$?"
-  awk -F '\t' '$1 ~ /^(format|suite|role|family|architecture|profile|release|snapshots|timeshift_enable|crypto_root|crypto_home|wifi_enable|primary_iface|ipv6_enable|ssh_enable|ssh_port|codex_only_enable|codex_enable|whisper_enable|llama_enable|class|omission)$/ {print}' \
+  awk -F '\t' '$1 ~ /^(format|suite|role|family|architecture|profile|release|mode|partman_ceiling_enable|partman_ceiling_mb|partman_reuse_enable|partman_reuse_start|snapshots|timeshift_enable|crypto_root|crypto_home|wifi_enable|primary_iface|ipv6_enable|ssh_enable|ssh_port|codex_only_enable|codex_enable|whisper_enable|llama_enable|class|omission)$/ {print}' \
     "$(installer_class_plan_path)" >"$receipt_work" || return "$?"
   chmod 0644 "$receipt_work" && mv -f "$receipt_work" "$receipt_path"
 }

@@ -365,7 +365,7 @@ write_target_grub_dropins() {
   apply_root_initramfs_fsck_policy
   render_target_grub_dropin 05-bootprofiles.cfg.tmpl "${DIR_GRUB_DEFAULT}/05-bootprofiles.cfg"
   render_target_grub_dropin_with_placeholder_map 07-display.cfg.tmpl "${FILE_GRUB_DISPLAY_CFG}" grub_display_placeholder_map
-  if [ "${DUALBOOT_ENABLED:-false}" = "true" ]; then
+  if [ "${MULTIBOOT_ENABLED:-false}" = "true" ]; then
     GRUB_OS_PROBER_DISABLED=false
   else
     GRUB_OS_PROBER_DISABLED=true
@@ -478,7 +478,7 @@ disable_stock_kernel_menu() {
         continue
         ;;
       30_os-prober)
-        [ "${DUALBOOT_ENABLED:-false}" = "true" ] && continue
+        [ "${MULTIBOOT_ENABLED:-false}" = "true" ] && continue
         ;;
     esac
     if [ -f "$path" ] && [ -x "$path" ]; then
@@ -490,7 +490,7 @@ disable_stock_kernel_menu() {
     installer_fatal "managed GRUB 40_custom generator is not executable"
   fi
   for script_name in 05_debian_theme 10_linux 20_linux_xen 25_bli 30_os-prober 30_uefi-firmware 41_custom 41_snapshots-btrfs; do
-    if [ "$script_name" = 30_os-prober ] && [ "${DUALBOOT_ENABLED:-false}" = "true" ]; then
+    if [ "$script_name" = 30_os-prober ] && [ "${MULTIBOOT_ENABLED:-false}" = "true" ]; then
       continue
     fi
     if [ -e "${target_grub_dir}/${script_name}" ] && [ -x "${target_grub_dir}/${script_name}" ]; then
@@ -1082,7 +1082,7 @@ finalize_target_secure_boot_mok_reset() (
 )
 
 ensure_target_dualboot_os_prober_package() {
-  [ "${DUALBOOT_ENABLED:-false}" = "true" ] || return 0
+  [ "${MULTIBOOT_ENABLED:-false}" = "true" ] || return 0
 
   if ! installer_word_list_contains "${INSTALLER_PKGSEL_INCLUDE:-}" os-prober; then
     INSTALLER_PKGSEL_INCLUDE="${INSTALLER_PKGSEL_INCLUDE:+${INSTALLER_PKGSEL_INCLUDE} }os-prober"
@@ -1092,7 +1092,7 @@ ensure_target_dualboot_os_prober_package() {
     return 0
   fi
 
-  installer_warn "optional/dualboot selected but __INSTALLER_PATH_DIR_USR_BIN__/os-prober is missing in target; repairing package state"
+  installer_warn "multiboot profile selected but __INSTALLER_PATH_DIR_USR_BIN__/os-prober is missing in target; repairing package state"
   prepare_target_volatile_dirs_for_apt
   run_in_target "refresh apt metadata before dualboot os-prober repair" \
     env DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
@@ -1117,7 +1117,7 @@ ensure_target_dualboot_os_prober_package() {
 }
 
 require_target_dualboot_os_prober_package() {
-  [ "${DUALBOOT_ENABLED:-false}" = "true" ] || return 0
+  [ "${MULTIBOOT_ENABLED:-false}" = "true" ] || return 0
   ensure_target_dualboot_os_prober_package
   test_in_target test -x __INSTALLER_PATH_DIR_USR_BIN__/os-prober || \
     installer_fatal "__INSTALLER_PATH_DIR_USR_BIN__/os-prober is missing in target after repair; GRUB cannot probe other operating systems automatically"
@@ -1139,7 +1139,7 @@ run_target_grub_config_update() {
   grub_config_command=$(resolve_target_grub_config_command) || \
     installer_fatal "neither __INSTALLER_PATH_DIR_USR_SBIN__/update-grub nor __INSTALLER_PATH_DIR_USR_SBIN__/grub-mkconfig is available in target"
 
-  if [ "${DUALBOOT_ENABLED:-false}" = "true" ]; then
+  if [ "${MULTIBOOT_ENABLED:-false}" = "true" ]; then
     install_disk_path=$(readlink -f "$DEV_INSTALL_DISK" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
     [ -n "$install_disk_path" ] || \
       installer_fatal "unable to resolve the selected install disk before scoped dualboot os-prober: ${DEV_INSTALL_DISK:-unset}"
@@ -1355,12 +1355,33 @@ open_luks_mapping_with_passphrase() {
   fi
 
   ACTIVE_TARGET_SECURE_BOOT_MAPPER=$(installer_active_secure_boot_luks_mapper || true)
+  reuse_secure_boot_format=false
+  if [ "${RUNTIME_PARTITION_MODE:-fresh}" = reuse ]; then
+    reuse_secure_boot_verifier="${DIR_INSTALLER_ENV:?installer environment path required}/detect-disk.sh"
+    [ -f "$reuse_secure_boot_verifier" ] && [ ! -L "$reuse_secure_boot_verifier" ] &&
+      [ -x "$reuse_secure_boot_verifier" ] || fatal 'selected disk verifier is missing before Secure Boot reuse'
+    "$reuse_secure_boot_verifier" --verify-identity "$DEV_INSTALL_DISK" \
+      "${FILE_INSTALLER_SELECTED_DISK_IDENTITY:?selected disk identity required}" "$dev" ||
+      fatal 'selected partition identity changed before Secure Boot reuse'
+    reuse_secure_boot_state=${FILE_INSTALLER_SECURE_BOOT_REUSE_RESET:?installer reuse state path required}
+    if [ -e "$reuse_secure_boot_state" ] || [ -L "$reuse_secure_boot_state" ]; then
+      [ -f "$reuse_secure_boot_state" ] && [ ! -L "$reuse_secure_boot_state" ] &&
+        [ "$(cat "$reuse_secure_boot_state")" = "formatted:$dev" ] ||
+        fatal 'Secure Boot reuse formatting is uncertain; retain installer evidence and do not retry'
+    else
+      [ -z "$ACTIVE_TARGET_SECURE_BOOT_MAPPER" ] ||
+        fatal 'refusing to reformat an already mapped Secure Boot reuse partition'
+      (set -C; umask 077; printf 'running:%s\n' "$dev" >"$reuse_secure_boot_state") ||
+        fatal 'cannot claim Secure Boot reuse formatting'
+      reuse_secure_boot_format=true
+    fi
+  fi
   if [ -n "$ACTIVE_TARGET_SECURE_BOOT_MAPPER" ]; then
     installer_ensure_ext4_filesystem "$ACTIVE_TARGET_SECURE_BOOT_MAPPER" "$MKFS_EXT4_VAR_LIB_SHSIGNED_OPTS" "$FS_LABEL_VAR_LIB_SHSIGNED"
     return 0
   fi
 
-  if ! cryptsetup isLuks "$dev" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+  if [ "$reuse_secure_boot_format" = true ] || ! cryptsetup isLuks "$dev" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
     installer_wipe_block_device "$dev"
     luks_format_err=$(installer_runtime_temp_log_path secure-boot-luks-format.log)
     info "formatting Secure Boot state partition ${dev} as LUKS2"
@@ -1372,6 +1393,9 @@ open_luks_mapping_with_passphrase() {
     fi
     rm -f "$luks_format_err"
     installer_udev_settle
+    if [ "$reuse_secure_boot_format" = true ]; then
+      printf 'formatted:%s\n' "$dev" >"$reuse_secure_boot_state" || fatal 'cannot record Secure Boot reuse formatting'
+    fi
   fi
 
   luks_open_err=$(installer_runtime_temp_log_path secure-boot-luks-open.log)
@@ -1766,7 +1790,7 @@ render_grub_profile_config_map() (
   grub_profile_config_value GRUB_CONFIG_RESCUE_USB_UUID "$value" || exit 1
   value=${GRUB_DISPLAY_GFXPAYLOAD_LINUX:-}
   grub_profile_config_value GRUB_CONFIG_GRUB_GFXPAYLOAD_LINUX "$value" || exit 1
-  value=${DUALBOOT_ENABLED:-false}
+  value=${MULTIBOOT_ENABLED:-false}
   grub_profile_config_value GRUB_CONFIG_DUALBOOT_ENABLED "$value" || exit 1
  )
 

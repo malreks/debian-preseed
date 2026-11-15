@@ -31,8 +31,12 @@ still comes from the actual initrd and never disables certificate validation.
 Every concrete profile declares independent root/home encryption, Wi-Fi, IPv6,
 primary-interface, SSH, sharing and hardware policy. Btrfs profiles own Timeshift
 schedules and retention. F2FS requires explicit `snapshots=none`; the installer
-does not change the filesystem. Duo/dualboot profiles are quarantined before
-partitioning because preservation has not been qualified.
+does not change the filesystem. Duo and Trio profiles select automatic
+multiboot preservation. Every profile explicitly owns `PARTMAN_CEILING_ENABLE`,
+`PARTMAN_CEILING_MB`, `PARTMAN_REUSE_ENABLE` and `PARTMAN_REUSE_START`.
+Reuse preserves existing geometry and takes precedence over the ceiling.
+The [partitioning and generation contract](../../../docs/implementation/partitioning-profiles.md)
+describes the exact destructive range, EFI selection and remaining native gates.
 
 Private account and AP credentials come from `/preseed.env` in the actual
 Debian Installer initrd. This is unrelated to the checkout or served-tree root.
@@ -107,7 +111,7 @@ greeter recovery helper, without installation-only entrypoints.
 
 ## OpenSSH server policy
 
-All thirteen concrete profiles declare `SSH_SERVER_ENABLE` as literal `true`
+All concrete profiles declare `SSH_SERVER_ENABLE` as literal `true`
 or `false`. Desktop defaults are false; server defaults are true. Every profile
 also declares its five-digit `SSH_SERVER_PORT` in 30000..40000 and explicit
 user/source-network policy. Server role class files include `openssh-server`

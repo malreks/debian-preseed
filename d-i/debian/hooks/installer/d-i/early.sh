@@ -69,7 +69,6 @@ family_d_i_early_main() {
   requested_host_profile=${2:-}
   hook_family=${3:-}
   runtime_script_path=${4:-}
-  capture_dualboot_sizes=${5:-false}
   preload_f2fs=${6:-false}
 
   [ -n "$hook_family" ] || early_bootstrap_fatal "d-i early hook family is required"
@@ -183,6 +182,8 @@ family_d_i_early_main() {
 
   hook_resolve_install_disk "$TMP_ENV_DIR/detect-disk.sh" "$HOST_PROFILE"
   installer_log_disk_context
+  # Automatic GPT/ESP planning needs the real installer tools before probing.
+  hook_ensure_partition_tooling
 
   runtime_apply_ssh_from_classes
   runtime_apply_layout_from_cmdline
@@ -218,9 +219,7 @@ family_d_i_early_main() {
   fi
   runtime_write_effective_account_env "$TMP_ENV_DIR/account.env"
 
-  if early_bool_is_true "$capture_dualboot_sizes"; then
-    runtime_capture_dualboot_partition_sizes
-  fi
+  runtime_capture_dualboot_partition_sizes
   runtime_write_runtime_env "$RUNTIME_ENV_FILE"
   cp "$RUNTIME_ENV_FILE" "${TMP_ENV_DIR}/runtime.env"
   runtime_write_expert_recipe "$RUNTIME_RECIPE_FILE"

@@ -325,8 +325,6 @@ late_command_fetch_common_assets_file() {
 }
 
 late_command_load_runtime_env() {
-  capture_dualboot_layout=${1:-false}
-
   # Propagate each failure even under an if/OR caller (which disables errexit).
 
   late_command_load_profile_env || return $?
@@ -344,12 +342,10 @@ late_command_load_runtime_env() {
     # shellcheck disable=SC1090,SC1091
     . "$late_command_runtime_state_env" || return $?
   else
-    runtime_apply_layout_from_cmdline || return $?
-    if [ "$capture_dualboot_layout" = true ]; then
-      command -v runtime_capture_dualboot_partition_sizes >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || installer_fatal "runtime_capture_dualboot_partition_sizes is unavailable in ${TMP_ENV_DIR}/runtime.sh"
-      runtime_capture_dualboot_partition_sizes || return $?
-    fi
-    runtime_write_runtime_env "$late_command_runtime_state_env" || return $?
+    # Re-detecting an append layout here would select space after the freshly
+    # installed system. Only the frozen pre-partman identities are authoritative.
+    installer_fatal 'frozen partition layout is missing; refusing late-stage disk rediscovery'
+    return 1
   fi
   installer_ensure_context_loaded "${SEED_BASE:-}" || return $?
   runtime_ensure_system_identity || return $?

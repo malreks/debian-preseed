@@ -246,41 +246,24 @@ runtime_gpt_part_type_is_esp() {
 }
 
 runtime_capture_dualboot_partition_sizes() {
-  [ "${DUALBOOT_ENABLED:-false}" = "true" ] || return 0
-
-  slot=1
-  while [ "$slot" -lt "$RUNTIME_DEBIAN_START_SLOT" ]; do
-    part_dev=$(runtime_partition_path "$slot")
-    size_mb=$(runtime_device_size_mb "$part_dev") || \
-      runtime_fatal "unable to capture measured partition size for preserved slot ${slot} (${part_dev})"
-    runtime_set_partition_size_mb "$slot" "$size_mb"
-    slot=$((slot + 1))
-  done
+  [ "${DUALBOOT_ENABLED:-false}" = true ] || return 0
+  measured_efi_mb=$(runtime_device_size_mb "$DEV_PART_EFI") || runtime_fatal 'cannot measure the preserved ESP'
+  runtime_set_partition_size_mb "$RUNTIME_EFI_SLOT" "$measured_efi_mb"
 }
 
 runtime_sum_preserved_partition_sizes_mb() {
-  total_mb=0
-
-  [ "${DUALBOOT_ENABLED:-false}" = "true" ] || {
-    printf '0\n'
-    return 0
-  }
-
-  slot=1
-  while [ "$slot" -lt "$RUNTIME_DEBIAN_START_SLOT" ]; do
-    size_mb=$(runtime_get_partition_size_mb "$slot") || \
-      runtime_fatal "missing measured partition size for preserved slot ${slot}"
-    total_mb=$((total_mb + size_mb))
-    slot=$((slot + 1))
-  done
-
-  printf '%s\n' "$total_mb"
+  # Disk-coordinate extent includes gaps and all prior operating systems.
+  printf '%s\n' "${RUNTIME_EXISTING_END_MB:-0}"
 }
 
 runtime_compute_layout_sizing() {
+  if [ "${RUNTIME_PARTITION_MODE:-fresh}" = reuse ]; then
+    runtime_apply_reuse_sizing
+    return "$?"
+  fi
   runtime_validate_partition_sizes
 
-  disk_total_mb=$(runtime_install_disk_size_mb)
+  disk_total_mb=$(runtime_policy_disk_budget_mb)
   ram_total_mib=$(runtime_total_ram_mib)
   preserved_total_mb=$(runtime_sum_preserved_partition_sizes_mb)
 
@@ -558,31 +541,34 @@ runtime_assign_default_slots() {
 }
 
 runtime_assign_dualboot_slots() {
-  dualboot_efi_slot=$1
-  dualboot_debian_slot=$2
-
-  runtime_require_positive_integer dualboot_efi "$dualboot_efi_slot"
-  runtime_require_positive_integer dualboot_debian "$dualboot_debian_slot"
-  if [ "$dualboot_efi_slot" -ge "$dualboot_debian_slot" ]; then
-    runtime_fatal "dualboot_efi must be lower than dualboot_debian"
-  fi
-
   DUALBOOT_ENABLED=true
-  DUALBOOT_EFI_SLOT=$dualboot_efi_slot
-  DUALBOOT_DEBIAN_SLOT=$dualboot_debian_slot
-  RUNTIME_EFI_SLOT=$dualboot_efi_slot
-  RUNTIME_BOOT_SLOT=$dualboot_debian_slot
-  RUNTIME_ROOT_SLOT=$((dualboot_debian_slot + 1))
-  RUNTIME_HOME_SLOT=$((dualboot_debian_slot + 2))
-  RUNTIME_OPT_SLOT=$((dualboot_debian_slot + 3))
-  RUNTIME_DATA_SLOT=$((dualboot_debian_slot + 4))
-  RUNTIME_POOL_SLOT=$((dualboot_debian_slot + 5))
-  RUNTIME_VAR_TMP_SLOT=$((dualboot_debian_slot + 6))
-  RUNTIME_VAR_LIB_SHSIGNED_SLOT=$((dualboot_debian_slot + 7))
-  RUNTIME_VAR_LOG_JOURNAL_SLOT=$((dualboot_debian_slot + 8))
-  RUNTIME_RAW_SWAP_SLOT=$((dualboot_debian_slot + 9))
-  RUNTIME_RAW_ZRAM_SLOT=$((dualboot_debian_slot + 10))
-  RUNTIME_PRESERVED_SLOTS=$(runtime_build_space_list 1 $((dualboot_debian_slot - 1)) "$dualboot_efi_slot")
+  RUNTIME_EFI_SLOT=$RUNTIME_DETECTED_EFI_SLOT
+  DUALBOOT_EFI_SLOT=$RUNTIME_EFI_SLOT
+  layout_offset=0
+    RUNTIME_BOOT_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_ROOT_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_HOME_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_OPT_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_DATA_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_POOL_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_VAR_TMP_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_VAR_LIB_SHSIGNED_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_VAR_LOG_JOURNAL_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_RAW_SWAP_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+    RUNTIME_RAW_ZRAM_SLOT=$(runtime_policy_slot "$layout_offset") || runtime_fatal 'not enough GPT partition numbers for the complete layout'
+    layout_offset=$((layout_offset + 1))
+  DUALBOOT_DEBIAN_SLOT=$RUNTIME_BOOT_SLOT
+  RUNTIME_PRESERVED_SLOTS=
 }
 
 runtime_apply_layout_from_cmdline() {
@@ -593,17 +579,10 @@ runtime_apply_layout_from_cmdline() {
   runtime_load_default_slots_from_env
 
   PARTMAN_RECIPE_NAME=${PARTMAN_RECIPE_NAME:-btrfs-ext4-xfs-layout}
-  dualboot_efi_raw=$(runtime_cmdline_value dualboot_efi 2>/dev/null || true)
-  dualboot_debian_raw=$(runtime_cmdline_value dualboot_debian 2>/dev/null || true)
-
-  if runtime_dualboot_class_selected; then
-    [ -n "$dualboot_efi_raw" ] || runtime_fatal "classes=...,dualboot requires dualboot_efi=<integer> on the kernel cmdline"
-    [ -n "$dualboot_debian_raw" ] || runtime_fatal "classes=...,dualboot requires dualboot_debian=<integer> on the kernel cmdline"
-    runtime_assign_dualboot_slots "$dualboot_efi_raw" "$dualboot_debian_raw"
+  runtime_prepare_layout_policy
+  if [ "$RUNTIME_PARTITION_MODE" != fresh ]; then
+    runtime_assign_dualboot_slots
   else
-    if [ -n "$dualboot_efi_raw" ] || [ -n "$dualboot_debian_raw" ]; then
-      runtime_fatal "dualboot_efi and dualboot_debian require classes=...,dualboot"
-    fi
     runtime_assign_default_slots
   fi
 
@@ -636,6 +615,7 @@ runtime_write_runtime_env() {
   runtime_validate_crypto_layout
   runtime_prepare_parent_dir "$dest" 0700
   {
+    runtime_write_layout_policy_env
     printf 'SYSTEM_PREFIX=%s\n' "$(runtime_shell_quote "$SYSTEM_PREFIX")"
     printf 'SYSTEM_HOSTNAME=%s\n' "$(runtime_shell_quote "$SYSTEM_HOSTNAME")"
     printf 'SYSTEM_DOMAIN=%s\n' "$(runtime_shell_quote "$SYSTEM_DOMAIN")"
@@ -701,14 +681,8 @@ runtime_write_runtime_env() {
     printf 'DEV_PART_RAW_SWAP_MB=%s\n' "$(runtime_shell_quote "$DEV_PART_RAW_SWAP_MB")"
     printf 'DEV_PART_RAW_ZRAM_MB=%s\n' "$(runtime_shell_quote "$DEV_PART_RAW_ZRAM_MB")"
     printf 'SWAP_SIZE_MIB=%s\n' "$(runtime_shell_quote "$SWAP_SIZE_MIB")"
-    if [ "$DUALBOOT_ENABLED" = "true" ]; then
-      slot=1
-      while [ "$slot" -lt "$RUNTIME_DEBIAN_START_SLOT" ]; do
-        size_mb=$(runtime_get_partition_size_mb "$slot") || \
-          runtime_fatal "missing measured partition size for preserved slot ${slot}"
-        printf 'RUNTIME_PARTITION_%s_SIZE_MB=%s\n' "$slot" "$(runtime_shell_quote "$size_mb")"
-        slot=$((slot + 1))
-      done
+    if [ "$DUALBOOT_ENABLED" = true ]; then
+      printf 'RUNTIME_PARTITION_%s_SIZE_MB=%s\n' "$RUNTIME_EFI_SLOT" "$(runtime_shell_quote "$DEV_PART_EFI_MB")"
     fi
   } >"$dest"
   chmod 0600 "$dest"
@@ -722,10 +696,12 @@ runtime_emit_debian_partition_recipe() {
   if runtime_root_crypto_enabled; then
     runtime_render_recipe btrfs-02.recipe.tmpl \
       ROOT_PRIORITY "$((DEV_PART_ROOT_MB + 1))" \
+      ROOT_MAX_MB "$(runtime_partman_root_max_mb)" \
       DEV_PART_ROOT_MB "${DEV_PART_ROOT_MB}"
   else
     runtime_render_recipe btrfs-03.recipe.tmpl \
       ROOT_PRIORITY "$((DEV_PART_ROOT_MB + 1))" \
+      ROOT_MAX_MB "$(runtime_partman_root_max_mb)" \
       DEV_PART_ROOT_MB "${DEV_PART_ROOT_MB}"
   fi
   if runtime_home_crypto_enabled; then
@@ -778,36 +754,9 @@ runtime_write_partman_fragment() {
   {
     printf '##########  Runtime Partitioning  ##########\n'
     printf '# Generated inside the installer before partman runs.\n'
-    if [ "$DUALBOOT_ENABLED" = "true" ]; then
-      printf '# Reused EFI slot: %s\n' "$RUNTIME_EFI_SLOT"
-      printf '# Debian starts at slot: %s\n' "$RUNTIME_DEBIAN_START_SLOT"
-      printf '# Preserved slots: %s\n' "${RUNTIME_PRESERVED_SLOTS:-none}"
-    fi
     printf 'd-i partman-efi/confirm boolean true\n'
     printf 'd-i partman-efi/confirm seen true\n'
-    if [ "$DUALBOOT_ENABLED" = "true" ] || runtime_any_crypto_enabled; then
-      printf 'd-i partman-auto/init_automatically_partition select installer_target_free\n'
-      printf 'd-i partman-auto/init_automatically_partition seen true\n'
-      printf 'd-i partman-basicmethods/method_only boolean false\n'
-      printf 'd-i partman-basicmethods/method_only seen true\n'
-    else
-      printf 'd-i partman-auto/disk string %s\n' "$DEV_INSTALL_DISK"
-      printf 'd-i partman-auto/disk seen true\n'
-      printf 'd-i partman-partitioning/choose_label select gpt\n'
-      printf 'd-i partman-partitioning/choose_label seen true\n'
-      printf 'd-i partman-partitioning/default_label string gpt\n'
-      printf 'd-i partman-partitioning/default_label seen true\n'
-      printf 'd-i partman-partitioning/confirm_new_label boolean true\n'
-      printf 'd-i partman-partitioning/confirm_new_label seen true\n'
-      printf 'd-i partman-partitioning/confirm_write_new_label boolean true\n'
-      printf 'd-i partman-partitioning/confirm_write_new_label seen true\n'
-      printf 'd-i partman/confirm_write_new_label boolean true\n'
-      printf 'd-i partman/confirm_write_new_label seen true\n'
-    fi
-    if [ "$DUALBOOT_ENABLED" != "true" ] && ! runtime_any_crypto_enabled; then
-      printf 'd-i partman-auto/method string regular\n'
-      printf 'd-i partman-auto/method seen true\n'
-    fi
+    runtime_emit_partman_driver_answers
     printf 'd-i partman-auto/choose_recipe select %s\n' "$PARTMAN_RECIPE_NAME"
     printf 'd-i partman-auto/choose_recipe seen true\n'
     printf 'd-i partman-auto/expert_recipe_file string %s\n' "$recipe_file"

@@ -40,7 +40,8 @@ grub_root_device=$DEV_PART_ROOT
 if [ "$CRYPTO_LUKS2_ROOT" = true ]; then grub_root_device="${DIR_DEV}/mapper/${ROOT_CRYPT_NAME:?missing root mapper}"; fi
 # Do not inherit an old desktop's removable rescue identity on new servers.
 grub_rescue_uuid=
-DUALBOOT_ENABLED=false
+MULTIBOOT_ENABLED=false
+if installer_multiboot_profile_selected; then MULTIBOOT_ENABLED=true; fi
 
 # d-i has already mounted and populated the selected boot/EFI partitions.
 # Validate those exact existing mounts; do not discover or mount another disk.
@@ -100,6 +101,7 @@ done <"$profile_work/map"
 installer_stage_profile_file FILE_TARGET_DEFAULT_GRUB_PROFILES_TMPL "${DIR_ETC_DEFAULT}/grub-profiles" 0600
 installer_stage_profile_file FILE_SERVER_GRUB_DEFAULT "${DIR_GRUB_DEFAULT}/05-bootprofiles.cfg" 0644
 GRUB_DISABLE_OS_PROBER=true
+if [ "$MULTIBOOT_ENABLED" = true ]; then GRUB_DISABLE_OS_PROBER=false; fi
 GRUB_MOK_MANAGER_EFI_PATH=$INSTALLER_GRUB_MOK_MANAGER_EFI_PATH
 GRUB_REMOVABLE_BOOT_EFI_PATH=$INSTALLER_GRUB_REMOVABLE_BOOT_EFI_PATH
 : "${GRUB_NVME_FLAGS:=}" "${GRUB_SYSTEMD_MASK_FLAGS:=}" "${GRUB_BLACKLIST_FLAGS:=}" "${GRUB_VFIO_FLAGS:=}" "${GRUB_ASPM_FLAGS:=}"
@@ -115,6 +117,6 @@ done
 installer_stage_profile_file FILE_TARGET_GRUB_D_40_CUSTOM_TMPL "${DIR_ETC}/grub.d/40_custom" 0755
 run_in_target 'publish headless GRUB profile entries without firmware enrollment' \
   "${DIR_USR_BIN}/timeout" --signal=TERM --kill-after=15 180 "${DIR_ETC}/grub.d/40_custom" --install
-run_in_target 'update native headless GRUB configuration' \
-  "${DIR_USR_BIN}/timeout" --signal=TERM --kill-after=15 180 "${DIR_USR_SBIN}/update-grub"
+require_target_dualboot_os_prober_package
+run_target_grub_config_update
 installer_info 'headless XanMod EDGE signatures and boot profiles staged; MOK certificate enrollment remains explicit'

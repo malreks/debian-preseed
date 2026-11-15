@@ -1,7 +1,6 @@
 format	1
 class	role/desktop/base,role/desktop/medium,role/desktop/full,role/server/github-actions,role/server/gitlab-cicd,role/server/devops	amd64	-	-
 class	role/server/technitium	amd64	-	role/server/github-actions,role/server/gitlab-cicd,role/server/devops
-class	optional/dualboot	amd64	-	-
 class	optional/cuda	amd64	-	-
 class	optional/cuda-legacy	amd64	-	-
 class	optional/nvidia	amd64	-	optional/nvidia-legacy
@@ -12,6 +11,7 @@ stage	fragments/apt.cfg	installer.preseed	preseed	FILE_PRESEED_APPLY	-	-
 stage	fragments/apt.cfg	installer.early	early	FILE_EARLY_DISPATCH	installer.preseed	-
 stage	fragments/apt.cfg	installer.partman	partman	FILE_PARTMAN_DISPATCH	installer.early	-
 stage	fragments/apt.cfg	installer.firmware	pre-pkgsel	FILE_INST_PREPKG_49NVIDIA_OPT_IN_FIRMWARE	installer.partman	-
+stage	fragments/apt.cfg	installer.os-prober	pre-pkgsel	FILE_INST_PREPKG_88TEMPORARY_OS_PROBER	installer.firmware	installer.namespace
 stage	fragments/apt.cfg	installer.namespace	pre-pkgsel	FILE_INST_PREPKG_89TEMPORARY_UNSHARE	installer.firmware	-
 stage	fragments/apt.cfg	installer.dkms	pre-pkgsel	FILE_INST_PREPKG_90SECURE_BOOT_DKMS	installer.namespace	-
 stage	fragments/apt.cfg	os.shared	late	FILE_OS_FOUNDATION	installer.dkms	-

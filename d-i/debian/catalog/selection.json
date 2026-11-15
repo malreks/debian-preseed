@@ -208,11 +208,6 @@
     },
     {
       "Group": "optional",
-      "Name": "dualboot",
-      "Description": "explicit optional/dualboot class"
-    },
-    {
-      "Group": "optional",
       "Name": "nvidia",
       "Description": "explicit optional/nvidia class"
     },
@@ -337,7 +332,6 @@
       "filesystem": "btrfs",
       "mode": "dualboot",
       "source": "hosts/profiles/server/btrfs-srv-flex-duo.env",
-      "quarantined": true,
       "identity_policy": "explicit-profile-only"
     },
     {
@@ -356,6 +350,54 @@
       "mode": "fresh",
       "source": "hosts/profiles/server/f2fs-srv-hp14.env",
       "quarantined": false,
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-de-trio",
+      "family": "desktop",
+      "filesystem": "btrfs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/btrfs-de-trio.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-de-flex-trio",
+      "family": "desktop",
+      "filesystem": "btrfs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/btrfs-de-flex-trio.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-de-p15s-trio",
+      "family": "desktop",
+      "filesystem": "btrfs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/btrfs-de-p15s-trio.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "f2fs-de-hp14-trio",
+      "family": "desktop",
+      "filesystem": "f2fs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/f2fs-de-hp14-trio.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "f2fs-de-x360-trio",
+      "family": "desktop",
+      "filesystem": "f2fs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/desktop/f2fs-de-x360-trio.env",
+      "identity_policy": "explicit-profile-only"
+    },
+    {
+      "id": "btrfs-srv-flex-trio",
+      "family": "server",
+      "filesystem": "btrfs",
+      "mode": "dualboot",
+      "source": "hosts/profiles/server/btrfs-srv-flex-trio.env",
       "identity_policy": "explicit-profile-only"
     }
   ]

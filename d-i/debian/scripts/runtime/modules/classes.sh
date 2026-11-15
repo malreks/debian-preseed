@@ -13,7 +13,12 @@ runtime_class_selected() {
   awk -F '\t' -v ref="$runtime_class" '$1=="format" {if($2!="2" || ++formats!=1) bad=1} $1=="class" && $2==ref {found=1} END {exit bad || formats!=1 || !found}' "$runtime_receipt"
 }
 
-runtime_dualboot_class_selected() { runtime_class_selected optional/dualboot; }
+runtime_dualboot_class_selected() {
+  case "${INSTALLER_HOST_PROFILE_ENV_NAME:-${HOST_PROFILE:-}}" in
+    *-duo|*-trio) return 0 ;;
+  esac
+  return 1
+}
 runtime_qemu_class_selected() {
   for ref in role/desktop/medium role/desktop/full role/server/devops; do
     if runtime_class_selected "$ref"; then return 0; fi

@@ -201,6 +201,39 @@ def profile_assets(source: str, catalog: dict[str, str], members: dict[str, byte
 
 
 class LateProfileAssets(unittest.TestCase):
+    def test_family_child_initializes_logging_before_first_operation(self) -> None:
+        # Execute only inside the guarded disposable test image. Stop at the
+        # first asset fetch, before any target, device or service operation.
+        program = r'''
+set -eu
+. "$FIXTURE_MODULE"
+late_command_shared_init() {
+  [ "$3" = "$FIXTURE_FAMILY" ] || exit 91
+  fixture_initialized=true
+  installer_info() { [ "$fixture_initialized" = true ]; }
+}
+late_command_fetch_common_assets_file() {
+  [ "$fixture_initialized" = true ] || exit 92
+  printf 'CHILD_INITIALIZED\n'
+  exit 0
+}
+case "$FIXTURE_FAMILY" in
+  btrfs|vm) run_btrfs_family_late_command "$FIXTURE_FAMILY" fixture fixture ;;
+  f2fs) run_f2fs_family_late_command fixture fixture ;;
+esac
+'''
+        for family in ('btrfs', 'vm', 'f2fs'):
+            module = 'f2fs' if family == 'f2fs' else 'btrfs'
+            with tempfile.TemporaryDirectory(prefix='late-child-') as temporary:
+                result = subprocess.run(['/bin/sh', '-eu', '-c', program],
+                    cwd=temporary, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C',
+                        'HOME': temporary, 'FIXTURE_FAMILY': family,
+                        'FIXTURE_MODULE': str(ROOT / 'd-i/debian/scripts/late' /
+                                              f'{module}-family.sh')},
+                    capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('CHILD_INITIALIZED', result.stdout)
+
     def test_batched_path_map_keeps_literal_replacements_and_rejects_invalid_names(self) -> None:
         with tempfile.TemporaryDirectory(prefix='renderer-edge-') as temporary:
             result = subprocess.run(['/bin/sh', '-eu', '-c', RENDER_EDGE_CASE],

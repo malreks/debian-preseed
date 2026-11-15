@@ -107,3 +107,67 @@ partman_early_sanitize_install_disk() {
 
   partman_early_reinitialize_gpt_disk "$disk"
 }
+
+partman_early_prepare_layout() {
+  partman_early_require_command parted
+  partman_early_require_command sfdisk
+  partman_early_assert_selected_disk "$DEV_INSTALL_DISK" || return 1
+  prep_state="$(installer_runtime_state_dir)/partition-preparation"
+  [ ! -e "$prep_state" ] && [ ! -L "$prep_state" ] ||
+    installer_fatal 'partition preparation already started; retain installer state and do not repeat a possibly partial mutation'
+  # Claim the operation before mutation. Failure retains this evidence and the
+  # partman state; it must not trigger another whole-disk wipe on re-entry.
+  (set -C; umask 077; printf '%s\n' running >"$prep_state") || return 1
+  case "${RUNTIME_PARTITION_MODE:?validated partition mode required}" in
+    fresh)
+      partman_early_sanitize_install_disk "$DEV_INSTALL_DISK" || return 1
+      # Preserve the established fresh-install partman state initialization.
+      # These are Debian partman discovery markers, not target LVM metadata.
+      install -d -m 0755 "$DIR_INSTALLER_VAR_LIB_PARTMAN" || return 1
+      : >"$DIR_INSTALLER_VAR_LIB_PARTMAN/lvm" || return 1
+      : >"$DIR_INSTALLER_VAR_LIB_PARTMAN/md" || return 1
+      ;;
+    append|reuse)
+      prep_inventory=$(runtime_partition_inventory) || installer_fatal 'cannot revalidate the preserved partition inventory'
+      prep_hash=$(printf '%s\n' "$prep_inventory" | source_hash) || return 1
+      [ "${prep_hash%% *}" = "$RUNTIME_PARTITION_INVENTORY_HASH" ] ||
+        installer_fatal 'partition geometry changed after the layout was planned'
+      prep_identity=$(runtime_partition_identity_hash) || return 1
+      [ "${prep_identity%% *}" = "$RUNTIME_PARTITION_IDENTITY_HASH" ] ||
+        installer_fatal 'preserved GPT identities changed after the layout was planned'
+      ;;
+    *) installer_fatal 'invalid partition preparation mode' ;;
+  esac
+  if ! runtime_partman_fixed_layout_required && ! runtime_any_crypto_enabled; then
+    # Ordinary profiles retain the native partman-auto disk/method contract.
+    # Do not install a fixed-layout commit guard for a native recipe.
+    printf '%s\n' prepared >"$prep_state" || return 1
+    installer_info 'prepared ordinary fresh layout using native partman-auto'
+    return 0
+  fi
+  option_source=$(installer_repo_file_value FILE_INST_PARTMAN_LAYOUT_OPTION) || return 1
+  option_program="$TMP_ENV_DIR/partman-layout-option.sh"
+  fetch_hook_file "$option_source" "$option_program" || return 1
+  option_dir="${DIR_INSTALLER_LIB_PARTMAN}/automatically_partition/installer_target_free"
+  install -d -m 0755 "$option_dir" || return 1
+  for option_action in choices do_option; do
+    {
+      printf '%s\n' '#!/bin/sh'
+      printf 'INSTALLER_RUNTIME_DIR=%s\nexport INSTALLER_RUNTIME_DIR\n' "$(installer_shell_quote "$(installer_runtime_dir)")"
+      printf 'exec /bin/sh %s %s "$@"\n' "$(installer_shell_quote "$option_program")" "$option_action"
+    } >"$option_dir/$option_action" || return 1
+    chmod 0755 "$option_dir/$option_action" || return 1
+  done
+  if runtime_partman_fixed_layout_required; then
+    # A partial bounded/reuse application must never reach formatting commits.
+    check_hook="${DIR_INSTALLER_LIB_PARTMAN}/check.d/05-installer-layout"
+    {
+      printf '%s\n' '#!/bin/sh' 'set -eu'
+      printf 'INSTALLER_RUNTIME_DIR=%s\nexport INSTALLER_RUNTIME_DIR\n' "$(installer_shell_quote "$(installer_runtime_dir)")"
+      printf 'exec /bin/sh %s check\n' "$(installer_shell_quote "$option_program")"
+    } >"$check_hook" || return 1
+    chmod 0755 "$check_hook" || return 1
+  fi
+  printf '%s\n' prepared >"$prep_state" || return 1
+  installer_info "prepared selected-disk partition handler: mode=$RUNTIME_PARTITION_MODE; ceiling_enabled=$PARTMAN_CEILING_ENABLE; ceiling_bytes=$RUNTIME_LAYOUT_CEILING_BYTES"
+}

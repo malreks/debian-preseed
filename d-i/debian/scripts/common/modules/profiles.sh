@@ -46,9 +46,19 @@ installer_profile_plan_policy() (
     "${MANAGED_NETWORK_ETHERNET_IFACE:-eth0}"|"${MANAGED_NETWORK_WIFI_IFACE:-wifi0}") ;;
     *) installer_fatal 'primary interface differs from the managed Ethernet/Wi-Fi pair' ;;
   esac
-  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "${SSH_SERVER_ENABLE:-}" "$policy_port" "$SNAPSHOTS_POLICY" \
+  for policy_boolean in "${PARTMAN_CEILING_ENABLE:-}" "${PARTMAN_REUSE_ENABLE:-}"; do
+    case "$policy_boolean" in true|false) ;; *) installer_fatal 'partition profile booleans must be explicit' ;; esac
+  done
+  case "${PARTMAN_CEILING_MB:-}:${PARTMAN_REUSE_START:-}" in
+    *[!0-9:]*|:*|*:|0*|*:0*) installer_fatal 'partition policy requires positive canonical decimal integers' ;;
+  esac
+  [ "${#PARTMAN_CEILING_MB}" -le 10 ] && [ "$PARTMAN_CEILING_MB" -le 2147483647 ] &&
+    [ "${#PARTMAN_REUSE_START}" -le 3 ] && [ "$PARTMAN_REUSE_START" -le 128 ] ||
+    installer_fatal 'partition policy exceeds supported bounds'
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "${SSH_SERVER_ENABLE:-}" "$policy_port" "$SNAPSHOTS_POLICY" \
     "$CRYPTO_LUKS2_ROOT" "$CRYPTO_LUKS2_HOME" "$WIFI_ENABLE" "$MANAGED_NETWORK_PRIMARY_IFACE" "$IPV6_ENABLE" \
-    "$policy_codex_only" "$WHISPER_ENABLE" "$LLAMA_ENABLE"
+    "$policy_codex_only" "$WHISPER_ENABLE" "$LLAMA_ENABLE" \
+    "$PARTMAN_CEILING_ENABLE" "$PARTMAN_CEILING_MB" "$PARTMAN_REUSE_ENABLE" "$PARTMAN_REUSE_START"
 )
 
 installer_profile_shared_family() {

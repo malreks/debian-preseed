@@ -421,6 +421,8 @@ From the repository root, the permitted commands are:
 
 ```sh
 make build
+make offline
+make profile
 python3 -B tools/post_change_check.py
 ```
 
@@ -430,6 +432,23 @@ publication directories. Both suite copies bind the same captured source
 identity, bootstrap, manifest and payload. It does not rewrite classes, fragments, profiles,
 APT settings or target assets, run tests, collect inventories or switch a
 served pointer. Do not hand-edit generated products or preseeds.
+
+`make profile` first offers creation or deletion. Creation asks for filesystem,
+desktop/server/both, optional Duo/Trio variants and a one-to-five-character host
+name. Deletion lists registered profiles and removes selected host environments,
+both suite classes, registrations and source selectors after confirmation. A
+normal profile is protected while either corresponding Duo/Trio variant remains;
+the command offers to include those variants and delete them first. Both actions
+validate the complete candidate before writing, and support a no-write preview.
+See [partitioning and profile management](docs/implementation/partitioning-profiles.md).
+
+`make offline` publishes one flat `offline/payload.tar.gz` containing the source
+tree and `official.json`, `vendors.json`, `git.json` and `http.json`. Its private
+ordinary-disk work directory comes from `DIR_OFFLINE_WORK` in the repository
+contract; `OFFLINE_WORK_DIR` or the tool's `--work-dir` option overrides it.
+It does not use the system temporary directory or host APT state. Catalog
+completeness flags describe unresolved external metadata and dependencies;
+successful serialization alone does not make an incomplete catalog complete.
 
 The required audit parses changed source as data, checks shell syntax and
 ShellCheck errors, renders declared placeholders, and compares the current

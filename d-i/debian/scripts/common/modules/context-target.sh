@@ -115,7 +115,6 @@ installer_populate_selected_class_state() {
   done <"$records_path"
 
   [ -n "$profile_class" ] || installer_fatal "an explicit registered profile is required before partitioning"
-  case "$profile_class" in *-duo) installer_fatal "dualboot preservation is not qualified for this release; no disk mutation is allowed" ;; esac
   INSTALLER_ROLE_IDS=$role_classes
   INSTALLER_DESKTOP_ROLE=$desktop_role
   INSTALLER_HOST_VARIANT=$host_variant
@@ -263,7 +262,15 @@ installer_write_context() {
   INSTALLER_PROFILE_CODEX_ONLY_ENABLE=${profile_policy_tail%%|*}
   profile_policy_tail=${profile_policy_tail#*|}
   INSTALLER_PROFILE_WHISPER_ENABLE=${profile_policy_tail%%|*}
-  INSTALLER_PROFILE_LLAMA_ENABLE=${profile_policy_tail#*|}
+  profile_policy_tail=${profile_policy_tail#*|}
+  INSTALLER_PROFILE_LLAMA_ENABLE=${profile_policy_tail%%|*}
+  profile_policy_tail=${profile_policy_tail#*|}
+  INSTALLER_PROFILE_PARTMAN_CEILING_ENABLE=${profile_policy_tail%%|*}
+  profile_policy_tail=${profile_policy_tail#*|}
+  INSTALLER_PROFILE_PARTMAN_CEILING_MB=${profile_policy_tail%%|*}
+  profile_policy_tail=${profile_policy_tail#*|}
+  INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE=${profile_policy_tail%%|*}
+  INSTALLER_PROFILE_PARTMAN_REUSE_START=${profile_policy_tail#*|}
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
     installer_operation_context_repo FILE_COMMON_MOD_INSTALLATION_PLAN 269 class_plan
   fi
@@ -305,6 +312,10 @@ installer_write_context() {
     printf 'INSTALLER_PROFILE_CODEX_ONLY_ENABLE=%s\n' "$(installer_shell_quote "$INSTALLER_PROFILE_CODEX_ONLY_ENABLE")"
     printf 'INSTALLER_PROFILE_WHISPER_ENABLE=%s\n' "$(installer_shell_quote "$INSTALLER_PROFILE_WHISPER_ENABLE")"
     printf 'INSTALLER_PROFILE_LLAMA_ENABLE=%s\n' "$(installer_shell_quote "$INSTALLER_PROFILE_LLAMA_ENABLE")"
+    printf 'INSTALLER_PROFILE_PARTMAN_CEILING_ENABLE=%s\n' "$(installer_shell_quote "$INSTALLER_PROFILE_PARTMAN_CEILING_ENABLE")"
+    printf 'INSTALLER_PROFILE_PARTMAN_CEILING_MB=%s\n' "$(installer_shell_quote "$INSTALLER_PROFILE_PARTMAN_CEILING_MB")"
+    printf 'INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE=%s\n' "$(installer_shell_quote "$INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE")"
+    printf 'INSTALLER_PROFILE_PARTMAN_REUSE_START=%s\n' "$(installer_shell_quote "$INSTALLER_PROFILE_PARTMAN_REUSE_START")"
     printf 'INSTALLER_HOST_FAMILY=%s\n' "$(installer_shell_quote "${INSTALLER_HOST_FAMILY:-}")"
     printf 'INSTALLER_HOOK_FAMILY=%s\n' "$(installer_shell_quote "${INSTALLER_HOOK_FAMILY:-}")"
     printf 'INSTALLER_HOST_PROFILE_ENV_DIR=%s\n' "$(installer_shell_quote "${INSTALLER_HOST_PROFILE_ENV_DIR:-}")"

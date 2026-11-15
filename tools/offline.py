@@ -56,6 +56,7 @@ METADATA_LIMIT = 64 * 1024 * 1024
 EXPANDED_INDEX_LIMIT = 256 * 1024 * 1024
 GENERATION_SECONDS = 1800
 CATALOG_BYTE_LIMIT = 32 * 1024 * 1024
+DATABASE_BYTE_LIMIT = 8 * 1024 * 1024 * 1024
 BUNDLE_BYTE_LIMIT = 512 * 1024 * 1024
 METADATA_BYTE_LIMIT = 1024 * 1024 * 1024
 NODE_LIMIT = 100000
@@ -764,13 +765,14 @@ SOURCE_FIELDS = {'package', 'version', 'directory', 'checksums-sha256', 'archite
 class PackageDatabase:
     """Disk-backed public metadata; no host APT database or package manager is used."""
     def __init__(self, path: Path):
+        self.path = path
         self.connection = sqlite3.connect(path)
-        self.connection.executescript('''
-            PRAGMA page_size=4096; PRAGMA max_page_count=1048576;
+        self.connection.executescript(f'''
+            PRAGMA page_size=4096; PRAGMA max_page_count={DATABASE_BYTE_LIMIT // 4096};
             PRAGMA cache_size=-16384; PRAGMA journal_mode=DELETE; PRAGMA synchronous=OFF; PRAGMA temp_store=MEMORY;
-            CREATE TABLE binary(id TEXT PRIMARY KEY,repo TEXT,name TEXT,version TEXT,arch TEXT,kind TEXT,data TEXT);
-            CREATE TABLE provider(name TEXT,id TEXT,version TEXT,PRIMARY KEY(name,id));
-            CREATE TABLE source(id TEXT PRIMARY KEY,repo TEXT,name TEXT,version TEXT,data TEXT);
+            CREATE TABLE binary(id TEXT PRIMARY KEY,repo TEXT,name TEXT,version TEXT,arch TEXT,kind TEXT,data BLOB) WITHOUT ROWID;
+            CREATE TABLE provider(name TEXT,id TEXT,version TEXT,PRIMARY KEY(name,id)) WITHOUT ROWID;
+            CREATE TABLE source(id TEXT PRIMARY KEY,repo TEXT,name TEXT,version TEXT,data BLOB) WITHOUT ROWID;
         ''')
         self.rows = 0
 
@@ -1736,8 +1738,46 @@ def serialize_bundle(files: dict[str, bytes]) -> bytes:
     return output.getvalue()
 
 
-def generate(directory: Path | None, cache: Path | None = None) -> tuple[str, str, dict]:
-    with tempfile.TemporaryDirectory(prefix='preseed-offline-') as temporary, ExitStack() as resources, OfflineCapture(ROOT) as capture:
+def work_directory(requested: Path | None) -> Path:
+    """Choose ordinary owned disk space; never consult the system temp default."""
+    if requested is None:
+        values = {'INSTALLER_SUITE': SUITES[0]}
+        assignment_data((installer_build.SEED / 'repo.env').read_text(), values, {}, 'repo.env')
+        relative = values['DIR_OFFLINE_WORK']
+        safe_relative(relative)
+        requested = ROOT / relative
+    path = requested.absolute()
+    # These FHS locations are volatile temporary storage, not work/cache roots.
+    if '..' in path.parts or any(path.is_relative_to(base) for base in
+                               (Path('/tmp'), Path('/var/tmp'), Path('/dev/shm'))):
+        raise ValueError('offline work directory must use ordinary disk storage outside temporary roots')
+    descriptor = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for part in path.parts[1:]:
+            try:
+                os.mkdir(part, 0o700, dir_fd=descriptor)
+            except FileExistsError:
+                pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                            dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        info = os.fstat(descriptor)
+        if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise ValueError('offline work directory must be private (0700) and caller owned')
+    finally:
+        os.close(descriptor)
+    free = shutil.disk_usage(path).free
+    if free < 1024 * 1024 * 1024:
+        raise ValueError(f'offline work directory has insufficient space: {path}; free_bytes={free}; need at least 1 GiB')
+    print(f'offline: work directory {path} free_bytes={free} database_limit_bytes={DATABASE_BYTE_LIMIT}', flush=True)
+    return path
+
+
+def generate(directory: Path | None, cache: Path | None = None,
+             work: Path | None = None) -> tuple[str, str, dict]:
+    workspace = work_directory(work)
+    with tempfile.TemporaryDirectory(prefix='generation-', dir=workspace) as temporary, ExitStack() as resources, OfflineCapture(ROOT) as capture:
         if cache is not None:
             if cache.is_relative_to(ROOT):
                 raise ValueError('metadata cache must be outside the checkout')
@@ -1899,18 +1939,24 @@ def main() -> int:
                         help='read all repository metadata/keys from an explicit local snapshot; no network fallback')
     parser.add_argument('--metadata-cache', type=Path,
                         help='capture downloaded public metadata in a private directory outside the checkout')
+    parser.add_argument('--work-dir', type=Path,
+                        default=os.environ.get('OFFLINE_WORK_DIR'),
+                        help='private ordinary-disk workspace (or OFFLINE_WORK_DIR); defaults to the repository work selector')
     args = parser.parse_args()
     directory = args.metadata_dir.absolute() if args.metadata_dir is not None else None
     cache = args.metadata_cache.absolute() if args.metadata_cache is not None else None
     if directory is not None and cache is not None:
         parser.error('--metadata-dir and --metadata-cache are mutually exclusive')
     try:
-        release, digest, summary = generate(directory, cache)
+        release, digest, summary = generate(directory, cache, args.work_dir)
     except PublicationOutcomeUnknown as error:
         print('offline outcome unknown; retain the artifact and do not retry automatically: ' + str(error), file=sys.stderr)
         return 75
     except (OSError, ValueError, KeyError, EOFError, lzma.LZMAError, sqlite3.Error, subprocess.SubprocessError) as error:
         print('offline generation failed: ' + str(error), file=sys.stderr)
+        if isinstance(error, sqlite3.Error) or isinstance(error, OSError) and error.errno in {28, 122}:
+            print('offline: workspace storage exhausted or SQLite limit reached; select a larger ordinary disk with OFFLINE_WORK_DIR; '
+                  f'database_limit_bytes={DATABASE_BYTE_LIMIT}', file=sys.stderr)
         return 1
     print(f'offline/payload.tar.gz sha256={digest} release={release} '
           f'pkgsel={summary["pkgsel_requests"]} deb_candidates={summary["official_deb_candidates"]} '

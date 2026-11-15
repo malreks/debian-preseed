@@ -188,6 +188,13 @@ def compile_profiles(sources: dict[str, bytes], selection: dict, suite: str,
         for name in ('CRYPTO_LUKS2_ROOT', 'CRYPTO_LUKS2_HOME', 'WIFI_ENABLE', 'IPV6_ENABLE', 'TIMESHIFT_ENABLE', 'SSH_SERVER_ENABLE'):
             if values.get(name) not in {'true', 'false'}:
                 raise ValueError(profile['id'] + ': ' + name + ' requires an explicit boolean')
+        for name in ('PARTMAN_CEILING_ENABLE', 'PARTMAN_REUSE_ENABLE'):
+            if values.get(name) not in {'true', 'false'}:
+                raise ValueError(profile['id'] + ': ' + name + ' requires an explicit boolean')
+        for name, maximum in (('PARTMAN_CEILING_MB', 2147483647), ('PARTMAN_REUSE_START', 128)):
+            value = values.get(name, '')
+            if re.fullmatch(r'[1-9][0-9]{0,9}', value) is None or int(value) > maximum:
+                raise ValueError(profile['id'] + ': invalid positive partition policy: ' + name)
         for name in ('HARDWARE_CPU_SCHEDULER_SCX_ENABLE',):
             if values.get(name) not in {'true', 'false'}:
                 raise ValueError(profile['id'] + ': ' + name + ' requires an explicit boolean')

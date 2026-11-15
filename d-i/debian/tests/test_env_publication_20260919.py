@@ -259,32 +259,34 @@ class LateRuntimeFailureTests(unittest.TestCase):
         self.function = self.function.replace('/tmp/install-env/runtime.env', str(self.root / 'legacy.env'))
         (self.root / 'runtime.sh').write_text(':\n')
         (self.root / 'state').mkdir()
+        (self.root / 'early').mkdir()
 
     def invoke(self, failure='', extra='', capture='true'):
-        steps = ['late_command_load_profile_env', 'runtime_apply_layout_from_cmdline',
-                 'runtime_capture_dualboot_partition_sizes', 'runtime_write_runtime_env',
-                 'installer_ensure_context_loaded', 'runtime_ensure_system_identity', 'validate_tmpfs_policy_env']
+        steps = ['late_command_load_profile_env', 'installer_ensure_context_loaded',
+                 'runtime_ensure_system_identity', 'validate_tmpfs_policy_env']
         source = self.function + '\n'
         for step in steps:
             source += step + '() { printf "%s\\n" ' + Q(step) + '; '
             source += 'return 37; }\n' if step == failure else ':; }\n'
         source += 'installer_runtime_state_dir() { printf "%s/state\\n" "$TMP_ENV_DIR"; }\n'
+        source += 'installer_fatal() { printf \"%s\\n\" \"$*\" >&2; exit 43; }\n'
         source += extra + '\n'
         source += 'if late_command_load_runtime_env ' + capture + '; then printf "SUCCESS\\n"; else exit "$?"; fi\n'
-        return subprocess.run(payload_installed_argv(['/bin/sh', '-eu', '-c', source]), env={**os.environ, 'TMP_ENV_DIR': str(self.root)},
+        return subprocess.run(payload_installed_argv(['/bin/sh', '-eu', '-c', source]), env={'PATH': '/usr/bin:/bin', 'HOME': str(self.root), 'TMP_ENV_DIR': str(self.root),
+                                   'DIR_INSTALLER_ENV': str(self.root / 'early')},
                               text=True, capture_output=True, timeout=10), steps
 
     def test_first_runtime_failure_stops_every_later_step_and_preserves_status(self):
-        for step_index in range(7):
-            result, steps = self.invoke(failure=['late_command_load_profile_env', 'runtime_apply_layout_from_cmdline',
-                'runtime_capture_dualboot_partition_sizes', 'runtime_write_runtime_env', 'installer_ensure_context_loaded',
-                'runtime_ensure_system_identity', 'validate_tmpfs_policy_env'][step_index])
+        (self.root / 'state/runtime.env').write_text(':\n')
+        for step_index, step in enumerate(('late_command_load_profile_env', 'installer_ensure_context_loaded',
+                'runtime_ensure_system_identity', 'validate_tmpfs_policy_env')):
+            result, steps = self.invoke(failure=step)
             with self.subTest(step=steps[step_index]):
                 self.assertEqual(result.returncode, 37, result.stderr)
                 self.assertEqual(result.stdout.splitlines(), steps[:step_index + 1])
 
     def test_runtime_library_and_saved_environment_source_failures_propagate(self):
-        for path in (self.root / 'runtime.sh', self.root / 'legacy.env', self.root / 'state/runtime.env'):
+        for path in (self.root / 'runtime.sh', self.root / 'early/runtime.env', self.root / 'state/runtime.env'):
             with self.subTest(path=path.name):
                 path.write_text('return 39\n')
                 result, _ = self.invoke()
@@ -300,6 +302,13 @@ class LateRuntimeFailureTests(unittest.TestCase):
         self.assertNotIn('runtime_apply_layout', result.stdout)
         self.assertNotIn('runtime_write_runtime_env', result.stdout)
         self.assertIn('SUCCESS', result.stdout)
+
+    def test_missing_frozen_layout_refuses_late_rediscovery(self):
+        result, _ = self.invoke()
+        self.assertEqual(result.returncode, 43, result.stderr)
+        self.assertNotIn('runtime_apply_layout', result.stdout)
+        self.assertNotIn('runtime_write_runtime_env', result.stdout)
+        self.assertIn('frozen partition layout is missing', result.stderr)
 
     def test_state_path_failure_is_not_ignored(self):
         result, _ = self.invoke(extra='installer_runtime_state_dir() { return 41; }')

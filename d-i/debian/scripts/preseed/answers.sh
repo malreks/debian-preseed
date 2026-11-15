@@ -155,7 +155,7 @@ validate_ipv4_address_list() {
 }
 
 selected_dualboot_class() {
-  installer_class_selected optional/dualboot 2>/dev/null
+  installer_multiboot_profile_selected
 }
 
 validate_positive_integer() {
@@ -172,18 +172,12 @@ validate_positive_integer() {
 }
 
 validate_dualboot_cmdline_contract() {
-  dualboot_efi_value=$(installer_cmdline_value dualboot_efi 2>/dev/null || true)
-  dualboot_debian_value=$(installer_cmdline_value dualboot_debian 2>/dev/null || true)
-
-  if [ "$DUALBOOT_ENABLED" = true ]; then
-    [ -n "$dualboot_efi_value" ] || installer_fatal "classes=...,dualboot requires dualboot_efi=<integer> on the kernel cmdline"
-    [ -n "$dualboot_debian_value" ] || installer_fatal "classes=...,dualboot requires dualboot_debian=<integer> on the kernel cmdline"
-    validate_positive_integer dualboot_efi "$dualboot_efi_value"
-    validate_positive_integer dualboot_debian "$dualboot_debian_value"
-    [ "$dualboot_efi_value" -lt "$dualboot_debian_value" ] || installer_fatal "dualboot_efi must be lower than dualboot_debian"
-  elif [ -n "$dualboot_efi_value" ] || [ -n "$dualboot_debian_value" ]; then
-    installer_fatal "dualboot_efi and dualboot_debian require classes=...,dualboot"
-  fi
+  # Retired manual selectors must not silently override automatic preservation.
+  for retired_selector in dualboot_efi dualboot_debian; do
+    if installer_cmdline_value "$retired_selector" >/dev/null 2>&1; then
+      installer_fatal "${retired_selector} is retired; select a -duo/-trio profile or configure PARTMAN_REUSE_START in its policy"
+    fi
+  done
 }
 
 static_network_requested() {

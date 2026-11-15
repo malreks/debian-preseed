@@ -87,6 +87,17 @@ stable_raw_partition_path() {
 }
 
 raw_storage_partition_alignment_tolerance_bytes() {
+  # The fixed handler creates every partition with position=beginning; reuse
+  # preserves exact extents. No final partition absorbs the free-space tail.
+  case "${RUNTIME_PARTITION_MODE:-}" in
+    append|reuse) printf '%s\n' 2097152; return 0 ;;
+    fresh)
+      if [ "${PARTMAN_CEILING_ENABLE:-false}" = true ]; then
+        printf '%s\n' 2097152
+        return 0
+      fi
+      ;;
+  esac
   # Fixed-size partitions can lose at most their two aligned boundaries.
   # partman-auto creates its final partition with position=full: it gets the
   # remaining extent, including rounding accumulated by the preceding recipe.

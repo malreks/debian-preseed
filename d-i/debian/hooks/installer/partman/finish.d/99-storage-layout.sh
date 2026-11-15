@@ -218,7 +218,7 @@ layout_format_luks2_partition() {
   [ -b "$raw_device" ] || fatal "encrypted partition is missing: ${raw_device}"
   ensure_installer_command cryptsetup cryptsetup-udeb
 
-  if cryptsetup isLuks "$raw_device" >/dev/null 2>&1; then
+  if [ "${RUNTIME_PARTITION_MODE:-fresh}" != reuse ] && cryptsetup isLuks "$raw_device" >/dev/null 2>&1; then
     layout_require_luks2 "$raw_device" "$key_file" "$mapper_name"
     return 0
   fi

@@ -82,8 +82,10 @@ runtime_device_size_bytes() {{
 runtime_total_ram_mib() {{ printf '%s\\n' {ram}; }}
 runtime_root_home_crypto_enabled() {{ {'true' if crypto else 'false'}; }}
 '''
+    body += f'RUNTIME_LAYOUT_CEILING_BYTES={disk}\nRUNTIME_EXISTING_END_MB={(preserved + MB - 1) // MB}\n'
     if preserved:
-        body += '''runtime_assign_dualboot_slots 1 3 "$SECURE_BOOT_STATE_MODE"
+        body += "RUNTIME_PARTITION_MODE=append\nRUNTIME_DETECTED_EFI_SLOT=1\nRUNTIME_PARTITION_INVENTORY='1|0|1|2\n2|2|3|2'\n"
+        body += '''runtime_assign_dualboot_slots
 RUNTIME_DEBIAN_START_SLOT=$RUNTIME_BOOT_SLOT
 runtime_capture_dualboot_partition_sizes
 '''
@@ -208,10 +210,9 @@ runtime_compute_swap_partition_mib 12000 65536
                         self.assertEqual(tuple(map(int,parts[-1][:3])),(vals['DEV_PART_RAW_ZRAM_MB'],)*3)
                         self.assertEqual(tuple(map(int,parts[-2][:3])),(vals['DEV_PART_RAW_SWAP_MB'],)*3)
                         growers=[row for row in parts if int(row[2])>int(row[0])]
-                        self.assertEqual(len(growers),1)
-                        self.assertEqual(int(growers[0][0]),vals['DEV_PART_ROOT_MB'])
-                        self.assertGreater(int(growers[0][1]),int(growers[0][0]))
-                        root=re.search(r'\d+ \d+ 1000000000 (?:ext4|btrfs)\n(.*?)\n\s*\.',recipe,re.S)
+                        root_max=vals['DEV_PART_ROOT_MB'] if preserved else 1000000000
+                        self.assertEqual(len(growers), 0 if preserved else 1)
+                        root=re.search(rf'{vals["DEV_PART_ROOT_MB"]} \d+ {root_max} (?:ext4|btrfs)\n(.*?)\n\s*\.',recipe,re.S)
                         self.assertIsNotNone(root); self.assertIn('mountpoint{ / }',root[1])
                         assigned=sum(int(row[0]) for row in parts)+(0 if preserved else vals['DEV_PART_EFI_MB'])
                         self.assertEqual(assigned,vals['RUNTIME_USABLE_BUDGET_MB'])

@@ -59,8 +59,11 @@ acceptance remains unverified. Arm64 role installations remain unqualified.
 the actual hardware permit it. Modern and 580-series NVIDIA driver branches remain mutually exclusive.
 CUDA compiler selections are independent of a display-driver choice. Every server role lists the OpenSSH server packages. Desktop profiles add the
 suite SSH package fragment only when `SSH_SERVER_ENABLE=true`; this boolean
-also controls configuration, authorization, detection and activation on both families. Dualboot and
-duo preservation profiles are quarantined before storage changes.
+also controls configuration, authorization, detection and activation on both families.
+An explicit `-duo` or `-trio` profile selects multiboot and includes `os-prober`
+in its physical class. There is no optional dualboot class. Automatic EFI,
+ceiling and exact-range reuse behavior is documented in
+[partitioning and profile generation](partitioning-profiles.md).
 
 The real role files contain ordinary preseed answers, including package lists
 and repository records. No class comment, metadata directive or shell variable

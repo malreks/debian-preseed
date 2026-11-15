@@ -31,8 +31,8 @@ SEED_BASE=$(installer_seed_base "")
 installer_persist_seed_source "$SEED_BASE"
 installer_ensure_context_loaded "$SEED_BASE"
 
-if ! installer_class_selected optional/dualboot; then
-  installer_info "skipping temporary installer os-prober shim because optional/dualboot is not selected"
+if ! installer_multiboot_profile_selected; then
+  installer_info "skipping temporary installer os-prober shim for a single-system profile"
   exit 0
 fi
 

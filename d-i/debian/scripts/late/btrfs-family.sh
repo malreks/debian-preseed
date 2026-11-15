@@ -206,14 +206,14 @@ btrfs_late_command_mark() {
   installer_info "Btrfs-family late operation: $2"
 }
 
-btrfs_late_command_mark 211 run_btrfs_family_late_command
-
 case "$HOOK_FAMILY" in
   btrfs|vm) ;;
-  *) fatal "unsupported Btrfs-family late_command family: ${HOOK_FAMILY:-unset}" ;;
+  *) late_command_bootstrap_fatal "unsupported Btrfs-family late_command family: ${HOOK_FAMILY:-unset}" ;;
 esac
 
 late_command_shared_init "$requested_seed_base" "$requested_host_profile" "$HOOK_FAMILY"
+# The dispatcher starts a new shell: its common-library functions are not
+# inherited. Logging is available only after shared initialization succeeds.
 btrfs_late_command_mark 219 run_btrfs_family_late_command
 
 btrfs_late_command_mark 220 late_command_fetch_common_assets
