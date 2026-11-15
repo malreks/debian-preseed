@@ -12,7 +12,6 @@ desktop_scrcpy_validate_policy() {
   : "${SCRCPY_URL:?SCRCPY_URL must be set}"
   : "${SCRCPY_SHA256:?SCRCPY_SHA256 must be set}"
   : "${SCRCPY_SERVER_SHA256:?SCRCPY_SERVER_SHA256 must be set}"
-  : "${SCRCPY_MAXIMUM_BYTES:?SCRCPY_MAXIMUM_BYTES must be set}"
   : "${SCRCPY_MAXIMUM_EXTRACTED_BYTES:?SCRCPY_MAXIMUM_EXTRACTED_BYTES must be set}"
   : "${SCRCPY_MAXIMUM_MEMBERS:?SCRCPY_MAXIMUM_MEMBERS must be set}"
 
@@ -39,7 +38,6 @@ desktop_scrcpy_validate_policy() {
   [ "${#SCRCPY_SERVER_SHA256}" -eq 64 ] ||
     desktop_scrcpy_fail "server SHA-256 must be 64 lowercase hexadecimal characters"
   for scrcpy_limit in \
-    "$SCRCPY_MAXIMUM_BYTES" \
     "$SCRCPY_MAXIMUM_EXTRACTED_BYTES" \
     "$SCRCPY_MAXIMUM_MEMBERS"
   do
@@ -47,10 +45,8 @@ desktop_scrcpy_validate_policy() {
       ''|*[!0123456789]*) desktop_scrcpy_fail "archive limits must be unsigned integers" ;;
     esac
   done
-  [ "$SCRCPY_MAXIMUM_BYTES" -ge 1048576 ] ||
-    desktop_scrcpy_fail "archive ceiling is too small"
-  [ "$SCRCPY_MAXIMUM_EXTRACTED_BYTES" -ge "$SCRCPY_MAXIMUM_BYTES" ] ||
-    desktop_scrcpy_fail "extracted ceiling is smaller than the archive ceiling"
+  [ "$SCRCPY_MAXIMUM_EXTRACTED_BYTES" -gt 0 ] ||
+    desktop_scrcpy_fail "extracted ceiling must be positive"
   [ "$SCRCPY_MAXIMUM_MEMBERS" -ge 4 ] ||
     desktop_scrcpy_fail "archive member ceiling is too small"
 }
@@ -85,7 +81,6 @@ desktop_install_scrcpy() (
     --url "$SCRCPY_URL" --sha256 "$SCRCPY_SHA256" \
     --server-sha256 "$SCRCPY_SERVER_SHA256" \
     --architecture "$SCRCPY_ARCHITECTURE" \
-    --max-archive "$SCRCPY_MAXIMUM_BYTES" \
     --max-extracted "$SCRCPY_MAXIMUM_EXTRACTED_BYTES" \
     --max-members "$SCRCPY_MAXIMUM_MEMBERS"
   desktop_log "installed_scrcpy version=${SCRCPY_VERSION} tag=${SCRCPY_TAG} archive_sha256=${SCRCPY_SHA256} activation=adb-menu"

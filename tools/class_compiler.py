@@ -466,16 +466,12 @@ def compile_server_artifacts(values: dict[str, str]) -> dict:
                 re.fullmatch(r'[a-z0-9]+(?:[.-][a-z0-9]+)*', host) is None for host in hosts):
             raise ValueError(prefix + ': invalid redirect host policy')
         limits = {}
-        for suffix, key, maximum in [('BYTES_MIN', 'minimum_bytes', 2147483648),
-                                     ('BYTES_MAX', 'maximum_bytes', 2147483648),
-                                     ('EXPANDED_BYTES', 'expanded_bytes', 4294967296),
+        for suffix, key, maximum in [('EXPANDED_BYTES', 'expanded_bytes', 4294967296),
                                      ('MAXIMUM_MEMBERS', 'maximum_members', 100000)]:
             value = field(suffix)
             if not value.isdecimal() or not 1 <= int(value) <= maximum:
                 raise ValueError(prefix + ': invalid artifact extraction bound')
             limits[key] = int(value)
-        if limits['minimum_bytes'] > limits['maximum_bytes']:
-            raise ValueError(prefix + ': inconsistent transfer bounds')
         links = field('RELATIVE_LINK_PREFIXES').split()
         for link in links:
             if not link.endswith('/'):
@@ -505,18 +501,17 @@ def compile_server_artifacts(values: dict[str, str]) -> dict:
     if re.fullmatch(r'20[0-9]{2}-[0-9]{2}-[0-9]{2}', reviewed) is None:
         raise ValueError('server artifact review date is missing')
     # Profile-controlled native packages are independent of selected server
-    # roles. Their bytes are pinned by the same trusted profile publication.
+    # roles. Their bytes are pinned by the profile URL and digest; transport
+    # size ceilings are deliberately not part of this acquisition contract.
     packages = {}
     enabled = values.get('HARDWARE_CPU_SCHEDULER_SCX_ENABLE')
     if enabled not in {'true', 'false'}:
         raise ValueError('server scheduler enable policy must be boolean')
     if enabled == 'true':
         hosts = values['HARDWARE_CPU_SCHEDULER_SCX_ARTIFACT_HOSTS'].split()
-        maximum = values['HARDWARE_CPU_SCHEDULER_SCX_MAXIMUM_BYTES']
-        if (not maximum.isdecimal() or not 1048576 <= int(maximum) <= 536870912
-                or not hosts or len(set(hosts)) != len(hosts) or len(hosts) > 16
+        if (not hosts or len(set(hosts)) != len(hosts) or len(hosts) > 16
                 or any(re.fullmatch(r'[a-z0-9]+(?:[.-][a-z0-9]+)*', host) is None for host in hosts)):
-            raise ValueError('invalid server scheduler transfer policy')
+            raise ValueError('invalid server scheduler host policy')
         for name, prefix in [('scx', 'HARDWARE_CPU_SCHEDULER_SCX_PACKAGE'),
                              ('scx-loader', 'HARDWARE_CPU_SCHEDULER_SCX_LOADER_PACKAGE')]:
             url, digest = values[prefix + '_URL'], values[prefix + '_SHA256']
@@ -525,7 +520,7 @@ def compile_server_artifacts(values: dict[str, str]) -> dict:
                     or parsed.port not in (None, 443) or parsed.fragment or '/latest/' in parsed.path
                     or re.fullmatch(r'[a-f0-9]{64}', digest) is None):
                 raise ValueError('invalid pinned server scheduler artifact')
-            packages[name] = {'hosts': hosts, 'minimum_bytes': 1024, 'maximum_bytes': int(maximum),
+            packages[name] = {'hosts': hosts,
                               'architectures': {'amd64': {'url': url, 'sha256': digest}}}
     devops = {}
     for key, minimum, maximum in (

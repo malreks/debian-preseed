@@ -25,16 +25,12 @@ software_download_tor_browser_asset() {
   tor_primary_url=$2
   tor_archive_url=$3
   tor_asset_destination=$4
-  tor_asset_minimum_bytes=$5
-  tor_asset_maximum_bytes=$6
-  tor_asset_content_policy=$7
+  tor_asset_content_policy=$5
 
   if software_download \
     "$tor_asset_label" \
     "$tor_primary_url" \
     "$tor_asset_destination" \
-    "$tor_asset_minimum_bytes" \
-    "$tor_asset_maximum_bytes" \
     "$tor_asset_content_policy" \
     retry
   then
@@ -46,8 +42,6 @@ software_download_tor_browser_asset() {
     "$tor_asset_label" \
     "$tor_archive_url" \
     "$tor_asset_destination" \
-    "$tor_asset_minimum_bytes" \
-    "$tor_asset_maximum_bytes" \
     "$tor_asset_content_policy" \
     retry
   then
@@ -83,16 +77,12 @@ software_install_tor_browser() (
     "$tor_url" \
     "$tor_archive_url" \
     "$tor_archive" \
-    "$SOFTWARE_TOR_BROWSER_MINIMUM_BYTES" \
-    "$SOFTWARE_TOR_BROWSER_MAXIMUM_BYTES" \
     artifact
   software_download_tor_browser_asset \
     "Tor Browser signature" \
     "${tor_url}.asc" \
     "${tor_archive_url}.asc" \
     "$tor_signature" \
-    "$SOFTWARE_TOR_BROWSER_SIGNATURE_MINIMUM_BYTES" \
-    "$SOFTWARE_TOR_BROWSER_SIGNATURE_MAXIMUM_BYTES" \
     signature
   # Target execution does not inherit installer path variables. Pass the
   # rendered helper and private work directory as data, never shell source.

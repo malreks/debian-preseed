@@ -47,9 +47,33 @@ def regular(path: Path, maximum: int) -> bytes:
                 or info.st_mode & 0o022 or not 0 < info.st_size <= maximum):
             raise ValueError('untrusted firmware installation file')
         data = source.read(maximum + 1)
-        if len(data) != info.st_size:
+        if len(data) != info.st_size or len(data) > maximum:
             raise ValueError('firmware input changed or exceeds its bound')
         return data
+
+
+def archive_digest(path: Path) -> str:
+    """Hash the downloaded file in fixed chunks without a transfer-size ceiling."""
+    directory(path.parent)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as source:
+        before = os.fstat(source.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid or before.st_nlink != 1
+                or before.st_mode & 0o022):
+            raise ValueError('untrusted firmware archive')
+        digest = hashlib.sha256()
+        total = 0
+        while block := source.read(65536):
+            if time.monotonic() >= DEADLINE:
+                raise ValueError('firmware archive verification deadline exceeded')
+            total += len(block)
+            digest.update(block)
+        after = os.fstat(source.fileno())
+        named = path.lstat()
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+        if total != before.st_size or identity(before) != identity(after) or identity(after) != identity(named):
+            raise ValueError('firmware archive changed during verification')
+        return digest.hexdigest()
 
 
 def sync(path: Path) -> None:
@@ -82,17 +106,12 @@ def pairs(items):
 def policy() -> dict:
     value = json.loads(regular(POLICY, 65536), object_pairs_hook=pairs)
     if (not isinstance(value, dict) or set(value) != {'format','version','commit','url','hosts',
-            'sha256','binary_sha256','minimum_bytes','maximum_bytes'} or value['format'] != 1):
+            'sha256','binary_sha256'} or value['format'] != 1):
         raise ValueError('unsupported firmware policy schema')
     for field, pattern in (('version',r'[0-9]+(?:\.[0-9]+){3}'),('commit',r'[0-9a-f]{40}'),
                            ('sha256',r'[0-9a-f]{64}'),('binary_sha256',r'[0-9a-f]{64}')):
         if not isinstance(value[field], str) or re.fullmatch(pattern,value[field]) is None:
             raise ValueError('invalid firmware artifact identity')
-    for field in ('minimum_bytes','maximum_bytes'):
-        if type(value[field]) is not int or not 1 <= value[field] <= 33_554_432:
-            raise ValueError('invalid firmware transfer bound')
-    if value['minimum_bytes'] > value['maximum_bytes']:
-        raise ValueError('inconsistent firmware transfer bounds')
     hosts = value['hosts'].split()
     if not hosts or len(hosts) > 8 or any(re.fullmatch(r'[a-z0-9.-]+',host) is None for host in hosts):
         raise ValueError('invalid firmware redirect policy')
@@ -110,8 +129,7 @@ def download(value: dict, destination: Path, lock: int) -> None:
     process = None
     pinned = None
     try:
-        process = subprocess.Popen([FETCH,value['url'],str(destination),str(value['minimum_bytes']),
-            str(value['maximum_bytes']),'artifact',value['hosts']], stdin=subprocess.DEVNULL,
+        process = subprocess.Popen([FETCH,value['url'],str(destination),'artifact',value['hosts']], stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,pass_fds=(lock,),start_new_session=True,
             env={'PATH':'__INSTALLER_PATH_DIR_USR_BIN__:/bin','LC_ALL':'C'})
         pinned = os.pidfd_open(process.pid)
@@ -261,8 +279,7 @@ def install(value: dict, lock: int) -> None:
         try:
             archive = workspace/'source.tar.gz'
             download(value,archive,lock)
-            source = regular(archive,value['maximum_bytes'])
-            if len(source) < value['minimum_bytes'] or hashlib.sha256(source).hexdigest() != value['sha256']:
+            if archive_digest(archive) != value['sha256']:
                 raise ValueError('firmware archive digest differs')
             files = archive_members(archive,value['commit'])
             binary_data = files['SNANDer-'+value['commit']+'/Linux/SNANDer']

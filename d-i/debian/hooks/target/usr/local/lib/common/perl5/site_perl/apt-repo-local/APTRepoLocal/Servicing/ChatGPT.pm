@@ -149,14 +149,11 @@ sub spec {
     my $policy = $self->release_policy()->{generic_deb}{chatgpt};
     ref($policy) eq 'HASH'
         && defined($policy->{url})
-        && defined($policy->{maximum_bytes})
         or die "ChatGPT release policy is unavailable\n";
     return {
         name       => 'chatgpt',
         label      => 'ChatGPT/Codex Desktop',
         url        => $policy->{url},
-        minimum    => $policy->{minimum_bytes},
-        maximum    => $policy->{maximum_bytes},
         packages   => ['chatgpt'],
         validate_payload => 0,
         # The managed launcher uses native Wayland. Keep display-server and

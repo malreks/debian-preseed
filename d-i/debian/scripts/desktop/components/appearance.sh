@@ -111,7 +111,6 @@ desktop_extract_theme_release() (
   archive_host="${TMP_ENV_DIR}/desktop-themes.tar.gz"
   archive_target="${DIR_TMP}/installer-desktop-themes.tar.gz"
   archive_target_host=$(target_asset_host_path "$archive_target")
-  archive_max_bytes=${LABWC_DESKTOP_THEMES_MAXIMUM_BYTES:?LABWC_DESKTOP_THEMES_MAXIMUM_BYTES must be set}
   trap 'rm -f -- "$archive_host" "$archive_target_host"' EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
@@ -123,8 +122,7 @@ desktop_extract_theme_release() (
     "$LABWC_DESKTOP_THEMES_URL" \
     "$LABWC_DESKTOP_THEMES_SHA256" \
     desktop-themes.tar.gz \
-    "$archive_host" \
-    "$archive_max_bytes"
+    "$archive_host"
 
   install -m 0600 "$archive_host" "$archive_target_host"
   rm -f -- "$archive_host"

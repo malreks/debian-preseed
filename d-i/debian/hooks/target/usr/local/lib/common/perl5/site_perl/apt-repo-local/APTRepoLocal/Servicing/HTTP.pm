@@ -30,12 +30,9 @@ sub _validate_url {
 sub download {
     my ($self, %args) = @_;
     require Managed::Process;
-    for my $key (qw(label url destination minimum maximum content_policy)) {
+    for my $key (qw(label url destination content_policy)) {
         exists $args{$key} or die "missing HTTP download parameter $key\n";
     }
-    $args{minimum} =~ /\A[0-9]+\z/ && $args{maximum} =~ /\A[0-9]+\z/
-        && $args{minimum} <= $args{maximum}
-        or die "invalid HTTP download size bounds\n";
     $args{content_policy} =~ /\A(?:artifact|metadata|signature)\z/
         or die "unsupported HTTP content policy\n";
     !exists($args{response_metadata}) || ref($args{response_metadata}) eq 'HASH'
@@ -80,14 +77,14 @@ sub download {
                 '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '15',
                 '--max-redirs', '0', '--max-time', $remaining, '--speed-limit', '1024', '--speed-time', '45',
                 '--retry', '3', '--retry-max-time', $remaining, '--retry-delay', '2',
-                '--retry-all-errors', '--max-filesize', $args{maximum},
+                '--retry-all-errors',
                 '--user-agent', $user_agent,
                 '--header', 'Accept: application/octet-stream, application/vnd.debian.binary-package;q=0.9, */*;q=0.1',
                 '--output', $partial, '--write-out', "%{http_code}\n%{url_effective}\n%{content_type}\n%{redirect_url}",
                 '--url', $url,
             );
             # Keep a bounded 15-second connection establishment check plus the
-            # reviewed HTTPS, redirect, retry, size, and partial-file checks.
+            # reviewed HTTPS, redirect, retry and partial-file checks.
             # The same deadline covers every retry, redirect and final wait.
             my $result = Managed::Process::capture_command(
                 argv => \@command, timeout => $remaining, limit => 16384,
@@ -134,9 +131,6 @@ sub download {
             die "$args{label} download returned an unsupported metadata content type\n";
         }
         -f $partial && !-l $partial or die "$args{label} download is not a regular file\n";
-        my $size = -s $partial;
-        defined $size && $size >= $args{minimum} && $size <= $args{maximum}
-            or die "$args{label} download size is outside approved bounds\n";
         rename $partial, $args{destination} or die "failed to publish downloaded $args{label}: $!\n";
         if (exists $args{response_metadata}) {
             %{$args{response_metadata}} = (status => $status, effective_url => $effective,

@@ -267,7 +267,6 @@ runtime_write_effective_account_env() {
     printf 'SSHD_CONFIG_SOURCE=%s\n' "$(runtime_shell_quote "$SSHD_CONFIG_SOURCE")" || return "$?"
     printf 'SSH_USER_CONFIG_SOURCE=%s\n' "$(runtime_shell_quote "$SSH_USER_CONFIG_SOURCE")" || return "$?"
     printf 'SSH_PUBLIC_KEY_MAX_BYTES=%s\n' "$(runtime_shell_quote "$SSH_PUBLIC_KEY_MAX_BYTES")" || return "$?"
-    printf 'SSH_CONFIG_MAX_BYTES=%s\n' "$(runtime_shell_quote "$SSH_CONFIG_MAX_BYTES")" || return "$?"
     printf 'SSH_AUTHORIZED_KEYS_TARGET=%s\n' "$(runtime_shell_quote "$SSH_AUTHORIZED_KEYS_TARGET")" || return "$?"
     printf 'SSH_USER_CONFIG_TARGET=%s\n' "$(runtime_shell_quote "$SSH_USER_CONFIG_TARGET")" || return "$?"
     printf 'FRUUX_CALENDAR_USERNAME=%s\n' "$(runtime_shell_quote "${FRUUX_CALENDAR_USERNAME:-}")" || return "$?"

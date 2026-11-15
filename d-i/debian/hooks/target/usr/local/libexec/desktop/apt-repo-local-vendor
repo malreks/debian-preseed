@@ -112,8 +112,6 @@ if ($action eq 'probe') {
             label => 'Discord release metadata',
             url => $vendor_policy->{manifest_url},
             destination => $manifest,
-            minimum => $vendor_policy->{manifest_minimum_bytes},
-            maximum => $vendor_policy->{manifest_maximum_bytes},
             content_policy => 'metadata',
             user_agent => APTRepoLocal::Servicing::Discord::DISTRO_USER_AGENT(),
         );
@@ -131,8 +129,6 @@ if ($action eq 'probe') {
             label => 'Ledger release metadata',
             url => $vendor_policy->{metadata_url},
             destination => $metadata,
-            minimum => $vendor_policy->{metadata_minimum_bytes},
-            maximum => $vendor_policy->{metadata_maximum_bytes},
             content_policy => 'metadata',
         );
         my $release = $vendor->_parse_metadata($metadata);

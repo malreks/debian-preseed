@@ -28,7 +28,6 @@ desktop_install_codex_standalone() (
   : "${DEVOPS_CODEX_HOME:?DEVOPS_CODEX_HOME must be set before Codex standalone installation}"
   : "${DEVOPS_CODEX_STANDALONE_INSTALLER_URL:?DEVOPS_CODEX_STANDALONE_INSTALLER_URL must be set before Codex standalone installation}"
   : "${DEVOPS_CODEX_STANDALONE_INSTALLER_SHA256:?DEVOPS_CODEX_STANDALONE_INSTALLER_SHA256 must be set before Codex standalone installation}"
-  : "${DEVOPS_CODEX_STANDALONE_INSTALLER_MAXIMUM_BYTES:?DEVOPS_CODEX_STANDALONE_INSTALLER_MAXIMUM_BYTES must be set before Codex standalone installation}"
 
   case "$DEVOPS_CODEX_HOME" in
     "$DEVOPS_CODEX_USER_ROOT"/*) ;;
@@ -94,7 +93,6 @@ desktop_install_codex_standalone() (
       "$installer_helper" \
       "$DEVOPS_CODEX_STANDALONE_INSTALLER_URL" \
       "$DEVOPS_CODEX_STANDALONE_INSTALLER_SHA256" \
-      "$DEVOPS_CODEX_STANDALONE_INSTALLER_MAXIMUM_BYTES" \
       "$DEVOPS_CODEX_HOME" "$packages_root"
 
   packages_host_path=$(target_asset_host_path "$packages_root")

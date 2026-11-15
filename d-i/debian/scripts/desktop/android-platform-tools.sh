@@ -19,8 +19,6 @@ desktop_android_platform_tools_validate_unsigned_integer() {
 desktop_android_platform_tools_validate_policy() {
   : "${ANDROID_PLATFORM_TOOLS_ARCHITECTURE:?ANDROID_PLATFORM_TOOLS_ARCHITECTURE must be set}"
   : "${ANDROID_PLATFORM_TOOLS_URL:?ANDROID_PLATFORM_TOOLS_URL must be set}"
-  : "${ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES:?ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES must be set}"
-  : "${ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES:?ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES must be set}"
   : "${ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES:?ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES must be set}"
   : "${ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS:?ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS must be set}"
 
@@ -40,24 +38,12 @@ desktop_android_platform_tools_validate_policy() {
   esac
 
   desktop_android_platform_tools_validate_unsigned_integer \
-    ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES \
-    "$ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES"
-  desktop_android_platform_tools_validate_unsigned_integer \
-    ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES \
-    "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES"
-  desktop_android_platform_tools_validate_unsigned_integer \
     ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES \
     "$ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES"
   desktop_android_platform_tools_validate_unsigned_integer \
     ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS \
     "$ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS"
 
-  [ "$ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES" -ge 1000000 ] ||
-    desktop_android_platform_tools_fail "minimum archive size is too small"
-  [ "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES" -ge "$ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES" ] ||
-    desktop_android_platform_tools_fail "maximum archive size is smaller than the minimum"
-  [ "$ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES" -ge "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES" ] ||
-    desktop_android_platform_tools_fail "maximum extracted size is smaller than the archive ceiling"
   [ "$ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS" -ge 12 ] ||
     desktop_android_platform_tools_fail "archive member ceiling is too small"
 }
@@ -129,7 +115,6 @@ desktop_install_android_platform_tools() {
         --max-redirs 4 \
         --retry 3 \
         --retry-all-errors \
-        --max-filesize "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES" \
         --user-agent 'unattended-installer-android-platform-tools/1.0' \
         --header 'Accept: application/zip, application/octet-stream;q=0.9, */*;q=0.1' \
         --output "$platform_tools_archive" \
@@ -140,17 +125,6 @@ desktop_install_android_platform_tools() {
 
   [ -f "$platform_tools_archive_host" ] && [ ! -L "$platform_tools_archive_host" ] ||
     desktop_android_platform_tools_fail "downloaded archive is not a regular file"
-  platform_tools_archive_size=$(wc -c <"$platform_tools_archive_host" | awk '{print $1}')
-  desktop_android_platform_tools_validate_unsigned_integer \
-    "downloaded archive size" \
-    "$platform_tools_archive_size"
-  [ "$platform_tools_archive_size" -ge "$ANDROID_PLATFORM_TOOLS_MINIMUM_BYTES" ] ||
-    desktop_android_platform_tools_fail \
-      "downloaded archive is unexpectedly small: ${platform_tools_archive_size} bytes"
-  [ "$platform_tools_archive_size" -le "$ANDROID_PLATFORM_TOOLS_MAXIMUM_BYTES" ] ||
-    desktop_android_platform_tools_fail \
-      "downloaded archive is unexpectedly large: ${platform_tools_archive_size} bytes"
-
   platform_tools_archive_sha256=$(
     capture_in_target \
       "hash downloaded Google Android SDK Platform-Tools archive" \

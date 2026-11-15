@@ -147,7 +147,7 @@ attempt_in_target() {
                 result = self.run_shell('desktop_waypaper_validate_policy', LABWC_WAYPAPER_URL=url)
                 self.assertNotEqual(result.returncode, 0)
 
-    def test_authenticated_fixture_is_published_only_after_hash_and_size_checks(self):
+    def test_authenticated_fixture_is_published_only_after_hash_checks(self):
         digest = hashlib.sha256(self.fixture.read_bytes()).hexdigest()
         result = self.run_shell('desktop_waypaper_download_wheel ' + shlex.quote(self.wheel),
                                 LABWC_WAYPAPER_SHA256=digest)
@@ -157,7 +157,7 @@ attempt_in_target() {
         self.assertEqual(installed.stat().st_mode & 0o777, 0o644)
         self.assertEqual(list(installed.parent.glob('.waypaper-wheel.*')), [])
 
-    def test_wrong_hash_and_oversized_or_truncated_downloads_are_not_published(self):
+    def test_wrong_hash_and_modified_downloads_are_not_published(self):
         for payload in (self.fixture.read_bytes(), b'truncated', b'x' * (1048576 + 1)):
             with self.subTest(size=len(payload)):
                 self.fixture.write_bytes(payload)
@@ -358,9 +358,7 @@ class DesktopReleaseContractTests(unittest.TestCase):
         policy = {key: value for key, value in values(SEED / 'hosts/profiles/btrfs-de.env').items()
                   if key.startswith(('SOFTWARE_OBSIDIAN_', 'SOFTWARE_SLEEK_'))}
         cases = ({}, {'SOFTWARE_OBSIDIAN_URL': policy['SOFTWARE_OBSIDIAN_URL'] + '?untrusted=1'},
-                 {'SOFTWARE_SLEEK_VERSION': '2x0x29'}, {'SOFTWARE_SLEEK_SHA256': 'a' * 63},
-                 {'SOFTWARE_OBSIDIAN_MAXIMUM_BYTES': '536870913'},
-                 {'SOFTWARE_SLEEK_MINIMUM_BYTES': '134217729'})
+                 {'SOFTWARE_SLEEK_VERSION': '2x0x29'}, {'SOFTWARE_SLEEK_SHA256': 'a' * 63})
         for overrides in cases:
             with self.subTest(overrides=overrides):
                 assignments = '\n'.join(key + '=' + shlex.quote(value)
@@ -386,10 +384,8 @@ class DesktopReleaseContractTests(unittest.TestCase):
                 self.assertIn('/v' + policy['LABWC_SATTY_VERSION'] + '/', policy['LABWC_SATTY_URL'])
                 self.assertIn('/' + policy['SOFTWARE_TOMAT_TAG'] + '/', policy['SOFTWARE_TOMAT_URL'])
                 self.assertRegex(policy['LABWC_WAYPAPER_SHA256'], r'^[0-9a-f]{64}$')
-                minimum = int(policy['LABWC_WAYPAPER_MINIMUM_BYTES'])
-                maximum = int(policy['LABWC_WAYPAPER_MAXIMUM_BYTES'])
-                self.assertLessEqual(minimum, 69176)  # Published 2.9 wheel size.
-                self.assertGreaterEqual(maximum, 69176)
+                self.assertNotIn('LABWC_WAYPAPER_MINIMUM_BYTES', policy)
+                self.assertNotIn('LABWC_WAYPAPER_MAXIMUM_BYTES', policy)
                 self.assertEqual(policy['SAMLOADER_VERSION'], '2.2.0')
                 self.assertIn('/2.2.0/samloader-v2.2.0-linux-x86_64.zip', policy['SAMLOADER_URL'])
                 self.assertEqual(policy['SAMLOADER_SHA256'],

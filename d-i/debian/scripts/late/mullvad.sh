@@ -67,8 +67,6 @@ mullvad_download_target_file() {
   mullvad_download_label=$1
   mullvad_download_url=$2
   mullvad_download_path=$3
-  mullvad_download_minimum=$4
-  mullvad_download_maximum=$5
   mullvad_download_partial="${mullvad_download_path}.part"
   mullvad_download_host_path="${TARGET_ROOT}${mullvad_download_path}"
   mullvad_download_partial_host_path="${TARGET_ROOT}${mullvad_download_partial}"
@@ -98,7 +96,6 @@ mullvad_download_target_file() {
           --retry 5 \
           --retry-delay 2 \
           --retry-all-errors \
-          --max-filesize "$mullvad_download_maximum" \
           --user-agent 'unattended-installer-mullvad/1.0' \
           --header 'Accept: application/octet-stream, application/vnd.debian.binary-package;q=0.9, application/pgp-signature;q=0.8, */*;q=0.1' \
           --output "$mullvad_download_partial" \
@@ -118,26 +115,11 @@ mullvad_download_target_file() {
 
   [ -f "$mullvad_download_partial_host_path" ] && [ ! -L "$mullvad_download_partial_host_path" ] ||
     installer_fatal "${mullvad_download_label} download is not a regular file"
-  mullvad_download_size=$(
-    capture_in_target \
-      "measure ${mullvad_download_label}" \
-      __INSTALLER_PATH_DIR_USR_BIN__/find -P "$mullvad_download_partial" -maxdepth 0 -printf %s
-  )
-  case "$mullvad_download_size" in
-    ''|*[!0-9]*)
-      installer_fatal "${mullvad_download_label} download size is invalid: ${mullvad_download_size:-unset}"
-      ;;
-  esac
-  [ "$mullvad_download_size" -ge "$mullvad_download_minimum" ] ||
-    installer_fatal "${mullvad_download_label} download is unexpectedly small: ${mullvad_download_size} bytes"
-  [ "$mullvad_download_size" -le "$mullvad_download_maximum" ] ||
-    installer_fatal "${mullvad_download_label} download is unexpectedly large: ${mullvad_download_size} bytes"
-
   run_in_target_quiet \
     "publish ${mullvad_download_label}" \
     __INSTALLER_PATH_DIR_BIN__/mv -f -- "$mullvad_download_partial" "$mullvad_download_path"
   installer_info \
-    "downloaded ${mullvad_download_label} effective_url=${mullvad_effective_url} bytes=${mullvad_download_size}"
+    "downloaded ${mullvad_download_label} effective_url=${mullvad_effective_url}"
 }
 
 mullvad_installed_package_status() {
@@ -603,21 +585,15 @@ install_target_mullvad_vpn_if_selected() (
   mullvad_download_target_file \
     "Mullvad code signing key" \
     "$MULLVAD_CODE_SIGNING_KEY_URL" \
-    "$mullvad_key_path" \
-    "$MULLVAD_KEY_MINIMUM_BYTES" \
-    "$MULLVAD_KEY_MAXIMUM_BYTES"
+    "$mullvad_key_path"
   mullvad_download_target_file \
     "Mullvad VPN Debian package" \
     "$mullvad_deb_url" \
-    "$mullvad_deb_path" \
-    "$MULLVAD_DEB_MINIMUM_BYTES" \
-    "$MULLVAD_DEB_MAXIMUM_BYTES"
+    "$mullvad_deb_path"
   mullvad_download_target_file \
     "Mullvad VPN detached signature" \
     "$mullvad_signature_url" \
-    "$mullvad_signature_path" \
-    "$MULLVAD_SIGNATURE_MINIMUM_BYTES" \
-    "$MULLVAD_SIGNATURE_MAXIMUM_BYTES"
+    "$mullvad_signature_path"
 
   mullvad_key_listing=$(
     capture_in_target \

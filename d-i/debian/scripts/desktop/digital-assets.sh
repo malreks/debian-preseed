@@ -22,15 +22,11 @@ desktop_digital_assets_validate_policy() {
   : "${DIGITAL_ASSETS_PDFCPU_URL:?DIGITAL_ASSETS_PDFCPU_URL must be set}"
   : "${DIGITAL_ASSETS_PDFCPU_VERSION:?DIGITAL_ASSETS_PDFCPU_VERSION must be set}"
   : "${DIGITAL_ASSETS_PDFCPU_SHA256:?DIGITAL_ASSETS_PDFCPU_SHA256 must be set}"
-  : "${DIGITAL_ASSETS_PDFCPU_MINIMUM_BYTES:?DIGITAL_ASSETS_PDFCPU_MINIMUM_BYTES must be set}"
-  : "${DIGITAL_ASSETS_PDFCPU_MAXIMUM_BYTES:?DIGITAL_ASSETS_PDFCPU_MAXIMUM_BYTES must be set}"
   : "${DIGITAL_ASSETS_PDFCPU_MAXIMUM_EXTRACTED_BYTES:?DIGITAL_ASSETS_PDFCPU_MAXIMUM_EXTRACTED_BYTES must be set}"
   : "${DIGITAL_ASSETS_PDFCPU_MAXIMUM_MEMBERS:?DIGITAL_ASSETS_PDFCPU_MAXIMUM_MEMBERS must be set}"
   : "${DIGITAL_ASSETS_TYPST_URL:?DIGITAL_ASSETS_TYPST_URL must be set}"
   : "${DIGITAL_ASSETS_TYPST_VERSION:?DIGITAL_ASSETS_TYPST_VERSION must be set}"
   : "${DIGITAL_ASSETS_TYPST_SHA256:?DIGITAL_ASSETS_TYPST_SHA256 must be set}"
-  : "${DIGITAL_ASSETS_TYPST_MINIMUM_BYTES:?DIGITAL_ASSETS_TYPST_MINIMUM_BYTES must be set}"
-  : "${DIGITAL_ASSETS_TYPST_MAXIMUM_BYTES:?DIGITAL_ASSETS_TYPST_MAXIMUM_BYTES must be set}"
   : "${DIGITAL_ASSETS_TYPST_MAXIMUM_EXTRACTED_BYTES:?DIGITAL_ASSETS_TYPST_MAXIMUM_EXTRACTED_BYTES must be set}"
   : "${DIGITAL_ASSETS_TYPST_MAXIMUM_MEMBERS:?DIGITAL_ASSETS_TYPST_MAXIMUM_MEMBERS must be set}"
   : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set}"
@@ -72,11 +68,9 @@ desktop_digital_assets_install_release_tool() {
   tool_version=$2
   tool_url=$3
   tool_sha256=$4
-  tool_minimum_bytes=$5
-  tool_maximum_bytes=$6
-  tool_maximum_extracted_bytes=$7
-  tool_maximum_members=$8
-  shift 8
+  tool_maximum_extracted_bytes=$5
+  tool_maximum_members=$6
+  shift 6
 
   [ "$#" -ge 1 ] ||
     desktop_digital_assets_fail "release validation command is missing for ${tool_name}"
@@ -114,7 +108,6 @@ desktop_digital_assets_install_release_tool() {
         --max-redirs 4 \
         --retry 3 \
         --retry-all-errors \
-        --max-filesize "$tool_maximum_bytes" \
         --user-agent "unattended-installer-digital-assets-${tool_name}/1.0" \
         --header 'Accept: application/x-xz, application/octet-stream;q=0.9, */*;q=0.1' \
         --output "$tool_archive" \
@@ -125,17 +118,6 @@ desktop_digital_assets_install_release_tool() {
 
   [ -f "$tool_archive_host" ] && [ ! -L "$tool_archive_host" ] ||
     desktop_digital_assets_fail "downloaded ${tool_name} archive is not a regular file"
-  tool_archive_size=$(wc -c <"$tool_archive_host" | awk '{print $1}')
-  case "$tool_archive_size" in
-    ''|*[!0123456789]*)
-      desktop_digital_assets_fail "downloaded ${tool_name} archive has an invalid size"
-      ;;
-  esac
-  [ "$tool_archive_size" -ge "$tool_minimum_bytes" ] ||
-    desktop_digital_assets_fail "downloaded ${tool_name} archive is unexpectedly small"
-  [ "$tool_archive_size" -le "$tool_maximum_bytes" ] ||
-    desktop_digital_assets_fail "downloaded ${tool_name} archive exceeds its size ceiling"
-
   tool_archive_sha256=$(
     capture_in_target \
       "hash downloaded ${tool_name} archive" \
@@ -527,8 +509,6 @@ desktop_install_digital_assets() {
     "$DIGITAL_ASSETS_PDFCPU_VERSION" \
     "$DIGITAL_ASSETS_PDFCPU_URL" \
     "$DIGITAL_ASSETS_PDFCPU_SHA256" \
-    "$DIGITAL_ASSETS_PDFCPU_MINIMUM_BYTES" \
-    "$DIGITAL_ASSETS_PDFCPU_MAXIMUM_BYTES" \
     "$DIGITAL_ASSETS_PDFCPU_MAXIMUM_EXTRACTED_BYTES" \
     "$DIGITAL_ASSETS_PDFCPU_MAXIMUM_MEMBERS" \
     version
@@ -537,8 +517,6 @@ desktop_install_digital_assets() {
     "$DIGITAL_ASSETS_TYPST_VERSION" \
     "$DIGITAL_ASSETS_TYPST_URL" \
     "$DIGITAL_ASSETS_TYPST_SHA256" \
-    "$DIGITAL_ASSETS_TYPST_MINIMUM_BYTES" \
-    "$DIGITAL_ASSETS_TYPST_MAXIMUM_BYTES" \
     "$DIGITAL_ASSETS_TYPST_MAXIMUM_EXTRACTED_BYTES" \
     "$DIGITAL_ASSETS_TYPST_MAXIMUM_MEMBERS" \
     --version

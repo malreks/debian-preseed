@@ -18,6 +18,7 @@ import sys
 import tarfile
 import tempfile
 import time
+from typing import BinaryIO
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -73,12 +74,11 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def release_pin(prefix: str) -> dict[str, str]:
-    fields = ('VERSION', 'COMMIT', 'SHA256', 'URL', 'MAXIMUM_BYTES')
+    fields = ('VERSION', 'COMMIT', 'SHA256', 'URL')
     values = {field: os.environ.get(f'{prefix}_{field}', '') for field in fields}
     if (not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', values['VERSION'])
             or not re.fullmatch(r'[0-9a-f]{40}', values['COMMIT'])
-            or not re.fullmatch(r'[0-9a-f]{64}', values['SHA256'])
-            or not re.fullmatch(r'[1-9][0-9]{0,11}', values['MAXIMUM_BYTES'])):
+            or not re.fullmatch(r'[0-9a-f]{64}', values['SHA256'])):
         raise Error(f'{prefix} release pin is incomplete or malformed')
     parsed = urllib.parse.urlsplit(values['URL'])
     if (parsed.scheme != 'https' or not parsed.hostname or parsed.username
@@ -90,13 +90,13 @@ def release_pin(prefix: str) -> dict[str, str]:
     return values
 
 
-def download(url: str, digest: str, maximum: int) -> bytes:
+def download(url: str, digest: str) -> BinaryIO:
     # Retry only release acquisition, before publishing files or credentials.
     # Each socket operation has a stall timeout; active streams have no total
     # elapsed-time cap. Restart from the pinned URL to renew signed redirects.
     for attempt in range(4):
         try:
-            return download_attempt(url, digest, maximum)
+            return download_attempt(url, digest)
         except (OSError, http.client.HTTPException, DownloadUnavailable):
             if attempt == 3:
                 raise Error('calendar release transport failed after retries') from None
@@ -104,7 +104,7 @@ def download(url: str, digest: str, maximum: int) -> bytes:
     raise Error('calendar release transport failed after retries')
 
 
-def download_attempt(url: str, digest: str, maximum: int) -> bytes:
+def download_attempt(url: str, digest: str) -> BinaryIO:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     for hop in range(5):
         parsed = urllib.parse.urlsplit(url)
@@ -126,30 +126,36 @@ def download_attempt(url: str, digest: str, maximum: int) -> bytes:
                 continue
         with response:
             length = response.headers.get('Content-Length')
-            if length is not None and (not re.fullmatch(r'[0-9]{1,12}', length)
-                                       or int(length) > maximum):
-                raise Error('calendar release content length exceeds its limit or is invalid')
-            data = bytearray()
-            while True:
-                block = response.read1(min(65536, maximum + 1 - len(data)))
-                if not block:
-                    break
-                data.extend(block)
-                if len(data) > maximum:
-                    raise Error('calendar release download limit exceeded')
-            if length is not None and len(data) != int(length):
-                raise DownloadUnavailable('calendar release transfer was interrupted')
-        if hashlib.sha256(data).hexdigest() != digest:
-            raise Error('calendar release SHA-256 mismatch')
-        return bytes(data)
+            if length is not None and not re.fullmatch(r'[0-9]+', length):
+                raise Error('calendar release content length is invalid')
+            # Keep transfer memory constant. The returned private file is owned
+            # and closed by the caller, including archive-validation failures.
+            data = tempfile.TemporaryFile(dir='__INSTALLER_PATH_DIR_TMP__')
+            try:
+                observed = hashlib.sha256()
+                received = 0
+                while block := response.read1(65536):
+                    data.write(block)
+                    observed.update(block)
+                    received += len(block)
+                if length is not None and received != int(length):
+                    raise DownloadUnavailable('calendar release transfer was interrupted')
+                if observed.hexdigest() != digest:
+                    raise Error('calendar release SHA-256 mismatch')
+                data.seek(0)
+                return data
+            except BaseException:
+                data.close()
+                raise
     raise Error('calendar release redirect limit exceeded')
 
 
-def members(data: bytes, root: str, wanted: set[str], *,
+def members(data: bytes | BinaryIO, root: str, wanted: set[str], *,
             member_limit: int, extra_member_pattern: str,
             maximum_expanded_bytes: int, maximum_member_bytes: int) -> dict[str, bytes]:
     # Bound expanded bytes before tarfile can materialize extension headers.
-    with gzip.GzipFile(fileobj=io.BytesIO(data), mode='rb') as compressed:
+    source = io.BytesIO(data) if isinstance(data, bytes) else data
+    with gzip.GzipFile(fileobj=source, mode='rb') as compressed:
         expanded = compressed.read(maximum_expanded_bytes + 1)
     if len(expanded) > maximum_expanded_bytes:
         raise Error('calendar release expansion limit exceeded')
@@ -280,16 +286,17 @@ def install_agenda_release(pin: dict[str, str], metadata: dict[str, str],
                            archive_limits: tuple[int, int, int, int]) -> None:
     maximum_expanded_bytes, maximum_member_bytes, _, agenda_member_limit = archive_limits
     version = pin['VERSION']
-    assets = members(
-        download(url, pin['SHA256'], int(pin['MAXIMUM_BYTES'])),
-        archive_root,
-        {metadata['BINARY_MEMBER'], metadata['SCHEMA_MEMBER'],
-         metadata['LICENSE_MEMBER'], metadata['ICON_MEMBER'],
-         metadata['BUILD_INFO_MEMBER'], metadata['PREFIX_MEMBER']},
-        member_limit=agenda_member_limit,
-        extra_member_pattern=metadata['EXTRA_MEMBER_PATTERN'],
-        maximum_expanded_bytes=maximum_expanded_bytes,
-        maximum_member_bytes=maximum_member_bytes)
+    with download(url, pin['SHA256']) as archive:
+        assets = members(
+            archive,
+            archive_root,
+            {metadata['BINARY_MEMBER'], metadata['SCHEMA_MEMBER'],
+             metadata['LICENSE_MEMBER'], metadata['ICON_MEMBER'],
+             metadata['BUILD_INFO_MEMBER'], metadata['PREFIX_MEMBER']},
+            member_limit=agenda_member_limit,
+            extra_member_pattern=metadata['EXTRA_MEMBER_PATTERN'],
+            maximum_expanded_bytes=maximum_expanded_bytes,
+            maximum_member_bytes=maximum_member_bytes)
     elf(assets[metadata['BINARY_MEMBER']])
     build_metadata = json.loads(assets[metadata['BUILD_INFO_MEMBER']])
     if (assets[metadata['PREFIX_MEMBER']] != (metadata['BUILD_PREFIX'] + '\n').encode()
@@ -326,7 +333,7 @@ def install_agenda_release(pin: dict[str, str], metadata: dict[str, str],
     publish(Path(metadata['INSTALL_LICENSE']), assets[metadata['LICENSE_MEMBER']])
     publish(Path(metadata['BUILD_INFO_INSTALL_PATH']), assets[metadata['BUILD_INFO_MEMBER']])
     publish(Path(metadata['INSTALL_BINARY']), assets[metadata['BINARY_MEMBER']], 0o755)
-    receipt = {key.lower(): value for key, value in pin.items() if key != 'MAXIMUM_BYTES'}
+    receipt = {key.lower(): value for key, value in pin.items()}
     receipt.update(url=url, executable_sha256=hashlib.sha256(assets[metadata['BINARY_MEMBER']]).hexdigest(),
                    schema_sha256=hashlib.sha256(assets[metadata['SCHEMA_MEMBER']]).hexdigest(),
                    build_commit=build_metadata['commit'],
@@ -425,13 +432,14 @@ def main() -> None:
         wanted = {metadata['BINARY_MEMBER'], metadata['LICENSE_MEMBER']}
         if metadata['ICON_MEMBER']:
             wanted.add(metadata['ICON_MEMBER'])
-        assets = members(
-            download(url, pins['SHA256'], int(pins['MAXIMUM_BYTES'])),
-            archive_root, wanted,
-            member_limit=archive_limits[2],
-            extra_member_pattern=metadata['EXTRA_MEMBER_PATTERN'],
-            maximum_expanded_bytes=archive_limits[0],
-            maximum_member_bytes=archive_limits[1])
+        with download(url, pins['SHA256']) as archive:
+            assets = members(
+                archive,
+                archive_root, wanted,
+                member_limit=archive_limits[2],
+                extra_member_pattern=metadata['EXTRA_MEMBER_PATTERN'],
+                maximum_expanded_bytes=archive_limits[0],
+                maximum_member_bytes=archive_limits[1])
         elf(assets[metadata['BINARY_MEMBER']])
         candidates.append((metadata, assets, {
             'version': pins['VERSION'],

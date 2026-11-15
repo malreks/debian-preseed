@@ -13,13 +13,6 @@ has event => (is => 'ro', required => 1);
 has state => (is => 'ro', required => 1);
 has release_policy => (is => 'ro', required => 1);
 
-sub _limit {
-    my ($self, $name) = @_;
-    my $value = $self->release_policy()->{tuta}{$name};
-    defined $value && !ref $value && $value =~ /\A[1-9][0-9]*\z/
-        or die "Tuta release policy limit is unavailable: $name\n";
-    return 0 + $value;
-}
 
 sub _sha256 {
     my ($self, $path) = @_;
@@ -84,16 +77,12 @@ sub fetch {
             label => 'Tuta Mail AppImage',
             url => $self->release_policy()->{service_urls}{tuta_appimage},
             destination => $image,
-            minimum => $self->_limit('appimage_minimum_bytes'),
-            maximum => $self->_limit('appimage_maximum_bytes'),
             content_policy => 'artifact',
         );
         $self->http()->download(
             label => 'Tuta Mail signature',
             url => $self->release_policy()->{service_urls}{tuta_signature},
             destination => $signature,
-            minimum => $self->_limit('signature_minimum_bytes'),
-            maximum => $self->_limit('signature_maximum_bytes'),
             content_policy => 'artifact',
         );
         system('__INSTALLER_PATH_DIR_USR__/bin/openssl', 'dgst', '-sha512', '-verify', $key, '-signature', $signature, $image) == 0

@@ -19,8 +19,8 @@ def main():
     if not re.fullmatch(r"[0-9a-f]{64}", expected):
         raise ValueError("invalid archive digest")
     if (archive.parent != Path("__INSTALLER_PATH_DIR_TMP__/installer-software") or archive.is_symlink()
-            or not archive.is_file() or not 100_000_000 <= archive.stat().st_size <= 167_772_160):
-        raise ValueError("invalid installer archive path or size")
+            or not archive.is_file()):
+        raise ValueError("invalid installer archive path")
     destination = Path("__INSTALLER_PATH_DIR_OPT_TOR_BROWSER__")
     if destination.exists() or destination.is_symlink():
         raise ValueError("fresh Tor Browser installation requires an absent destination")

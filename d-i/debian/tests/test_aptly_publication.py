@@ -59,7 +59,7 @@ class AptlyPublicReleaseTests(unittest.TestCase):
         self.assertEqual(argv[-1], 'https://aptly.example.test/dists/forky/InRelease')
         self.assertEqual(argv[0:2], ['/usr/bin/curl', '--disable'])
         self.assertIn('--max-time', argv)
-        self.assertIn('--max-filesize', argv)
+        self.assertNotIn('--max-filesize', argv)
         self.assertNotIn('--location', argv)
         self.assertNotIn('-L', argv)
         self.assertLessEqual(command.call_args.kwargs['timeout'], 5)

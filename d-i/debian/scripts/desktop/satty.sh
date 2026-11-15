@@ -22,17 +22,11 @@ desktop_satty_validate_policy() {
   : "${LABWC_SATTY_ARCHITECTURE:?LABWC_SATTY_ARCHITECTURE must be set}"
   : "${LABWC_SATTY_URL:?LABWC_SATTY_URL must be set}"
   : "${LABWC_SATTY_SHA256:?LABWC_SATTY_SHA256 must be set}"
-  : "${LABWC_SATTY_MINIMUM_BYTES:?LABWC_SATTY_MINIMUM_BYTES must be set}"
-  : "${LABWC_SATTY_MAXIMUM_BYTES:?LABWC_SATTY_MAXIMUM_BYTES must be set}"
   : "${LABWC_SATTY_GLIBC_VERSION:?LABWC_SATTY_GLIBC_VERSION must be set}"
   : "${LABWC_SATTY_GLIBC_ARCHITECTURE:?LABWC_SATTY_GLIBC_ARCHITECTURE must be set}"
   : "${LABWC_SATTY_GLIBC_LIBC6_SHA256:?LABWC_SATTY_GLIBC_LIBC6_SHA256 must be set}"
   : "${LABWC_SATTY_GLIBC_GCONV_SHA256:?LABWC_SATTY_GLIBC_GCONV_SHA256 must be set}"
   : "${LABWC_SATTY_GLIBC_RUNTIME_ROOT:?LABWC_SATTY_GLIBC_RUNTIME_ROOT must be set}"
-  : "${LABWC_SATTY_GLIBC_MINIMUM_BYTES:?LABWC_SATTY_GLIBC_MINIMUM_BYTES must be set}"
-  : "${LABWC_SATTY_GLIBC_MAXIMUM_BYTES:?LABWC_SATTY_GLIBC_MAXIMUM_BYTES must be set}"
-  : "${LABWC_SATTY_GLIBC_GCONV_MINIMUM_BYTES:?LABWC_SATTY_GLIBC_GCONV_MINIMUM_BYTES must be set}"
-  : "${LABWC_SATTY_GLIBC_GCONV_MAXIMUM_BYTES:?LABWC_SATTY_GLIBC_GCONV_MAXIMUM_BYTES must be set}"
 
   case "$LABWC_SATTY_VERSION" in
     *[!0-9.]*|.*|*.|*..*)
@@ -59,13 +53,6 @@ desktop_satty_validate_policy() {
   [ "${#LABWC_SATTY_SHA256}" -eq 64 ] ||
     installer_fatal "LABWC_SATTY_SHA256 must contain 64 characters"
 
-  desktop_satty_validate_unsigned_integer LABWC_SATTY_MINIMUM_BYTES "$LABWC_SATTY_MINIMUM_BYTES"
-  desktop_satty_validate_unsigned_integer LABWC_SATTY_MAXIMUM_BYTES "$LABWC_SATTY_MAXIMUM_BYTES"
-  [ "$LABWC_SATTY_MINIMUM_BYTES" -gt 0 ] ||
-    installer_fatal "LABWC_SATTY_MINIMUM_BYTES must be greater than zero"
-  [ "$LABWC_SATTY_MAXIMUM_BYTES" -ge "$LABWC_SATTY_MINIMUM_BYTES" ] ||
-    installer_fatal "LABWC_SATTY_MAXIMUM_BYTES must not be smaller than LABWC_SATTY_MINIMUM_BYTES"
-
   printf '%s\n' "$LABWC_SATTY_GLIBC_VERSION" | grep -Eq '^[0-9]+\.[0-9]+-[0-9]+$' ||
     installer_fatal "LABWC_SATTY_GLIBC_VERSION must be a Debian package version"
   [ "$LABWC_SATTY_GLIBC_ARCHITECTURE" = amd64 ] ||
@@ -86,18 +73,6 @@ desktop_satty_validate_policy() {
     installer_fatal "LABWC_SATTY_GLIBC_GCONV_SHA256 must contain 64 characters"
   [ "$LABWC_SATTY_GLIBC_RUNTIME_ROOT" = "__INSTALLER_PATH_DIR_OPT__/glibc/${LABWC_SATTY_GLIBC_VERSION}/satty" ] ||
     installer_fatal "LABWC_SATTY_GLIBC_RUNTIME_ROOT must match LABWC_SATTY_GLIBC_VERSION"
-  desktop_satty_validate_unsigned_integer LABWC_SATTY_GLIBC_MINIMUM_BYTES "$LABWC_SATTY_GLIBC_MINIMUM_BYTES"
-  desktop_satty_validate_unsigned_integer LABWC_SATTY_GLIBC_MAXIMUM_BYTES "$LABWC_SATTY_GLIBC_MAXIMUM_BYTES"
-  [ "$LABWC_SATTY_GLIBC_MINIMUM_BYTES" -gt 0 ] ||
-    installer_fatal "LABWC_SATTY_GLIBC_MINIMUM_BYTES must be greater than zero"
-  [ "$LABWC_SATTY_GLIBC_MAXIMUM_BYTES" -ge "$LABWC_SATTY_GLIBC_MINIMUM_BYTES" ] ||
-    installer_fatal "LABWC_SATTY_GLIBC_MAXIMUM_BYTES must not be smaller than LABWC_SATTY_GLIBC_MINIMUM_BYTES"
-  desktop_satty_validate_unsigned_integer LABWC_SATTY_GLIBC_GCONV_MINIMUM_BYTES "$LABWC_SATTY_GLIBC_GCONV_MINIMUM_BYTES"
-  desktop_satty_validate_unsigned_integer LABWC_SATTY_GLIBC_GCONV_MAXIMUM_BYTES "$LABWC_SATTY_GLIBC_GCONV_MAXIMUM_BYTES"
-  [ "$LABWC_SATTY_GLIBC_GCONV_MINIMUM_BYTES" -gt 0 ] ||
-    installer_fatal "LABWC_SATTY_GLIBC_GCONV_MINIMUM_BYTES must be greater than zero"
-  [ "$LABWC_SATTY_GLIBC_GCONV_MAXIMUM_BYTES" -ge "$LABWC_SATTY_GLIBC_GCONV_MINIMUM_BYTES" ] ||
-    installer_fatal "LABWC_SATTY_GLIBC_GCONV_MAXIMUM_BYTES must not be smaller than LABWC_SATTY_GLIBC_GCONV_MINIMUM_BYTES"
 }
 
 desktop_satty_preflight_target_architecture() {
@@ -116,19 +91,10 @@ desktop_satty_validate_private_deb() {
   satty_private_expected_package=$3
   satty_private_expected_version=$4
   satty_private_expected_architecture=$5
-  satty_private_minimum_bytes=$6
-  satty_private_maximum_bytes=$7
-  satty_private_expected_sha256=$8
+  satty_private_expected_sha256=$6
 
   [ -f "$satty_private_deb_host" ] && [ ! -L "$satty_private_deb_host" ] ||
     desktop_satty_fail "private Satty GLIBC download is missing package: ${satty_private_expected_package}"
-
-  satty_private_deb_size=$(wc -c <"$satty_private_deb_host" | awk '{print $1}')
-  desktop_satty_validate_unsigned_integer "downloaded ${satty_private_expected_package} package size" "$satty_private_deb_size"
-  [ "$satty_private_deb_size" -ge "$satty_private_minimum_bytes" ] ||
-    desktop_satty_fail "downloaded ${satty_private_expected_package} package is unexpectedly small: ${satty_private_deb_size} bytes"
-  [ "$satty_private_deb_size" -le "$satty_private_maximum_bytes" ] ||
-    desktop_satty_fail "downloaded ${satty_private_expected_package} package is unexpectedly large: ${satty_private_deb_size} bytes"
 
   satty_private_deb_sha256=$(
     capture_in_target "hash private ${satty_private_expected_package} package" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$satty_private_deb" |
@@ -154,7 +120,6 @@ desktop_satty_download_private_deb() {
   satty_private_download_name=$1
   satty_private_download_url=$2
   satty_private_download_path=$3
-  satty_private_download_maximum_bytes=$4
 
   if ! attempt_in_target "download private Satty ${satty_private_download_name} package from Debian Snapshot" \
     __INSTALLER_PATH_DIR_USR_BIN__/env -i \
@@ -173,8 +138,7 @@ desktop_satty_download_private_deb() {
         --max-redirs 4 \
         --retry 3 \
         --retry-all-errors \
-        --max-filesize "$satty_private_download_maximum_bytes" \
-        --user-agent 'unattended-installer-satty/1.0' \
+            --user-agent 'unattended-installer-satty/1.0' \
         --header 'Accept: application/vnd.debian.binary-package, application/octet-stream;q=0.9, */*;q=0.1' \
         --output "$satty_private_download_path" \
         --url "$satty_private_download_url"
@@ -205,13 +169,11 @@ desktop_satty_install_private_glibc() {
   desktop_satty_download_private_deb \
     libc6 \
     "$satty_glibc_deb_url" \
-    "$satty_glibc_deb" \
-    "$LABWC_SATTY_GLIBC_MAXIMUM_BYTES"
+    "$satty_glibc_deb"
   desktop_satty_download_private_deb \
     libc-gconv-modules-extra \
     "$satty_glibc_gconv_deb_url" \
-    "$satty_glibc_gconv_deb" \
-    "$LABWC_SATTY_GLIBC_GCONV_MAXIMUM_BYTES"
+    "$satty_glibc_gconv_deb"
 
   desktop_satty_validate_private_deb \
     "$satty_glibc_deb" \
@@ -219,8 +181,6 @@ desktop_satty_install_private_glibc() {
     libc6 \
     "$LABWC_SATTY_GLIBC_VERSION" \
     "$LABWC_SATTY_GLIBC_ARCHITECTURE" \
-    "$LABWC_SATTY_GLIBC_MINIMUM_BYTES" \
-    "$LABWC_SATTY_GLIBC_MAXIMUM_BYTES" \
     "$LABWC_SATTY_GLIBC_LIBC6_SHA256"
   satty_glibc_deb_sha256=$SATTY_PRIVATE_PACKAGE_SHA256
 
@@ -230,8 +190,6 @@ desktop_satty_install_private_glibc() {
     libc-gconv-modules-extra \
     "$LABWC_SATTY_GLIBC_VERSION" \
     "$LABWC_SATTY_GLIBC_ARCHITECTURE" \
-    "$LABWC_SATTY_GLIBC_GCONV_MINIMUM_BYTES" \
-    "$LABWC_SATTY_GLIBC_GCONV_MAXIMUM_BYTES" \
     "$LABWC_SATTY_GLIBC_GCONV_SHA256"
   satty_glibc_gconv_deb_sha256=$SATTY_PRIVATE_PACKAGE_SHA256
 
@@ -317,7 +275,6 @@ desktop_install_satty() {
         --max-redirs 8 \
         --retry 3 \
         --retry-all-errors \
-        --max-filesize "$LABWC_SATTY_MAXIMUM_BYTES" \
         --user-agent 'unattended-installer-satty/1.0' \
         --header 'Accept: application/gzip, application/octet-stream;q=0.9, */*;q=0.1' \
         --output "$satty_archive" \
@@ -328,13 +285,6 @@ desktop_install_satty() {
 
   [ -f "$satty_archive_host" ] && [ ! -L "$satty_archive_host" ] ||
     desktop_satty_fail "downloaded Satty archive is not a regular file"
-  satty_archive_size=$(wc -c <"$satty_archive_host" | awk '{print $1}')
-  desktop_satty_validate_unsigned_integer "downloaded Satty archive size" "$satty_archive_size"
-  [ "$satty_archive_size" -ge "$LABWC_SATTY_MINIMUM_BYTES" ] ||
-    desktop_satty_fail "downloaded Satty archive is unexpectedly small: ${satty_archive_size} bytes"
-  [ "$satty_archive_size" -le "$LABWC_SATTY_MAXIMUM_BYTES" ] ||
-    desktop_satty_fail "downloaded Satty archive is unexpectedly large: ${satty_archive_size} bytes"
-
   satty_archive_sha256=$(
     capture_in_target "hash downloaded Satty archive" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$satty_archive" |
       awk '{print $1}'

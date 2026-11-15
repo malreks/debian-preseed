@@ -15,7 +15,6 @@
 # the managed Zoom/Discord Bubblewrap namespace.
 
 XWAYLAND_PRIVATE_DEPENDENCY_RELEASE=${LABWC_XWAYLAND_PRIVATE_DEPENDENCY_RELEASE:?LABWC_XWAYLAND_PRIVATE_DEPENDENCY_RELEASE must be set}
-XWAYLAND_PRIVATE_DEPENDENCY_MAX_BYTES=${LABWC_XWAYLAND_PRIVATE_DEPENDENCY_MAXIMUM_BYTES:?LABWC_XWAYLAND_PRIVATE_DEPENDENCY_MAXIMUM_BYTES must be set}
 XWAYLAND_PRIVATE_DEPENDENCY_SPECS='
 libfontenc1:libfontenc.so.1
 libxau6:libXau.so.6
@@ -32,7 +31,6 @@ libxshmfence1:libxshmfence.so.1
 '
 readonly \
   XWAYLAND_PRIVATE_DEPENDENCY_RELEASE \
-  XWAYLAND_PRIVATE_DEPENDENCY_MAX_BYTES \
   XWAYLAND_PRIVATE_DEPENDENCY_SPECS
 
 desktop_xwayland_fail() {
@@ -96,28 +94,23 @@ desktop_xwayland_validate_policy() {
   : "${LABWC_XWAYLAND_ARCHITECTURE:?LABWC_XWAYLAND_ARCHITECTURE must be set}"
   : "${LABWC_XWAYLAND_URL:?LABWC_XWAYLAND_URL must be set}"
   : "${LABWC_XWAYLAND_SHA256:?LABWC_XWAYLAND_SHA256 must be set}"
-  : "${LABWC_XWAYLAND_MINIMUM_BYTES:?LABWC_XWAYLAND_MINIMUM_BYTES must be set}"
   : "${LABWC_XWAYLAND_COMMON_VERSION:?LABWC_XWAYLAND_COMMON_VERSION must be set}"
   : "${LABWC_XWAYLAND_COMMON_ARCHITECTURE:?LABWC_XWAYLAND_COMMON_ARCHITECTURE must be set}"
   : "${LABWC_XWAYLAND_COMMON_URL:?LABWC_XWAYLAND_COMMON_URL must be set}"
   : "${LABWC_XWAYLAND_COMMON_SHA256:?LABWC_XWAYLAND_COMMON_SHA256 must be set}"
-  : "${LABWC_XWAYLAND_COMMON_MINIMUM_BYTES:?LABWC_XWAYLAND_COMMON_MINIMUM_BYTES must be set}"
   : "${LABWC_XWAYLAND_XCB_CURSOR_VERSION:?LABWC_XWAYLAND_XCB_CURSOR_VERSION must be set}"
   : "${LABWC_XWAYLAND_XCB_CURSOR_URL:?LABWC_XWAYLAND_XCB_CURSOR_URL must be set}"
   : "${LABWC_XWAYLAND_XCB_CURSOR_SHA256:?LABWC_XWAYLAND_XCB_CURSOR_SHA256 must be set}"
-  : "${LABWC_XWAYLAND_XCB_CURSOR_MINIMUM_BYTES:?LABWC_XWAYLAND_XCB_CURSOR_MINIMUM_BYTES must be set}"
   : "${LABWC_XWAYLAND_XKBCOMP_VERSION:?LABWC_XWAYLAND_XKBCOMP_VERSION must be set}"
   : "${LABWC_XWAYLAND_XKBCOMP_ARCHITECTURE:?LABWC_XWAYLAND_XKBCOMP_ARCHITECTURE must be set}"
   : "${LABWC_XWAYLAND_XKBCOMP_URL:?LABWC_XWAYLAND_XKBCOMP_URL must be set}"
   : "${LABWC_XWAYLAND_XKBCOMP_SHA256:?LABWC_XWAYLAND_XKBCOMP_SHA256 must be set}"
-  : "${LABWC_XWAYLAND_XKBCOMP_MINIMUM_BYTES:?LABWC_XWAYLAND_XKBCOMP_MINIMUM_BYTES must be set}"
   : "${LABWC_XWAYLAND_RUNTIME_ROOT:?LABWC_XWAYLAND_RUNTIME_ROOT must be set}"
 
   desktop_xwayland_validate_token LABWC_XWAYLAND_VERSION "$LABWC_XWAYLAND_VERSION"
   desktop_xwayland_validate_token LABWC_XWAYLAND_ARCHITECTURE "$LABWC_XWAYLAND_ARCHITECTURE"
   case "$LABWC_XWAYLAND_URL" in https://*/*) ;; *) installer_fatal "LABWC_XWAYLAND_URL must be an HTTPS package URL" ;; esac
   desktop_xwayland_validate_sha256 LABWC_XWAYLAND_SHA256 "$LABWC_XWAYLAND_SHA256"
-  desktop_xwayland_validate_unsigned_integer LABWC_XWAYLAND_MINIMUM_BYTES "$LABWC_XWAYLAND_MINIMUM_BYTES"
 
   desktop_xwayland_validate_token LABWC_XWAYLAND_COMMON_VERSION "$LABWC_XWAYLAND_COMMON_VERSION"
   desktop_xwayland_validate_token LABWC_XWAYLAND_COMMON_ARCHITECTURE "$LABWC_XWAYLAND_COMMON_ARCHITECTURE"
@@ -125,18 +118,12 @@ desktop_xwayland_validate_policy() {
   desktop_xwayland_validate_sha256 \
     LABWC_XWAYLAND_COMMON_SHA256 \
     "$LABWC_XWAYLAND_COMMON_SHA256"
-  desktop_xwayland_validate_unsigned_integer \
-    LABWC_XWAYLAND_COMMON_MINIMUM_BYTES \
-    "$LABWC_XWAYLAND_COMMON_MINIMUM_BYTES"
 
   desktop_xwayland_validate_token LABWC_XWAYLAND_XCB_CURSOR_VERSION "$LABWC_XWAYLAND_XCB_CURSOR_VERSION"
   case "$LABWC_XWAYLAND_XCB_CURSOR_URL" in https://*/*) ;; *) installer_fatal "LABWC_XWAYLAND_XCB_CURSOR_URL must be an HTTPS package URL" ;; esac
   desktop_xwayland_validate_sha256 \
     LABWC_XWAYLAND_XCB_CURSOR_SHA256 \
     "$LABWC_XWAYLAND_XCB_CURSOR_SHA256"
-  desktop_xwayland_validate_unsigned_integer \
-    LABWC_XWAYLAND_XCB_CURSOR_MINIMUM_BYTES \
-    "$LABWC_XWAYLAND_XCB_CURSOR_MINIMUM_BYTES"
 
   desktop_xwayland_validate_token LABWC_XWAYLAND_XKBCOMP_VERSION "$LABWC_XWAYLAND_XKBCOMP_VERSION"
   desktop_xwayland_validate_token LABWC_XWAYLAND_XKBCOMP_ARCHITECTURE "$LABWC_XWAYLAND_XKBCOMP_ARCHITECTURE"
@@ -146,9 +133,6 @@ desktop_xwayland_validate_policy() {
   desktop_xwayland_validate_sha256 \
     LABWC_XWAYLAND_XKBCOMP_SHA256 \
     "$LABWC_XWAYLAND_XKBCOMP_SHA256"
-  desktop_xwayland_validate_unsigned_integer \
-    LABWC_XWAYLAND_XKBCOMP_MINIMUM_BYTES \
-    "$LABWC_XWAYLAND_XKBCOMP_MINIMUM_BYTES"
 
   case "$LABWC_XWAYLAND_RUNTIME_ROOT" in
     /|*..*|*//*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/@%:+,-]*)
@@ -159,9 +143,6 @@ desktop_xwayland_validate_policy() {
   desktop_xwayland_validate_token \
     LABWC_XWAYLAND_PRIVATE_DEPENDENCY_RELEASE \
     "$XWAYLAND_PRIVATE_DEPENDENCY_RELEASE"
-  desktop_xwayland_validate_unsigned_integer \
-    XWAYLAND_PRIVATE_DEPENDENCY_MAX_BYTES \
-    "$XWAYLAND_PRIVATE_DEPENDENCY_MAX_BYTES"
 }
 
 desktop_xwayland_preflight_target_architecture() {
@@ -178,7 +159,6 @@ desktop_xwayland_download_private_deb() {
   xwayland_download_label=$1
   xwayland_download_url=$2
   xwayland_download_path=$3
-  xwayland_download_bytes=$4
 
   if ! attempt_in_target "download private ${xwayland_download_label} package from Debian Snapshot" \
     __INSTALLER_PATH_DIR_USR_BIN__/env -i \
@@ -197,7 +177,6 @@ desktop_xwayland_download_private_deb() {
         --max-redirs 4 \
         --retry 3 \
         --retry-all-errors \
-        --max-filesize "$XWAYLAND_PRIVATE_DEPENDENCY_MAX_BYTES" \
         --user-agent 'unattended-installer-xwayland/1.0' \
         --header 'Accept: application/vnd.debian.binary-package, application/octet-stream;q=0.9, */*;q=0.1' \
         --output "$xwayland_download_path" \
@@ -317,17 +296,6 @@ desktop_xwayland_validate_repository_deb() {
   xwayland_repository_expected_package=$3
   xwayland_repository_expected_architecture=$4
 
-  xwayland_repository_deb_size=$(
-    wc -c <"$xwayland_repository_deb_host" | awk '{print $1}'
-  )
-  desktop_xwayland_validate_unsigned_integer \
-    "downloaded ${xwayland_repository_expected_package} package size" \
-    "$xwayland_repository_deb_size"
-  [ "$xwayland_repository_deb_size" -gt 0 ] &&
-    [ "$xwayland_repository_deb_size" -le "$XWAYLAND_PRIVATE_DEPENDENCY_MAX_BYTES" ] ||
-    desktop_xwayland_fail \
-      "downloaded ${xwayland_repository_expected_package} package exceeds the managed ${XWAYLAND_PRIVATE_DEPENDENCY_MAX_BYTES}-byte limit"
-
   xwayland_repository_package=$(
     capture_in_target \
       "read private repository package name" \
@@ -425,18 +393,10 @@ desktop_xwayland_validate_private_deb() {
   xwayland_private_expected_package=$3
   xwayland_private_expected_version=$4
   xwayland_private_expected_architecture=$5
-  xwayland_private_minimum_bytes=$6
-  xwayland_private_expected_sha256=$7
+  xwayland_private_expected_sha256=$6
 
   [ -f "$xwayland_private_deb_host" ] && [ ! -L "$xwayland_private_deb_host" ] ||
     desktop_xwayland_fail "private Xwayland download is missing package: ${xwayland_private_expected_package}"
-
-  xwayland_private_deb_size=$(wc -c <"$xwayland_private_deb_host" | awk '{print $1}')
-  desktop_xwayland_validate_unsigned_integer \
-    "downloaded ${xwayland_private_expected_package} package size" \
-    "$xwayland_private_deb_size"
-  [ "$xwayland_private_deb_size" -ge "$xwayland_private_minimum_bytes" ] ||
-    desktop_xwayland_fail "downloaded ${xwayland_private_expected_package} package is unexpectedly small: ${xwayland_private_deb_size} bytes"
 
   xwayland_private_deb_sha256=$(
     capture_in_target "hash private ${xwayland_private_expected_package} package" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$xwayland_private_deb" |
@@ -595,23 +555,19 @@ desktop_install_xwayland() {
   desktop_xwayland_download_private_deb \
     xwayland \
     "$LABWC_XWAYLAND_URL" \
-    "$xwayland_deb" \
-    "$LABWC_XWAYLAND_MINIMUM_BYTES"
+    "$xwayland_deb"
   desktop_xwayland_download_private_deb \
     xserver-common \
     "$LABWC_XWAYLAND_COMMON_URL" \
-    "$xwayland_common_deb" \
-    "$LABWC_XWAYLAND_COMMON_MINIMUM_BYTES"
+    "$xwayland_common_deb"
   desktop_xwayland_download_private_deb \
     libxcb-cursor0 \
     "$LABWC_XWAYLAND_XCB_CURSOR_URL" \
-    "$xwayland_xcb_cursor_deb" \
-    "$LABWC_XWAYLAND_XCB_CURSOR_MINIMUM_BYTES"
+    "$xwayland_xcb_cursor_deb"
   desktop_xwayland_download_private_deb \
     x11-xkb-utils \
     "$LABWC_XWAYLAND_XKBCOMP_URL" \
-    "$xwayland_xkbcomp_deb" \
-    "$LABWC_XWAYLAND_XKBCOMP_MINIMUM_BYTES"
+    "$xwayland_xkbcomp_deb"
 
   desktop_xwayland_validate_private_deb \
     "$xwayland_deb" \
@@ -619,7 +575,6 @@ desktop_install_xwayland() {
     xwayland \
     "$LABWC_XWAYLAND_VERSION" \
     "$LABWC_XWAYLAND_ARCHITECTURE" \
-    "$LABWC_XWAYLAND_MINIMUM_BYTES" \
     "$LABWC_XWAYLAND_SHA256"
 
   desktop_xwayland_validate_private_deb \
@@ -628,7 +583,6 @@ desktop_install_xwayland() {
     xserver-common \
     "$LABWC_XWAYLAND_COMMON_VERSION" \
     "$LABWC_XWAYLAND_COMMON_ARCHITECTURE" \
-    "$LABWC_XWAYLAND_COMMON_MINIMUM_BYTES" \
     "$LABWC_XWAYLAND_COMMON_SHA256"
 
   desktop_xwayland_validate_private_deb \
@@ -637,7 +591,6 @@ desktop_install_xwayland() {
     libxcb-cursor0 \
     "$LABWC_XWAYLAND_XCB_CURSOR_VERSION" \
     "$LABWC_XWAYLAND_ARCHITECTURE" \
-    "$LABWC_XWAYLAND_XCB_CURSOR_MINIMUM_BYTES" \
     "$LABWC_XWAYLAND_XCB_CURSOR_SHA256"
 
   desktop_xwayland_validate_private_deb \
@@ -646,7 +599,6 @@ desktop_install_xwayland() {
     x11-xkb-utils \
     "$LABWC_XWAYLAND_XKBCOMP_VERSION" \
     "$LABWC_XWAYLAND_XKBCOMP_ARCHITECTURE" \
-    "$LABWC_XWAYLAND_XKBCOMP_MINIMUM_BYTES" \
     "$LABWC_XWAYLAND_XKBCOMP_SHA256"
 
   xwayland_depends=$(capture_in_target "read private Xwayland dependencies" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-deb -f "$xwayland_deb" Depends)

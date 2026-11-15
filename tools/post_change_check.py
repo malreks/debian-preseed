@@ -3592,6 +3592,103 @@ def check_apparmor(paths: list[Path], errors: list[str], counts: dict[str, int])
     counts['apparmor_files'] = len(files)
 
 
+def check_download_contract(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Inspect transfer interfaces as data; never execute an acquisition helper."""
+    owners = (DEBIAN_ROOT / 'scripts', TARGET_ROOT, DEBIAN_ROOT / 'hosts/profiles')
+    sources = [path for path in paths if any(path.is_relative_to(owner) for owner in owners)
+               and path.suffix not in {'.gz', '.png', '.jpg', '.ico'}]
+    if not sources:
+        return
+    checked = calls = 0
+    supported = {'label', 'url', 'destination', 'content_policy', 'allowed_hosts',
+                 'user_agent', 'response_metadata'}
+    for path in sources:
+        try:
+            source = path.read_text(encoding='utf-8')
+        except UnicodeError:
+            continue
+        relative = path.relative_to(ROOT)
+        for obsolete in ('--max-filesize', 'invalid installer artifact byte bound',
+                         'MAX_DOWNLOAD_BYTES', 'release_deb_limits'):
+            if obsolete in source:
+                errors.append(f'{relative}: obsolete download byte-bound contract: {obsolete}')
+        if re.search(r'\b(?:SOFTWARE|DEVOPS|LABWC|WHISPER|LLAMA|FILEN|SCRCPY|RESCTL_BENCH|'
+                     r'ANDROID_PLATFORM_TOOLS|SAMLOADER|SNANDER)[A-Z0-9_]*_MIN(?:IMUM)?_BYTES\b', source):
+            errors.append(f'{relative}: stale download minimum-byte policy')
+        for call in re.finditer(r'->download\(\s*(.*?)^\s*\);', source, re.MULTILINE | re.DOTALL):
+            fields = set(re.findall(r'^\s*([a-z_]+)\s*=>', call[1], re.MULTILINE))
+            if not fields:
+                continue
+            calls += 1
+            if fields - supported:
+                errors.append(f'{relative}: unsupported HTTP download fields: '
+                              + ', '.join(sorted(fields - supported)))
+        if path.name == 'snander-install.py.tmpl':
+            tree = ast.parse(source)
+            verifier = next((node for node in tree.body if isinstance(node, ast.FunctionDef)
+                             and node.name == 'archive_digest'), None)
+            if verifier is None or not any(
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'read' and len(node.args) == 1
+                and isinstance(node.args[0], ast.Constant) and node.args[0].value == 65536
+                for node in ast.walk(verifier)
+            ):
+                errors.append(f'{relative}: archive hashing must stream fixed chunks')
+        if path.name == 'calendar-install.py':
+            tree = ast.parse(source)
+            owned = sum(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                        and node.func.id == 'download'
+                        for context in ast.walk(tree) if isinstance(context, ast.With)
+                        for item in context.items for node in [item.context_expr])
+            if owned != 2 or 'data = bytearray()' in source or 'tempfile.TemporaryFile(' not in source:
+                errors.append(f'{relative}: downloaded archives must use caller-owned private files')
+        checked += 1
+
+    helper = target_source('usr/local/libexec/installer-artifact-fetch').read_text(encoding='utf-8')
+    if '@ARGV == 3 || @ARGV == 4' not in helper:
+        errors.append('installer artifact fetch must accept URL, destination, content policy, optional hosts')
+    for component in ('Obsidian', 'Sleek', 'Tomat'):
+        source = target_source('usr/local/lib/perl5/site_perl/apt-repo-local/'
+                               f'APTRepoLocal/Servicing/{component}.pm').read_text(encoding='utf-8')
+        if re.search(r'\bsize\s*=>\s*0\s*\+\s*\$size\b', source):
+            errors.append(f'{component}: obsolete release-size record after transfer-bound removal')
+
+    policy_path = target_source('usr/local/share/software/software-release-policy.json.tmpl')
+    template = policy_path.read_text(encoding='utf-8')
+    tokens = set(re.findall(r'__INSTALLER_([A-Z0-9_]+)__', template))
+    shape = re.sub(r'"__INSTALLER_[A-Z0-9_]+__"', '"fixture"', template)
+    shape = re.sub(r'__INSTALLER_[A-Z0-9_]+__', '1', shape)
+    policy = json.loads(shape)
+    if set(policy) != {'schema', 'generic_deb', 'service_urls', 'metadata_limits',
+                       'postman', 'discord', 'ledger'}:
+        errors.append('managed software release policy has obsolete or missing sections')
+    for component, entry in policy.get('generic_deb', {}).items():
+        if set(entry) != {'url'}:
+            errors.append(f'{component}: generic download policy must contain only its URL')
+    if set(policy.get('metadata_limits', {})) != {'maximum_bytes'}:
+        errors.append('release metadata must retain only its local parser budget')
+    if set(policy.get('postman', {})) != {'maximum_extracted_bytes', 'maximum_members',
+                                       'metadata_maximum_bytes'}:
+        errors.append('Postman policy must contain extraction and local parser budgets only')
+    if any(re.search(r'(?:^|_)(?:minimum|maximum)_bytes$', key)
+           and key not in {'host_tar_maximum_bytes', 'module_tar_maximum_bytes', 'tree_maximum_bytes'}
+           for key in policy.get('discord', {})):
+        errors.append('Discord policy retains a transfer byte bound')
+    ledger_fields = {'requested_latest_url', 'metadata_url', 'checksums_base_url', 'public_key_sha256',
+                     'appimage_maximum_extracted_bytes', 'appimage_maximum_members'}
+    if set(policy.get('ledger', {})) != ledger_fields:
+        errors.append('Ledger policy has stale transfer fields or missing verification/extraction fields')
+    software = (DEBIAN_ROOT / 'scripts/late/software.sh.tmpl').read_text(encoding='utf-8')
+    start = software.index('FILE_TARGET_SHARE_SOFTWARE_SOFTWARE_RELEASE_POLICY_TMPL')
+    end = software.index('  software_stage_seed_asset', start)
+    rendered = set(re.findall(r'^\s+(SOFTWARE_[A-Z0-9_]+)\s+"\$\1"', software[start:end], re.MULTILINE))
+    if rendered != tokens:
+        errors.append('software release-policy renderer fields differ from template placeholders')
+    counts['download_contract_sources'] = checked
+    counts['download_contract_calls'] = calls
+    counts['download_policy_render_fields'] = len(tokens)
+
+
 def check_diff(errors: list[str]) -> None:
     for command in (
         ['git', 'diff', '--check'],
@@ -3637,6 +3734,7 @@ def main() -> int:
         check_server_ai_profile_ownership(paths, errors, counts)
         check_build_capture(paths, errors, counts)
         check_release_equality(paths, errors, counts)
+        check_download_contract(paths, errors, counts)
         check_diff(errors)
     except (OSError, UnicodeError, RuntimeError, ValueError) as error:
         errors.append(f'checker failure: {error}')

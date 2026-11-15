@@ -169,8 +169,6 @@ archive_url=$1
 shift
 expected_sha256=$1
 shift
-maximum_bytes=$1
-shift
 maximum_extracted_bytes=$1
 shift
 archive_binary_dir=$1
@@ -233,7 +231,6 @@ case "$expected_sha256" in
 esac
 [ "${#expected_sha256}" -eq 64 ] ||
   codex_fatal "expected SHA-256 must have 64 hexadecimal characters"
-codex_validate_positive_integer "maximum byte limit" "$maximum_bytes"
 codex_validate_positive_integer \
   "maximum extracted byte limit" \
   "$maximum_extracted_bytes"
@@ -391,24 +388,18 @@ archive_path="${staging_dir}/codex.tar.gz"
 perl -I"__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/apt-repo-local" \
   -MAPTRepoLocal::Servicing::HTTP -e '"'"'
     use strict; use warnings;
-    @ARGV == 3 or die "invalid Codex acquisition input\n";
-    my ($url, $destination, $maximum) = @ARGV;
+    @ARGV == 2 or die "invalid Codex acquisition input\n";
+    my ($url, $destination) = @ARGV;
     APTRepoLocal::Servicing::HTTP->new()->download(
       label => "pinned Codex release", url => $url, destination => $destination,
-      minimum => 1, maximum => $maximum, content_policy => "artifact",
+      content_policy => "artifact",
       allowed_hosts => [qw(github.com release-assets.githubusercontent.com objects.githubusercontent.com)],
     );
-  '"'"' "$archive_url" "$archive_path" "$maximum_bytes" ||
+  '"'"' "$archive_url" "$archive_path" ||
   codex_fatal "failed to download pinned managed Codex release"
 
-archive_bytes=$(wc -c <"$archive_path" | tr -d "[[:space:]]")
-case "$archive_bytes" in
-  ""|*[!0123456789]*) codex_fatal "downloaded Codex archive size is invalid" ;;
-esac
-[ "$archive_bytes" -gt 0 ] ||
-  codex_fatal "downloaded Codex archive is empty"
-[ "$archive_bytes" -le "$maximum_bytes" ] ||
-  codex_fatal "downloaded Codex archive exceeds the configured maximum"
+[ -f "$archive_path" ] && [ ! -L "$archive_path" ] ||
+  codex_fatal "downloaded Codex archive is not a regular file"
 
 actual_sha256=$(sha256sum "$archive_path" | awk "{print \$1}")
 [ "$actual_sha256" = "$expected_sha256" ] ||
@@ -612,8 +603,6 @@ candidate_release_marker="${staging_dir}/codex-release"
   printf "release_tag=%s\n" "$release_tag"
   printf "url=%s\n" "$archive_url"
   printf "sha256=%s\n" "$expected_sha256"
-  printf "archive_bytes=%s\n" "$archive_bytes"
-  printf "maximum_archive_bytes=%s\n" "$maximum_bytes"
   printf "maximum_extracted_bytes=%s\n" "$maximum_extracted_bytes"
   printf "archive_binary_directory=%s\n" "$archive_binary_dir"
   printf "schema=%s\n" "$schema_path"
@@ -731,7 +720,6 @@ printf "installed managed Codex %s at %s with wrapper %s\n" \
     "$DEVOPS_CODEX_RELEASE_TAG" \
     "$DEVOPS_CODEX_URL" \
     "$DEVOPS_CODEX_SHA256" \
-    "$DEVOPS_CODEX_MAXIMUM_BYTES" \
     "$DEVOPS_CODEX_MAXIMUM_EXTRACTED_BYTES" \
     "$DEVOPS_CODEX_ARCHIVE_BINARY_DIR" \
     "$DEVOPS_CODEX_ARCHIVE_SCHEMA_MEMBER" \

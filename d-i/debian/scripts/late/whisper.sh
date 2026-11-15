@@ -140,9 +140,7 @@ whisper_validate_model_source() {
       whisper_fatal "WHISPER_DOWNLOAD_URL revision must be lowercase hexadecimal"
       ;;
   esac
-  whisper_validate_positive_integer WHISPER_MODEL_MIN_BYTES "$WHISPER_MODEL_MIN_BYTES"
   whisper_validate_sha256 WHISPER_MODEL_SHA256 "$WHISPER_MODEL_SHA256"
-  model_min_bytes=$WHISPER_MODEL_MIN_BYTES
   model_sha256=$WHISPER_MODEL_SHA256
   unset model_url_ref model_url_ref_length model_asset_filename
 }
@@ -166,11 +164,10 @@ whisper_validate_release_policy() {
   unset release_suffix
 
   whisper_validate_sha256 WHISPER_RELEASE_SHA256 "$WHISPER_RELEASE_SHA256"
-  whisper_validate_integer_range WHISPER_RELEASE_MINIMUM_BYTES "$WHISPER_RELEASE_MINIMUM_BYTES" 1 "$WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES"
   whisper_validate_integer_range \
     WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES \
     "$WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES" \
-    "$WHISPER_RELEASE_MINIMUM_BYTES" \
+    1 \
     "$WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES"
   whisper_validate_integer_range \
     WHISPER_RELEASE_MAXIMUM_MEMBERS \
@@ -191,7 +188,6 @@ whisper_validate_release_policy() {
 whisper_validate_policy() {
   : "${WHISPER_RELEASE_URL:?missing WHISPER_RELEASE_URL}"
   : "${WHISPER_RELEASE_SHA256:?missing WHISPER_RELEASE_SHA256}"
-  : "${WHISPER_RELEASE_MINIMUM_BYTES:?missing WHISPER_RELEASE_MINIMUM_BYTES}"
   : "${WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES:?missing WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES}"
   : "${WHISPER_RELEASE_MAXIMUM_MEMBERS:?missing WHISPER_RELEASE_MAXIMUM_MEMBERS}"
   : "${WHISPER_RELEASE_ARCHIVE_ROOT:?missing WHISPER_RELEASE_ARCHIVE_ROOT}"
@@ -209,7 +205,6 @@ whisper_validate_policy() {
   : "${WHISPER_SERVER_PORT:?missing WHISPER_SERVER_PORT}"
   : "${WHISPER_DEFAULT_MODEL:?missing WHISPER_DEFAULT_MODEL}"
   : "${WHISPER_DOWNLOAD_URL:?missing WHISPER_DOWNLOAD_URL}"
-  : "${WHISPER_MODEL_MIN_BYTES:?missing WHISPER_MODEL_MIN_BYTES}"
   : "${WHISPER_MIN_MEMORY_MIB:?missing WHISPER_MIN_MEMORY_MIB}"
   : "${WHISPER_MIN_CPU_CORES:?missing WHISPER_MIN_CPU_CORES}"
   [ "${WHISPER_HF_TOKEN+x}" = x ] || whisper_fatal "missing WHISPER_HF_TOKEN"
@@ -562,10 +557,6 @@ whisper_target_model_is_valid() {
     model_validation_sha256=mismatch
   fi
 
-  [ "$model_validation_bytes" -ge "$model_min_bytes" ] || {
-    model_validation_failure=byte-count
-    return 1
-  }
   # whisper.cpp serializes 0x67676d6c through a little-endian int32, so a
   # valid legacy GGML model begins with the raw bytes "6c6d6767".
   [ "$model_validation_magic" = 6c6d6767 ] || {
@@ -718,16 +709,10 @@ whisper_target_download_and_install_release() {
     --retry-max-time "$WHISPER_DOWNLOAD_MAX_TIME_SECONDS" \
     --connect-timeout "$WHISPER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS" \
     --max-time "$WHISPER_DOWNLOAD_MAX_TIME_SECONDS" \
-    --max-filesize "$WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES" \
     --output "$archive_path" \
     "$WHISPER_RELEASE_URL" ||
     whisper_target_fatal "failed to download pinned Whisper runtime: $WHISPER_RELEASE_URL"
 
-  archive_bytes=$(wc -c <"$archive_path" | tr -d ' ')
-  [ "$archive_bytes" -ge "$WHISPER_RELEASE_MINIMUM_BYTES" ] &&
-    [ "$archive_bytes" -le "$WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES" ] ||
-    whisper_target_fatal \
-      "downloaded Whisper runtime has ${archive_bytes:-unknown} bytes; expected at least ${WHISPER_RELEASE_MINIMUM_BYTES} and at most ${WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES}"
   archive_sha256=$(sha256sum "$archive_path" | awk '{print $1}')
   [ "$archive_sha256" = "$WHISPER_RELEASE_SHA256" ] ||
     whisper_target_fatal "downloaded Whisper runtime SHA-256 does not match profile policy"
@@ -749,7 +734,6 @@ whisper_target_download_and_install_release() {
   {
     printf 'url=%s\n' "$WHISPER_RELEASE_URL"
     printf 'sha256=%s\n' "$WHISPER_RELEASE_SHA256"
-    printf 'minimum_bytes=%s\n' "$WHISPER_RELEASE_MINIMUM_BYTES"
     printf 'archive_root=%s\n' "$WHISPER_RELEASE_ARCHIVE_ROOT"
   } >"$release_record_staged"
   chown -R 0:0 \
@@ -854,7 +838,6 @@ whisper_target_verify_runtime() {
   for release_line in \
     "url=${WHISPER_RELEASE_URL}" \
     "sha256=${WHISPER_RELEASE_SHA256}" \
-    "minimum_bytes=${WHISPER_RELEASE_MINIMUM_BYTES}" \
     "archive_root=${WHISPER_RELEASE_ARCHIVE_ROOT}"
   do
     grep -Fqx "$release_line" "$release_record" ||
@@ -1101,7 +1084,6 @@ umask 077
 {
   write_shell_config_var WHISPER_RELEASE_URL "$WHISPER_RELEASE_URL"
   write_shell_config_var WHISPER_RELEASE_SHA256 "$WHISPER_RELEASE_SHA256"
-  write_shell_config_var WHISPER_RELEASE_MINIMUM_BYTES "$WHISPER_RELEASE_MINIMUM_BYTES"
   write_shell_config_var WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES "$WHISPER_RELEASE_MAXIMUM_EXTRACTED_BYTES"
   write_shell_config_var WHISPER_RELEASE_MAXIMUM_MEMBERS "$WHISPER_RELEASE_MAXIMUM_MEMBERS"
   write_shell_config_var WHISPER_RELEASE_ARCHIVE_ROOT "$WHISPER_RELEASE_ARCHIVE_ROOT"
@@ -1115,7 +1097,6 @@ umask 077
   write_shell_config_var WHISPER_DOWNLOAD_MAX_TIME_SECONDS "$WHISPER_DOWNLOAD_MAX_TIME_SECONDS"
   write_shell_config_var WHISPER_HF_TOKEN "$WHISPER_HF_TOKEN"
   write_shell_config_var WHISPER_MODEL_SHA256 "$WHISPER_MODEL_SHA256"
-  write_shell_config_var WHISPER_MODEL_MIN_BYTES "$WHISPER_MODEL_MIN_BYTES"
   write_shell_config_var WHISPER_STRICT_RESOURCES "$WHISPER_STRICT_RESOURCES"
   write_shell_config_var WHISPER_MIN_MEMORY_MIB "$WHISPER_MIN_MEMORY_MIB"
   write_shell_config_var WHISPER_MIN_CPU_CORES "$WHISPER_MIN_CPU_CORES"

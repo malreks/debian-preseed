@@ -366,7 +366,7 @@ provision_target_ssh_client() {
   ssh_stage="/tmp/install-ssh-client.$$"
   target_ssh_stage="${TARGET_ROOT}${ssh_stage}"
   install -d -m 0700 "$ssh_tmp" "$target_ssh_stage"
-  fetch_ssh_asset "$SSH_USER_CONFIG_SOURCE" "$ssh_tmp/user_config" "${SSH_CONFIG_MAX_BYTES:-65536}"
+  fetch_ssh_asset "$SSH_USER_CONFIG_SOURCE" "$ssh_tmp/user_config"
   render_ssh_user_config_template "$ssh_tmp/user_config" "$target_ssh_stage/user_config.rendered" 0600
 
   # shellcheck disable=SC2016
@@ -409,7 +409,7 @@ provision_target_ssh_server() {
 
   ssh_tmp="${TMP_ENV_DIR}/ssh"
   install -d -m 0700 "$ssh_tmp"
-  fetch_ssh_asset "$SSHD_CONFIG_SOURCE" "$ssh_tmp/sshd_config" "${SSH_CONFIG_MAX_BYTES:-65536}"
+  fetch_ssh_asset "$SSHD_CONFIG_SOURCE" "$ssh_tmp/sshd_config"
 
   if ! test_in_target dpkg-query -s openssh-server; then
     installer_fatal "openssh-server must be preinstalled by pkgsel when SSH server provisioning is enabled"

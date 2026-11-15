@@ -67,14 +67,14 @@ def directory(path: Path, *, private: bool = False) -> None:
         raise Error(f'Packer plugin directory must be account-owned and private: {path}')
 
 
-def fetch(url: str, destination: Path, limit: int, env: dict[str, str]) -> None:
+def fetch(url: str, destination: Path, env: dict[str, str]) -> None:
     subprocess.run(['__INSTALLER_PATH_DIR_USR_BIN__/curl', '--disable', '--fail', '--silent', '--show-error',
                     '--location', '--proto', '=https', '--proto-redir', '=https',
                     '--max-redirs', '4', '--connect-timeout', '15', '--max-time', '180',
-                    '--retry', '2', '--retry-max-time', '240', '--max-filesize', str(limit),
+                    '--retry', '2', '--retry-max-time', '240',
                     '--output', str(destination), '--url', url],
                    env=env, stdin=subprocess.DEVNULL, check=True, timeout=270)
-    regular(destination, limit)
+    regular(destination)
 
 
 def archive_checksum(text: str, name: str, version: str, arch: str) -> tuple[str, str]:
@@ -225,10 +225,6 @@ def install(template: Path, packer: Path, root: Path) -> None:
         ('proxmox', proxmox_version, 'arm64'): os.environ['DEVOPS_PACKER_PROXMOX_ARM64_SHA256'],
     }
     limits = {
-        'key': int(os.environ['DEVOPS_PACKER_SIGNING_KEY_MAXIMUM_BYTES']),
-        'sums': int(os.environ['DEVOPS_PACKER_CHECKSUMS_MAXIMUM_BYTES']),
-        'signature': int(os.environ['DEVOPS_PACKER_SIGNATURE_MAXIMUM_BYTES']),
-        'archive': int(os.environ['DEVOPS_PACKER_ARCHIVE_MAXIMUM_BYTES']),
         'extracted': int(os.environ['DEVOPS_PACKER_ARCHIVE_MAXIMUM_EXTRACTED_BYTES']),
         'members': int(os.environ['DEVOPS_PACKER_ARCHIVE_MAXIMUM_MEMBERS']),
     }
@@ -256,7 +252,7 @@ def install(template: Path, packer: Path, root: Path) -> None:
         home.mkdir(mode=0o700)
         gpg = ['__INSTALLER_PATH_DIR_USR_BIN__/gpg', '--no-options', '--no-autostart', '--batch', '--no-tty', '--homedir', str(home)]
         key = work / 'release-key.asc'
-        fetch(key_url, key, limits['key'], env)
+        fetch(key_url, key, env)
         import_release_key(gpg, key, env, fingerprint)
         for name, pin in plugins.items():
             print(f'Installing authenticated Packer plugin {name} {pin}', flush=True)
@@ -270,12 +266,12 @@ def install(template: Path, packer: Path, root: Path) -> None:
                 base = f'{origin}/packer-plugin-{name}/{pin}/'
                 sums_name = f'packer-plugin-{name}_{pin}_SHA256SUMS'
                 sums, signature = work / sums_name, work / (sums_name + '.sig')
-                fetch(base + sums_name, sums, limits['sums'], env)
-                fetch(base + sums_name + '.sig', signature, limits['signature'], env)
+                fetch(base + sums_name, sums, env)
+                fetch(base + sums_name + '.sig', signature, env)
                 verify_checksums(gpg, signature, sums, env, fingerprint)
                 filename, expected = archive_checksum(sums.read_text(encoding='ascii'), name, pin, arch)
             archive = work / filename
-            fetch(base + filename, archive, limits['archive'], env)
+            fetch(base + filename, archive, env)
             with archive.open('rb') as source:
                 actual_hash = hashlib.file_digest(source, 'sha256').hexdigest()
             if actual_hash != expected:

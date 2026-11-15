@@ -66,7 +66,7 @@ def perl_program() -> str:
     common = '''use strict; use warnings;
 use Fcntl qw(:DEFAULT O_NOFOLLOW O_NONBLOCK S_IFMT S_IFREG);
 use Errno qw(EINTR); use Digest::SHA; use JSON::PP;
-use APTRepoLocal::Servicing::ArtifactLimits qw(MAX_DEB_BYTES MAX_DOWNLOAD_BYTES);
+use APTRepoLocal::Servicing::ArtifactLimits qw(MAX_DEB_BYTES);
 '''
     constants = '\n'.join(re.findall(r'^use constant\s+.*?;',
                                      payload_read_text(SERVICING / 'ChatGPT.pm'), re.M | re.S))
@@ -210,8 +210,8 @@ class RetainedPackageBoundsTests(unittest.TestCase):
         self.assertEqual(self.publisher['MAX_DEB'], MAX_PUBLISHER)
         self.assertEqual(MAX_DEB, 2 * MAX_PUBLISHER)
 
-    def test_chatgpt_transport_matches_the_publisher_not_the_archive_ceiling(self):
-        self.assertEqual(result_value(run_perl('spec-limit')), MAX_PUBLISHER)
+    def test_chatgpt_transport_has_no_byte_ceiling(self):
+        self.assertIsNone(result_value(run_perl('spec-limit')))
 
     def test_limit_module_is_in_the_installer_staging_inventory(self):
         script = payload_read_text(FORKY / 'scripts/late/software.sh')

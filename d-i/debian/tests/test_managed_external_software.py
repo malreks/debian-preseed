@@ -374,8 +374,6 @@ my $chatgpt = APTRepoLocal::Servicing::ChatGPT->new(
         generic_deb => {
             chatgpt => {
                 url => 'https://fixture.invalid/chatgpt.deb',
-                minimum_bytes => 1,
-                maximum_bytes => 1,
             },
         },
     },

@@ -162,18 +162,6 @@ has samsung_download_minimum_free_kib => (
     default => sub { 16_777_216 },
 );
 
-has samsung_firmware_minimum_archive_bytes => (
-    is      => 'ro',
-    isa     => Int,
-    default => sub { 104_857_600 },
-);
-
-has samsung_firmware_maximum_archive_bytes => (
-    is      => 'ro',
-    isa     => Int,
-    default => sub { 25_769_803_776 },
-);
-
 has samsung_firmware_format => (
     is      => 'ro',
     isa     => Str,

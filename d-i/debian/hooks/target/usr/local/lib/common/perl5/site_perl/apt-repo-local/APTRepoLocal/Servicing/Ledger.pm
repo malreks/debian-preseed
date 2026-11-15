@@ -71,9 +71,7 @@ sub _parse_metadata {
     $fields{sha512} =~ /\A[A-Za-z0-9+\/]{86}==\z/
         or die "Ledger release SHA-512 metadata is invalid\n";
     $fields{size} =~ /\A[0-9]+\z/
-        && $fields{size} >= $policy->{metadata_minimum_bytes}
-        && $fields{size} <= $policy->{metadata_maximum_bytes}
-        or die "Ledger release size is outside approved bounds\n";
+        or die "Ledger release size metadata is invalid\n";
     return \%fields;
 }
 
@@ -140,8 +138,6 @@ sub fetch {
             label => 'Ledger release metadata',
             url => $policy->{metadata_url},
             destination => $metadata,
-            minimum => $policy->{metadata_minimum_bytes},
-            maximum => $policy->{metadata_maximum_bytes},
             content_policy => 'metadata',
         );
         $release = $self->_parse_metadata($metadata);
@@ -151,16 +147,12 @@ sub fetch {
             label => 'Ledger checksum manifest',
             url => $base,
             destination => $manifest,
-            minimum => $policy->{checksums_minimum_bytes},
-            maximum => $policy->{checksums_maximum_bytes},
             content_policy => 'metadata',
         );
         $self->http()->download(
             label => 'Ledger checksum signature',
             url => "$base.sig",
             destination => $signature,
-            minimum => $policy->{signature_minimum_bytes},
-            maximum => $policy->{signature_maximum_bytes},
             content_policy => 'artifact',
         );
         system('__INSTALLER_PATH_DIR_USR__/bin/openssl', 'dgst', '-sha256', '-verify', $key, '-signature', $signature, $manifest) == 0
@@ -169,8 +161,6 @@ sub fetch {
             label => 'Ledger Live AppImage',
             url => $policy->{requested_latest_url},
             destination => $image,
-            minimum => $policy->{appimage_minimum_bytes},
-            maximum => $policy->{appimage_maximum_bytes},
             content_policy => 'artifact',
         );
         1;

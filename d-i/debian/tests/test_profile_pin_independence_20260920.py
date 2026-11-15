@@ -47,7 +47,6 @@ def resctl_fixture(number: int) -> dict[str, str]:
         'URL': ('https://github.com/mjcramerz/resctl-bench/releases/download/'
                 f'{tag}/resctl-bench-{version}-x86_64-unknown-linux-gnu-native-{number:016x}.tar.gz'),
         'SHA256': hashlib.sha256(f'synthetic fixture {number}'.encode()).hexdigest(),
-        'MAXIMUM_BYTES': str(134217728 + number),
         'MAXIMUM_EXTRACTED_BYTES': str(268435456 + number),
         'MAXIMUM_MEMBERS': str(100 + number),
     }
@@ -228,7 +227,7 @@ run_in_target() {
 desktop_install_resctl_bench
 '''
         flags = {'VERSION': '--version', 'TAG': '--tag', 'URL': '--url', 'SHA256': '--sha256',
-                 'ARCHITECTURE': '--architecture', 'MAXIMUM_BYTES': '--max-archive',
+                 'ARCHITECTURE': '--architecture',
                  'MAXIMUM_EXTRACTED_BYTES': '--max-extracted', 'MAXIMUM_MEMBERS': '--max-members'}
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)

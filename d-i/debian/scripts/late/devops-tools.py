@@ -78,7 +78,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_DENO_VERSION",
         "DEVOPS_DENO_URL",
         "DEVOPS_DENO_SHA256",
-        "DEVOPS_DENO_MINIMUM_BYTES",
         "DEVOPS_DENO_ARCHITECTURE",
         "DEVOPS_DENO_ARCHIVE_FILENAME",
         "DEVOPS_DENO_ARCHIVE_FILES",
@@ -87,7 +86,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_YT_DLP_VERSION",
         "DEVOPS_YT_DLP_URL",
         "DEVOPS_YT_DLP_SHA256",
-        "DEVOPS_YT_DLP_MINIMUM_BYTES",
         "DEVOPS_YT_DLP_ARCHITECTURE",
         "DEVOPS_YT_DLP_ARCHIVE_FILENAME",
         "DEVOPS_YT_DLP_INSTALL_ROOT",
@@ -98,7 +96,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_ANSIBLE_CORE_VERSION",
         "DEVOPS_ANSIBLE_CORE_URL",
         "DEVOPS_ANSIBLE_CORE_SHA256",
-        "DEVOPS_ANSIBLE_CORE_MINIMUM_BYTES",
         "DEVOPS_ANSIBLE_CORE_ARCHITECTURE",
         "DEVOPS_ANSIBLE_CORE_ARCHIVE_FILENAME",
         "DEVOPS_ANSIBLE_CORE_PACKAGE_ROOTS",
@@ -110,7 +107,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_OPENTOFU_VERSION",
         "DEVOPS_OPENTOFU_URL",
         "DEVOPS_OPENTOFU_SHA256",
-        "DEVOPS_OPENTOFU_MINIMUM_BYTES",
         "DEVOPS_OPENTOFU_ARCHITECTURE",
         "DEVOPS_OPENTOFU_ARCHIVE_FILENAME",
         "DEVOPS_OPENTOFU_ARCHIVE_FILES",
@@ -119,7 +115,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_TERRAFORM_VERSION",
         "DEVOPS_TERRAFORM_URL",
         "DEVOPS_TERRAFORM_SHA256",
-        "DEVOPS_TERRAFORM_MINIMUM_BYTES",
         "DEVOPS_TERRAFORM_ARCHITECTURE",
         "DEVOPS_TERRAFORM_ARCHIVE_FILENAME",
         "DEVOPS_TERRAFORM_ARCHIVE_FILES",
@@ -128,7 +123,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_PACKER_VERSION",
         "DEVOPS_PACKER_URL",
         "DEVOPS_PACKER_SHA256",
-        "DEVOPS_PACKER_MINIMUM_BYTES",
         "DEVOPS_PACKER_ARCHITECTURE",
         "DEVOPS_PACKER_ARCHIVE_FILENAME",
         "DEVOPS_PACKER_ARCHIVE_FILES",
@@ -138,7 +132,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_WRANGLER_URL",
         "DEVOPS_WRANGLER_SHA512",
         "DEVOPS_WRANGLER_NPM_INTEGRITY",
-        "DEVOPS_WRANGLER_MINIMUM_BYTES",
         "DEVOPS_WRANGLER_ARCHITECTURE",
         "DEVOPS_WRANGLER_ARCHIVE_FILENAME",
         "DEVOPS_WRANGLER_ARCHIVE_ROOT",
@@ -151,7 +144,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_APTLY_RELEASE_VERSION",
         "DEVOPS_APTLY_RELEASE_URL",
         "DEVOPS_APTLY_RELEASE_SHA256",
-        "DEVOPS_APTLY_RELEASE_MINIMUM_BYTES",
         "DEVOPS_APTLY_RELEASE_ARCHITECTURE",
         "DEVOPS_APTLY_RELEASE_ARCHIVE_FILENAME",
         "DEVOPS_APTLY_RELEASE_ARCHIVE_ROOT",
@@ -161,7 +153,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_OSC_RELEASE_VERSION",
         "DEVOPS_OSC_RELEASE_URL",
         "DEVOPS_OSC_RELEASE_SHA256",
-        "DEVOPS_OSC_RELEASE_MINIMUM_BYTES",
         "DEVOPS_OSC_RELEASE_ARCHITECTURE",
         "DEVOPS_OSC_RELEASE_ARCHIVE_FILENAME",
         "DEVOPS_OSC_RELEASE_PACKAGE_ROOT",
@@ -172,7 +163,6 @@ POLICY_KEYS = frozenset(
         "DEVOPS_OBS_BUILD_COMMIT",
         "DEVOPS_OBS_BUILD_URL",
         "DEVOPS_OBS_BUILD_SHA256",
-        "DEVOPS_OBS_BUILD_MINIMUM_BYTES",
         "DEVOPS_OBS_BUILD_ARCHITECTURE",
         "DEVOPS_OBS_BUILD_ARCHIVE_FILENAME",
         "DEVOPS_OBS_BUILD_ARCHIVE_ROOT",
@@ -194,7 +184,6 @@ class DownloadArtifact:
     version: str
     url: str
     filename: str
-    minimum_bytes: int
     digest_algorithm: str
     expected_digest: str
     architecture: str
@@ -213,7 +202,6 @@ class PluginFile:
     relative_path: pathlib.PurePosixPath
     url: str
     expected_digest: str
-    minimum_bytes: int
     kind: str
 
 
@@ -526,11 +514,6 @@ def load_yt_dlp_plugin_manifest(
             expected_digest = file_item.get("sha256")
             if not isinstance(expected_digest, str) or LOWER_HEX_RE.fullmatch(expected_digest) is None or len(expected_digest) != 64:
                 fail(f"yt-dlp plugin {plugin_id} file {file_index} has an invalid SHA-256")
-            minimum_bytes = file_item.get("size")
-            if isinstance(minimum_bytes, str) and re.fullmatch(r"[1-9][0-9]*", minimum_bytes):
-                minimum_bytes = int(minimum_bytes)
-            if not isinstance(minimum_bytes, int) or minimum_bytes < 1 or minimum_bytes > 128 * 1024**2:
-                fail(f"yt-dlp plugin {plugin_id} file {file_index} has an invalid size")
             if relative_path in seen_paths or url in seen_urls:
                 fail(f"yt-dlp plugin {plugin_id} contains a duplicate file")
             seen_paths.add(relative_path)
@@ -542,7 +525,6 @@ def load_yt_dlp_plugin_manifest(
                     relative_path=relative_path,
                     url=url,
                     expected_digest=expected_digest,
-                    minimum_bytes=minimum_bytes,
                     kind=kind,
                 )
             )
@@ -579,7 +561,6 @@ def artifact(
         else values[version_key],
         url=values[f"{prefix}_URL"],
         filename=archive_token(values[f"{prefix}_ARCHIVE_FILENAME"], f"{prefix}_ARCHIVE_FILENAME"),
-        minimum_bytes=positive_integer(values, f"{prefix}_MINIMUM_BYTES", 2**31),
         digest_algorithm=digest_algorithm,
         expected_digest=lower_hex(values, digest_key, digest_length),
         architecture=values[architecture_key],
@@ -1261,8 +1242,6 @@ def download_artifact(
             "15",
             "--max-time",
             str(policy.download_timeout_seconds),
-            "--max-filesize",
-            str(min(2**31, max(8 * 1024**2, artifact.minimum_bytes * 8))),
             "--output",
             str(destination),
             artifact.url,
@@ -1271,14 +1250,9 @@ def download_artifact(
         timeout=policy.download_timeout_seconds + 30,
     )
     try:
-        observed_bytes = destination.stat().st_size
+        destination.stat()
     except OSError:
         fail(f"downloaded {artifact.name} artifact is unavailable")
-    if observed_bytes < artifact.minimum_bytes:
-        fail(
-            f"{artifact.name} artifact is unexpectedly small: "
-            f"minimum {artifact.minimum_bytes}, got {observed_bytes}"
-        )
     observed_digest = file_digest(destination, artifact.digest_algorithm)
     if observed_digest != artifact.expected_digest:
         fail(f"{artifact.name} {artifact.digest_algorithm.upper()} mismatch")
@@ -1358,11 +1332,6 @@ def download_plugin_file(
                         if not chunk:
                             break
                         observed += len(chunk)
-                        if observed > 128 * 1024**2:
-                            fail(
-                                f"yt-dlp plugin {plugin_file.plugin_id} "
-                                "exceeds the download limit"
-                            )
                         target.write(chunk)
             finally:
                 response.close()
@@ -1374,11 +1343,6 @@ def download_plugin_file(
     except BaseException:
         destination.unlink(missing_ok=True)
         raise
-    if observed < plugin_file.minimum_bytes:
-        fail(
-            f"yt-dlp plugin {plugin_file.plugin_id} is unexpectedly small: "
-            f"minimum {plugin_file.minimum_bytes}, got {observed}"
-        )
     if file_digest(destination, "sha256") != plugin_file.expected_digest:
         fail(f"yt-dlp plugin {plugin_file.plugin_id} SHA-256 mismatch")
     return destination
@@ -1462,7 +1426,6 @@ def write_release_record(
         f"name={artifact.name}",
         f"version={artifact.version}",
         f"url={artifact.url}",
-        f"minimum_bytes={artifact.minimum_bytes}",
         f"{artifact.digest_algorithm}={artifact.expected_digest}",
         f"architecture={artifact.architecture}",
         *extra_lines,

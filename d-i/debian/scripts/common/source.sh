@@ -601,9 +601,7 @@ source_http_get() (
   # behavior to wget. This keeps url=/preseed/url= usable with LAN HTTP,
   # shorteners, GitHub and lightweight installer images. Payload and manifest
   # digests remain the independent authenticity boundary.
-  # One deadline covers retries; the native file-size limit bounds bodies and
-  # downloader diagnostics.
-  ulimit -f 524288 || { source_error 'cannot enforce repository transfer size limit'; exit 125; };
+  # One deadline covers every transfer attempt and retry.
   started=$(source_monotonic_seconds) || exit 125;
   deadline=$(expr "$started" + "$wall_timeout") || exit 125;
   attempts=0;

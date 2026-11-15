@@ -113,9 +113,6 @@ sub validate {
     my ($self, $archive) = @_;
     -f $archive && !-l $archive
         or die "Postman archive is not a regular file\n";
-    my $size = -s $archive;
-    defined $size && $size >= $self->_limit('minimum_bytes') && $size <= $self->_limit('maximum_bytes')
-        or die "Postman archive size is outside approved bounds\n";
     $self->_entries($archive);
     return {
         version => $self->_release($archive),
@@ -160,8 +157,6 @@ sub fetch {
             label => 'Postman',
             url => $self->release_policy()->{service_urls}{postman},
             destination => $archive,
-            minimum => $self->_limit('minimum_bytes'),
-            maximum => $self->_limit('maximum_bytes'),
             content_policy => 'artifact',
         );
         1;

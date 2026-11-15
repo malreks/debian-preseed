@@ -10,13 +10,8 @@ use APTRepoLocal::Servicing::HTTP;
 
 $< == 0 && $> == 0 or die "installer artifact acquisition requires root\n";
 umask 0077;
-@ARGV == 5 || @ARGV == 6 or die "invalid installer artifact acquisition arguments\n";
-my ($url, $destination, $minimum, $maximum, $policy, $hosts) = @ARGV;
-for my $number ($minimum, $maximum) {
-    $number =~ /\A(?:0|[1-9][0-9]{0,9})\z/ && $number <= 2_147_483_648
-        or die "invalid installer artifact byte bound\n";
-}
-$maximum > 0 && $minimum <= $maximum or die "inconsistent installer artifact byte bounds\n";
+@ARGV == 3 || @ARGV == 4 or die "invalid installer artifact acquisition arguments\n";
+my ($url, $destination, $policy, $hosts) = @ARGV;
 $destination =~ m{\A/[A-Za-z0-9._/-]+\z} && $destination !~ m{(?:^|/)\.\.?(?:/|$)|//}
     or die "invalid installer artifact destination\n";
 my $parent = dirname($destination);
@@ -36,7 +31,7 @@ for my $part (grep { length } split m{/}, $parent) {
 !-e $destination && !-l $destination or die "artifact destination already exists\n";
 my %response;
 my %arguments = (label => 'installer artifact', url => $url, destination => $destination,
-                 minimum => $minimum, maximum => $maximum, content_policy => $policy,
+                 content_policy => $policy,
                  response_metadata => \%response);
 if (defined $hosts) {
     $arguments{allowed_hosts} = [split / /, $hosts];

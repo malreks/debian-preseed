@@ -300,7 +300,8 @@ class TomatPerlPinMethodsTests(unittest.TestCase):
         self.assertEqual(len(result['calls']), 1)
         call = result['calls'][0]
         self.assertEqual(call['url'], URL)
-        self.assertEqual((call['minimum'], call['maximum']), (65536, 134217728))
+        self.assertNotIn('minimum', call)
+        self.assertNotIn('maximum', call)
         self.assertEqual(call['content_policy'], 'artifact')
         self.assertEqual(call['allowed_hosts'], ['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com'])
 
@@ -338,7 +339,7 @@ class TomatPerlPinMethodsTests(unittest.TestCase):
         self.assertEqual(result['ok'], 0)
         self.assertEqual([c['url'] for c in result['calls']], [URL])
 
-    def test_size_bounds_and_symlink_rejected_even_with_non_enforcing_http_double(self):
+    def test_modified_bytes_and_symlink_rejected_even_with_non_enforcing_http_double(self):
         for options in ({'truncate': 65535}, {'truncate': 134217729}, {'symlink': True}):
             with self.subTest(options=options):
                 result = self.run_case(**options)
@@ -361,8 +362,8 @@ class TomatPerlPinMethodsTests(unittest.TestCase):
         self.assertEqual(result['ok'], 1, result['error'])
         self.assertEqual(len(result['calls']), 2)
         self.assertEqual(result['calls'][1]['url'], URL)
-        self.assertEqual(result['calls'][1]['minimum'], payload_source_stat(self.package).st_size)
-        self.assertEqual(result['calls'][1]['maximum'], payload_source_stat(self.package).st_size)
+        self.assertNotIn('minimum', result['calls'][1])
+        self.assertNotIn('maximum', result['calls'][1])
         self.assertEqual(result['result']['metadata']['version'], '2.13.0-1')
 
     def test_release_keeps_legacy_compatibility_but_rejects_ambiguity(self):
@@ -384,12 +385,12 @@ class TomatPerlPinMethodsTests(unittest.TestCase):
         self.assertEqual(result['ok'], 1, result['error'])
         self.assertEqual(result['result']['url'], URL)
 
-    def test_release_rejects_unstable_wrong_tag_origin_digest_size_and_filename(self):
+    def test_release_rejects_unstable_wrong_tag_origin_digest_and_filename(self):
         variants = []
         for key, value in (('draft', True), ('prerelease', True), ('tag_name', 'v2.13.0-rc1')):
             release = self.release(); release[key] = value; variants.append(release)
-        for key, value in (('browser_download_url', URL.replace('jolars', 'other')), ('size', 0),
-                ('size', 134217729), ('digest', None), ('name', 'tomat_2.12.0-1_amd64.deb')):
+        for key, value in (('browser_download_url', URL.replace('jolars', 'other')),
+                ('digest', None), ('name', 'tomat_2.12.0-1_amd64.deb')):
             release = self.release(); release['assets'][0][key] = value; variants.append(release)
         for release in variants:
             with self.subTest(release=release):
@@ -452,13 +453,18 @@ class TomatVersionedUpdaterTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(self.mod.Error):
                 self.mod.verify_tomat_release_version({**fields, 'Version': value}, '2.13.0-1')
 
-    def test_versioned_refresh_rejects_wrong_origin_tag_name_digest_size_and_duplicates(self):
-        for key, value in (('browser_download_url', URL.replace('jolars', 'other')), ('size', 1),
-                ('size', 134217729), ('digest', None), ('name', 'tomat_2.12.0-1_amd64.deb')):
+    def test_versioned_refresh_rejects_wrong_origin_name_digest_and_duplicates(self):
+        for key, value in (('browser_download_url', URL.replace('jolars', 'other')), ('size', -1),
+                ('digest', None), ('name', 'tomat_2.12.0-1_amd64.deb')):
             release = copy.deepcopy(self.release); release['assets'][0][key] = value
             with self.subTest(key=key), self.assertRaises(self.mod.Error): self.discover(release)
         release = copy.deepcopy(self.release); release['assets'].append(copy.deepcopy(release['assets'][0]))
         with self.assertRaises(self.mod.Error): self.discover(release)
+
+    def test_versioned_refresh_has_no_download_size_ceiling(self):
+        release = copy.deepcopy(self.release)
+        release['assets'][0]['size'] = 2**31 + 1
+        self.assertEqual(self.discover(release)['size'], 2**31 + 1)
 
     def test_versioned_refresh_selects_only_amd64_in_multiarchitecture_release(self):
         release = copy.deepcopy(self.release)

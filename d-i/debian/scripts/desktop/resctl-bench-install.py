@@ -66,7 +66,7 @@ def policy(args: argparse.Namespace) -> None:
         raise Error('invalid RESCTL_BENCH_URL for the configured tag/version/architecture: '
                     f'expected the configured tag and release filename; '
                     f'got {args.url!r}')
-    if not (args.max_archive > 0 and args.max_archive <= args.max_extracted and args.max_members >= 1):
+    if not (args.max_extracted > 0 and args.max_members >= 1):
         raise Error('release size/member bounds are invalid')
 
 
@@ -76,12 +76,12 @@ def download(args: argparse.Namespace, destination: Path) -> None:
         '--location', '--proto', '=https', '--proto-redir', '=https',
         '--connect-timeout', '15', '--max-time', '300', '--max-redirs', '4',
         '--retry', '2', '--retry-max-time', '300',
-        '--max-filesize', str(args.max_archive), '--output', str(destination),
+        '--output', str(destination),
         '--url', args.url,
     ], env=ENV, stdin=subprocess.DEVNULL, check=True, timeout=340)
     st = destination.lstat()
-    if not stat.S_ISREG(st.st_mode) or not 1 <= st.st_size <= args.max_archive:
-        raise Error('download is not a bounded regular archive')
+    if not stat.S_ISREG(st.st_mode):
+        raise Error('download is not a regular archive')
     actual_sha256 = digest(destination)
     if actual_sha256 != args.sha256:
         raise Error('archive SHA-256 mismatch; nothing installed: '
@@ -336,7 +336,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('version', 'tag', 'url', 'sha256', 'architecture'):
         parser.add_argument('--' + name, required=True)
-    for name in ('max-archive', 'max-extracted', 'max-members'):
+    for name in ('max-extracted', 'max-members'):
         parser.add_argument('--' + name, type=int, required=True)
     parser.add_argument('--validate-only', action='store_true',
                         help='validate release pins offline, without root, downloads or installation')

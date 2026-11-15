@@ -30,8 +30,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_NODE_22_VERSION:?DEVOPS_NODE_22_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_22_URL:?DEVOPS_NODE_22_URL must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_22_SHA256:?DEVOPS_NODE_22_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_NODE_22_MINIMUM_BYTES:?DEVOPS_NODE_22_MINIMUM_BYTES must be set before DevOps provisioning}"
-  : "${DEVOPS_NODE_22_MAXIMUM_BYTES:?DEVOPS_NODE_22_MAXIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_22_ARCHIVE_FILENAME:?DEVOPS_NODE_22_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_22_ARCHIVE_ROOT:?DEVOPS_NODE_22_ARCHIVE_ROOT must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_22_INSTALL_ROOT:?DEVOPS_NODE_22_INSTALL_ROOT must be set before DevOps provisioning}"
@@ -40,8 +38,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_NODE_24_VERSION:?DEVOPS_NODE_24_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_24_URL:?DEVOPS_NODE_24_URL must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_24_SHA256:?DEVOPS_NODE_24_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_NODE_24_MINIMUM_BYTES:?DEVOPS_NODE_24_MINIMUM_BYTES must be set before DevOps provisioning}"
-  : "${DEVOPS_NODE_24_MAXIMUM_BYTES:?DEVOPS_NODE_24_MAXIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_24_ARCHIVE_FILENAME:?DEVOPS_NODE_24_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_24_ARCHIVE_ROOT:?DEVOPS_NODE_24_ARCHIVE_ROOT must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_24_INSTALL_ROOT:?DEVOPS_NODE_24_INSTALL_ROOT must be set before DevOps provisioning}"
@@ -50,8 +46,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_NODE_26_VERSION:?DEVOPS_NODE_26_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_26_URL:?DEVOPS_NODE_26_URL must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_26_SHA256:?DEVOPS_NODE_26_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_NODE_26_MINIMUM_BYTES:?DEVOPS_NODE_26_MINIMUM_BYTES must be set before DevOps provisioning}"
-  : "${DEVOPS_NODE_26_MAXIMUM_BYTES:?DEVOPS_NODE_26_MAXIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_26_ARCHIVE_FILENAME:?DEVOPS_NODE_26_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_26_ARCHIVE_ROOT:?DEVOPS_NODE_26_ARCHIVE_ROOT must be set before DevOps provisioning}"
   : "${DEVOPS_NODE_26_INSTALL_ROOT:?DEVOPS_NODE_26_INSTALL_ROOT must be set before DevOps provisioning}"
@@ -60,7 +54,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_DENO_VERSION:?DEVOPS_DENO_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_DENO_URL:?DEVOPS_DENO_URL must be set before DevOps provisioning}"
   : "${DEVOPS_DENO_SHA256:?DEVOPS_DENO_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_DENO_MINIMUM_BYTES:?DEVOPS_DENO_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_DENO_ARCHITECTURE:?DEVOPS_DENO_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_DENO_ARCHIVE_FILENAME:?DEVOPS_DENO_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_DENO_ARCHIVE_FILES:?DEVOPS_DENO_ARCHIVE_FILES must be set before DevOps provisioning}"
@@ -70,7 +63,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_YT_DLP_VERSION:?DEVOPS_YT_DLP_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_YT_DLP_URL:?DEVOPS_YT_DLP_URL must be set before DevOps provisioning}"
   : "${DEVOPS_YT_DLP_SHA256:?DEVOPS_YT_DLP_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_YT_DLP_MINIMUM_BYTES:?DEVOPS_YT_DLP_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_YT_DLP_ARCHITECTURE:?DEVOPS_YT_DLP_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_YT_DLP_ARCHIVE_FILENAME:?DEVOPS_YT_DLP_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_YT_DLP_INSTALL_ROOT:?DEVOPS_YT_DLP_INSTALL_ROOT must be set before DevOps provisioning}"
@@ -81,8 +73,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_RUSTUP_VERSION:?DEVOPS_RUSTUP_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_RUSTUP_URL:?DEVOPS_RUSTUP_URL must be set before DevOps provisioning}"
   : "${DEVOPS_RUSTUP_SHA256:?DEVOPS_RUSTUP_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_RUSTUP_MINIMUM_BYTES:?DEVOPS_RUSTUP_MINIMUM_BYTES must be set before DevOps provisioning}"
-  : "${DEVOPS_RUSTUP_MAXIMUM_BYTES:?DEVOPS_RUSTUP_MAXIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_RUSTUP_TARGET_TRIPLE:?DEVOPS_RUSTUP_TARGET_TRIPLE must be set before DevOps provisioning}"
   : "${DEVOPS_RUSTUP_INSTALL_ROOT:?DEVOPS_RUSTUP_INSTALL_ROOT must be set before DevOps provisioning}"
   : "${DEVOPS_RUSTUP_BINARY_PATH:?DEVOPS_RUSTUP_BINARY_PATH must be set before DevOps provisioning}"
@@ -90,7 +80,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_CARGO_BINSTALL_VERSION:?DEVOPS_CARGO_BINSTALL_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_CARGO_BINSTALL_URL:?DEVOPS_CARGO_BINSTALL_URL must be set before DevOps provisioning}"
   : "${DEVOPS_CARGO_BINSTALL_SHA256:?DEVOPS_CARGO_BINSTALL_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_CARGO_BINSTALL_MINIMUM_BYTES:?DEVOPS_CARGO_BINSTALL_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_CARGO_BINSTALL_ARCHITECTURE:?DEVOPS_CARGO_BINSTALL_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_CARGO_BINSTALL_ARCHIVE_FILENAME:?DEVOPS_CARGO_BINSTALL_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_CARGO_BINSTALL_ARCHIVE_FILES:?DEVOPS_CARGO_BINSTALL_ARCHIVE_FILES must be set before DevOps provisioning}"
@@ -100,7 +89,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_DOTSLASH_COMMIT:?DEVOPS_DOTSLASH_COMMIT must be set before DevOps provisioning}"
   : "${DEVOPS_DOTSLASH_URL:?DEVOPS_DOTSLASH_URL must be set before DevOps provisioning}"
   : "${DEVOPS_DOTSLASH_SHA256:?DEVOPS_DOTSLASH_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_DOTSLASH_MINIMUM_BYTES:?DEVOPS_DOTSLASH_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_DOTSLASH_ARCHITECTURE:?DEVOPS_DOTSLASH_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_DOTSLASH_ARCHIVE_FILENAME:?DEVOPS_DOTSLASH_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_DOTSLASH_ARCHIVE_FILES:?DEVOPS_DOTSLASH_ARCHIVE_FILES must be set before DevOps provisioning}"
@@ -108,7 +96,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_UV_VERSION:?DEVOPS_UV_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_UV_URL:?DEVOPS_UV_URL must be set before DevOps provisioning}"
   : "${DEVOPS_UV_SHA256:?DEVOPS_UV_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_UV_MINIMUM_BYTES:?DEVOPS_UV_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_UV_ARCHITECTURE:?DEVOPS_UV_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_UV_ARCHIVE_FILENAME:?DEVOPS_UV_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_UV_ARCHIVE_ROOT:?DEVOPS_UV_ARCHIVE_ROOT must be set before DevOps provisioning}"
@@ -117,7 +104,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_ANSIBLE_CORE_VERSION:?DEVOPS_ANSIBLE_CORE_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_ANSIBLE_CORE_URL:?DEVOPS_ANSIBLE_CORE_URL must be set before DevOps provisioning}"
   : "${DEVOPS_ANSIBLE_CORE_SHA256:?DEVOPS_ANSIBLE_CORE_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_ANSIBLE_CORE_MINIMUM_BYTES:?DEVOPS_ANSIBLE_CORE_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_ANSIBLE_CORE_ARCHITECTURE:?DEVOPS_ANSIBLE_CORE_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_ANSIBLE_CORE_ARCHIVE_FILENAME:?DEVOPS_ANSIBLE_CORE_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_ANSIBLE_CORE_PACKAGE_ROOTS:?DEVOPS_ANSIBLE_CORE_PACKAGE_ROOTS must be set before DevOps provisioning}"
@@ -130,7 +116,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_OPENTOFU_VERSION:?DEVOPS_OPENTOFU_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_OPENTOFU_URL:?DEVOPS_OPENTOFU_URL must be set before DevOps provisioning}"
   : "${DEVOPS_OPENTOFU_SHA256:?DEVOPS_OPENTOFU_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_OPENTOFU_MINIMUM_BYTES:?DEVOPS_OPENTOFU_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_OPENTOFU_ARCHITECTURE:?DEVOPS_OPENTOFU_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_OPENTOFU_ARCHIVE_FILENAME:?DEVOPS_OPENTOFU_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_OPENTOFU_ARCHIVE_FILES:?DEVOPS_OPENTOFU_ARCHIVE_FILES must be set before DevOps provisioning}"
@@ -140,7 +125,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_TERRAFORM_VERSION:?DEVOPS_TERRAFORM_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_TERRAFORM_URL:?DEVOPS_TERRAFORM_URL must be set before DevOps provisioning}"
   : "${DEVOPS_TERRAFORM_SHA256:?DEVOPS_TERRAFORM_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_TERRAFORM_MINIMUM_BYTES:?DEVOPS_TERRAFORM_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_TERRAFORM_ARCHITECTURE:?DEVOPS_TERRAFORM_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_TERRAFORM_ARCHIVE_FILENAME:?DEVOPS_TERRAFORM_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_TERRAFORM_ARCHIVE_FILES:?DEVOPS_TERRAFORM_ARCHIVE_FILES must be set before DevOps provisioning}"
@@ -150,7 +134,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_PACKER_VERSION:?DEVOPS_PACKER_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_PACKER_URL:?DEVOPS_PACKER_URL must be set before DevOps provisioning}"
   : "${DEVOPS_PACKER_SHA256:?DEVOPS_PACKER_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_PACKER_MINIMUM_BYTES:?DEVOPS_PACKER_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_PACKER_ARCHITECTURE:?DEVOPS_PACKER_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_PACKER_ARCHIVE_FILENAME:?DEVOPS_PACKER_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_PACKER_ARCHIVE_FILES:?DEVOPS_PACKER_ARCHIVE_FILES must be set before DevOps provisioning}"
@@ -162,7 +145,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_WRANGLER_URL:?DEVOPS_WRANGLER_URL must be set before DevOps provisioning}"
   : "${DEVOPS_WRANGLER_SHA512:?DEVOPS_WRANGLER_SHA512 must be set before DevOps provisioning}"
   : "${DEVOPS_WRANGLER_NPM_INTEGRITY:?DEVOPS_WRANGLER_NPM_INTEGRITY must be set before DevOps provisioning}"
-  : "${DEVOPS_WRANGLER_MINIMUM_BYTES:?DEVOPS_WRANGLER_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_WRANGLER_ARCHITECTURE:?DEVOPS_WRANGLER_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_WRANGLER_ARCHIVE_FILENAME:?DEVOPS_WRANGLER_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_WRANGLER_ARCHIVE_ROOT:?DEVOPS_WRANGLER_ARCHIVE_ROOT must be set before DevOps provisioning}"
@@ -176,7 +158,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_APTLY_RELEASE_VERSION:?DEVOPS_APTLY_RELEASE_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_APTLY_RELEASE_URL:?DEVOPS_APTLY_RELEASE_URL must be set before DevOps provisioning}"
   : "${DEVOPS_APTLY_RELEASE_SHA256:?DEVOPS_APTLY_RELEASE_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_APTLY_RELEASE_MINIMUM_BYTES:?DEVOPS_APTLY_RELEASE_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_APTLY_RELEASE_ARCHITECTURE:?DEVOPS_APTLY_RELEASE_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_APTLY_RELEASE_ARCHIVE_FILENAME:?DEVOPS_APTLY_RELEASE_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_APTLY_RELEASE_ARCHIVE_ROOT:?DEVOPS_APTLY_RELEASE_ARCHIVE_ROOT must be set before DevOps provisioning}"
@@ -187,7 +168,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_OSC_RELEASE_VERSION:?DEVOPS_OSC_RELEASE_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_OSC_RELEASE_URL:?DEVOPS_OSC_RELEASE_URL must be set before DevOps provisioning}"
   : "${DEVOPS_OSC_RELEASE_SHA256:?DEVOPS_OSC_RELEASE_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_OSC_RELEASE_MINIMUM_BYTES:?DEVOPS_OSC_RELEASE_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_OSC_RELEASE_ARCHITECTURE:?DEVOPS_OSC_RELEASE_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_OSC_RELEASE_ARCHIVE_FILENAME:?DEVOPS_OSC_RELEASE_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_OSC_RELEASE_PACKAGE_ROOT:?DEVOPS_OSC_RELEASE_PACKAGE_ROOT must be set before DevOps provisioning}"
@@ -199,7 +179,6 @@ devops_validate_upstream_tool_policy() {
   : "${DEVOPS_OBS_BUILD_COMMIT:?DEVOPS_OBS_BUILD_COMMIT must be set before DevOps provisioning}"
   : "${DEVOPS_OBS_BUILD_URL:?DEVOPS_OBS_BUILD_URL must be set before DevOps provisioning}"
   : "${DEVOPS_OBS_BUILD_SHA256:?DEVOPS_OBS_BUILD_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_OBS_BUILD_MINIMUM_BYTES:?DEVOPS_OBS_BUILD_MINIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_OBS_BUILD_ARCHITECTURE:?DEVOPS_OBS_BUILD_ARCHITECTURE must be set before DevOps provisioning}"
   : "${DEVOPS_OBS_BUILD_ARCHIVE_FILENAME:?DEVOPS_OBS_BUILD_ARCHIVE_FILENAME must be set before DevOps provisioning}"
   : "${DEVOPS_OBS_BUILD_ARCHIVE_ROOT:?DEVOPS_OBS_BUILD_ARCHIVE_ROOT must be set before DevOps provisioning}"
@@ -228,39 +207,24 @@ devops_validate_upstream_tool_policy() {
 
   devops_validate_node_release 22 \
     "$DEVOPS_NODE_22_MAJOR" "$DEVOPS_NODE_22_VERSION" "$DEVOPS_NODE_22_URL" \
-    "$DEVOPS_NODE_22_SHA256" "$DEVOPS_NODE_22_MINIMUM_BYTES" \
+    "$DEVOPS_NODE_22_SHA256" \
     "$DEVOPS_NODE_22_ARCHIVE_FILENAME" "$DEVOPS_NODE_22_ARCHIVE_ROOT" \
     "$DEVOPS_NODE_22_INSTALL_ROOT" "$DEVOPS_NODE_22_BINARY_PATH"
   devops_validate_node_release 24 \
     "$DEVOPS_NODE_24_MAJOR" "$DEVOPS_NODE_24_VERSION" "$DEVOPS_NODE_24_URL" \
-    "$DEVOPS_NODE_24_SHA256" "$DEVOPS_NODE_24_MINIMUM_BYTES" \
+    "$DEVOPS_NODE_24_SHA256" \
     "$DEVOPS_NODE_24_ARCHIVE_FILENAME" "$DEVOPS_NODE_24_ARCHIVE_ROOT" \
     "$DEVOPS_NODE_24_INSTALL_ROOT" "$DEVOPS_NODE_24_BINARY_PATH"
   devops_validate_node_release 26 \
     "$DEVOPS_NODE_26_MAJOR" "$DEVOPS_NODE_26_VERSION" "$DEVOPS_NODE_26_URL" \
-    "$DEVOPS_NODE_26_SHA256" "$DEVOPS_NODE_26_MINIMUM_BYTES" \
+    "$DEVOPS_NODE_26_SHA256" \
     "$DEVOPS_NODE_26_ARCHIVE_FILENAME" "$DEVOPS_NODE_26_ARCHIVE_ROOT" \
     "$DEVOPS_NODE_26_INSTALL_ROOT" "$DEVOPS_NODE_26_BINARY_PATH"
-  for node_limit in \
-    "$DEVOPS_NODE_22_MINIMUM_BYTES" "$DEVOPS_NODE_22_MAXIMUM_BYTES" \
-    "$DEVOPS_NODE_24_MINIMUM_BYTES" "$DEVOPS_NODE_24_MAXIMUM_BYTES" \
-    "$DEVOPS_NODE_26_MINIMUM_BYTES" "$DEVOPS_NODE_26_MAXIMUM_BYTES"
-  do
-    devops_validate_positive_integer "Node release byte limit" "$node_limit"
-  done
-  [ "$DEVOPS_NODE_22_MAXIMUM_BYTES" -ge "$DEVOPS_NODE_22_MINIMUM_BYTES" ] ||
-    devops_fatal "DEVOPS_NODE_22_MAXIMUM_BYTES must not be smaller than its minimum"
-  [ "$DEVOPS_NODE_24_MAXIMUM_BYTES" -ge "$DEVOPS_NODE_24_MINIMUM_BYTES" ] ||
-    devops_fatal "DEVOPS_NODE_24_MAXIMUM_BYTES must not be smaller than its minimum"
-  [ "$DEVOPS_NODE_26_MAXIMUM_BYTES" -ge "$DEVOPS_NODE_26_MINIMUM_BYTES" ] ||
-    devops_fatal "DEVOPS_NODE_26_MAXIMUM_BYTES must not be smaller than its minimum"
-
   devops_validate_semantic_version "DEVOPS_DENO_VERSION" "$DEVOPS_DENO_VERSION"
   [ "$DEVOPS_DENO_ARCHITECTURE" = x86_64-unknown-linux-gnu ] ||
     devops_fatal "DEVOPS_DENO_ARCHITECTURE must remain x86_64-unknown-linux-gnu"
   devops_validate_configured_release_url DEVOPS_DENO_URL "$DEVOPS_DENO_URL" "$DEVOPS_DENO_ARCHIVE_FILENAME"
   devops_validate_lower_hex "DEVOPS_DENO_SHA256" "$DEVOPS_DENO_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_DENO_MINIMUM_BYTES" "$DEVOPS_DENO_MINIMUM_BYTES"
   [ "$DEVOPS_DENO_ARCHIVE_FILES" = deno ] ||
     devops_fatal "DEVOPS_DENO_ARCHIVE_FILES must contain only deno"
   devops_validate_install_layout \
@@ -273,7 +237,6 @@ devops_validate_upstream_tool_policy() {
     devops_fatal "DEVOPS_YT_DLP_ARCHITECTURE must remain linux-x86_64"
   devops_validate_configured_release_url DEVOPS_YT_DLP_URL "$DEVOPS_YT_DLP_URL" "$DEVOPS_YT_DLP_ARCHIVE_FILENAME"
   devops_validate_lower_hex "DEVOPS_YT_DLP_SHA256" "$DEVOPS_YT_DLP_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_YT_DLP_MINIMUM_BYTES" "$DEVOPS_YT_DLP_MINIMUM_BYTES"
   devops_validate_install_layout \
     "DEVOPS_YT_DLP" \
     "$DEVOPS_YT_DLP_INSTALL_ROOT" \
@@ -293,10 +256,6 @@ devops_validate_upstream_tool_policy() {
     "$DEVOPS_RUSTUP_URL" \
     "$rustup_archive_filename"
   devops_validate_lower_hex "DEVOPS_RUSTUP_SHA256" "$DEVOPS_RUSTUP_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_RUSTUP_MINIMUM_BYTES" "$DEVOPS_RUSTUP_MINIMUM_BYTES"
-  devops_validate_positive_integer "DEVOPS_RUSTUP_MAXIMUM_BYTES" "$DEVOPS_RUSTUP_MAXIMUM_BYTES"
-  [ "$DEVOPS_RUSTUP_MAXIMUM_BYTES" -ge "$DEVOPS_RUSTUP_MINIMUM_BYTES" ] ||
-    devops_fatal "DEVOPS_RUSTUP_MAXIMUM_BYTES must not be smaller than its minimum"
   devops_validate_install_layout \
     "DEVOPS_RUSTUP" \
     "$DEVOPS_RUSTUP_INSTALL_ROOT" \
@@ -306,7 +265,6 @@ devops_validate_upstream_tool_policy() {
     devops_fatal "DEVOPS_CARGO_BINSTALL_ARCHITECTURE must remain x86_64-unknown-linux-musl"
   devops_validate_configured_release_url DEVOPS_CARGO_BINSTALL_URL "$DEVOPS_CARGO_BINSTALL_URL" "$DEVOPS_CARGO_BINSTALL_ARCHIVE_FILENAME"
   devops_validate_lower_hex "DEVOPS_CARGO_BINSTALL_SHA256" "$DEVOPS_CARGO_BINSTALL_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_CARGO_BINSTALL_MINIMUM_BYTES" "$DEVOPS_CARGO_BINSTALL_MINIMUM_BYTES"
   [ "$DEVOPS_CARGO_BINSTALL_ARCHIVE_FILES" = cargo-binstall ] ||
     devops_fatal "DEVOPS_CARGO_BINSTALL_ARCHIVE_FILES must contain only cargo-binstall"
   devops_validate_source_build_flag "DEVOPS_DOTSLASH_SOURCE_BUILD" "$DEVOPS_DOTSLASH_SOURCE_BUILD"
@@ -315,7 +273,6 @@ devops_validate_upstream_tool_policy() {
   devops_validate_lower_hex "DEVOPS_DOTSLASH_COMMIT" "$DEVOPS_DOTSLASH_COMMIT" 40
   devops_validate_configured_release_url DEVOPS_DOTSLASH_URL "$DEVOPS_DOTSLASH_URL" "$DEVOPS_DOTSLASH_ARCHIVE_FILENAME"
   devops_validate_lower_hex "DEVOPS_DOTSLASH_SHA256" "$DEVOPS_DOTSLASH_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_DOTSLASH_MINIMUM_BYTES" "$DEVOPS_DOTSLASH_MINIMUM_BYTES"
   [ "$DEVOPS_DOTSLASH_ARCHITECTURE" = linux-musl.x86_64 ] ||
     devops_fatal "DEVOPS_DOTSLASH_ARCHITECTURE must remain linux-musl.x86_64"
   [ "$DEVOPS_DOTSLASH_ARCHIVE_FILES" = dotslash ] ||
@@ -324,7 +281,6 @@ devops_validate_upstream_tool_policy() {
   devops_validate_semantic_version "DEVOPS_UV_VERSION" "$DEVOPS_UV_VERSION"
   devops_validate_configured_release_url DEVOPS_UV_URL "$DEVOPS_UV_URL" "$DEVOPS_UV_ARCHIVE_FILENAME"
   devops_validate_lower_hex "DEVOPS_UV_SHA256" "$DEVOPS_UV_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_UV_MINIMUM_BYTES" "$DEVOPS_UV_MINIMUM_BYTES"
   [ "$DEVOPS_UV_ARCHITECTURE" = x86_64-unknown-linux-gnu ] ||
     devops_fatal "DEVOPS_UV_ARCHITECTURE must remain x86_64-unknown-linux-gnu"
   [ "$DEVOPS_UV_ARCHIVE_FILES" = "uv uvx" ] ||
@@ -339,7 +295,6 @@ devops_validate_upstream_tool_policy() {
     *..*) devops_fatal "DEVOPS_ANSIBLE_CORE_URL must be normalized" ;;
   esac
   devops_validate_lower_hex "DEVOPS_ANSIBLE_CORE_SHA256" "$DEVOPS_ANSIBLE_CORE_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_ANSIBLE_CORE_MINIMUM_BYTES" "$DEVOPS_ANSIBLE_CORE_MINIMUM_BYTES"
   [ "$DEVOPS_ANSIBLE_CORE_ARCHITECTURE" = python3-any ] ||
     devops_fatal "DEVOPS_ANSIBLE_CORE_ARCHITECTURE must remain python3-any"
   [ "$DEVOPS_ANSIBLE_CORE_PACKAGE_ROOTS" = "ansible ansible_test" ] ||
@@ -354,7 +309,6 @@ devops_validate_upstream_tool_policy() {
   devops_validate_semantic_version "DEVOPS_OPENTOFU_VERSION" "$DEVOPS_OPENTOFU_VERSION"
   devops_validate_configured_release_url DEVOPS_OPENTOFU_URL "$DEVOPS_OPENTOFU_URL" "$DEVOPS_OPENTOFU_ARCHIVE_FILENAME"
   devops_validate_lower_hex "DEVOPS_OPENTOFU_SHA256" "$DEVOPS_OPENTOFU_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_OPENTOFU_MINIMUM_BYTES" "$DEVOPS_OPENTOFU_MINIMUM_BYTES"
   [ "$DEVOPS_OPENTOFU_ARCHITECTURE" = linux-amd64 ] ||
     devops_fatal "DEVOPS_OPENTOFU_ARCHITECTURE must remain linux-amd64"
   devops_validate_archive_file_list "DEVOPS_OPENTOFU_ARCHIVE_FILES" "$DEVOPS_OPENTOFU_ARCHIVE_FILES"
@@ -366,7 +320,6 @@ devops_validate_upstream_tool_policy() {
   devops_validate_semantic_version "DEVOPS_TERRAFORM_VERSION" "$DEVOPS_TERRAFORM_VERSION"
   devops_validate_configured_release_url DEVOPS_TERRAFORM_URL "$DEVOPS_TERRAFORM_URL" "$DEVOPS_TERRAFORM_ARCHIVE_FILENAME"
   devops_validate_lower_hex "DEVOPS_TERRAFORM_SHA256" "$DEVOPS_TERRAFORM_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_TERRAFORM_MINIMUM_BYTES" "$DEVOPS_TERRAFORM_MINIMUM_BYTES"
   [ "$DEVOPS_TERRAFORM_ARCHITECTURE" = linux-amd64 ] ||
     devops_fatal "DEVOPS_TERRAFORM_ARCHITECTURE must remain linux-amd64"
   devops_validate_archive_file_list \
@@ -380,7 +333,6 @@ devops_validate_upstream_tool_policy() {
   devops_validate_semantic_version "DEVOPS_PACKER_VERSION" "$DEVOPS_PACKER_VERSION"
   devops_validate_configured_release_url DEVOPS_PACKER_URL "$DEVOPS_PACKER_URL" "$DEVOPS_PACKER_ARCHIVE_FILENAME"
   devops_validate_lower_hex "DEVOPS_PACKER_SHA256" "$DEVOPS_PACKER_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_PACKER_MINIMUM_BYTES" "$DEVOPS_PACKER_MINIMUM_BYTES"
   [ "$DEVOPS_PACKER_ARCHITECTURE" = linux-amd64 ] ||
     devops_fatal "DEVOPS_PACKER_ARCHITECTURE must remain linux-amd64"
   devops_validate_archive_file_list \
@@ -399,7 +351,6 @@ devops_validate_upstream_tool_policy() {
   then
     devops_fatal "DEVOPS_WRANGLER_NPM_INTEGRITY must be an npm SHA-512 integrity value"
   fi
-  devops_validate_positive_integer "DEVOPS_WRANGLER_MINIMUM_BYTES" "$DEVOPS_WRANGLER_MINIMUM_BYTES"
   [ "$DEVOPS_WRANGLER_ARCHITECTURE" = node-any ] ||
     devops_fatal "DEVOPS_WRANGLER_ARCHITECTURE must remain node-any"
   [ "$DEVOPS_WRANGLER_ARCHIVE_ROOT" = package ] ||
@@ -422,7 +373,6 @@ devops_validate_upstream_tool_policy() {
   devops_validate_semantic_version "DEVOPS_APTLY_RELEASE_VERSION" "$DEVOPS_APTLY_RELEASE_VERSION"
   devops_validate_configured_release_url DEVOPS_APTLY_RELEASE_URL "$DEVOPS_APTLY_RELEASE_URL" "$DEVOPS_APTLY_RELEASE_ARCHIVE_FILENAME"
   devops_validate_lower_hex "DEVOPS_APTLY_RELEASE_SHA256" "$DEVOPS_APTLY_RELEASE_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_APTLY_RELEASE_MINIMUM_BYTES" "$DEVOPS_APTLY_RELEASE_MINIMUM_BYTES"
   [ "$DEVOPS_APTLY_RELEASE_ARCHITECTURE" = linux-amd64 ] ||
     devops_fatal "DEVOPS_APTLY_RELEASE_ARCHITECTURE must remain linux-amd64"
   devops_validate_archive_file_list "DEVOPS_APTLY_RELEASE_ARCHIVE_FILES" "$DEVOPS_APTLY_RELEASE_ARCHIVE_FILES"
@@ -440,7 +390,6 @@ devops_validate_upstream_tool_policy() {
     *..*) devops_fatal "DEVOPS_OSC_RELEASE_URL must be normalized" ;;
   esac
   devops_validate_lower_hex "DEVOPS_OSC_RELEASE_SHA256" "$DEVOPS_OSC_RELEASE_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_OSC_RELEASE_MINIMUM_BYTES" "$DEVOPS_OSC_RELEASE_MINIMUM_BYTES"
   [ "$DEVOPS_OSC_RELEASE_ARCHITECTURE" = python3-any ] ||
     devops_fatal "DEVOPS_OSC_RELEASE_ARCHITECTURE must remain python3-any"
   [ "$DEVOPS_OSC_RELEASE_PACKAGE_ROOT" = osc ] ||
@@ -458,7 +407,6 @@ devops_validate_upstream_tool_policy() {
   devops_validate_lower_hex "DEVOPS_OBS_BUILD_COMMIT" "$DEVOPS_OBS_BUILD_COMMIT" 40
   case "$DEVOPS_OBS_BUILD_URL" in https://*/"${DEVOPS_OBS_BUILD_COMMIT}") ;; *) devops_fatal "DEVOPS_OBS_BUILD_URL must end at the configured commit" ;; esac
   devops_validate_lower_hex "DEVOPS_OBS_BUILD_SHA256" "$DEVOPS_OBS_BUILD_SHA256" 64
-  devops_validate_positive_integer "DEVOPS_OBS_BUILD_MINIMUM_BYTES" "$DEVOPS_OBS_BUILD_MINIMUM_BYTES"
   [ "$DEVOPS_OBS_BUILD_ARCHITECTURE" = source-any ] ||
     devops_fatal "DEVOPS_OBS_BUILD_ARCHITECTURE must remain source-any"
   devops_validate_install_layout \

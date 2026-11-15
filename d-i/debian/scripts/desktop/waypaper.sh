@@ -20,8 +20,6 @@ desktop_waypaper_validate_policy() {
   : "${LABWC_WAYPAPER_VERSION:?LABWC_WAYPAPER_VERSION must be set}"
   : "${LABWC_WAYPAPER_URL:?LABWC_WAYPAPER_URL must be set}"
   : "${LABWC_WAYPAPER_SHA256:?LABWC_WAYPAPER_SHA256 must be set}"
-  : "${LABWC_WAYPAPER_MINIMUM_BYTES:?LABWC_WAYPAPER_MINIMUM_BYTES must be set}"
-  : "${LABWC_WAYPAPER_MAXIMUM_BYTES:?LABWC_WAYPAPER_MAXIMUM_BYTES must be set}"
   : "${LABWC_WAYPAPER_INSTALL_TIMEOUT_SECONDS:?LABWC_WAYPAPER_INSTALL_TIMEOUT_SECONDS must be set}"
   : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set}"
   : "${ACCOUNT_HOME:?ACCOUNT_HOME must be set}"
@@ -37,11 +35,6 @@ desktop_waypaper_validate_policy() {
   case "$LABWC_WAYPAPER_SHA256" in
     *[!0123456789abcdef]*) desktop_waypaper_fail "LABWC_WAYPAPER_SHA256 is invalid" ;;
   esac
-  desktop_waypaper_validate_unsigned_integer LABWC_WAYPAPER_MINIMUM_BYTES "$LABWC_WAYPAPER_MINIMUM_BYTES"
-  desktop_waypaper_validate_unsigned_integer LABWC_WAYPAPER_MAXIMUM_BYTES "$LABWC_WAYPAPER_MAXIMUM_BYTES"
-  [ "$LABWC_WAYPAPER_MINIMUM_BYTES" -ge 16384 ] &&
-    [ "$LABWC_WAYPAPER_MAXIMUM_BYTES" -ge "$LABWC_WAYPAPER_MINIMUM_BYTES" ] ||
-    desktop_waypaper_fail "Waypaper wheel size bounds are invalid"
   desktop_waypaper_validate_unsigned_integer \
     LABWC_WAYPAPER_INSTALL_TIMEOUT_SECONDS \
     "$LABWC_WAYPAPER_INSTALL_TIMEOUT_SECONDS"
@@ -69,16 +62,10 @@ desktop_waypaper_download_wheel() (
     __INSTALLER_PATH_DIR_USR_BIN__/curl --disable --fail --silent --show-error --location \
       --proto '=https' --proto-redir '=https' --connect-timeout 15 \
       --max-time 120 --max-redirs 4 --retry 3 --retry-all-errors \
-      --max-filesize "$LABWC_WAYPAPER_MAXIMUM_BYTES" \
       --output "$waypaper_temporary" --url "$LABWC_WAYPAPER_URL"
   then
     desktop_waypaper_fail "pinned wheel download failed"
   fi
-  waypaper_wheel_size=$(wc -c <"$waypaper_temporary_host") ||
-    desktop_waypaper_fail "cannot measure downloaded wheel"
-  [ "$waypaper_wheel_size" -ge "$LABWC_WAYPAPER_MINIMUM_BYTES" ] &&
-    [ "$waypaper_wheel_size" -le "$LABWC_WAYPAPER_MAXIMUM_BYTES" ] ||
-    desktop_waypaper_fail "downloaded wheel is outside the managed size bounds"
   waypaper_wheel_hash=$(sha256sum "$waypaper_temporary_host") ||
     desktop_waypaper_fail "cannot hash downloaded wheel"
   [ "${waypaper_wheel_hash%% *}" = "$LABWC_WAYPAPER_SHA256" ] ||

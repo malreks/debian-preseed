@@ -79,7 +79,6 @@ fetch_render_runtime_path_asset() {
 fetch_ssh_asset() {
   src=$1
   dest=$2
-  max_bytes=${3:-}
   ssh_repo_dir=ssh
 
   case "$src" in
@@ -93,31 +92,11 @@ fetch_ssh_asset() {
       installer_fatal "SSH asset path contains unsupported characters: ${src}"
       ;;
   esac
-  case "$max_bytes" in
-    ''|*[!0-9]*|0)
-      installer_fatal "invalid SSH asset byte limit for ${src}: ${max_bytes:-unset}"
-      ;;
-  esac
-  if [ "$max_bytes" -gt 1048576 ]; then
-    installer_fatal "SSH asset byte limit is too large for ${src}: ${max_bytes}"
-  fi
-
   fetch_resolve_seed_base || return $?
   installer_fetch_seed_path "$FETCH_SEED_BASE" "$src" "$dest" 0600 || {
     ssh_fetch_status=$?
     installer_fatal_status "$ssh_fetch_status" "failed to fetch SSH asset: source=${src} destination=${dest}"
   }
-
-  bytes=$(wc -c <"$dest" 2>/dev/null) || bytes=
-  bytes=${bytes##* }
-  case "$bytes" in
-    ''|*[!0-9]*)
-      installer_fatal "unable to measure SSH asset size: $src"
-      ;;
-  esac
-  if [ "$bytes" -gt "$max_bytes" ]; then
-    installer_fatal "SSH asset exceeds ${max_bytes} bytes: $src"
-  fi
 
   chmod 0600 "$dest"
 }

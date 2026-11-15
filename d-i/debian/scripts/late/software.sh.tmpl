@@ -176,12 +176,8 @@ bitwarden_deb="${work_dir}/bitwarden-latest.deb"
 obsidian_version=${SOFTWARE_OBSIDIAN_VERSION:?SOFTWARE_OBSIDIAN_VERSION must be set by the host profile}
 obsidian_url=${SOFTWARE_OBSIDIAN_URL:?SOFTWARE_OBSIDIAN_URL must be set by the host profile}
 obsidian_sha256=${SOFTWARE_OBSIDIAN_SHA256:?SOFTWARE_OBSIDIAN_SHA256 must be set by the host profile}
-obsidian_size=${SOFTWARE_OBSIDIAN_MINIMUM_BYTES:?SOFTWARE_OBSIDIAN_MINIMUM_BYTES must be set by the host profile}
-obsidian_maximum_size=${SOFTWARE_OBSIDIAN_MAXIMUM_BYTES:?SOFTWARE_OBSIDIAN_MAXIMUM_BYTES must be set by the host profile}
 software_validate_release_version SOFTWARE_OBSIDIAN_VERSION "$obsidian_version"
 software_validate_sha256 SOFTWARE_OBSIDIAN_SHA256 "$obsidian_sha256"
-software_validate_bounded_bytes SOFTWARE_OBSIDIAN_MAXIMUM_BYTES "$obsidian_maximum_size" "$SOFTWARE_GENERIC_DOWNLOAD_MAXIMUM_BYTES"
-software_validate_bounded_bytes SOFTWARE_OBSIDIAN_MINIMUM_BYTES "$obsidian_size" "$obsidian_maximum_size"
 case "$obsidian_url" in
   https://*/*) ;;
   *) software_fatal "SOFTWARE_OBSIDIAN_URL does not match the configured release" ;;
@@ -198,12 +194,8 @@ menu_icon_dir=__INSTALLER_PATH_DIR_USR_SHARE_ICONS_HICOLOR_512_APPS__
 sleek_version=${SOFTWARE_SLEEK_VERSION:?SOFTWARE_SLEEK_VERSION must be set by the host profile}
 sleek_url=${SOFTWARE_SLEEK_URL:?SOFTWARE_SLEEK_URL must be set by the host profile}
 sleek_sha256=${SOFTWARE_SLEEK_SHA256:?SOFTWARE_SLEEK_SHA256 must be set by the host profile}
-sleek_size=${SOFTWARE_SLEEK_MINIMUM_BYTES:?SOFTWARE_SLEEK_MINIMUM_BYTES must be set by the host profile}
-sleek_maximum_size=${SOFTWARE_SLEEK_MAXIMUM_BYTES:?SOFTWARE_SLEEK_MAXIMUM_BYTES must be set by the host profile}
 software_validate_release_version SOFTWARE_SLEEK_VERSION "$sleek_version"
 software_validate_sha256 SOFTWARE_SLEEK_SHA256 "$sleek_sha256"
-software_validate_bounded_bytes SOFTWARE_SLEEK_MAXIMUM_BYTES "$sleek_maximum_size" "$SOFTWARE_GENERIC_DOWNLOAD_MAXIMUM_BYTES"
-software_validate_bounded_bytes SOFTWARE_SLEEK_MINIMUM_BYTES "$sleek_size" "$sleek_maximum_size"
 case "$sleek_url" in
   https://*/*) ;;
   *) software_fatal "SOFTWARE_SLEEK_URL does not match the configured release" ;;
@@ -289,14 +281,9 @@ temporary_unshare_path=__INSTALLER_PATH_DIR_USR_BIN__/unshare
 temporary_unshare_divert_path=__INSTALLER_PATH_DIR_USR_BIN__/unshare.installer-real
 temporary_unshare_state_path=__INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/temporary-unshare-shim
 temporary_unshare_marker=INSTALLER_TEMPORARY_FAKE_UNSHARE_V1
-managed_application_minimum_bytes=${SOFTWARE_GENERIC_DOWNLOAD_MINIMUM_BYTES:?SOFTWARE_GENERIC_DOWNLOAD_MINIMUM_BYTES must be set}
-
 : "${SOFTWARE_BITWARDEN_URL:?SOFTWARE_BITWARDEN_URL must be set by the shared host environment}"
-: "${SOFTWARE_BITWARDEN_MAXIMUM_BYTES:?SOFTWARE_BITWARDEN_MAXIMUM_BYTES must be set by the shared host environment}"
 : "${SOFTWARE_ZOOM_URL:?SOFTWARE_ZOOM_URL must be set by the shared host environment}"
-: "${SOFTWARE_ZOOM_MAXIMUM_BYTES:?SOFTWARE_ZOOM_MAXIMUM_BYTES must be set by the shared host environment}"
 : "${SOFTWARE_FILEN_DESKTOP_URL:?SOFTWARE_FILEN_DESKTOP_URL must be set by the shared host environment}"
-: "${SOFTWARE_FILEN_DESKTOP_MAXIMUM_BYTES:?SOFTWARE_FILEN_DESKTOP_MAXIMUM_BYTES must be set by the shared host environment}"
 : "${SOFTWARE_CHATGPT_URL:?SOFTWARE_CHATGPT_URL must be set by the shared host environment}"
 : "${SOFTWARE_DISCORD_MANIFEST_URL:?SOFTWARE_DISCORD_MANIFEST_URL must be set by the shared host environment}"
 : "${SOFTWARE_OBSIDIAN_DISCOVERY_URL:?SOFTWARE_OBSIDIAN_DISCOVERY_URL must be set by the shared host environment}"
@@ -305,9 +292,7 @@ managed_application_minimum_bytes=${SOFTWARE_GENERIC_DOWNLOAD_MINIMUM_BYTES:?SOF
 : "${SOFTWARE_TOMAT_DISCOVERY_URL:?SOFTWARE_TOMAT_DISCOVERY_URL must be set by the shared host environment}"
 : "${SOFTWARE_TUTA_APPIMAGE_URL:?SOFTWARE_TUTA_APPIMAGE_URL must be set by the shared host environment}"
 : "${SOFTWARE_TUTA_SIGNATURE_URL:?SOFTWARE_TUTA_SIGNATURE_URL must be set by the shared host environment}"
-: "${SOFTWARE_RELEASE_METADATA_MINIMUM_BYTES:?SOFTWARE_RELEASE_METADATA_MINIMUM_BYTES must be set by the shared host environment}"
 : "${SOFTWARE_RELEASE_METADATA_MAXIMUM_BYTES:?SOFTWARE_RELEASE_METADATA_MAXIMUM_BYTES must be set by the shared host environment}"
-: "${SOFTWARE_APT_REPO_LOCAL_DOWNLOAD_MAXIMUM_BYTES:?SOFTWARE_APT_REPO_LOCAL_DOWNLOAD_MAXIMUM_BYTES must be set by the shared host environment}"
 : "${SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES:?SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES must be set by the shared host environment}"
 : "${SOFTWARE_APT_REPO_LOCAL_ARCHIVE_MAXIMUM_BYTES:?SOFTWARE_APT_REPO_LOCAL_ARCHIVE_MAXIMUM_BYTES must be set by the shared host environment}"
 : "${SOFTWARE_APT_REPO_LOCAL_EXTRACTED_MAXIMUM_BYTES:?SOFTWARE_APT_REPO_LOCAL_EXTRACTED_MAXIMUM_BYTES must be set by the shared host environment}"
@@ -329,16 +314,6 @@ do
       ;;
   esac
 done
-for managed_generic_maximum in \
-  "$SOFTWARE_BITWARDEN_MAXIMUM_BYTES" \
-  "$SOFTWARE_ZOOM_MAXIMUM_BYTES" \
-  "$SOFTWARE_FILEN_DESKTOP_MAXIMUM_BYTES"
-do
-  software_validate_bounded_bytes \
-    SOFTWARE_GENERIC_DOWNLOAD_MAXIMUM_BYTES \
-    "$managed_generic_maximum" \
-    "$SOFTWARE_GENERIC_DOWNLOAD_MAXIMUM_BYTES"
-done
 for managed_service_url in \
   "$SOFTWARE_CHATGPT_URL" \
   "$SOFTWARE_DISCORD_MANIFEST_URL" \
@@ -355,18 +330,6 @@ do
     *) software_fatal "managed software service URL is not a supported HTTPS URL" ;;
   esac
 done
-software_validate_bounded_bytes \
-  SOFTWARE_RELEASE_METADATA_MAXIMUM_BYTES \
-  "$SOFTWARE_RELEASE_METADATA_MAXIMUM_BYTES" \
-  "$SOFTWARE_GENERIC_DOWNLOAD_MAXIMUM_BYTES"
-software_validate_bounded_bytes \
-  SOFTWARE_RELEASE_METADATA_MINIMUM_BYTES \
-  "$SOFTWARE_RELEASE_METADATA_MINIMUM_BYTES" \
-  "$SOFTWARE_RELEASE_METADATA_MAXIMUM_BYTES"
-software_validate_bounded_bytes \
-  SOFTWARE_APT_REPO_LOCAL_DOWNLOAD_MAXIMUM_BYTES \
-  "$SOFTWARE_APT_REPO_LOCAL_DOWNLOAD_MAXIMUM_BYTES" \
-  "$SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES"
 software_validate_bounded_bytes \
   SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES \
   "$SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES" \
@@ -393,17 +356,13 @@ unset managed_generic_url managed_generic_maximum managed_service_url
 : "${SOFTWARE_TOMAT_TAG:?SOFTWARE_TOMAT_TAG must be set by every desktop host profile}"
 : "${SOFTWARE_TOMAT_URL:?SOFTWARE_TOMAT_URL must be set by every desktop host profile}"
 : "${SOFTWARE_TOMAT_SHA256:?SOFTWARE_TOMAT_SHA256 must be set by every desktop host profile}"
-: "${SOFTWARE_TOMAT_MINIMUM_BYTES:?SOFTWARE_TOMAT_MINIMUM_BYTES must be set by the shared host environment}"
-: "${SOFTWARE_TOMAT_MAXIMUM_BYTES:?SOFTWARE_TOMAT_MAXIMUM_BYTES must be set by the shared host environment}"
 
 : "${SOFTWARE_QOREDB_VERSION:?SOFTWARE_QOREDB_VERSION must be set by every desktop host profile}"
 : "${SOFTWARE_QOREDB_URL:?SOFTWARE_QOREDB_URL must be set by every desktop host profile}"
 : "${SOFTWARE_QOREDB_SHA256:?SOFTWARE_QOREDB_SHA256 must be set by every desktop host profile}"
-: "${SOFTWARE_QOREDB_MINIMUM_BYTES:?SOFTWARE_QOREDB_MINIMUM_BYTES must be set by every desktop host profile}"
 : "${SOFTWARE_QOREDB_DISCOVERY_URL:?SOFTWARE_QOREDB_DISCOVERY_URL must be set by the shared host environment}"
 software_validate_release_version SOFTWARE_QOREDB_VERSION "$SOFTWARE_QOREDB_VERSION"
 software_validate_sha256 SOFTWARE_QOREDB_SHA256 "$SOFTWARE_QOREDB_SHA256"
-software_validate_bounded_bytes SOFTWARE_QOREDB_MINIMUM_BYTES "$SOFTWARE_QOREDB_MINIMUM_BYTES" "$SOFTWARE_GENERIC_DOWNLOAD_MAXIMUM_BYTES"
 case "$SOFTWARE_QOREDB_URL" in
   https://*/*) ;;
   *) software_fatal "SOFTWARE_QOREDB_URL does not match the configured release" ;;
@@ -759,7 +718,6 @@ software_stage_perl_modules() {
     "$(installer_repo_file_value FILE_TARGET_PERL_APT_REPO_SERVICING_ARTIFACTLIMITS_TMPL)" \
     "${DIR_PERL5_SITE_PERL}/apt-repo-local/APTRepoLocal/Servicing/ArtifactLimits.pm" \
     0644 \
-    SOFTWARE_APT_REPO_LOCAL_DOWNLOAD_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_DOWNLOAD_MAXIMUM_BYTES" \
     SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES"
   software_perl_modules | while IFS= read -r software_module; do
     [ -n "$software_module" ] || continue
@@ -794,7 +752,6 @@ software_stage_external_servicing_runtime() {
     "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APT_REPO_LOCAL_TMPL)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local \
     0755 \
-    SOFTWARE_APT_REPO_LOCAL_DOWNLOAD_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_DOWNLOAD_MAXIMUM_BYTES" \
     SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES" \
     SOFTWARE_APT_REPO_LOCAL_ARCHIVE_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_ARCHIVE_MAXIMUM_BYTES" \
     SOFTWARE_APT_REPO_LOCAL_EXTRACTED_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_EXTRACTED_MAXIMUM_BYTES" \
@@ -827,20 +784,11 @@ software_stage_external_servicing_runtime() {
     "$FILE_SOFTWARE_RELEASE_POLICY" \
     0644 \
     SOFTWARE_BITWARDEN_URL "$SOFTWARE_BITWARDEN_URL" \
-    SOFTWARE_BITWARDEN_MAXIMUM_BYTES "$SOFTWARE_BITWARDEN_MAXIMUM_BYTES" \
     SOFTWARE_ZOOM_URL "$SOFTWARE_ZOOM_URL" \
-    SOFTWARE_ZOOM_MAXIMUM_BYTES "$SOFTWARE_ZOOM_MAXIMUM_BYTES" \
     SOFTWARE_FILEN_DESKTOP_URL "$SOFTWARE_FILEN_DESKTOP_URL" \
-    SOFTWARE_FILEN_DESKTOP_MAXIMUM_BYTES "$SOFTWARE_FILEN_DESKTOP_MAXIMUM_BYTES" \
     SOFTWARE_CHATGPT_URL "$SOFTWARE_CHATGPT_URL" \
-    SOFTWARE_CHATGPT_MAXIMUM_BYTES "$SOFTWARE_CHATGPT_MAXIMUM_BYTES" \
     SOFTWARE_DISCORD_MANIFEST_URL "$SOFTWARE_DISCORD_MANIFEST_URL" \
     SOFTWARE_QOREDB_DISCOVERY_URL "$SOFTWARE_QOREDB_DISCOVERY_URL" \
-    SOFTWARE_DISCORD_HOST_MINIMUM_BYTES "$SOFTWARE_DISCORD_HOST_MINIMUM_BYTES" \
-    SOFTWARE_DISCORD_HOST_MAXIMUM_BYTES "$SOFTWARE_DISCORD_HOST_MAXIMUM_BYTES" \
-    SOFTWARE_DISCORD_MODULE_MINIMUM_BYTES "$SOFTWARE_DISCORD_MODULE_MINIMUM_BYTES" \
-    SOFTWARE_DISCORD_MODULE_MAXIMUM_BYTES "$SOFTWARE_DISCORD_MODULE_MAXIMUM_BYTES" \
-    SOFTWARE_DISCORD_RELEASE_MAXIMUM_BYTES "$SOFTWARE_DISCORD_RELEASE_MAXIMUM_BYTES" \
     SOFTWARE_DISCORD_HOST_TAR_MAXIMUM_BYTES "$SOFTWARE_DISCORD_HOST_TAR_MAXIMUM_BYTES" \
     SOFTWARE_DISCORD_MODULE_TAR_MAXIMUM_BYTES "$SOFTWARE_DISCORD_MODULE_TAR_MAXIMUM_BYTES" \
     SOFTWARE_DISCORD_HOST_MAXIMUM_MEMBERS "$SOFTWARE_DISCORD_HOST_MAXIMUM_MEMBERS" \
@@ -850,42 +798,21 @@ software_stage_external_servicing_runtime() {
     SOFTWARE_DISCORD_TREE_RESERVED_FILES "$SOFTWARE_DISCORD_TREE_RESERVED_FILES" \
     SOFTWARE_DISCORD_TREE_RESERVED_BYTES "$SOFTWARE_DISCORD_TREE_RESERVED_BYTES" \
     SOFTWARE_OBSIDIAN_DISCOVERY_URL "$SOFTWARE_OBSIDIAN_DISCOVERY_URL" \
-    SOFTWARE_OBSIDIAN_MINIMUM_BYTES "$SOFTWARE_OBSIDIAN_MINIMUM_BYTES" \
-    SOFTWARE_OBSIDIAN_MAXIMUM_BYTES "$SOFTWARE_OBSIDIAN_MAXIMUM_BYTES" \
     SOFTWARE_POSTMAN_URL "$SOFTWARE_POSTMAN_URL" \
-    SOFTWARE_POSTMAN_MAXIMUM_BYTES "$SOFTWARE_POSTMAN_MAXIMUM_BYTES" \
     SOFTWARE_POSTMAN_MAXIMUM_EXTRACTED_BYTES "$SOFTWARE_POSTMAN_MAXIMUM_EXTRACTED_BYTES" \
     SOFTWARE_POSTMAN_MAXIMUM_MEMBERS "$SOFTWARE_POSTMAN_MAXIMUM_MEMBERS" \
     SOFTWARE_POSTMAN_METADATA_MAXIMUM_BYTES "$SOFTWARE_POSTMAN_METADATA_MAXIMUM_BYTES" \
     SOFTWARE_SLEEK_DISCOVERY_URL "$SOFTWARE_SLEEK_DISCOVERY_URL" \
-    SOFTWARE_SLEEK_MINIMUM_BYTES "$SOFTWARE_SLEEK_MINIMUM_BYTES" \
-    SOFTWARE_SLEEK_MAXIMUM_BYTES "$SOFTWARE_SLEEK_MAXIMUM_BYTES" \
     SOFTWARE_TOMAT_DISCOVERY_URL "$SOFTWARE_TOMAT_DISCOVERY_URL" \
-    SOFTWARE_TOMAT_MINIMUM_BYTES "$SOFTWARE_TOMAT_MINIMUM_BYTES" \
-    SOFTWARE_TOMAT_MAXIMUM_BYTES "$SOFTWARE_TOMAT_MAXIMUM_BYTES" \
-    SOFTWARE_GENERIC_DOWNLOAD_MINIMUM_BYTES "$SOFTWARE_GENERIC_DOWNLOAD_MINIMUM_BYTES" \
     SOFTWARE_TUTA_APPIMAGE_URL "$SOFTWARE_TUTA_APPIMAGE_URL" \
-    SOFTWARE_TUTA_APPIMAGE_MINIMUM_BYTES "$SOFTWARE_TUTA_APPIMAGE_MINIMUM_BYTES" \
-    SOFTWARE_TUTA_APPIMAGE_MAXIMUM_BYTES "$SOFTWARE_TUTA_APPIMAGE_MAXIMUM_BYTES" \
     SOFTWARE_TUTA_SIGNATURE_URL "$SOFTWARE_TUTA_SIGNATURE_URL" \
-    SOFTWARE_TUTA_SIGNATURE_MINIMUM_BYTES "$SOFTWARE_TUTA_SIGNATURE_MINIMUM_BYTES" \
-    SOFTWARE_TUTA_SIGNATURE_MAXIMUM_BYTES "$SOFTWARE_TUTA_SIGNATURE_MAXIMUM_BYTES" \
-    SOFTWARE_RELEASE_METADATA_MINIMUM_BYTES "$SOFTWARE_RELEASE_METADATA_MINIMUM_BYTES" \
     SOFTWARE_RELEASE_METADATA_MAXIMUM_BYTES "$SOFTWARE_RELEASE_METADATA_MAXIMUM_BYTES" \
     SOFTWARE_LEDGER_REQUESTED_LATEST_URL "$SOFTWARE_LEDGER_REQUESTED_LATEST_URL" \
     SOFTWARE_LEDGER_METADATA_URL "$SOFTWARE_LEDGER_METADATA_URL" \
     SOFTWARE_LEDGER_CHECKSUMS_BASE_URL "$SOFTWARE_LEDGER_CHECKSUMS_BASE_URL" \
     SOFTWARE_LEDGER_PUBLIC_KEY_SHA256 "$SOFTWARE_LEDGER_PUBLIC_KEY_SHA256" \
-    SOFTWARE_LEDGER_METADATA_MINIMUM_BYTES "$SOFTWARE_LEDGER_METADATA_MINIMUM_BYTES" \
-    SOFTWARE_LEDGER_METADATA_MAXIMUM_BYTES "$SOFTWARE_LEDGER_METADATA_MAXIMUM_BYTES" \
-    SOFTWARE_LEDGER_APPIMAGE_MINIMUM_BYTES "$SOFTWARE_LEDGER_APPIMAGE_MINIMUM_BYTES" \
-    SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_BYTES "$SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_BYTES" \
     SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_EXTRACTED_BYTES "$SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_EXTRACTED_BYTES" \
-    SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_MEMBERS "$SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_MEMBERS" \
-    SOFTWARE_LEDGER_CHECKSUMS_MINIMUM_BYTES "$SOFTWARE_LEDGER_CHECKSUMS_MINIMUM_BYTES" \
-    SOFTWARE_LEDGER_CHECKSUMS_MAXIMUM_BYTES "$SOFTWARE_LEDGER_CHECKSUMS_MAXIMUM_BYTES" \
-    SOFTWARE_LEDGER_METADATA_SIGNATURE_MINIMUM_BYTES "$SOFTWARE_LEDGER_METADATA_SIGNATURE_MINIMUM_BYTES" \
-    SOFTWARE_LEDGER_METADATA_SIGNATURE_MAXIMUM_BYTES "$SOFTWARE_LEDGER_METADATA_SIGNATURE_MAXIMUM_BYTES"
+    SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_MEMBERS "$SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_MEMBERS"
   software_stage_seed_asset \
     "$(installer_repo_file_value FILE_TARGET_SHARE_SOFTWARE_APT_REPO_LOCAL_SOURCES_IN_TMPL)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_SOFTWARE__/apt-repo-local.sources.in 0644
@@ -1178,27 +1105,24 @@ software_require_https_url() {
 }
 
 software_download_curl() {
-  maximum_bytes=${1:-$SOFTWARE_GENERIC_DOWNLOAD_MAXIMUM_BYTES}
-  partial_destination=$2
-  url=$3
-  content_policy=$4
+  partial_destination=$1
+  url=$2
+  content_policy=$3
   # The shared HTTP implementation validates each redirect before requesting
   # it. Its single 900-second deadline includes streaming, retries and waits.
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/env -i \
     HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ LC_ALL=C \
     PATH=__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__ \
     __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/installer-artifact-fetch \
-      "$url" "$partial_destination" 0 "$maximum_bytes" "$content_policy"
+      "$url" "$partial_destination" "$content_policy"
 }
 
 software_download() {
   label=$1
   url=$2
   destination=$3
-  minimum_bytes=$4
-  maximum_bytes=$5
-  content_policy=${6:-artifact}
-  transport_policy=${7:-fatal}
+  content_policy=${4:-artifact}
+  transport_policy=${5:-fatal}
   partial_destination="${destination}.part"
   destination_host_path="${target_root}${destination}"
   partial_host_path="${target_root}${partial_destination}"
@@ -1219,7 +1143,7 @@ software_download() {
   rm -f -- "$destination_host_path" "$partial_host_path"
 
   if ! transfer_metadata=$(
-    software_download_curl "$maximum_bytes" "$partial_destination" "$url" "$content_policy"
+    software_download_curl "$partial_destination" "$url" "$content_policy"
   ); then
     rm -f -- "$partial_host_path"
     case "$transport_policy" in
@@ -1276,14 +1200,6 @@ software_download() {
   case "$destination_size" in
     ''|*[!0-9]*) software_fatal "$label download size is invalid: ${destination_size:-unset}" ;;
   esac
-  if [ -n "$minimum_bytes" ]; then
-    [ "$destination_size" -ge "$minimum_bytes" ] ||
-      software_fatal "$label download is unexpectedly small: ${destination_size} bytes"
-  fi
-  if [ -n "$maximum_bytes" ]; then
-    [ "$destination_size" -le "$maximum_bytes" ] ||
-      software_fatal "$label download is unexpectedly large: ${destination_size} bytes"
-  fi
   mv -f -- "$partial_host_path" "$destination_host_path"
   # Redirect queries may carry signed credentials. Report only the authority,
   # with any userinfo, query and fragment removed; preserve the transport URL.
@@ -1338,10 +1254,6 @@ software_parse_ledger_metadata() {
   case "$ledger_metadata_size" in
     ''|*[!0-9]*) software_fatal "Ledger release metadata size is invalid" ;;
   esac
-  [ "$ledger_metadata_size" -ge "$SOFTWARE_LEDGER_METADATA_MINIMUM_BYTES" ] &&
-    [ "$ledger_metadata_size" -le "$SOFTWARE_LEDGER_METADATA_MAXIMUM_BYTES" ] ||
-    software_fatal "Ledger release metadata size is outside the approved range: $ledger_metadata_size"
-
   ledger_checksums_url="${SOFTWARE_LEDGER_CHECKSUMS_BASE_URL}${ledger_version}.sha512sum"
   ledger_checksums_signature_url="${ledger_checksums_url}.sig"
 }
@@ -1700,16 +1612,12 @@ software_install_scx_scheduler() {
     "scx scheduler" \
     "$scx_url" \
     "$scx_deb" \
-    "" \
-    "" \
     artifact \
     fatal
   software_download \
     "scx-loader" \
     "$scx_loader_url" \
     "$scx_loader_deb" \
-    "" \
-    "" \
     artifact \
     fatal
 
@@ -2024,8 +1932,6 @@ software_install_ledger() {
     "Ledger release metadata" \
     "$ledger_metadata_url" \
     "$ledger_metadata" \
-    "$SOFTWARE_LEDGER_METADATA_MINIMUM_BYTES" \
-    "$SOFTWARE_LEDGER_METADATA_MAXIMUM_BYTES" \
     metadata \
     skip
   software_parse_ledger_metadata
@@ -2034,24 +1940,18 @@ software_install_ledger() {
     "Ledger signed SHA-512 manifest" \
     "$ledger_checksums_url" \
     "$ledger_checksums" \
-    "$SOFTWARE_LEDGER_CHECKSUMS_MINIMUM_BYTES" \
-    "$SOFTWARE_LEDGER_CHECKSUMS_MAXIMUM_BYTES" \
     metadata \
     skip
   software_download \
     "Ledger SHA-512 manifest signature" \
     "$ledger_checksums_signature_url" \
     "$ledger_checksums_signature" \
-    "$SOFTWARE_LEDGER_METADATA_SIGNATURE_MINIMUM_BYTES" \
-    "$SOFTWARE_LEDGER_METADATA_SIGNATURE_MAXIMUM_BYTES" \
     signature \
     skip
   software_download \
     "Ledger Live AppImage" \
     "$ledger_requested_latest_url" \
     "$ledger_appimage" \
-    "$managed_application_minimum_bytes" \
-    "$SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_BYTES" \
     artifact \
     skip
 
@@ -2338,8 +2238,6 @@ software_install_bitwarden_app() {
     "Bitwarden Desktop" \
     "$SOFTWARE_BITWARDEN_URL" \
     "$bitwarden_deb" \
-    "$managed_application_minimum_bytes" \
-    "$SOFTWARE_BITWARDEN_MAXIMUM_BYTES" \
     artifact \
     skip
   # Install and retain the exact vendor download; never rewrite app.asar or
@@ -2364,8 +2262,6 @@ software_download \
   "QoreDB" \
   "$SOFTWARE_QOREDB_URL" \
   "$qoredb_deb" \
-  "$SOFTWARE_QOREDB_MINIMUM_BYTES" \
-  "$SOFTWARE_GENERIC_DOWNLOAD_MAXIMUM_BYTES" \
   artifact \
   skip
 qoredb_actual_sha256=$(
@@ -2402,8 +2298,6 @@ software_download \
   "Obsidian" \
   "$obsidian_url" \
   "$obsidian_deb" \
-  "$obsidian_size" \
-  "$obsidian_maximum_size" \
   artifact \
   skip
 obsidian_actual_sha256=$(
@@ -2437,7 +2331,7 @@ software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/fu
 
 software_install_tomat_app() {
 # Bootstrap only the profile-pinned Tomat asset. The adapter validates the tag,
-# canonical URL, digest, bounded download and exact Debian package version.
+# canonical URL, digest and exact Debian package version.
 # No latest-release API, source build or unverified fallback is used here.
 tomat_download_status=1
 tomat_download_attempt=1
@@ -2449,14 +2343,13 @@ while [ "$tomat_download_attempt" -le 4 ]; do
     -MAPTRepoLocal::Servicing::Deb \
     -MAPTRepoLocal::Servicing::Repository \
     -e 'use strict; use warnings;
-      @ARGV == 6 or die "expected private workspace, Tomat tag, URL, SHA-256 and byte bounds\n";
+      @ARGV == 4 or die "expected private workspace, Tomat tag, URL and SHA-256\n";
       my $repository = APTRepoLocal::Servicing::Repository->new();
       my $deb = APTRepoLocal::Servicing::Deb->new(repository => $repository);
       APTRepoLocal::Servicing::Tomat->new(
           http => APTRepoLocal::Servicing::HTTP->new(), deb => $deb,
       )->download_pinned(@ARGV);' -- "$work_dir" \
-      "$SOFTWARE_TOMAT_TAG" "$SOFTWARE_TOMAT_URL" "$SOFTWARE_TOMAT_SHA256" \
-      "$SOFTWARE_TOMAT_MINIMUM_BYTES" "$SOFTWARE_TOMAT_MAXIMUM_BYTES"
+      "$SOFTWARE_TOMAT_TAG" "$SOFTWARE_TOMAT_URL" "$SOFTWARE_TOMAT_SHA256"
   then
     tomat_download_status=0
     break
@@ -2488,8 +2381,6 @@ software_download \
   "Postman" \
   "$postman_url" \
   "$postman_archive" \
-  "$managed_application_minimum_bytes" \
-  "$SOFTWARE_POSTMAN_MAXIMUM_BYTES" \
   artifact \
   skip
 software_install_postman
@@ -2510,8 +2401,6 @@ software_download \
   "Sleek" \
   "$sleek_url" \
   "$sleek_deb" \
-  "$sleek_size" \
-  "$sleek_maximum_size" \
   artifact \
   skip
 sleek_actual_sha256=$(
@@ -2561,8 +2450,6 @@ software_download \
   "Zoom Workplace" \
   "$SOFTWARE_ZOOM_URL" \
   "$zoom_deb" \
-  "$managed_application_minimum_bytes" \
-  "$SOFTWARE_ZOOM_MAXIMUM_BYTES" \
   artifact \
   skip
 software_install_deb \
@@ -2580,8 +2467,6 @@ software_download \
   "Filen Desktop" \
   "$SOFTWARE_FILEN_DESKTOP_URL" \
   "$filen_deb" \
-  "$managed_application_minimum_bytes" \
-  "$SOFTWARE_FILEN_DESKTOP_MAXIMUM_BYTES" \
   artifact \
   skip
 software_install_deb \
@@ -2678,16 +2563,12 @@ software_download \
   "Tuta Mail AppImage" \
   "$SOFTWARE_TUTA_APPIMAGE_URL" \
   "$tuta_appimage" \
-  "$managed_application_minimum_bytes" \
-  "$SOFTWARE_TUTA_APPIMAGE_MAXIMUM_BYTES" \
   artifact \
   skip
 software_download \
   "Tuta Mail signature" \
   "$SOFTWARE_TUTA_SIGNATURE_URL" \
   "$tuta_signature" \
-  "$SOFTWARE_TUTA_SIGNATURE_MINIMUM_BYTES" \
-  "$SOFTWARE_TUTA_SIGNATURE_MAXIMUM_BYTES" \
   signature \
   skip
 

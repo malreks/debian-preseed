@@ -259,11 +259,10 @@ devops_validate_node_release() {
   version=$3
   url=$4
   sha256=$5
-  minimum_bytes=$6
-  archive_filename=$7
-  archive_root=$8
-  install_root=$9
-  binary_path=${10}
+  archive_filename=$6
+  archive_root=$7
+  install_root=$8
+  binary_path=$9
 
   [ "$major" = "$expected_major" ] ||
     devops_fatal "Node ${expected_major} policy has an unexpected major version: $major"
@@ -281,6 +280,5 @@ devops_validate_node_release() {
     *) devops_fatal "Node ${expected_major} URL does not match its configured archive" ;;
   esac
   devops_validate_lower_hex "Node ${expected_major} SHA-256" "$sha256" 64
-  devops_validate_positive_integer "Node ${expected_major} minimum bytes" "$minimum_bytes"
   devops_validate_install_layout "Node ${expected_major}" "$install_root" "$binary_path"
 }

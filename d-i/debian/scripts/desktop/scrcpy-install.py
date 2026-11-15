@@ -49,8 +49,8 @@ def policy(args: argparse.Namespace) -> None:
     if (parsed.scheme != 'https' or not parsed.netloc or parsed.query or parsed.fragment or
             not re.fullmatch(r'[A-Za-z0-9._-]+\.tar\.gz', archive_name)):
         raise Error('invalid scrcpy release URL or archive filename')
-    if not (args.max_archive > 0 and args.max_archive <= args.max_extracted and args.max_members >= 1):
-        raise Error('release size/member bounds are invalid')
+    if not (args.max_extracted > 0 and args.max_members >= 1):
+        raise Error('release extraction/member bounds are invalid')
 
 
 def download(args: argparse.Namespace, destination: Path) -> None:
@@ -59,12 +59,12 @@ def download(args: argparse.Namespace, destination: Path) -> None:
         '--location', '--proto', '=https', '--proto-redir', '=https',
         '--connect-timeout', '15', '--max-time', '300', '--max-redirs', '4',
         '--retry', '2', '--retry-max-time', '300',
-        '--max-filesize', str(args.max_archive), '--output', str(destination),
+        '--output', str(destination),
         '--url', args.url,
     ], env=ENV, stdin=subprocess.DEVNULL, check=True, timeout=340)
     info = destination.lstat()
-    if not stat.S_ISREG(info.st_mode) or not 1 <= info.st_size <= args.max_archive:
-        raise Error('download is not a bounded regular archive')
+    if not stat.S_ISREG(info.st_mode):
+        raise Error('download is not a regular archive')
     actual = digest(destination)
     if actual != args.sha256:
         raise Error(f'archive SHA-256 mismatch; expected {args.sha256}, got {actual}')
@@ -232,7 +232,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('version', 'tag', 'url', 'sha256', 'server-sha256', 'architecture'):
         parser.add_argument('--' + name, required=True)
-    for name in ('max-archive', 'max-extracted', 'max-members'):
+    for name in ('max-extracted', 'max-members'):
         parser.add_argument('--' + name, type=int, required=True)
     parser.add_argument('--validate-only', action='store_true',
                         help='validate release pins offline without downloading or installing')

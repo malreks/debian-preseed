@@ -43,7 +43,6 @@ PINS = {
     'ARCHITECTURE': 'amd64',
     'URL': 'https://github.com/mjcramerz/resctl-bench/releases/download/resctl-bench-v0.0.2-P15s/resctl-bench-2.2.6-x86_64-unknown-linux-gnu-native-aa3786abb93aa646.tar.gz',
     'SHA256': 'bb132e73ffe5cdf32e205569b8a5cd7e2f52872dae6ffeace57b28337f2d6857',
-    'MAXIMUM_BYTES': '746586112',
     'MAXIMUM_EXTRACTED_BYTES': '2147483648',
     'MAXIMUM_MEMBERS': '8192',
 }
@@ -229,7 +228,7 @@ class ProfilePreflightTests(unittest.TestCase):
                 self.checker.check(self.seed)
 
     def test_independently_valid_different_profile_pins_are_accepted(self):
-        changes = ({'SHA256': '0' * 64}, {'MAXIMUM_BYTES': '536870911'},
+        changes = ({'SHA256': '0' * 64},
                    {'MAXIMUM_EXTRACTED_BYTES': '2147483647'}, {'MAXIMUM_MEMBERS': '8191'},
                    {'URL': PINS['URL'].replace('-' + BUILD_ID, '')},
                    {'TAG': 'resctl-bench-v0.0.3-P15s', 'VERSION': '2.2.7',
@@ -270,7 +269,7 @@ class ProfilePreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unknown RESCTL_BENCH_IGNORE_CHECKSUM'):
             self.checker.check(self.seed)
         for value in ('', '-1', '+1024', '0x20000000', '1e8', '9' * 1000):
-            self.profile.write_text(pin_text(MAXIMUM_BYTES=value))
+            self.profile.write_text(pin_text(MAXIMUM_EXTRACTED_BYTES=value))
             with self.subTest(value=value[:40]), self.assertRaisesRegex(ValueError, 'bounded decimal'):
                 self.checker.check(self.seed)
 

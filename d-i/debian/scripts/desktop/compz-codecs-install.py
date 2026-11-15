@@ -96,18 +96,16 @@ def install() -> None:
     architecture = subprocess.run(['__INSTALLER_PATH_DIR_USR_BIN__/dpkg', '--print-architecture'], env=ENV,
                                   capture_output=True, text=True, timeout=10, check=True).stdout.strip()
     tag = os.environ.get('LABWC_7ZIP_ZSTD_TAG', '')
-    maximum_download = os.environ.get('LABWC_7ZIP_ZSTD_MAXIMUM_BYTES', '')
     maximum_expanded = os.environ.get('LABWC_7ZIP_ZSTD_MAXIMUM_EXTRACTED_BYTES', '')
     maximum_members = os.environ.get('LABWC_7ZIP_ZSTD_MAXIMUM_MEMBERS', '')
     if not re.fullmatch(r'v[0-9A-Za-z._-]+', tag):
         raise Error('invalid configured compz release tag')
     try:
-        maximum_download = int(maximum_download)
         maximum_expanded = int(maximum_expanded)
         maximum_members = int(maximum_members)
     except ValueError as exc:
         raise Error('invalid configured compz archive limits') from exc
-    if not (0 < maximum_download <= maximum_expanded and maximum_members > 0):
+    if not (maximum_expanded > 0 and maximum_members > 0):
         raise Error('invalid configured compz archive limits')
     releases = {
         'amd64': ('x64', 62, os.environ.get('LABWC_7ZIP_ZSTD_AMD64_URL', ''),
@@ -136,11 +134,9 @@ def install() -> None:
             subprocess.run(['__INSTALLER_PATH_DIR_USR_BIN__/curl', '--disable', '--fail', '--silent', '--show-error',
                             '--location', '--proto', '=https', '--proto-redir', '=https', '--max-redirs', '4',
                             '--connect-timeout', '15', '--max-time', '300', '--retry', '2',
-                            '--retry-max-time', '300', '--max-filesize', str(maximum_download),
+                            '--retry-max-time', '300',
                             '--output', str(archive), '--url', url], env=ENV,
                            stdin=subprocess.DEVNULL, timeout=340, check=True)
-            if not 1 <= archive.stat().st_size <= maximum_download:
-                raise Error('invalid codec download size')
             with archive.open('rb') as source:
                 actual = hashlib.file_digest(source, 'sha256').hexdigest()
             if actual != expected:

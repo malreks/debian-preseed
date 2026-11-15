@@ -7,7 +7,6 @@ desktop_resctl_bench_preflight_target_architecture() {
   : "${RESCTL_BENCH_URL:?RESCTL_BENCH_URL must be set}"
   : "${RESCTL_BENCH_SHA256:?RESCTL_BENCH_SHA256 must be set}"
   : "${RESCTL_BENCH_ARCHITECTURE:?RESCTL_BENCH_ARCHITECTURE must be set}"
-  : "${RESCTL_BENCH_MAXIMUM_BYTES:?RESCTL_BENCH_MAXIMUM_BYTES must be set}"
   : "${RESCTL_BENCH_MAXIMUM_EXTRACTED_BYTES:?RESCTL_BENCH_MAXIMUM_EXTRACTED_BYTES must be set}"
   : "${RESCTL_BENCH_MAXIMUM_MEMBERS:?RESCTL_BENCH_MAXIMUM_MEMBERS must be set}"
   RESCTL_BENCH_TARGET_ARCHITECTURE=$(
@@ -38,7 +37,6 @@ desktop_install_resctl_bench() (
     --version "$RESCTL_BENCH_VERSION" --tag "$RESCTL_BENCH_TAG" \
     --url "$RESCTL_BENCH_URL" --sha256 "$RESCTL_BENCH_SHA256" \
     --architecture "$RESCTL_BENCH_ARCHITECTURE" \
-    --max-archive "$RESCTL_BENCH_MAXIMUM_BYTES" \
     --max-extracted "$RESCTL_BENCH_MAXIMUM_EXTRACTED_BYTES" \
     --max-members "$RESCTL_BENCH_MAXIMUM_MEMBERS"
   desktop_log "installed_resctl_bench version=${RESCTL_BENCH_VERSION} tag=${RESCTL_BENCH_TAG} archive_sha256=${RESCTL_BENCH_SHA256}"

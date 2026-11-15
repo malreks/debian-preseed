@@ -47,13 +47,11 @@ sub _family_policy {
         catalog => 'llama-models.tsv',
         filename =>
             qr/\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.gguf\z/,
-        maximum_mib => 102_400,
     } if $family eq 'llama';
     return {
         catalog => 'whisper-models.tsv',
         filename =>
             qr/\Aggml-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.bin\z/,
-        maximum_mib => 20_480,
     } if $family eq 'whisper';
     _fatal('unsupported model family');
 }
@@ -111,8 +109,8 @@ sub _validate_text_field {
 
 sub _validate_positive_integer {
     my ($label, $value, $maximum) = @_;
-    defined($value) && !ref($value) && $value =~ /\A[0-9]{1,6}\z/
-        && $value >= 1 && $value <= $maximum
+    defined($value) && !ref($value) && $value =~ /\A[1-9][0-9]*\z/
+        && (!defined($maximum) || $value <= $maximum)
         or _fatal("$label is outside the supported bounds");
     return int($value);
 }
@@ -167,7 +165,6 @@ sub parse_content {
         $entry{file_mib} = _validate_positive_integer(
             'catalog model file size',
             $entry{file_mib},
-            $policy->{maximum_mib},
         );
         $entry{min_ram_gib} = _validate_positive_integer(
             'catalog minimum RAM',

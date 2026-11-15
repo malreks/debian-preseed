@@ -5,7 +5,6 @@ desktop_extract_role_wallpaper_archive() {
   archive_host="${TMP_ENV_DIR}/desktop-wallpapers.$$.tar.gz"
   archive_target=/tmp/installer-desktop-wallpapers.tar.gz
   archive_target_host=$(target_asset_host_path "$archive_target")
-  archive_max_bytes=${LABWC_WALLPAPERS_MAXIMUM_BYTES:?LABWC_WALLPAPERS_MAXIMUM_BYTES must be set}
 
   rm -f -- "$archive_host" "$archive_target_host"
   if ! desktop_download_release_archive \
@@ -14,27 +13,12 @@ desktop_extract_role_wallpaper_archive() {
       "$LABWC_WALLPAPERS_URL" \
       "$LABWC_WALLPAPERS_SHA256" \
       wallpapers.tar.gz \
-      "$archive_host" \
-      "$archive_max_bytes"; then
+      "$archive_host"; then
     rm -f -- "$archive_host" "$archive_target_host"
     installer_fatal "failed to fetch desktop wallpaper release archive: ${LABWC_WALLPAPERS_URL}"
   fi
   [ -f "$archive_host" ] && [ ! -L "$archive_host" ] ||
     installer_fatal "desktop wallpaper release archive is not a regular file: ${LABWC_WALLPAPERS_URL}"
-
-  archive_bytes=$(wc -c <"$archive_host" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-  archive_bytes=${archive_bytes##* }
-  case "$archive_bytes" in
-    ''|*[!0123456789]*|0)
-      rm -f -- "$archive_host"
-      installer_fatal "desktop wallpaper release archive size is invalid: ${LABWC_WALLPAPERS_URL}"
-      ;;
-  esac
-  if [ "$archive_bytes" -gt "$archive_max_bytes" ]; then
-    rm -f -- "$archive_host"
-    installer_fatal \
-      "desktop wallpaper release archive exceeds ${archive_max_bytes} bytes: ${LABWC_WALLPAPERS_URL}"
-  fi
 
   install -m 0600 "$archive_host" "$archive_target_host"
   rm -f -- "$archive_host"
@@ -64,7 +48,7 @@ __INSTALLER_PATH_DIR_USR_BIN__/rm -f -- "$archive"
   [ ! -e "$archive_target_host" ] && [ ! -L "$archive_target_host" ] ||
     installer_fatal "desktop wallpaper archive remained in the target after extraction"
   desktop_log \
-    "extracted_wallpaper_archive source=${LABWC_WALLPAPERS_URL} tag=${LABWC_WALLPAPERS_TAG} target=__INSTALLER_PATH_DIR_USR_SHARE__/backgrounds/desktop archive_bytes=${archive_bytes}"
+    "extracted_wallpaper_archive source=${LABWC_WALLPAPERS_URL} tag=${LABWC_WALLPAPERS_TAG} target=__INSTALLER_PATH_DIR_USR_SHARE__/backgrounds/desktop"
 }
 
 desktop_target_tree_size_kib() {

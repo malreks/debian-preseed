@@ -14,13 +14,6 @@ has http => (is => 'ro', required => 1);
 has deb  => (is => 'ro', required => 1);
 has release_policy => (is => 'ro', required => 1);
 
-sub _limit {
-    my ($self, $name) = @_;
-    my $value = $self->release_policy()->{release_deb_limits}{sleek}{$name};
-    defined $value && !ref $value && $value =~ /\A[1-9][0-9]*\z/
-        or die "Sleek release policy limit is unavailable: $name\n";
-    return 0 + $value;
-}
 
 sub _metadata_limit {
     my ($self, $name) = @_;
@@ -61,15 +54,11 @@ sub _release {
         or die "Sleek release has no unique amd64 Debian asset\n";
     my $asset = $assets[0];
     my $url = $asset->{browser_download_url} // q{};
-    my $size = $asset->{size};
-    defined $size && $size =~ /\A[0-9]+\z/ && $size >= $self->_limit('minimum_bytes') && $size <= $self->_limit('maximum_bytes')
-        or die "Sleek release asset size is outside approved bounds\n";
     my ($sha256) = ($asset->{digest} // q{}) =~ /\Asha256:([0-9a-f]{64})\z/
         or die "Sleek release asset SHA-256 is invalid\n";
     return {
         version => $version,
         url     => $url,
-        size    => 0 + $size,
         sha256  => $sha256,
     };
 }
@@ -82,8 +71,6 @@ sub download {
         label => 'Sleek release metadata',
         url => $self->release_policy()->{service_urls}{sleek_discovery},
         destination => $metadata_path,
-        minimum => $self->_metadata_limit('minimum_bytes'),
-        maximum => $self->_metadata_limit('maximum_bytes'),
         content_policy => 'metadata',
     );
     my $release = $self->_release($metadata_path);
@@ -91,13 +78,10 @@ sub download {
         label => 'Sleek',
         url => $release->{url},
         destination => $deb_path,
-        minimum => $release->{size},
-        maximum => $release->{size},
         content_policy => 'artifact',
     );
-    -s $deb_path == $release->{size}
-        && $self->_sha256($deb_path) eq $release->{sha256}
-        or die "Sleek package digest or size does not match release metadata\n";
+    $self->_sha256($deb_path) eq $release->{sha256}
+        or die "Sleek package digest does not match release metadata\n";
     my $metadata = $self->deb()->validate(
         label => 'Sleek',
         path => $deb_path,

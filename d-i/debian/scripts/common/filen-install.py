@@ -189,7 +189,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def download(url: str, expected: str, maximum: int) -> bytes:
+def download(url: str, expected: str) -> bytes:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     deadline = time.monotonic() + 300
     for hop in range(5):
@@ -215,14 +215,12 @@ def download(url: str, expected: str, maximum: int) -> bytes:
             while True:
                 if time.monotonic() >= deadline:
                     raise Error('release download deadline exceeded')
-                block = response.read1(min(65536, maximum + 1 - len(data)))
+                block = response.read1(65536)
                 if time.monotonic() >= deadline:
                     raise Error('release download deadline exceeded')
                 if not block:
                     break
                 data.extend(block)
-                if len(data) > maximum:
-                    raise Error('release download exceeds configured limit')
         if hashlib.sha256(data).hexdigest() != expected:
             raise Error('release SHA-256 mismatch')
         return bytes(data)
@@ -266,10 +264,6 @@ def install(stage: Path, env: dict[str, str]) -> None:
     sha = env['FILEN_CLI_SHA256']
     if not re.fullmatch(r'[0-9a-f]{64}', sha):
         raise Error('invalid pinned release digest')
-    maximum = int(env['FILEN_CLI_MAXIMUM_BYTES'])
-    minimum = int(env['FILEN_CLI_MINIMUM_BYTES'])
-    if not 0 < minimum <= maximum:
-        raise Error('invalid release download size bound')
     root = path_value(env['NETWORK_SHARING_ROOT_PATH'])
     home = path_value(env['ACCOUNT_HOME'])
     home_bind = env['NETWORK_SHARING_HOME_BIND_PATH']
@@ -326,9 +320,7 @@ def install(stage: Path, env: dict[str, str]) -> None:
     for tool in ('__INSTALLER_PATH_DIR_USR_BIN__/oathtool', '__INSTALLER_PATH_DIR_USR_BIN__/setfacl', '__INSTALLER_PATH_DIR_USR_BIN__/chattr'):
         if not os.access(tool, os.X_OK):
             raise Error('required target package tool is missing')
-    binary = download(url, sha, maximum)
-    if len(binary) < minimum:
-        raise Error('pinned release is smaller than its configured minimum')
+    binary = download(url, sha)
     if (binary[:6] != b'\x7fELF\x02\x01' or len(binary) < 64
             or struct.unpack_from('<H', binary, 18)[0] != (62 if architecture == 'amd64' else 183)):
         raise Error('pinned release is not the configured Linux ELF architecture')

@@ -87,9 +87,8 @@ def mkdir_below(base: Path, relative: str, uid: int, mode: int = 0o755) -> Path:
     return current
 
 
-def configured_limits() -> tuple[int, int, int, int]:
+def configured_limits() -> tuple[int, int, int]:
     names = (
-        'LABWC_FONTS_MAXIMUM_ARCHIVE_BYTES',
         'LABWC_FONTS_MAXIMUM_EXPANDED_BYTES',
         'LABWC_FONTS_MAXIMUM_MEMBER_BYTES',
         'LABWC_FONTS_MAXIMUM_MEMBERS',
@@ -98,7 +97,7 @@ def configured_limits() -> tuple[int, int, int, int]:
         values = tuple(int(os.environ[name]) for name in names)
     except (KeyError, ValueError) as exc:
         raise ValueError('invalid configured font archive limits') from exc
-    if not all(value > 0 for value in values) or values[0] > values[1] or values[2] > values[1]:
+    if not all(value > 0 for value in values) or values[1] > values[0]:
         raise ValueError('invalid configured font archive limits')
     return values
 
@@ -156,10 +155,10 @@ def flush_tree(root: Path) -> None:
 
 
 def extract_archive(archive: Path, destination: Path, sha: str,
-                    limits: tuple[int, int, int, int]) -> None:
-    maximum_archive, maximum_expanded, maximum_member, maximum_members = limits
-    if archive.stat().st_size > maximum_archive or digest(archive) != sha:
-        raise ValueError('font archive size or SHA-256 mismatch')
+                    limits: tuple[int, int, int]) -> None:
+    maximum_expanded, maximum_member, maximum_members = limits
+    if digest(archive) != sha:
+        raise ValueError('font archive SHA-256 mismatch')
     # Iterate streaming members to bound memory. Files are written only in a
     # private staging directory; a later invalid member can never be published.
     total = count = font_count = 0
@@ -254,18 +253,18 @@ def verify_generation(root: Path, policy: list[dict[str, str]], uid: int | None 
         raise ValueError(f'modified/incomplete font generation preserved: {root}')
 
 
-def download(url: str, destination: Path, sha: str, maximum_archive: int) -> None:
+def download(url: str, destination: Path, sha: str) -> None:
     subprocess.run(['__INSTALLER_PATH_DIR_USR_BIN__/curl', '--fail', '--location', '--silent', '--show-error',
                     '--proto', '=https', '--proto-redir', '=https', '--tlsv1.2',
                     '--retry', '3', '--connect-timeout', '20', '--max-time', '600',
-                    '--max-filesize', str(maximum_archive), '--output', str(destination),
+                    '--output', str(destination),
                     '--', url], check=True, env={'PATH': '__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_BIN__', 'LC_ALL': 'C'})
-    if destination.stat().st_size > maximum_archive or digest(destination) != sha:
+    if digest(destination) != sha:
         raise ValueError('downloaded font archive failed SHA-256 verification')
 
 
 def prepare_generation(cache: Path, policy: list[dict[str, str]],
-                       limits: tuple[int, int, int, int]) -> Path:
+                       limits: tuple[int, int, int]) -> Path:
     releases = mkdir_below(cache, 'releases', os.geteuid())
     generation = releases / policy_id(policy)
     if os.path.lexists(generation):
@@ -277,7 +276,7 @@ def prepare_generation(cache: Path, policy: list[dict[str, str]],
         output.mkdir(mode=0o700)
         for item in policy:
             archive = stage / (item['name'] + '.tar.xz')
-            download(item['url'], archive, item['sha256'], limits[0])
+            download(item['url'], archive, item['sha256'])
             destination = output / item['name']
             destination.mkdir(mode=0o700)
             extract_archive(archive, destination, item['sha256'], limits)

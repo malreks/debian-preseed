@@ -304,25 +304,22 @@ def acquire(record: dict, arch: str, destination: Path) -> str:
     # streaming/retries/final waits. Its stdout may contain a signed URL and is
     # consumed privately, never passed to diagnostics or a receipt.
     command(['__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/installer-artifact-fetch',
-             artifact['url'], str(destination), str(record['minimum_bytes']),
-             str(record['maximum_bytes']), 'artifact', ' '.join(record['hosts'])], timeout=900)
+             artifact['url'], str(destination), 'artifact', ' '.join(record['hosts'])], timeout=900)
     descriptor = os.open(destination, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     digest = hashlib.new(algorithm)
     size = 0
     with os.fdopen(descriptor, 'rb') as stream:
         info = os.fstat(stream.fileno())
         if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
-                or info.st_mode & 0o077 or not record['minimum_bytes'] <= info.st_size <= record['maximum_bytes']):
-            raise ValueError('artifact file identity or size differs from its policy')
+                or info.st_mode & 0o077):
+            raise ValueError('artifact file identity differs from its policy')
         while block := stream.read(65536):
             if time.monotonic() >= DEADLINE:
                 raise TimeoutError('artifact verification deadline expired')
             size += len(block)
-            if size > record['maximum_bytes']:
-                raise ValueError('artifact exceeds byte bound')
             digest.update(block)
     if size != info.st_size or digest.hexdigest() != expected:
-        raise ValueError('artifact size or digest differs from the release pin')
+        raise ValueError('artifact digest differs from the release pin')
     return digest.hexdigest()
 
 

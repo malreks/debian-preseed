@@ -149,14 +149,13 @@ verify_managed_install() {
   printf '%s\n' "$verify_actual_version"
 }
 
-[ "$#" -eq 5 ] ||
-  fatal 'usage: codex-standalone-install INSTALLER_URL INSTALLER_SHA256 MAXIMUM_BYTES CODEX_HOME PACKAGES_ROOT'
+[ "$#" -eq 4 ] ||
+  fatal 'usage: codex-standalone-install INSTALLER_URL INSTALLER_SHA256 CODEX_HOME PACKAGES_ROOT'
 
 installer_url=$1
 installer_sha256=$2
-maximum_bytes=$3
-expected_codex_home=$4
-packages_root=$5
+expected_codex_home=$3
+packages_root=$4
 installer_uid=$(__INSTALLER_PATH_DIR_USR__/bin/id -u) || fatal 'cannot resolve the installer account identifier'
 
 [ "$installer_uid" -ne 0 ] || fatal 'the standalone installer must run as the desktop account'
@@ -173,10 +172,6 @@ case "$installer_sha256" in
   ''|*[!0123456789abcdef]*) fatal 'installer SHA-256 is malformed' ;;
 esac
 [ "${#installer_sha256}" -eq 64 ] || fatal 'installer SHA-256 must contain 64 lowercase hexadecimal characters'
-case "$maximum_bytes" in
-  ''|*[!0123456789]*) fatal "installer byte limit is malformed: $maximum_bytes" ;;
-esac
-[ "$maximum_bytes" -gt 0 ] || fatal 'installer byte limit must be greater than zero'
 validate_absolute_path 'HOME' "${HOME:-}"
 validate_absolute_path 'XDG_RUNTIME_DIR' "${XDG_RUNTIME_DIR:-}"
 validate_absolute_path 'expected CODEX_HOME' "$expected_codex_home"
@@ -327,15 +322,8 @@ __INSTALLER_PATH_DIR_USR__/bin/curl \
   --speed-limit 1 \
   --speed-time 300 \
   --max-redirs 4 \
-  --max-filesize "$maximum_bytes" \
   --output "$installer_script" \
   "$installer_url" || fatal 'failed to download the official Codex installer'
-installer_bytes=$(__INSTALLER_PATH_DIR_USR__/bin/wc -c <"$installer_script" | __INSTALLER_PATH_DIR_USR__/bin/tr -d '[:space:]')
-case "$installer_bytes" in
-  ''|*[!0123456789]*|0) fatal 'official installer download is empty' ;;
-esac
-[ "$installer_bytes" -le "$maximum_bytes" ] ||
-  fatal 'official installer exceeds the configured byte limit'
 installer_actual_sha256=$(__INSTALLER_PATH_DIR_USR__/bin/sha256sum -- "$installer_script") ||
   fatal 'cannot read the official installer digest'
 [ "${installer_actual_sha256%% *}" = "$installer_sha256" ] ||

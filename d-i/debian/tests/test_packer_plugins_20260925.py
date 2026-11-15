@@ -163,15 +163,15 @@ class ReleaseTests(unittest.TestCase):
                 packer.verify_local_plugins(Path('/usr/bin/packer'), template, root,
                                             {'ansible': '1.1.6'}, 'amd64', {})
 
-    def test_fetch_enforces_https_and_bounded_transport(self):
+    def test_fetch_enforces_https_without_a_byte_ceiling(self):
         destination = self.root / 'download'
         destination.write_bytes(b'fixture')
         with mock.patch.object(subprocess, 'run') as run:
-            packer.fetch('https://releases.hashicorp.com/example', destination, 1024, {})
+            packer.fetch('https://releases.hashicorp.com/example', destination, {})
         command = run.call_args.args[0]
         self.assertEqual(command[command.index('--proto') + 1], '=https')
         self.assertEqual(command[command.index('--proto-redir') + 1], '=https')
-        self.assertEqual(command[command.index('--max-filesize') + 1], '1024')
+        self.assertNotIn('--max-filesize', command)
         self.assertNotIn('--insecure', command)
 
     def test_installer_refuses_root_plugin_execution(self):

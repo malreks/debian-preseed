@@ -42,7 +42,6 @@ class Artifact:
     version: str
     url: str
     sha256: str
-    minimum_bytes: int
     filename: str
     architecture: str
     archive_members: tuple[str, ...]
@@ -280,8 +279,6 @@ def download_artifact(
             "15",
             "--max-time",
             str(policy.download_timeout_seconds),
-            "--max-filesize",
-            str(min(2**31, max(8 * 1024**2, artifact.minimum_bytes * 8))),
             "--output",
             str(destination),
             artifact.url,
@@ -291,14 +288,9 @@ def download_artifact(
         environment=curl_environment,
     )
     try:
-        observed_bytes = destination.stat().st_size
+        destination.stat()
     except OSError:
         fail(f"downloaded {artifact.name} archive is unavailable")
-    if observed_bytes < artifact.minimum_bytes:
-        fail(
-            f"{artifact.name} archive is unexpectedly small: "
-            f"minimum {artifact.minimum_bytes}, got {observed_bytes}"
-        )
     if file_sha256(destination) != artifact.sha256:
         fail(f"{artifact.name} SHA-256 mismatch")
     return destination
@@ -478,14 +470,13 @@ def parse_arguments(argv: Sequence[str]) -> InstallPolicy:
     parser.add_argument("--download-timeout-seconds", required=True)
     parser.add_argument("--max-archive-members", required=True)
     parser.add_argument("--max-extracted-bytes", required=True)
-    for field in ("version", "url", "sha256", "bytes", "architecture", "archive-filename", "archive-files"):
+    for field in ("version", "url", "sha256", "architecture", "archive-filename", "archive-files"):
         parser.add_argument(f"--binstall-{field}", required=True)
     for tool in ("dotslash", "uv"):
         parser.add_argument(f"--{tool}-source-build", required=True)
         parser.add_argument(f"--{tool}-version", required=True)
         parser.add_argument(f"--{tool}-url", required=True)
         parser.add_argument(f"--{tool}-sha256", required=True)
-        parser.add_argument(f"--{tool}-bytes", required=True)
         parser.add_argument(f"--{tool}-architecture", required=True)
         parser.add_argument(f"--{tool}-archive-filename", required=True)
         parser.add_argument(f"--{tool}-archive-files", required=True)
@@ -581,11 +572,6 @@ def parse_arguments(argv: Sequence[str]) -> InstallPolicy:
             version=binstall_version,
             url=args.binstall_url,
             sha256=lower_hex(args.binstall_sha256, "cargo-binstall SHA-256", 64),
-            minimum_bytes=positive_integer(
-                args.binstall_bytes,
-                "cargo-binstall archive bytes",
-                2**31,
-            ),
             filename=binstall_filename,
             architecture=args.binstall_architecture,
             archive_members=binstall_archive_files,
@@ -596,11 +582,6 @@ def parse_arguments(argv: Sequence[str]) -> InstallPolicy:
             version=dotslash_version,
             url=args.dotslash_url,
             sha256=lower_hex(args.dotslash_sha256, "DotSlash SHA-256", 64),
-            minimum_bytes=positive_integer(
-                args.dotslash_bytes,
-                "DotSlash archive bytes",
-                2**31,
-            ),
             filename=dotslash_filename,
             architecture=args.dotslash_architecture,
             archive_members=dotslash_archive_files,
@@ -611,11 +592,6 @@ def parse_arguments(argv: Sequence[str]) -> InstallPolicy:
             version=uv_version,
             url=args.uv_url,
             sha256=lower_hex(args.uv_sha256, "uv SHA-256", 64),
-            minimum_bytes=positive_integer(
-                args.uv_bytes,
-                "uv archive bytes",
-                2**31,
-            ),
             filename=uv_filename,
             architecture=args.uv_architecture,
             archive_members=(

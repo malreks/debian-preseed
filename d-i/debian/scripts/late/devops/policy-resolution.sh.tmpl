@@ -5,8 +5,6 @@ devops_validate_bazel_policy() {
   : "${DEVOPS_BAZELISK_VERSION:?DEVOPS_BAZELISK_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_BAZELISK_URL:?DEVOPS_BAZELISK_URL must be set before DevOps provisioning}"
   : "${DEVOPS_BAZELISK_SHA256:?DEVOPS_BAZELISK_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_BAZELISK_MINIMUM_BYTES:?DEVOPS_BAZELISK_MINIMUM_BYTES must be set before DevOps provisioning}"
-  : "${DEVOPS_BAZELISK_MAXIMUM_BYTES:?DEVOPS_BAZELISK_MAXIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_BAZELISK_INSTALL_DIR:?DEVOPS_BAZELISK_INSTALL_DIR must be set before DevOps provisioning}"
   : "${DEVOPS_BAZELISK_BINARY_PATH:?DEVOPS_BAZELISK_BINARY_PATH must be set before DevOps provisioning}"
   : "${DEVOPS_BAZEL_CACHE_ROOT:?DEVOPS_BAZEL_CACHE_ROOT must be set before DevOps provisioning}"
@@ -50,15 +48,6 @@ devops_validate_bazel_policy() {
       devops_fatal "DEVOPS_BAZELISK_SHA256 must be a lowercase SHA-256 digest"
       ;;
   esac
-
-  devops_validate_positive_integer \
-    "DEVOPS_BAZELISK_MINIMUM_BYTES" \
-    "$DEVOPS_BAZELISK_MINIMUM_BYTES"
-  devops_validate_positive_integer \
-    "DEVOPS_BAZELISK_MAXIMUM_BYTES" \
-    "$DEVOPS_BAZELISK_MAXIMUM_BYTES"
-  [ "$DEVOPS_BAZELISK_MAXIMUM_BYTES" -ge "$DEVOPS_BAZELISK_MINIMUM_BYTES" ] ||
-    devops_fatal "DEVOPS_BAZELISK_MAXIMUM_BYTES must not be smaller than DEVOPS_BAZELISK_MINIMUM_BYTES"
 
   devops_validate_abs_path "DEVOPS_BAZELISK_INSTALL_DIR" "$DEVOPS_BAZELISK_INSTALL_DIR"
   devops_validate_abs_path "DEVOPS_BAZELISK_BINARY_PATH" "$DEVOPS_BAZELISK_BINARY_PATH"
@@ -256,11 +245,9 @@ devops_validate_codex_policy() {
   : "${DEVOPS_CODEX_VERSION:?DEVOPS_CODEX_VERSION must be set before DevOps provisioning}"
   : "${DEVOPS_CODEX_STANDALONE_INSTALLER_URL:?DEVOPS_CODEX_STANDALONE_INSTALLER_URL must be set before DevOps provisioning}"
   : "${DEVOPS_CODEX_STANDALONE_INSTALLER_SHA256:?DEVOPS_CODEX_STANDALONE_INSTALLER_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_CODEX_STANDALONE_INSTALLER_MAXIMUM_BYTES:?DEVOPS_CODEX_STANDALONE_INSTALLER_MAXIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_CODEX_RELEASE_TAG:?DEVOPS_CODEX_RELEASE_TAG must be set before DevOps provisioning}"
   : "${DEVOPS_CODEX_URL:?DEVOPS_CODEX_URL must be set before DevOps provisioning}"
   : "${DEVOPS_CODEX_SHA256:?DEVOPS_CODEX_SHA256 must be set before DevOps provisioning}"
-  : "${DEVOPS_CODEX_MAXIMUM_BYTES:?DEVOPS_CODEX_MAXIMUM_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_CODEX_MAXIMUM_EXTRACTED_BYTES:?DEVOPS_CODEX_MAXIMUM_EXTRACTED_BYTES must be set before DevOps provisioning}"
   : "${DEVOPS_CODEX_ARCHIVE_BINARY_DIR:?DEVOPS_CODEX_ARCHIVE_BINARY_DIR must be set before DevOps provisioning}"
   : "${DEVOPS_CODEX_ARCHIVE_SCHEMA_MEMBER:?DEVOPS_CODEX_ARCHIVE_SCHEMA_MEMBER must be set before DevOps provisioning}"
@@ -296,9 +283,6 @@ devops_validate_codex_policy() {
     "DEVOPS_CODEX_STANDALONE_INSTALLER_SHA256" \
     "$DEVOPS_CODEX_STANDALONE_INSTALLER_SHA256" \
     64
-  devops_validate_positive_integer \
-    "DEVOPS_CODEX_STANDALONE_INSTALLER_MAXIMUM_BYTES" \
-    "$DEVOPS_CODEX_STANDALONE_INSTALLER_MAXIMUM_BYTES"
   if ! printf '%s\n' "$DEVOPS_CODEX_RELEASE_TAG" |
     LC_ALL=C grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]*$'
   then
@@ -317,7 +301,6 @@ devops_validate_codex_policy() {
       devops_fatal "DEVOPS_CODEX_SHA256 must be a lowercase SHA-256 digest"
       ;;
   esac
-  devops_validate_positive_integer "DEVOPS_CODEX_MAXIMUM_BYTES" "$DEVOPS_CODEX_MAXIMUM_BYTES"
   devops_validate_positive_integer \
     "DEVOPS_CODEX_MAXIMUM_EXTRACTED_BYTES" \
     "$DEVOPS_CODEX_MAXIMUM_EXTRACTED_BYTES"

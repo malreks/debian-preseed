@@ -281,7 +281,7 @@ class PrimaryAccountContractTests(unittest.TestCase):
         (self.root / 'account-policy.env').write_text(
             "ROOT_LOGIN='true'\nACCOUNT_DEFAULT_GROUPS='audio video sudo'\n"
             "SSHD_CONFIG_SOURCE='ssh/sshd_config'\nSSH_USER_CONFIG_SOURCE='ssh/config'\n"
-            "SSH_PUBLIC_KEY_MAX_BYTES='4096'\nSSH_CONFIG_MAX_BYTES='65536'\n", encoding='ascii')
+            "SSH_PUBLIC_KEY_MAX_BYTES='4096'\n", encoding='ascii')
         (self.root / 'profile.env').write_text(
             'DIR_HOME=' + shlex.quote(str(self.root / 'home')) + '\n', encoding='utf-8')
         return self.root / 'state/account.env'

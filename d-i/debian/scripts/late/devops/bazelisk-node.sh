@@ -31,10 +31,8 @@ bazelisk_require_command() {
 bazelisk_version=$1
 bazelisk_url=$2
 expected_sha256=$3
-minimum_bytes=$4
-maximum_bytes=$5
-install_dir=$6
-binary_path=$7
+install_dir=$4
+binary_path=$5
 bazelisk_archive_filename=${bazelisk_url##*/}
 install_parent=${install_dir%/*}
 
@@ -55,10 +53,6 @@ case "$expected_sha256" in
 esac
 [ "${#expected_sha256}" -eq 64 ] ||
   bazelisk_fatal "expected SHA-256 must have 64 hexadecimal characters"
-bazelisk_validate_positive_integer "minimum byte limit" "$minimum_bytes"
-bazelisk_validate_positive_integer "maximum byte limit" "$maximum_bytes"
-[ "$maximum_bytes" -ge "$minimum_bytes" ] ||
-  bazelisk_fatal "maximum byte limit is smaller than the minimum"
 case "$install_dir" in
   /*|/*/*) ;;
   *) bazelisk_fatal "Bazelisk install directory must be absolute: $install_dir" ;;
@@ -98,19 +92,9 @@ curl \
   --retry-delay 2 \
   --connect-timeout 15 \
   --max-time 300 \
-  --max-filesize "$maximum_bytes" \
   --output "$payload_path" \
   "$bazelisk_url" ||
   bazelisk_fatal "failed to download pinned Bazelisk release: $bazelisk_url"
-
-payload_bytes=$(wc -c <"$payload_path" | tr -d "[[:space:]]")
-case "$payload_bytes" in
-  ""|*[!0123456789]*) bazelisk_fatal "downloaded Bazelisk size is invalid" ;;
-esac
-[ "$payload_bytes" -ge "$minimum_bytes" ] ||
-  bazelisk_fatal "downloaded Bazelisk is smaller than the configured minimum"
-[ "$payload_bytes" -le "$maximum_bytes" ] ||
-  bazelisk_fatal "downloaded Bazelisk exceeds the configured maximum"
 
 actual_sha256=$(sha256sum "$payload_path" | awk "{print \$1}")
 [ "$actual_sha256" = "$expected_sha256" ] ||
@@ -123,8 +107,6 @@ chown root:root "$install_dir" "$binary_path"
   printf "version=%s\n" "$bazelisk_version"
   printf "url=%s\n" "$bazelisk_url"
   printf "sha256=%s\n" "$expected_sha256"
-  printf "minimum_bytes=%s\n" "$minimum_bytes"
-  printf "maximum_bytes=%s\n" "$maximum_bytes"
   printf "architecture=linux-amd64\n"
 } >"${install_dir}/.bazelisk-release"
 chmod 0644 "${install_dir}/.bazelisk-release"
@@ -141,8 +123,6 @@ printf "installed Bazelisk %s at %s\n" "$bazelisk_version" "$binary_path"
     "$DEVOPS_BAZELISK_VERSION" \
     "$DEVOPS_BAZELISK_URL" \
     "$DEVOPS_BAZELISK_SHA256" \
-    "$DEVOPS_BAZELISK_MINIMUM_BYTES" \
-    "$DEVOPS_BAZELISK_MAXIMUM_BYTES" \
     "$DEVOPS_BAZELISK_INSTALL_DIR" \
     "$DEVOPS_BAZELISK_BINARY_PATH"
 }
@@ -211,12 +191,10 @@ node_install() {
   release_version=$2
   archive_url=$3
   expected_sha256=$4
-  minimum_bytes=$5
-  maximum_bytes=$6
-  archive_name=$7
-  archive_root=$8
-  install_dir=$9
-  binary_path=${10}
+  archive_name=$5
+  archive_root=$6
+  install_dir=$7
+  binary_path=$8
 
   case "$major_version" in
     22|24|26) ;;
@@ -245,11 +223,6 @@ node_install() {
       node_fatal "Node SHA-256 must contain 64 lowercase hexadecimal characters"
       ;;
   esac
-  node_validate_positive_integer "minimum byte count" "$minimum_bytes"
-  node_validate_positive_integer "maximum byte count" "$maximum_bytes"
-  [ "$maximum_bytes" -ge "$minimum_bytes" ] ||
-    node_fatal "Node maximum byte count is smaller than its minimum"
-
   [ ! -e "$install_dir" ] ||
     node_fatal "Node install path already exists; this fresh-install helper will not replace it: $install_dir"
 
@@ -275,17 +248,9 @@ node_install() {
     --retry-delay 2 \
     --connect-timeout 15 \
     --max-time "$download_timeout" \
-    --max-filesize "$maximum_bytes" \
     --output "$archive_path" \
     "$archive_url" ||
     node_fatal "failed to download pinned Node archive: $archive_url"
-
-  archive_bytes=$(wc -c <"$archive_path" | tr -d "[[:space:]]")
-  case "$archive_bytes" in
-    ""|*[!0123456789]*) node_fatal "downloaded Node archive size is invalid: $archive_name" ;;
-  esac
-  [ "$archive_bytes" -ge "$minimum_bytes" ] ||
-    node_fatal "downloaded Node archive is unexpectedly small: $archive_name"
 
   actual_sha256=$(sha256sum "$archive_path" | awk "{print \$1}")
   [ "$actual_sha256" = "$expected_sha256" ] ||
@@ -315,7 +280,6 @@ node_install() {
     "version=${release_version}" \
     "url=${archive_url}" \
     "sha256=${expected_sha256}" \
-    "bytes=${archive_bytes}" \
     "architecture=linux-x64" \
     >"${extracted_dir}/.node-release"
   chmod 0644 "${extracted_dir}/.node-release"
@@ -378,22 +342,20 @@ node_validate_positive_integer "Node download timeout" "$download_timeout"
 node_validate_positive_integer "Node archive member ceiling" "$max_archive_members"
 node_validate_positive_integer "Node expanded-byte ceiling" "$max_extracted_bytes"
 
-node_install "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}"
-node_install "${11}" "${12}" "${13}" "${14}" "${15}" "${16}" "${17}" "${18}" "${19}" "${20}"
-node_install "${21}" "${22}" "${23}" "${24}" "${25}" "${26}" "${27}" "${28}" "${29}" "${30}"
-node_enable_corepack "$1" "$9"
-node_enable_corepack "${11}" "${19}"
+node_install "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
+node_install "$9" "${10}" "${11}" "${12}" "${13}" "${14}" "${15}" "${16}"
+node_install "${17}" "${18}" "${19}" "${20}" "${21}" "${22}" "${23}" "${24}"
+node_enable_corepack "$1" "$7"
+node_enable_corepack "$9" "${15}"
 # Corepack stopped shipping with Node 25.  Node 26 receives package-manager
 # shims from the verified Node 24 Corepack payload while retaining Node 26 as
 # the runtime selected by Mise.
-node_enable_corepack "${21}" "${29}" "${19}"
+node_enable_corepack "${17}" "${23}" "${15}"
 ' sh \
     "$DEVOPS_NODE_22_MAJOR" \
     "$DEVOPS_NODE_22_VERSION" \
     "$DEVOPS_NODE_22_URL" \
     "$DEVOPS_NODE_22_SHA256" \
-    "$DEVOPS_NODE_22_MINIMUM_BYTES" \
-    "$DEVOPS_NODE_22_MAXIMUM_BYTES" \
     "$DEVOPS_NODE_22_ARCHIVE_FILENAME" \
     "$DEVOPS_NODE_22_ARCHIVE_ROOT" \
     "$DEVOPS_NODE_22_INSTALL_ROOT" \
@@ -402,8 +364,6 @@ node_enable_corepack "${21}" "${29}" "${19}"
     "$DEVOPS_NODE_24_VERSION" \
     "$DEVOPS_NODE_24_URL" \
     "$DEVOPS_NODE_24_SHA256" \
-    "$DEVOPS_NODE_24_MINIMUM_BYTES" \
-    "$DEVOPS_NODE_24_MAXIMUM_BYTES" \
     "$DEVOPS_NODE_24_ARCHIVE_FILENAME" \
     "$DEVOPS_NODE_24_ARCHIVE_ROOT" \
     "$DEVOPS_NODE_24_INSTALL_ROOT" \
@@ -412,8 +372,6 @@ node_enable_corepack "${21}" "${29}" "${19}"
     "$DEVOPS_NODE_26_VERSION" \
     "$DEVOPS_NODE_26_URL" \
     "$DEVOPS_NODE_26_SHA256" \
-    "$DEVOPS_NODE_26_MINIMUM_BYTES" \
-    "$DEVOPS_NODE_26_MAXIMUM_BYTES" \
     "$DEVOPS_NODE_26_ARCHIVE_FILENAME" \
     "$DEVOPS_NODE_26_ARCHIVE_ROOT" \
     "$DEVOPS_NODE_26_INSTALL_ROOT" \

@@ -34,8 +34,6 @@ desktop_samloader_validate_policy() {
   : "${SAMLOADER_ARCHITECTURE:?SAMLOADER_ARCHITECTURE must be set}"
   : "${SAMLOADER_URL:?SAMLOADER_URL must be set}"
   : "${SAMLOADER_SHA256:?SAMLOADER_SHA256 must be set}"
-  : "${SAMLOADER_MINIMUM_BYTES:?SAMLOADER_MINIMUM_BYTES must be set}"
-  : "${SAMLOADER_MAXIMUM_BYTES:?SAMLOADER_MAXIMUM_BYTES must be set}"
   : "${SAMLOADER_MAXIMUM_EXTRACTED_BYTES:?SAMLOADER_MAXIMUM_EXTRACTED_BYTES must be set}"
   : "${SAMLOADER_MAXIMUM_MEMBERS:?SAMLOADER_MAXIMUM_MEMBERS must be set}"
 
@@ -50,24 +48,12 @@ desktop_samloader_validate_policy() {
   desktop_samloader_validate_sha256 SAMLOADER_SHA256 "$SAMLOADER_SHA256"
 
   desktop_samloader_validate_unsigned_integer \
-    SAMLOADER_MINIMUM_BYTES \
-    "$SAMLOADER_MINIMUM_BYTES"
-  desktop_samloader_validate_unsigned_integer \
-    SAMLOADER_MAXIMUM_BYTES \
-    "$SAMLOADER_MAXIMUM_BYTES"
-  desktop_samloader_validate_unsigned_integer \
     SAMLOADER_MAXIMUM_EXTRACTED_BYTES \
     "$SAMLOADER_MAXIMUM_EXTRACTED_BYTES"
   desktop_samloader_validate_unsigned_integer \
     SAMLOADER_MAXIMUM_MEMBERS \
     "$SAMLOADER_MAXIMUM_MEMBERS"
 
-  [ "$SAMLOADER_MINIMUM_BYTES" -ge 1000000 ] ||
-    desktop_samloader_fail "minimum archive size is too small"
-  [ "$SAMLOADER_MAXIMUM_BYTES" -ge "$SAMLOADER_MINIMUM_BYTES" ] ||
-    desktop_samloader_fail "maximum archive size is smaller than the minimum"
-  [ "$SAMLOADER_MAXIMUM_EXTRACTED_BYTES" -ge "$SAMLOADER_MAXIMUM_BYTES" ] ||
-    desktop_samloader_fail "maximum extracted size is smaller than the archive ceiling"
   [ "$SAMLOADER_MAXIMUM_MEMBERS" -ge 1 ] ||
     desktop_samloader_fail "archive member ceiling is too small"
 }
@@ -122,7 +108,6 @@ desktop_install_samloader() {
         --max-redirs 4 \
         --retry 3 \
         --retry-all-errors \
-        --max-filesize "$SAMLOADER_MAXIMUM_BYTES" \
         --user-agent 'unattended-installer-samloader/1.0' \
         --header 'Accept: application/zip, application/octet-stream;q=0.9, */*;q=0.1' \
         --output "$samloader_archive" \
@@ -133,17 +118,6 @@ desktop_install_samloader() {
 
   [ -f "$samloader_archive_host" ] && [ ! -L "$samloader_archive_host" ] ||
     desktop_samloader_fail "downloaded archive is not a regular file"
-  samloader_archive_size=$(wc -c <"$samloader_archive_host" | awk '{print $1}')
-  desktop_samloader_validate_unsigned_integer \
-    "downloaded archive size" \
-    "$samloader_archive_size"
-  [ "$samloader_archive_size" -ge "$SAMLOADER_MINIMUM_BYTES" ] ||
-    desktop_samloader_fail \
-      "downloaded archive is unexpectedly small: ${samloader_archive_size} bytes"
-  [ "$samloader_archive_size" -le "$SAMLOADER_MAXIMUM_BYTES" ] ||
-    desktop_samloader_fail \
-      "downloaded archive is unexpectedly large: ${samloader_archive_size} bytes"
-
   samloader_archive_sha256=$(
     capture_in_target \
       "hash downloaded samloader-rs archive" \

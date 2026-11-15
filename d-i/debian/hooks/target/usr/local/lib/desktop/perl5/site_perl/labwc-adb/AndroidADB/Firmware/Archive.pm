@@ -53,18 +53,6 @@ sub downloaded_archive {
     );
 
     my $archive = $archives[0];
-    my $size = $self->storage->file_size(
-        $archive,
-        'unable to determine downloaded Samsung firmware ZIP size',
-    );
-    require_value(
-        $size >= $self->config->samsung_firmware_minimum_archive_bytes,
-        "downloaded Samsung firmware ZIP is unexpectedly small: $size bytes",
-    );
-    require_value(
-        $size <= $self->config->samsung_firmware_maximum_archive_bytes,
-        "downloaded Samsung firmware ZIP exceeds the managed size ceiling: $size bytes",
-    );
     $self->_safe_filename(
         basename($archive),
         'downloaded Samsung firmware ZIP has an unsafe file name',

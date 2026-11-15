@@ -52,7 +52,7 @@ def module():
 
 def arguments(**changes):
     values = dict(version='2.2.6', tag=TAG, url=URL, sha256=PIN, architecture='amd64',
-                  max_archive=536870912, max_extracted=2147483648, max_members=8192)
+                  max_extracted=2147483648, max_members=8192)
     values.update(changes)
     return argparse.Namespace(**values)
 
@@ -106,12 +106,11 @@ class ReleasePolicyTests(unittest.TestCase):
         self.installer.policy(arguments())
         for changes in (dict(version='2.2.6;id'), dict(tag='../x'), dict(url='http://example.com/archive'),
                         dict(url=URL+'?other=1'), dict(architecture='arm64'), dict(sha256=PIN.upper()),
-                        dict(sha256='0'*63), dict(max_members=16385), dict(max_archive=536870913),
-                        dict(max_extracted=1024), dict(max_extracted=2147483649)):
+                        dict(sha256='0'*63), dict(max_members=0), dict(max_extracted=0)):
             with self.subTest(changes=changes), self.assertRaises(self.installer.Error):
                 self.installer.policy(arguments(**changes))
 
-    def test_download_enforces_https_bounds_and_hash_before_unpacking(self):
+    def test_download_enforces_https_deadline_and_hash_without_byte_ceiling(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary)/'archive'; path.write_bytes(b'synthetic response')
             with mock.patch.object(self.installer.subprocess, 'run') as run:
@@ -122,17 +121,17 @@ class ReleasePolicyTests(unittest.TestCase):
             for flag in ('--proto', '--proto-redir'):
                 self.assertEqual(argv[argv.index(flag)+1], '=https')
             self.assertEqual(argv[argv.index('--url')+1], URL)
-            self.assertIn('--max-filesize', argv)
+            self.assertNotIn('--max-filesize', argv)
+            self.assertIn('--max-time', argv)
             with mock.patch.object(self.installer.subprocess, 'run'):
                 self.installer.download(arguments(sha256=hashlib.sha256(payload_read_bytes(path)).hexdigest()), path)
 
-    def test_download_rejects_oversize_and_empty_response(self):
+    def test_download_accepts_hash_matching_bytes_independently_of_length(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(self.installer.subprocess, 'run'):
             path = Path(temporary)/'archive'
             for data in (b'', b'x'*1025):
                 path.write_bytes(data)
-                with self.assertRaisesRegex(self.installer.Error, 'bounded regular'):
-                    self.installer.download(arguments(max_archive=1024), path)
+                self.installer.download(arguments(sha256=hashlib.sha256(data).hexdigest()), path)
 
     def test_desktop_pipeline_fetches_and_installs_for_all_profiles(self):
         role = payload_read_text(SEED/'scripts/late/desktop.sh')
@@ -303,7 +302,7 @@ class ArchiveTests(unittest.TestCase):
         files = payload(); files['share/doc/resctl-bench/large.txt'] = b'0' * 65536
         archive(self.path, files)
         self.assertLess(payload_source_stat(self.path).st_size, 8192)
-        self.unpack(max_archive=8192, max_extracted=262144)
+        self.unpack(max_extracted=262144)
 
 
 @unittest.skipUnless(os.geteuid() == 0, 'publication ownership and credential-drop checks require root fixtures')

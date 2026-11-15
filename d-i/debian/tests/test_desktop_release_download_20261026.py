@@ -83,7 +83,7 @@ attempt_in_target() { printf 'unexpected target attempt\\n' >&2; return 94; }
 ''' + '\n'.join(function_source(*definition) for definition in definitions))
 
     def invoke(self, body: str, *, expected_sha256: str | None = None,
-               maximum: int = 1048576, transport_status: int = 0):
+               transport_status: int = 0):
         # No inherited HOME, session sockets, credentials or environment/PATH.
         environment = {
             'PATH': str(self.root / 'bin') + ':/usr/bin:/bin',
@@ -92,7 +92,6 @@ attempt_in_target() { printf 'unexpected target attempt\\n' >&2; return 94; }
             'FIXTURE_DESTINATION': str(self.root / 'download.tar.gz'),
             'FIXTURE_TRANSPORT_STATUS': str(transport_status),
             'FIXTURE_SHA256': expected_sha256 or hashlib.sha256(self.archive.read_bytes()).hexdigest(),
-            'FIXTURE_MAXIMUM': str(maximum),
             'INSTALLER_RUNTIME_DIR': str(self.root / 'runtime'),
             'INSTALLER_SOURCE_ROOT': str(self.root / 'source'),
             'INSTALLER_SOURCE_LIBRARY': str(self.transport),
@@ -113,7 +112,7 @@ if command -v source_fetch_external >/dev/null 2>&1; then exit 95; fi
         tag = 'wallpapers-v0.0.2' if filename == 'wallpapers.tar.gz' else 'themes-v0.0.1'
         return self.invoke('''desktop_download_release_archive fixture ''' + tag + ''' \
   "https://github.com/mjcramerz/themes/releases/download/''' + tag + '/' + filename + '''" \
-  "$FIXTURE_SHA256" ''' + filename + ''' "$FIXTURE_DESTINATION" "$FIXTURE_MAXIMUM"
+   "$FIXTURE_SHA256" ''' + filename + ''' "$FIXTURE_DESTINATION"
 ''', **options)
 
     def test_both_releases_load_transport_in_a_fresh_role_shell(self):
@@ -139,14 +138,11 @@ if command -v source_fetch_external >/dev/null 2>&1; then exit 95; fi
         self.assertEqual(destination.read_bytes(), b'previous owned download')
         self.assertFalse((self.root / 'events.log').exists())
 
-    def test_hash_and_size_failures_never_report_a_verified_release(self):
-        for options, message in (({'expected_sha256': '0' * 64}, 'SHA-256 mismatch'),
-                                 ({'maximum': 1}, 'exceeds 1 bytes')):
-            with self.subTest(message=message):
-                result = self.download('desktop-themes.tar.gz', **options)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(message, result.stderr)
-                self.assertFalse((self.root / 'events.log').exists())
+    def test_hash_failure_never_reports_a_verified_release(self):
+        result = self.download('desktop-themes.tar.gz', expected_sha256='0' * 64)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('SHA-256 mismatch', result.stderr)
+        self.assertFalse((self.root / 'events.log').exists())
 
     def use_http_transport(self, redirect: str, second_redirect: str = ''):
         # The real HTTP/redirect functions run against a fake wget that never
@@ -298,7 +294,6 @@ export FIXTURE_DESTINATION
 LABWC_WALLPAPERS_TAG=wallpapers-v0.0.2
 LABWC_WALLPAPERS_URL=https://github.com/mjcramerz/themes/releases/download/wallpapers-v0.0.2/wallpapers.tar.gz
 LABWC_WALLPAPERS_SHA256=$FIXTURE_SHA256
-LABWC_WALLPAPERS_MAXIMUM_BYTES=$FIXTURE_MAXIMUM
 desktop_extract_role_wallpaper_archive
 ''', **options)
 
@@ -350,7 +345,6 @@ export FIXTURE_DESTINATION
 LABWC_DESKTOP_THEMES_TAG=themes-v0.0.1
 LABWC_DESKTOP_THEMES_URL=https://github.com/mjcramerz/themes/releases/download/themes-v0.0.1/desktop-themes.tar.gz
 LABWC_DESKTOP_THEMES_SHA256=$FIXTURE_SHA256
-LABWC_DESKTOP_THEMES_MAXIMUM_BYTES=$FIXTURE_MAXIMUM
 desktop_extract_theme_release "$FIXTURE_ROOT/target/usr/local/share/labwc-appearance/.installer-themes"
 ''', **options)
 

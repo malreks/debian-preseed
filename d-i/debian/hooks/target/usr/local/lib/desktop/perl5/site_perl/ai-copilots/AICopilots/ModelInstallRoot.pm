@@ -69,8 +69,6 @@ sub _family_policy {
         magic        => 'GGUF',
         marker       => '.installer-llama-managed',
         marker_value => "managed=llama-models\n",
-        minimum      => 1_048_576,
-        maximum      => 107_374_182_400,
     } if $family eq 'llama';
     return {
         directory    => $self->whisper_model_directory(),
@@ -78,8 +76,6 @@ sub _family_policy {
         magic        => pack('H*', '6c6d6767'),
         marker       => '.installer-whisper-managed',
         marker_value => "managed=whisper-models\n",
-        minimum      => 1_048_576,
-        maximum      => 21_474_836_480,
     } if $family eq 'whisper';
     _fatal('unsupported model family');
 }
@@ -92,11 +88,6 @@ sub _validate_install_request {
         : $family eq 'whisper'
         ? qr/\Aggml-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.bin\z/
         : _fatal('unsupported model family');
-    my ($minimum, $maximum) =
-        $family eq 'llama'
-        ? (1_048_576, 107_374_182_400)
-        : (1_048_576, 21_474_836_480);
-
     defined($url) && !ref($url) && length($url) <= 2048
         && $url =~ m{\Ahttps://[^\s"\\]+\z}
         && $url !~ /[\0\r\n\s]/
@@ -110,9 +101,8 @@ sub _validate_install_request {
         && $sha256 =~ /\A[0-9a-f]{64}\z/
         or _fatal('model SHA-256 is invalid');
     defined($expected_bytes) && !ref($expected_bytes)
-        && $expected_bytes =~ /\A[0-9]{1,12}\z/
-        && $expected_bytes >= $minimum && $expected_bytes <= $maximum
-        or _fatal('expected model byte count is outside the supported bounds');
+        && $expected_bytes =~ /\A[1-9][0-9]*\z/
+        or _fatal('expected model byte count must be a positive integer');
     return 1;
 }
 
@@ -165,7 +155,6 @@ sub _fetch_model_metadata {
         '--retry-max-time', '30',
         '--connect-timeout', '10',
         '--max-time', '60',
-        '--max-filesize', "$maximum_bytes",
         '--header', 'Accept: application/json',
         '--user-agent', 'labwc-ai-copilots/1',
         $self->_metadata_url($entry),
@@ -221,11 +210,11 @@ sub _resolve_catalog_download {
         && $sha256 =~ /\A[0-9a-f]{64}\z/
         or _fatal('catalog model LFS SHA-256 is invalid');
     defined($expected_bytes) && !ref($expected_bytes)
-        && "$expected_bytes" =~ /\A[0-9]{1,12}\z/
+        && "$expected_bytes" =~ /\A[1-9][0-9]*\z/
         or _fatal('catalog model LFS byte count is invalid');
     if (exists($match->{size})) {
         defined($match->{size}) && !ref($match->{size})
-            && "$match->{size}" =~ /\A[0-9]{1,12}\z/
+            && "$match->{size}" =~ /\A[1-9][0-9]*\z/
             && $match->{size} == $expected_bytes
             or _fatal('catalog model file and LFS byte counts disagree');
     }
@@ -496,7 +485,6 @@ sub _download {
             '--retry-max-time', '600',
             '--connect-timeout', '20',
             '--max-time', '14400',
-            '--max-filesize', "$expected_bytes",
             '--output', $partial,
             $url,
         );

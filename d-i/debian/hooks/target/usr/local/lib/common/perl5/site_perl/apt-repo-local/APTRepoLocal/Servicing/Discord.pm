@@ -522,8 +522,6 @@ sub _download_release {
         label          => 'Discord stable distribution manifest',
         url            => $self->release_policy()->{manifest_url},
         destination    => $manifest_path,
-        minimum        => $self->release_policy()->{manifest_minimum_bytes},
-        maximum        => $self->release_policy()->{manifest_maximum_bytes},
         content_policy => 'metadata',
         user_agent     => DISTRO_USER_AGENT,
     );
@@ -535,8 +533,6 @@ sub _download_release {
         label          => 'Discord stable host distribution',
         url            => $metadata->{host}->{url},
         destination    => $host_path,
-        minimum        => $self->_limit('host_minimum_bytes'),
-        maximum        => $self->_limit('host_maximum_bytes'),
         content_policy => 'artifact',
         user_agent     => DISTRO_USER_AGENT,
     );
@@ -557,7 +553,6 @@ sub _download_release {
     $self->_accumulate_distribution_bounds($expanded, $host_metadata);
 
     my %module_paths;
-    my $release_bytes = -s $host_path;
     for my $name (sort keys %{$metadata->{modules}}) {
         my $module = $metadata->{modules}->{$name};
         my $module_path = "$work/discord-$version-$name-$module->{version}.full.distro";
@@ -565,8 +560,6 @@ sub _download_release {
             label          => "Discord $name module",
             url            => $module->{url},
             destination    => $module_path,
-            minimum        => $self->_limit('module_minimum_bytes'),
-            maximum        => $self->_limit('module_maximum_bytes'),
             content_policy => 'artifact',
             user_agent     => DISTRO_USER_AGENT,
         );
@@ -581,9 +574,6 @@ sub _download_release {
             $module->{version},
         );
         $self->_accumulate_distribution_bounds($expanded, $module_metadata);
-        $release_bytes += -s $module_path;
-        $release_bytes <= $self->_limit('release_maximum_bytes')
-            or die "Discord release artifacts exceed retained size bounds\n";
         $module_paths{$name} = $module_path;
     }
     return $self->_artifact_record(

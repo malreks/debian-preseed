@@ -79,15 +79,11 @@ sub _family_policy {
         directory => $self->llama_model_directory(),
         filename  => qr/\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.gguf\z/,
         magic     => 'GGUF',
-        minimum   => 1_048_576,
-        maximum   => 107_374_182_400,
     } if $family eq 'llama';
     return {
         directory => $self->whisper_model_directory(),
         filename  => qr/\Aggml-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.bin\z/,
         magic     => pack('H*', '6c6d6767'),
-        minimum   => 1_048_576,
-        maximum   => 21_474_836_480,
     } if $family eq 'whisper';
     _fatal('unsupported model family');
 }
@@ -141,7 +137,6 @@ sub _directory_models {
         my @stat = lstat $path;
         next if $stat[4] != 0 || $stat[5] != _devops_gid()
             || ($stat[2] & 07777) != 0640;
-        next if $stat[7] < $policy->{minimum} || $stat[7] > $policy->{maximum};
         next if _read_magic($path) ne $policy->{magic};
         push @models, $path;
         @models <= 200
@@ -257,8 +252,6 @@ sub _validate_model {
     $stat[4] == 0 && $stat[5] == _devops_gid()
         && ($stat[2] & 07777) == 0640
         or _fatal('model ownership or mode is unsafe');
-    $stat[7] >= $policy->{minimum} && $stat[7] <= $policy->{maximum}
-        or _fatal('model size is outside the supported bounds');
     _read_magic($resolved) eq $policy->{magic}
         or _fatal("$family model format magic is invalid");
     return $resolved;
@@ -339,10 +332,8 @@ sub _validate_download_request {
         && $sha256 =~ /\A[0-9a-f]{64}\z/
         or _fatal('model SHA-256 is invalid');
     defined($expected_bytes) && !ref($expected_bytes)
-        && $expected_bytes =~ /\A[0-9]{1,12}\z/
-        && $expected_bytes >= $policy->{minimum}
-        && $expected_bytes <= $policy->{maximum}
-        or _fatal('expected model byte count is outside the supported bounds');
+        && $expected_bytes =~ /\A[1-9][0-9]*\z/
+        or _fatal('expected model byte count must be a positive integer');
     return 1;
 }
 

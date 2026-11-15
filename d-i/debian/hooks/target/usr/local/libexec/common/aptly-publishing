@@ -893,7 +893,6 @@ def fetch_public_inrelease(
                 "--proto", "=https", "--proxy", "",
                 "--max-time", str(timeout),
                 "--connect-timeout", str(min(timeout, 10)),
-                "--max-filesize", str(PUBLIC_INRELEASE_MAX_BYTES),
                 "--header", "Accept-Encoding: identity",
                 "--user-agent", "aptly-publisher/1",
                 "--write-out", "\n%{http_code}",

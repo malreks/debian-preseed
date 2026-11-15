@@ -3,7 +3,7 @@
 
 This is an offline publishing gate, not a download or native-CPU acceptance test.
 The trusted repository helper supplies the SAME policy used inside the target.
-Every profile must have all eight pins exactly once, as literal assignments.
+Every profile must have all seven pins exactly once, as literal assignments.
 Profiles are independent: each may select its own release and resource bounds.
 Only consistency within each profile is required; no cross-profile equality.
 """
@@ -34,11 +34,10 @@ FIELDS = {
     'ARCHITECTURE': 'architecture',
     'URL': 'url',
     'SHA256': 'sha256',
-    'MAXIMUM_BYTES': 'max_archive',
     'MAXIMUM_EXTRACTED_BYTES': 'max_extracted',
     'MAXIMUM_MEMBERS': 'max_members',
 }
-INTEGER_FIELDS = frozenset({'MAXIMUM_BYTES', 'MAXIMUM_EXTRACTED_BYTES', 'MAXIMUM_MEMBERS'})
+INTEGER_FIELDS = frozenset({'MAXIMUM_EXTRACTED_BYTES', 'MAXIMUM_MEMBERS'})
 # No shell expansions, escapes, commands, concatenation or duplicate assignments.
 ASSIGNMENT = re.compile(r'RESCTL_BENCH_([A-Z0-9_]+)="([^"\\$`\r\n]*)"')
 

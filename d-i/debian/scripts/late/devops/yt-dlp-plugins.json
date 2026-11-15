@@ -12,14 +12,12 @@
           "path": "libexec/yt-dlp-plugins/bgutil-pot.zip",
           "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_ZIP_URL__",
           "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_ZIP_SHA256__",
-          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_ZIP_MINIMUM_BYTES__",
           "kind": "plugin-zip"
         },
         {
           "path": "libexec/bgutil-pot",
           "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_BINARY_URL__",
           "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_BINARY_SHA256__",
-          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_BGUTIL_BINARY_MINIMUM_BYTES__",
           "kind": "linux-amd64-executable"
         }
       ]
@@ -33,7 +31,6 @@
           "path": "libexec/yt-dlp-plugins/rajiko.zip",
           "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RAJIKO_ZIP_URL__",
           "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RAJIKO_ZIP_SHA256__",
-          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RAJIKO_ZIP_MINIMUM_BYTES__",
           "kind": "plugin-zip"
         }
       ]
@@ -47,7 +44,6 @@
           "path": "libexec/yt-dlp-plugins/apple-developer/yt_dlp_plugins/extractor/appledeveloper.py",
           "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_APPLE_DEVELOPER_MODULE_URL__",
           "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_APPLE_DEVELOPER_MODULE_SHA256__",
-          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_APPLE_DEVELOPER_MODULE_MINIMUM_BYTES__",
           "kind": "data"
         }
       ]
@@ -61,7 +57,6 @@
           "path": "libexec/yt-dlp-plugins/srt-fix/yt_dlp_plugins/postprocessor/srt_fix.py",
           "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_SRT_FIX_MODULE_URL__",
           "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_SRT_FIX_MODULE_SHA256__",
-          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_SRT_FIX_MODULE_MINIMUM_BYTES__",
           "kind": "data"
         }
       ]
@@ -75,7 +70,6 @@
           "path": "libexec/yt-dlp-plugins/return-youtube-dislike/yt_dlp_plugins/postprocessor/ryd.py",
           "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RETURN_YOUTUBE_DISLIKE_MODULE_URL__",
           "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RETURN_YOUTUBE_DISLIKE_MODULE_SHA256__",
-          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_RETURN_YOUTUBE_DISLIKE_MODULE_MINIMUM_BYTES__",
           "kind": "data"
         }
       ]
@@ -89,7 +83,6 @@
           "path": "libexec/yt-dlp-plugins/fixup-mtime/yt_dlp_plugins/postprocessor/fixup_mtime.py",
           "url": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_FIXUP_MTIME_MODULE_URL__",
           "sha256": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_FIXUP_MTIME_MODULE_SHA256__",
-          "size": "__INSTALLER_DEVOPS_YT_DLP_PLUGIN_FIXUP_MTIME_MODULE_MINIMUM_BYTES__",
           "kind": "data"
         }
       ]

@@ -13,12 +13,11 @@ from managed_workflows.fs import Tree, parts
 
 def main(archive_path: str, destination: str) -> int:
     deadline = time.monotonic() + 180
-    maximum = int('__INSTALLER_LABWC_DESKTOP_THEMES_MAXIMUM_BYTES__')
     expanded_limit = int('__INSTALLER_LABWC_DESKTOP_THEMES_MAXIMUM_EXTRACTED_BYTES__')
     member_limit = int('__INSTALLER_LABWC_DESKTOP_THEMES_MAXIMUM_MEMBERS__')
     expected_digest = '__INSTALLER_LABWC_DESKTOP_THEMES_SHA256__'
     expected_destination = Path('__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_LABWC_APPEARANCE__/.installer-themes')
-    if (Path(destination) != expected_destination or not 1 <= maximum <= 512 * 1024**2
+    if (Path(destination) != expected_destination
             or not 1 <= expanded_limit <= 1024 * 1024**2 or not 1 <= member_limit <= 4096):
         raise ValueError('invalid outer desktop theme release policy')
 
@@ -31,7 +30,7 @@ def main(archive_path: str, destination: str) -> int:
         before = os.fstat(stream.fileno())
         if (not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_gid != 0
                 or before.st_nlink != 1 or stat.S_IMODE(before.st_mode) != 0o600
-                or not 0 < before.st_size <= maximum):
+                or before.st_size <= 0):
             raise ValueError('unsafe outer desktop theme release metadata')
         digest = hashlib.sha256()
         while blob := stream.read(1024 * 1024):
