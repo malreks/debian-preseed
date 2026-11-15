@@ -239,6 +239,14 @@ target_exec() (
   installer_fatal "neither chroot nor in-target is available for target command execution"
 )
 
+# d-i log-output consumes target stderr even with --pass-stdout. Merge command
+# diagnostics inside the target so installer.log and tty4 receive them too.
+# Keep target_exec/capture_in_target stdout-only for machine-readable results.
+target_exec_diagnostic() {
+  # /bin/sh is the immutable Debian shell interface inside the target.
+  target_exec /bin/sh -c 'exec "$@" 2>&1' installer-target-diagnostic "$@"
+}
+
 target_command_failure_state_path() {
   printf '%s/state/last-target-command.failure\n' "$(installer_runtime_dir)"
 }
@@ -398,7 +406,7 @@ target_exec_logged() (
   trap 'rm -f "$target_stream_work/status" "$target_stream_work/copied"; rmdir "$target_stream_work"' 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   (
-    if target_exec "$@" </dev/null 2>&1; then target_stream_status=0; else target_stream_status=$?; fi
+    if target_exec_diagnostic "$@" </dev/null 2>&1; then target_stream_status=0; else target_stream_status=$?; fi
     printf '%s\n' "$target_stream_status" >"$target_stream_work/status" || exit 125
   ) | (
     umask 077
@@ -487,7 +495,7 @@ run_in_target_quiet() {
 
   installer_info "in-target: ${label}"
   target_log_command_start "$label"
-  if target_exec "$@" </dev/null >"$output" 2>&1; then
+  if target_exec_diagnostic "$@" </dev/null >"$output" 2>&1; then
     target_log_command_complete "$label" "$output"
     rm -f "$output"
     return 0
@@ -563,7 +571,7 @@ capture_in_target() {
 test_in_target() {
   output=$(installer_runtime_temp_log_path install-in-target-test.log)
 
-  if target_exec "$@" </dev/null >"$output" 2>&1; then
+  if target_exec_diagnostic "$@" </dev/null >"$output" 2>&1; then
     filter_in_target_noise <"$output"
     rm -f "$output"
     return 0

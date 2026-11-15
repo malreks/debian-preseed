@@ -2,7 +2,8 @@
 
 Two disposable chroots, no devices, mounts, service starts or package changes.
 The Debian in-target/confmodule/debconf-get clients are real; chroot-setup is an
-explicitly reduced protocol fixture and log-output a descriptor-preserving shim.
+explicitly reduced protocol fixture. The log-output shim preserves protocol
+descriptors and models d-i sending child stderr to its own syslog sink.
 """
 from __future__ import annotations
 
@@ -49,6 +50,7 @@ target_log_command_failure() { :; }
 target_log_should_emit() { return 0; }
 installer_log_target_command_output() { :; }
 installer_append_log_category() { :; }
+installer_stream_tty4() { cat >/tmp/target-console; }
 target_record_command_failure() { printf '%s\\n' "$2" >/tmp/target-failure; }
 filter_in_target_noise() { cat; }
 '''
@@ -77,7 +79,7 @@ class TargetDebconfBoundaryTests(unittest.TestCase):
         for src, dest in [('in-target', 'bin/in-target'), ('debconf-get', 'bin/debconf-get'),
                           ('chroot-setup-protocol.sh', 'lib/chroot-setup.sh')]:
             self.write(dest, (FIXTURE/src).read_text())
-        self.write('bin/log-output', '#!/bin/sh\n[ "$1" != -t ] || shift 2\n[ "$1" != --pass-stdout ] || shift\n"$@"\n')
+        self.write('bin/log-output', '#!/bin/sh\n[ "$1" != -t ] || shift 2\n[ "$1" != --pass-stdout ] || shift\n"$@" 2>>/var/log/log-output-stderr\n')
         self.box.copy_executable(Path(shutil.which('chroot')), '/bin/chroot')
         self.target.copy_executable(Path('/usr/bin/env'), '/usr/bin/env')
         self.box.copy_executable(Path('/bin/dash'), '/bin/dash')
@@ -179,6 +181,24 @@ printf '%s\\n' "$@"
     def test_capture_does_not_mix_protocol_requests_with_stdout(self):
         result, _ = self.assert_ok('value=$(capture_in_target fixture /bin/probe captured); printf "<%s>\\n" "$value"')
         self.assertEqual(result.stdout, '<captured>\n')
+
+    def test_diagnostic_wrappers_capture_stderr_before_log_output_consumes_it(self):
+        self.write('target/bin/diagnostic', '#!/bin/sh\nprintf "normal-output\\n"\nprintf "diagnostic-canary\\n" >&2\nexit 37\n')
+        for wrapper in ('run_in_target', 'attempt_in_target', 'run_in_target_quiet', 'test_in_target'):
+            with self.subTest(wrapper=wrapper):
+                args = '/bin/diagnostic' if wrapper == 'test_in_target' else 'fixture /bin/diagnostic'
+                result, timed_out, _ = self.run_code(f'{wrapper} {args}')
+                self.assertFalse(timed_out, result.stderr)
+                self.assertEqual(result.returncode, 1 if wrapper == 'test_in_target' else 37, result.stderr)
+                self.assertIn('diagnostic-canary', result.stderr)
+                self.assertNotIn('diagnostic-canary', (self.root/'var/log/log-output-stderr').read_text())
+                self.assertEqual(self.progress()[-1], 'cleanup-completed')
+
+    def test_value_capture_keeps_stderr_out_of_its_machine_readable_result(self):
+        self.write('target/bin/value', '#!/bin/sh\nprintf "machine-value\\n"\nprintf "separate-diagnostic\\n" >&2\n')
+        result, _ = self.assert_ok('value=$(capture_in_target fixture /bin/value); printf "<%s>\\n" "$value"')
+        self.assertEqual(result.stdout, '<machine-value>\n')
+        self.assertIn('separate-diagnostic', (self.root/'var/log/log-output-stderr').read_text())
 
     def test_explicit_data_stdin_and_literal_arguments_survive(self):
         self.write('tmp/data', 'stdin data ; $HOME *\n')

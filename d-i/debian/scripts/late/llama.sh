@@ -920,7 +920,7 @@ run_llama_install_in_target() {
 
   if (
     set +e
-    target_exec "$@" <__INSTALLER_PATH_DIR_DEV__/null
+    target_exec_diagnostic "$@" <__INSTALLER_PATH_DIR_DEV__/null
     target_status=$?
     printf '%s\n' "$target_status" >"$status_file" || exit 125
     exit 0
