@@ -1454,6 +1454,7 @@ write_target_nftables_default_config() {
 }
 
 configure_target_nftables() {
+  installer_operation_context_repo FILE_LATE_SECURITY 1458 configure_target_nftables
   requested_profile=$(late_command_nftables_requested_profile)
   selected_profile=$(late_command_nftables_profile "$requested_profile")
   installer_info "nftables profile selection: raw=${NFT_PROFILE:-default} normalized=${requested_profile} selected=${selected_profile}"
@@ -1516,7 +1517,7 @@ configure_target_nftables() {
   # Repository membership and installed paths have separate owners. In
   # particular, the desktop policy source lives below its physical role root.
   # Never reconstruct a source path by stripping the target path prefix.
-  installer_operation_context_repo FILE_LATE_SECURITY 1520 seed_persistent_firewall_state
+  installer_operation_context_repo FILE_LATE_SECURITY 1521 seed_persistent_firewall_state
   while IFS='|' read -r local_state_selector local_state; do
     if [ -e "${TARGET_ROOT}${local_state}" ] || [ -L "${TARGET_ROOT}${local_state}" ]; then
       [ -f "${TARGET_ROOT}${local_state}" ] && [ ! -L "${TARGET_ROOT}${local_state}" ] ||
@@ -1612,11 +1613,11 @@ security_mask_target_systemd_unit_if_available() {
 }
 
 configure_target_fail2ban() {
+  installer_operation_context_repo FILE_LATE_SECURITY 1617 configure_target_fail2ban
   runtime_apply_ssh_from_classes
+  # Current roles expose SSH according to profile policy. There is no web
+  # service class: querying a retired selector aborts the shared class parser.
   fail2ban_has_jails=$SSH_SERVER_ENABLED
-  if installer_selected_class_reference_is_selected service/web 2>__INSTALLER_PATH_DIR_DEV__/null; then
-    fail2ban_has_jails=true
-  fi
   install -d -m 0755 \
     ${TARGET_ROOT}${DIR_ETC}/fail2ban \
     ${TARGET_ROOT}${DIR_ETC}/fail2ban/action.d \
@@ -1653,12 +1654,6 @@ configure_target_fail2ban() {
     __INSTALLER_PATH_DIR_ETC__/fail2ban/jail.d/10-sshd.local \
     0644 \
     fail2ban_jail_placeholder_map
-  if installer_selected_class_reference_is_selected service/web 2>__INSTALLER_PATH_DIR_DEV__/null; then
-    stage_target_asset \
-      "$(installer_repo_file_value FILE_TARGET_FAIL2BAN_JAIL_D_20_NGINX_BOTSEARCH_LOCAL)" \
-      __INSTALLER_PATH_DIR_ETC__/fail2ban/jail.d/20-nginx-botsearch.local \
-      0644
-  fi
   stage_target_asset \
     "$(installer_repo_file_value FILE_TARGET_UNIT_FAIL2BAN_SERVICE_D_40_RUNTIME)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_FAIL2BAN_DROPIN__/40-runtime.conf \
@@ -1890,6 +1885,7 @@ configure_target_stubby() (
 )
 
 configure_target_app_veth() {
+  installer_operation_context_repo FILE_LATE_SECURITY 1889 configure_target_app_veth
   [ "$(late_command_nftables_profile)" != none ] ||
     installer_fatal "managed kernel namespaces require the nftables policy"
   run_in_target "verify managed network connection cleanup command" __INSTALLER_PATH_DIR_USR_BIN__/test -x __INSTALLER_PATH_DIR_USR_SBIN__/conntrack
@@ -1937,6 +1933,7 @@ configure_target_app_veth() {
 }
 
 configure_target_apparmor_auditd() {
+  installer_operation_context_repo FILE_LATE_SECURITY 1937 configure_target_apparmor_auditd
   install -d -m 0755 \
     ${TARGET_ROOT}${DIR_ETC}/apparmor \
     ${TARGET_ROOT}${DIR_APPARMOR} \

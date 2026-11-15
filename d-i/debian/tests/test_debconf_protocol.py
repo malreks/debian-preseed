@@ -40,10 +40,12 @@ class DebconfProtocolTests(unittest.TestCase):
             shutil.copyfile(FORKY / f'scripts/common/{name}.sh', self.box.root / f'tmp/{name}.sh')
         payload_copyfile(FORKY / 'scripts/runtime/common.sh', self.box.root / 'tmp/runtime.sh')
 
-    def run_code(self, code, *, env=None, raw=False, override=None, timeout=25):
+    def run_code(self, code, *, env=None, raw=False, override=None, timeout=25,
+                 expected_failure_record=False):
         session = ProtocolSession(self.box, self.db, code, env=env, raw=raw, override=override)
         self.addCleanup(session.close)
-        result, timed_out = session.finish(timeout, self.box.runtime / 'state/first-failure')
+        fatal_path = None if expected_failure_record else self.box.runtime / 'state/first-failure'
+        result, timed_out = session.finish(timeout, fatal_path)
         self.assertFalse(timed_out, 'protocol deadlock or fatal hold: ' + result.stderr +
                          self.failure_details())
         self.assertEqual(session.errors, [])
@@ -162,6 +164,90 @@ printf screen >&5
         self.assertEqual(result.returncode, 125, result.stderr)
         self.assertIn('reply stream closed', result.stderr)
         self.assertNotIn('Illegal number', result.stderr)
+
+    def test_fatal_frontend_uses_saved_stream_once_and_preserves_first_failure(self):
+        code = '''. /tmp/lifecycle.sh
+installer_lifecycle_paths || exit 91
+exec 8<&0
+INSTALLER_DEBCONF_STDIN_SAVED=1
+INSTALLER_PHASE=late
+INSTALLER_FAILURE_SOURCE=scripts/late/security.sh
+INSTALLER_FAILURE_LINE=1521
+INSTALLER_FAILURE_OPERATION=seed_persistent_firewall_state
+installer_record_failure 37 security private-fixture-detail || exit 92
+installer_failure_frontend </dev/null || exit 93
+installer_failure_frontend </dev/null || exit 94
+printf returned
+'''
+        result, session = self.run_code(code, override=lambda _: b'0 OK', expected_failure_record=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'returned')
+        requests = [request.decode() for request in session.requests]
+        self.assertEqual(requests.count('GO'), 1)
+        self.assertLess(requests.index('PROGRESS STOP'), requests.index('INPUT critical unattended-installer/fatal-error'))
+        self.assertLess(requests.index('FSET unattended-installer/fatal-error seen false'), requests.index('GO'))
+        self.assertIn('SUBST unattended-installer/fatal-error STATUS 37', requests)
+        self.assertIn('SUBST unattended-installer/fatal-error OPERATION seed_persistent_firewall_state', requests)
+        self.assertFalse(any('private-fixture-detail' in request for request in requests))
+        state = self.box.runtime / 'state'
+        self.assertIn('status=37\n', (state / 'first-failure').read_text())
+        self.assertEqual((state / 'frontend-error/result').read_text(), 'acknowledged\n')
+        template = state / 'frontend-error/templates'
+        self.assertIn('Type: error\n', template.read_text())
+        self.assertEqual(stat.S_IMODE(template.stat().st_mode), 0o600)
+
+    def test_fatal_frontend_setup_failure_is_not_retried_or_reported_as_success(self):
+        code = '''. /tmp/lifecycle.sh
+installer_lifecycle_paths || exit 91
+exec 8<&0
+INSTALLER_DEBCONF_STDIN_SAVED=1
+installer_record_failure 42 late private-fixture-detail || exit 92
+if installer_failure_frontend; then exit 93; fi
+installer_failure_frontend || exit 94
+'''
+        result, session = self.run_code(code, override=lambda request:
+            b'10 failure' if request.startswith(b'SUBST ') else b'0 OK', expected_failure_record=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(b'GO', session.requests)
+        self.assertEqual(sum(request.startswith(b'X_LOADTEMPLATEFILE ') for request in session.requests), 1)
+        state = self.box.runtime / 'state'
+        self.assertIn('status=42\n', (state / 'first-failure').read_text())
+        self.assertEqual((state / 'frontend-error/result').read_text(), 'unavailable\n')
+
+    def test_fatal_frontend_rejects_uninitialized_connection_without_protocol_writes(self):
+        for assignment in ('unset DEBIAN_HAS_FRONTEND', 'unset DEBCONF_REDIR',
+                           'unset INSTALLER_DEBCONF_STDIN_SAVED', 'exec 8<&-'):
+            with self.subTest(assignment=assignment):
+                code = ('. /tmp/lifecycle.sh; exec 8<&0; INSTALLER_DEBCONF_STDIN_SAVED=1; '
+                        + assignment + '; if installer_failure_frontend; then exit 91; fi')
+                result, session = self.run_code(code, override=lambda _: b'0 OK')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(session.requests, [])
+
+    def test_fatal_frontend_excludes_unsafe_context_and_malformed_reply_content(self):
+        for malformed in (False, True):
+            with self.subTest(malformed=malformed):
+                code = '''. /tmp/lifecycle.sh
+installer_lifecycle_paths || exit 91
+exec 8<&0
+INSTALLER_DEBCONF_STDIN_SAVED=1
+INSTALLER_FAILURE_SOURCE='https://fixture.invalid/private-token'
+INSTALLER_FAILURE_OPERATION='unsafe fixture context'
+installer_record_failure 37 late private-fixture-detail || exit 92
+installer_failure_frontend || :
+'''
+                result, session = self.run_code(code, override=lambda _:
+                    b'private-fixture-reply' if malformed else b'0 OK', expected_failure_record=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                transcript = b'\n'.join(session.requests).decode()
+                for private in ('private-token', 'private-fixture-detail', 'private-fixture-reply'):
+                    self.assertNotIn(private, transcript + result.stdout + result.stderr)
+                if not malformed:
+                    self.assertIn('SUBST unattended-installer/fatal-error SOURCE unavailable', transcript)
+                    self.assertIn('SUBST unattended-installer/fatal-error OPERATION unavailable', transcript)
+                # Reuse the private frontend only; reset the claim inside the
+                # fixture's own root between independent injected outcomes.
+                shutil.rmtree(self.box.runtime / 'state/frontend-error')
 
     def test_malformed_reply_is_not_converted_to_shell_status(self):
         for reply in (b'', b'secret-FIXTURE', b'08 value', b'256 value', b'-1 value'):

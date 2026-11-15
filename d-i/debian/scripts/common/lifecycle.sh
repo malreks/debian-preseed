@@ -129,6 +129,83 @@ installer_preserve_failure() (
     else rm -f "$lc_tmp"; exit 1; fi;
   done;
 );
+installer_failure_frontend_prepare() {
+  # Use the running cdebconf frontend, including its in-memory template DB.
+  # The public Debian shell API is already initialized; it must not exec a
+  # second frontend or replace the phase-owned protocol descriptors here.
+  db_x_loadtemplatefile "$lf_template" unattended-installer || return 1;
+  db_progress STOP || return 1;
+  db_clear || return 1;
+  db_capb '' || return 1;
+  db_settitle "$lf_question" || return 1;
+  db_subst "$lf_question" PHASE "$lf_phase" || return 1;
+  db_subst "$lf_question" COMPONENT "$lf_component" || return 1;
+  db_subst "$lf_question" SOURCE "$lf_source" || return 1;
+  db_subst "$lf_question" LINE "$lf_line" || return 1;
+  db_subst "$lf_question" OPERATION "$lf_operation" || return 1;
+  db_subst "$lf_question" STATUS "$lf_status" || return 1;
+  db_fset "$lf_question" seen false || return 1;
+  db_input critical "$lf_question" || return 1;
+};
+installer_failure_frontend() (
+  set +e; set +x; set +v; umask 077;
+  # FDs 3 and 8 belong to the inherited d-i connection. Never create a new
+  # frontend/database writer, guess stdout, or consume a redirected stdin.
+  [ -n "${DEBIAN_HAS_FRONTEND:-}" ] && [ -n "${DEBCONF_REDIR:-}" ] || exit 1;
+  [ "${INSTALLER_DEBCONF_STDIN_SAVED:-}" = 1 ] || exit 1;
+  [ -z "${LC_CHILD_PID:-}" ] || exit 1;
+  ( : >&3 <&8 ) 2>/dev/null || exit 1;
+  exec 0<&8;
+  installer_lifecycle_paths || exit 1;
+  case "$LC_STATE" in *[!A-Za-z0-9_./-]*) exit 1 ;; esac;
+  # Keep the one-shot claim even after a broken connection or an uncertain
+  # reply: nested fatal handlers must not race or retry the same UI mutation.
+  lf_dir=$LC_STATE/frontend-error;
+  mkdir "$lf_dir" 2>/dev/null || exit 0;
+  printf '%s\n' preparing >"$lf_dir/result" || exit 1;
+  lf_phase=unknown; lf_component=unknown; lf_source=unknown;
+  lf_line=unknown; lf_operation=unknown; lf_status=unknown;
+  lf_record=$LC_STATE/first-failure;
+  if [ -f "$lf_record" ] && [ ! -L "$lf_record" ] &&
+     [ "$(installer_metadata_value "$lf_record" uid_gid_mode_links)" = "$(id -u):$(id -g):600:1" ] &&
+     [ "$(wc -c <"$lf_record")" -le 16384 ]; then
+    while IFS='=' read -r lf_key lf_value; do
+      # Only bounded structured context is public UI data. Raw failure detail,
+      # command lines, credentials, URLs and frontend replies never reach GTK.
+      case "$lf_key" in phase|component|source|line|operation|status) ;; *) continue ;; esac;
+      case "$lf_value" in ''|*://*|*[!A-Za-z0-9_./:+-]*) lf_value=unavailable ;; esac;
+      [ "${#lf_value}" -le 240 ] || lf_value=unavailable;
+      case "$lf_key" in
+        phase) lf_phase=$lf_value ;; component) lf_component=$lf_value ;;
+        source) lf_source=$lf_value ;; line) lf_line=$lf_value ;;
+        operation) lf_operation=$lf_value ;; status) lf_status=$lf_value ;;
+      esac;
+    done <"$lf_record";
+  fi;
+  lf_question=unattended-installer/fatal-error;
+  lf_template=$lf_dir/templates;
+  # Native Type:error is an acknowledged GTK installer error dialog (also
+  # supported by the text frontend). No target GUI program is needed in d-i.
+  # Keep explicit delimiters and printf lines: this library is flattened into
+  # preseed shell commands before the first authenticated payload fetch.
+  printf '%s\n' 'Template: unattended-installer/fatal-error' 'Type: error' 'Description: Unattended installation failed' ' A required installer operation failed. Installation has stopped.' ' .' ' Phase: ${PHASE}' ' Component: ${COMPONENT}' ' Operation: ${OPERATION}' ' Source: ${SOURCE}:${LINE}' ' Status: ${STATUS}' ' .' ' See terminal 4 for detailed diagnostics. Automatic reboot is disabled.' ' Manual recovery is required; Continue only acknowledges this error.' '' >"$lf_template" || exit 1;
+  # Immutable Debian confmodule interface, not a target or checkout path.
+  [ -r /usr/share/debconf/confmodule ] || exit 1;
+  . /usr/share/debconf/confmodule;
+  # Setup must not leave a dead frontend looking like an installer hang.
+  # Silence library protocol errors: a malformed reply may contain private data.
+  installer_run_bounded 15 installer_failure_frontend_prepare >/dev/null 2>&1 || {
+    printf '%s\n' unavailable >"$lf_dir/result"; exit 1;
+  };
+  printf '%s\n' queued >"$lf_dir/result" || exit 1;
+  # GO is intentionally interactive. Never dismiss the error on a timer.
+  # Acknowledgement cannot resume any installer operation or automatic reboot.
+  if db_go >/dev/null 2>&1; then
+    printf '%s\n' acknowledged >"$lf_dir/result"; exit 0;
+  fi;
+  printf '%s\n' unavailable >"$lf_dir/result";
+  exit 1;
+);
 installer_terminal_hold() {
   # A nonzero late_command is NOT terminal: preseed_command may swallow it,
   # and finish-install logs most hook failures then continues toward reboot.
@@ -169,6 +246,9 @@ installer_terminal_hold() {
     fi;
     [ -n "${lc_failure_summary:-}" ] && printf 'INSTALLER FAILURE DETAIL: %s\n' "$lc_failure_summary" >/dev/tty4;
   fi;
+  # Present the error before stopping main-menu. Otherwise GTK can remain on
+  # its last progress screen forever, with the failure visible only on tty4.
+  installer_failure_frontend || printf '%s\n' 'Installer frontend error dialog unavailable; diagnostics remain on tty4.' >&2;
   lc_pid=$$; lc_depth=0;
   while [ "$lc_pid" -gt 1 ] && [ "$lc_depth" -lt 64 ]; do
     lc_name=$(cat "/proc/$lc_pid/comm" 2>/dev/null);

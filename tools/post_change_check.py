@@ -12,6 +12,7 @@ validation artifacts.
 from __future__ import annotations
 
 import ast
+import bisect
 from concurrent.futures import ThreadPoolExecutor
 import configparser
 import fnmatch
@@ -489,6 +490,65 @@ def check_shell(paths: list[Path], errors: list[str], counts: dict[str, int]) ->
             # The per-file warning pass above retains SC2154 and all errors.
             unbound=True,
         )
+
+
+def check_lifecycle_frontend_contract(paths: list[Path], errors: list[str],
+                                      counts: dict[str, int]) -> None:
+    """Check the bootstrapped fatal UI contract as data, without opening a frontend."""
+    selectors = _repository_selector_values('forky')
+    lifecycle = DEBIAN_ROOT / selectors['FILE_COMMON_LIFECYCLE']
+    source = DEBIAN_ROOT / selectors['FILE_COMMON_SOURCE']
+    generated = {ROOT / 'd-i' / suite / name for suite in ('forky', 'trixie')
+                 for name in ('source.sh', 'preseed.cfg', 'payload.tar.gz')}
+    if not ({lifecycle, source} | generated).intersection(paths):
+        return
+    canonical, embedded = _read_text(lifecycle), _read_text(source)
+    begin, end = '# BEGIN EMBEDDED LIFECYCLE\n', '# END EMBEDDED LIFECYCLE\n'
+    if (embedded.count(begin) != 1 or embedded.count(end) != 1
+            or embedded.split(begin, 1)[1].split(end, 1)[0] != canonical):
+        errors.append('bootstrap lifecycle differs from canonical fatal-handler source')
+    bodies = []
+    for declaration, terminator in (('installer_failure_frontend() (\n', '\n);'),
+                                    ('installer_terminal_hold() {\n', '\n};'),
+                                    ('installer_failure_frontend_prepare() {\n', '\n};')):
+        prefix, found, body = canonical.partition(declaration)
+        body, closed, suffix = body.partition(terminator)
+        if not found or not closed:
+            errors.append('fatal frontend function missing or malformed: ' + declaration.strip())
+            return
+        bodies.append(body)
+    frontend, hold, prepare = bodies
+    required = ('${DEBIAN_HAS_FRONTEND:-}', '${DEBCONF_REDIR:-}',
+                '${INSTALLER_DEBCONF_STDIN_SAVED:-}', '${LC_CHILD_PID:-}',
+                'exec 0<&8;', 'mkdir "$lf_dir"', 'umask 077;',
+                'installer_run_bounded 15 installer_failure_frontend_prepare',
+                'if db_go >/dev/null 2>&1; then', '16384', '${#lf_value}')
+    if any(value not in frontend for value in required):
+        errors.append('fatal frontend lacks an inherited-channel, bounded-input or one-shot guard')
+    if ('installer_failure_frontend ||' not in hold or 'kill -STOP' not in hold
+            or hold.index('installer_failure_frontend ||') > hold.index('kill -STOP')):
+        errors.append('fatal frontend must be presented before main-menu is stopped')
+    if any(value in frontend for value in ('db_stop', 'debconf-communicate', 'lf_detail=',
+                                           'installer_lifecycle_complete')):
+        errors.append('fatal frontend must preserve failure state and exclusive frontend ownership')
+    for request in ('db_x_loadtemplatefile', 'db_progress STOP', 'db_clear',
+                    'db_capb', 'db_settitle', 'db_fset "$lf_question" seen false',
+                    'db_input critical "$lf_question"'):
+        if request not in prepare:
+            errors.append('fatal frontend setup is missing: ' + request)
+    template_lines = [line for line in frontend.splitlines()
+                      if "'Template: unattended-installer/fatal-error'" in line]
+    if len(template_lines) != 1 or template_lines[0].endswith('\\'):
+        errors.append('fatal template must survive flattened bootstrap serialization')
+    else:
+        words = shlex.split(template_lines[0])
+        for field in ('Template: unattended-installer/fatal-error', 'Type: error',
+                      'Description: Unattended installation failed', ' Phase: ${PHASE}',
+                      ' Component: ${COMPONENT}', ' Operation: ${OPERATION}',
+                      ' Source: ${SOURCE}:${LINE}', ' Status: ${STATUS}'):
+            if field not in words:
+                errors.append('fatal error template field missing: ' + field)
+    counts['lifecycle_frontend_contracts'] = 1
 
 
 def check_preseed_commands(paths: list[Path], errors: list[str],
@@ -1285,6 +1345,233 @@ def _check_payload_archive(archive_path: Path, paths: list[Path],
                 continue
             schema_keys = _scan_markers(member.name, data, errors, schema_keys, counts)
     counts['payload_members'] = member_count
+    _check_payload_class_queries(archive_path, errors, counts)
+
+
+# These interfaces consume canonical class references. The application wrapper
+# takes a quoted reference list before its label/worker arguments. Inspect these
+# inputs as shell words only; never source an installer or import fixture code.
+CLASS_QUERY_ARGUMENTS = {
+    'installer_class_selected': (0, 1),
+    'installer_class_selected_any': (0, None),
+    'installer_selected_class_reference_is_selected': (0, 1),
+    'installer_class_reference_matches_selected': (0, 1),
+    'installer_class_reference_list_matches_selected': (0, 1),
+    'installer_selected_class_allowed_reference_matches': (0, 1),
+    'installer_class_token_parts': (0, 1),
+    'installer_validate_class_reference': (1, 2),
+    'installer_validate_class_reference_list': (1, 2),
+    'runtime_class_selected': (0, 1),
+    'software_run_selected_app': (0, 1),
+}
+CLASS_QUERY = re.compile(r'\b(' + '|'.join(CLASS_QUERY_ARGUMENTS) + r')\s+([^\n]+)')
+CLASS_REFERENCE = re.compile(r'[a-z0-9_-]+(?:/[a-z0-9_-]+)+\Z')
+
+
+def _literal_class_queries(source: str) -> list[tuple[int, str]]:
+    """Return literal query arguments, with original physical source lines.
+
+    Variable arguments remain a runtime/producer contract, not a claim of static
+    validation. Literal arguments in list wrappers are checked individually.
+    """
+    # Keep physical line positions while joining shell continuations.
+    joined = re.sub(r'\\\n', '  ', source)
+    # Offsets give correct diagnostics even when a prior continuation was joined.
+    offsets = [0]
+    for line in source.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    result = []
+    for match in CLASS_QUERY.finditer(joined):
+        line_start = joined.rfind('\n', 0, match.start()) + 1
+        if joined[line_start:match.start()].lstrip().startswith('#'):
+            continue
+        lexer = shlex.shlex(match.group(2), posix=True, punctuation_chars=';&|<>()')
+        lexer.whitespace_split = True
+        words = []
+        for word in lexer:
+            if word[0] in ';&|<>()':
+                if word[0] in '<>' and words and words[-1].isdigit():
+                    words.pop()  # Shell I/O descriptor, not a class argument.
+                break
+            words.append(word)
+        start, end = CLASS_QUERY_ARGUMENTS[match.group(1)]
+        for word in words[start:end]:
+            if any(marker in word for marker in ('$', '`')):
+                continue
+            for reference in word.split():
+                result.append((bisect.bisect_right(offsets, match.start()), reference))
+    return result
+
+
+def _check_class_queries(label: str, source: str, registries: dict[str, set[str]],
+                         errors: list[str], counts: dict[str, int]) -> None:
+    for line, reference in _literal_class_queries(source):
+        missing = [suite for suite, refs in registries.items() if reference not in refs]
+        if CLASS_REFERENCE.fullmatch(reference) is None or missing:
+            errors.append(f'{label}:{line}: unregistered literal class selector: '
+                          f'{reference!r} (suites: {", ".join(missing)})')
+        counts['literal_class_queries'] = counts.get('literal_class_queries', 0) + 1
+
+
+def check_class_queries(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Check changed shell inputs against both authored physical class trees."""
+    candidates = [path for path in paths
+                  if (path.is_relative_to(DEBIAN_ROOT / 'scripts')
+                      or path.is_relative_to(DEBIAN_ROOT / 'hooks/installer'))
+                  and _shell_kind(path) is not None]
+    if not candidates:
+        return
+    registries = {}
+    for suite in ('forky', 'trixie'):
+        refs = set()
+        for kind in ('class-auto', 'class-select', 'class-profile'):
+            base = ROOT / 'd-i' / suite / 'classes' / kind
+            for path in base.rglob('*.cfg'):
+                ref = path.relative_to(base).as_posix().removesuffix('.cfg')
+                refs.add(('profile/' if kind == 'class-profile' else '') + ref)
+        registries[suite] = refs
+    for path in candidates:
+        _check_class_queries(str(path.relative_to(ROOT)), _read_text(path), registries, errors, counts)
+
+
+def _check_payload_class_queries(archive_path: Path, errors: list[str], counts: dict[str, int]) -> None:
+    """Check every installer query inside a changed payload against its registry."""
+    with tarfile.open(archive_path, 'r:*') as archive:
+        selectors = _repository_selector_values()
+
+        def read_member(member: tarfile.TarInfo) -> str:
+            if not member.isfile() or member.size > 8 * 1024 * 1024:
+                raise ValueError('invalid class contract member: ' + member.name)
+            stream = archive.extractfile(member)
+            if stream is None:
+                raise ValueError('unreadable class contract member: ' + member.name)
+            with stream:
+                return stream.read(8 * 1024 * 1024 + 1).decode('utf-8')
+
+        try:
+            registry = archive.getmember(selectors['FILE_CLASS_REGISTRY'])
+        except KeyError as error:
+            raise ValueError('payload class registry is missing') from error
+        rows = [line.split('\t') for line in read_member(registry).splitlines()]
+        if (rows[:2] != [['manifest', 'version', '8'], ['manifest', 'class_token_formats', 'canonical']]
+                or any(len(row) != 13 for row in rows if row[0] == 'class')):
+            raise ValueError('invalid payload class registry schema')
+        refs = {row[1] + '/' + row[2] for row in rows if row[0] == 'class'}
+        if not refs or len(refs) != sum(row[0] == 'class' for row in rows):
+            raise ValueError('payload class registry is empty or ambiguous')
+        registries = {}
+        for suite in ('forky', 'trixie'):
+            physical = set()
+            prefix = f'frontends/{suite}/classes/'
+            for member in archive.getmembers():
+                if member.name.startswith(prefix) and member.name.endswith('.cfg'):
+                    kind, relative = member.name.removeprefix(prefix).split('/', 1)
+                    if kind in {'class-auto', 'class-select', 'class-profile'}:
+                        physical.add(('profile/' if kind == 'class-profile' else '')
+                                     + relative.removesuffix('.cfg'))
+            if refs != physical:
+                raise ValueError(f'{suite}: payload class registry differs from physical classes')
+            registries[suite] = physical
+        for row in rows:
+            if row[0] == 'class':
+                for value in row[10:13]:  # Allowed/rejected/required class metadata.
+                    for reference in value.split():
+                        if reference != '__EMPTY__' and reference not in refs:
+                            raise ValueError('unregistered class metadata reference: ' + reference)
+        sources = {}
+        total = 0
+        for member in archive.getmembers():
+            if member.isfile() and member.name.startswith((selectors['DIR_REPO_SCRIPTS'] + '/',
+                                                            selectors['DIR_HOOKS_INSTALLER'] + '/')):
+                if not member.name.endswith(('.sh', '.sh.tmpl')):
+                    stream = archive.extractfile(member)
+                    if stream is None:
+                        raise ValueError('unreadable installer source header')
+                    with stream:
+                        header = stream.read(256).split(b'\n', 1)[0]
+                    if re.fullmatch(rb'#!\s*(?:/bin/(?:sh|dash)|/usr/bin/env\s+sh)(?:\s+.*)?', header) is None:
+                        continue
+                total += member.size
+                if total > 64 * 1024 * 1024:
+                    raise ValueError('aggregate installer source audit bound exceeded')
+                sources[member.name] = read_member(member)
+                _check_class_queries(f'{archive_path.name}:{member.name}', sources[member.name],
+                                     registries, errors, counts)
+        _check_payload_late_contracts(archive, sources, selectors, errors, counts)
+        counts['payload_class_registries'] = counts.get('payload_class_registries', 0) + 1
+
+
+def _check_payload_late_contracts(archive: tarfile.TarFile, sources: dict[str, str],
+                                 selectors: dict[str, str], errors: list[str],
+                                 counts: dict[str, int]) -> None:
+    """Inspect published selectors, callback declarations and software data only."""
+    members = {member.name for member in archive.getmembers() if member.isfile()}
+    for suite in ('forky', 'trixie'):
+        for key, value in _repository_selector_values(suite).items():
+            if key.startswith('FILE_') and value not in members:
+                errors.append(f'{suite}: repository selector has no payload member: {key}')
+            elif key.startswith('FILE_'):
+                counts['payload_file_selectors'] = counts.get('payload_file_selectors', 0) + 1
+    declarations = set()
+    for name, text in sources.items():
+        declarations.update(re.findall(r'^([a-zA-Z_][a-zA-Z0-9_]*)\(\) [({]', text, re.M))
+        for match in re.finditer(r'\b(?:installer_repo_file_value|bootstrap_repo_file_value|'
+                                 r'installer_stage_profile_file)\s+"?(FILE_[A-Z0-9_]+)\b', text):
+            if match.group(1) not in selectors:
+                errors.append(f'{name}: unknown repository FILE selector: {match.group(1)}')
+    for family in ('BTRFS', 'F2FS'):
+        name = selectors['FILE_LATE_' + family + '_FAMILY']
+        lines = sources[name].splitlines()
+        for index, line in enumerate(lines):
+            match = re.fullmatch(r'\s*' + family.lower() + r'_late_command_mark (\d+) \w+', line)
+            if match is None:
+                continue
+            following = index + 1
+            while following < len(lines) and (not lines[following].strip()
+                                             or lines[following].lstrip().startswith('#')):
+                following += 1
+            if int(match.group(1)) != following + 1:
+                errors.append(f'{name}:{index + 1}: stale late operation source line')
+            if following < len(lines):
+                callback = re.match(r'\s*([a-zA-Z_]\w*)\b', lines[following])
+                if callback and callback.group(1) not in {'case', 'if'} | declarations:
+                    errors.append(f'{name}:{following + 1}: missing late callback: {callback.group(1)}')
+            counts['late_operation_source_lines'] = counts.get('late_operation_source_lines', 0) + 1
+    software_name = selectors['FILE_LATE_SOFTWARE_TMPL']
+    software = sources[software_name]
+    for worker in re.findall(r'^software_run_selected_app "[^"]+" "[^"]+" (\w+) \w+$', software, re.M):
+        if worker not in declarations:
+            errors.append(f'{software_name}: missing managed application worker: {worker}')
+        counts['software_worker_declarations'] = counts.get('software_worker_declarations', 0) + 1
+    public_keys = set(re.findall(r'\$(?:\{)?(SOFTWARE_[A-Z0-9_]+)', software))
+    for member in archive.getmembers():
+        # This is the compiler's captured runtime-view interface, not an
+        # installed target path. Account snapshots are a different data shape.
+        if (not any(member.name.startswith(selectors['DIR_CATALOG_COMPILED'] + '/' + suite
+                                           + '/profiles/desktop/') for suite in ('forky', 'trixie'))
+                or not member.name.endswith('.env') or member.name.endswith('.account.env')):
+            continue
+        if not member.isfile() or member.size > 2 * 1024 * 1024:
+            raise ValueError('invalid compiled desktop runtime member')
+        stream = archive.extractfile(member)
+        if stream is None:
+            raise ValueError('unreadable compiled desktop runtime member')
+        with stream:
+            text = stream.read(2 * 1024 * 1024 + 1).decode('utf-8')
+        values = {key: (shlex.split(raw) or [''])[0] for key, raw in
+                  re.findall(r'^([A-Z][A-Z0-9_]*)=(.*)$', text, re.M)}
+        for key in sorted(public_keys):
+            value = values.get(key, '')
+            valid = bool(value)
+            if key.endswith(('_SHA256', '_SHA512')):
+                valid = bool(re.fullmatch(r'[0-9a-f]{' + ('64' if key.endswith('_SHA256') else '128') + '}', value))
+            elif key.endswith('_BYTES'):
+                valid = bool(re.fullmatch(r'[1-9][0-9]{0,15}', value))
+            elif key.endswith('_URL'):
+                valid = value.startswith('https://') and not any(char.isspace() for char in value)
+            if not valid:
+                errors.append(f'{member.name}: missing or malformed software setting: {key}')
+        counts['software_runtime_views'] = counts.get('software_runtime_views', 0) + 1
 
 def check_desktop_resources(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
     """Check slice ownership and pressure wiring strictly as source data."""
@@ -3125,6 +3412,7 @@ def main() -> int:
         check_python(paths, errors, counts)
         check_shell(paths, errors, counts)
         check_preseed_commands(paths, errors, counts)
+        check_lifecycle_frontend_contract(paths, errors, counts)
         check_markers(paths, errors, counts)
         check_structured(paths, errors, counts)
         check_plain_classes(paths, errors, counts)
@@ -3139,6 +3427,7 @@ def main() -> int:
         check_desktop_resources(paths, errors, counts)
         check_crypto_boot_contract(paths, errors, counts)
         check_class_selection(paths, errors, counts)
+        check_class_queries(paths, errors, counts)
         check_timeshift_profile_policy(paths, errors, counts)
         check_server_configuration(paths, errors, counts)
         check_private_server_setup(paths, errors, counts)

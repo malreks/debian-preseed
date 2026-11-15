@@ -61,9 +61,9 @@ finish_install_apt_status=0
 trap 'finish_install_apt_status=$?; if [ "$finish_install_apt_status" -ne 0 ] && command -v installer_error >/dev/null 2>&1; then installer_error "finish-install APT normalization exited with status ${finish_install_apt_status}"; fi; exit "$finish_install_apt_status"' EXIT
 
 log() {
-  printf '%s stage=post_install_validation level=info component=finish-install-normalize-apt %s\n' \
-    "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf unknown-time)" \
-    "$*" >&2
+  INSTALLER_LOG_STAGE=post_install_validation
+  INSTALLER_LOG_TAG=finish-install-normalize-apt
+  installer_info "$*"
 }
 
 target_is_mounted() {

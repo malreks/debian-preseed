@@ -23,11 +23,19 @@ software_fatal() {
 }
 
 software_info() {
-  printf '[late:software] %s\n' "$*" >&2
+  if command -v installer_info >/dev/null 2>&1; then
+    installer_info "$*"
+  else
+    printf '[late:software] %s\n' "$*" >&2
+  fi
 }
 
 software_warn() {
-  printf '[late:software] warning: %s\n' "$*" >&2
+  if command -v installer_warn >/dev/null 2>&1; then
+    installer_warn "$*"
+  else
+    printf '[late:software] warning: %s\n' "$*" >&2
+  fi
 }
 
 software_validate_abs_path() (
@@ -95,7 +103,7 @@ bootstrap_source_common_lib "" || software_fatal "failed to source installer com
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/software}
 if command -v installer_operation_context >/dev/null 2>&1; then
-  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 97 software
+  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 108 software
 fi
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target || {
@@ -2250,6 +2258,8 @@ software_run_selected_app() {
   selected_worker=$3
   selected_result=$4
   installer_class_selected_any $selected_classes || return 0
+  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2267 "install_managed_application:${selected_worker}"
+  software_info "starting ${selected_label}"
   # A required worker runs outside a conditional context so Dash keeps errexit.
   (
     trap - EXIT HUP INT TERM
@@ -2261,6 +2271,7 @@ software_run_selected_app() {
     IFS= read -r "$selected_result" <<EOF_SELECTED
 true
 EOF_SELECTED
+    software_info "completed ${selected_label}"
     return 0
   else
     selected_status=$?

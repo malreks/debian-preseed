@@ -369,7 +369,10 @@ installer_class_token_parts() {
     */*) token_class_group=${class_token%%/*}; token_class_name=${class_token#*/} ;;
     *) installer_fatal 'class selectors require the canonical group/name spelling' ;;
   esac
-  installer_class_has_manifest_record "$token_class_group" "$token_class_name" || installer_fatal 'unregistered class selector'
+  # The token has already passed the bounded literal grammar above. Include it
+  # so a stale caller identifies the actual selector instead of an earlier stage.
+  installer_class_has_manifest_record "$token_class_group" "$token_class_name" ||
+    installer_fatal "unregistered class selector: ${class_token}"
   case "$token_class_group:$token_class_name" in
     role:*|profile:desktop/*|profile:server/*) ;;
     *:*/*) installer_fatal 'nested class names require a registered role or family profile' ;;

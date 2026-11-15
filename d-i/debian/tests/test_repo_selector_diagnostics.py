@@ -50,6 +50,87 @@ class SelectorDiagnostics(unittest.TestCase):
             check=False,
         )
 
+    def test_fail2ban_uses_ssh_policy_without_querying_a_retired_class(self) -> None:
+        stage = function_source('scripts/late/security.sh', 'configure_target_fail2ban')
+        for enabled in ('true', 'false'):
+            with self.subTest(enabled=enabled):
+                result = self.shell('''
+installer_operation_context_repo() { printf 'context:%s\n' "$3"; }
+runtime_apply_ssh_from_classes() { SSH_SERVER_ENABLED=''' + enabled + '''; }
+installer_selected_class_reference_is_selected() { exit 99; }
+installer_repo_file_value() { printf '%s\n' "$1"; }
+installer_repo_asset_path() { printf '%s/%s\n' "$1" "$2"; }
+install() { :; }
+stage_target_asset() { :; }
+render_target_asset_with_placeholder_map() { :; }
+normalize_target_tmpfiles_directory_policy() { :; }
+run_in_target() { printf 'target:%s\n' "$1"; }
+stage_target_systemd_unit_enabled() { printf 'enable:%s\n' "$1"; }
+security_mask_target_systemd_unit_if_available() { printf 'mask:%s\n' "$1"; }
+TARGET_ROOT=$PWD
+DIR_ETC=/etc
+DIR_SYSTEMD_SYSTEM_FAIL2BAN_DROPIN=/etc/systemd/system/fail2ban.service.d
+''' + stage + '\nconfigure_target_fail2ban\n')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('context:configure_target_fail2ban', result.stdout)
+                if enabled == 'true':
+                    self.assertIn('target:validate Fail2ban configuration', result.stdout)
+                    self.assertIn('enable:fail2ban.service', result.stdout)
+                else:
+                    self.assertNotIn('target:validate Fail2ban configuration', result.stdout)
+                    self.assertIn('mask:fail2ban.service', result.stdout)
+
+    def test_fail2ban_preserves_a_failed_ssh_policy_status(self) -> None:
+        stage = function_source('scripts/late/security.sh', 'configure_target_fail2ban')
+        result = self.shell('''
+installer_operation_context_repo() { :; }
+runtime_apply_ssh_from_classes() { return 42; }
+install() { printf 'unexpected publication\n'; exit 99; }
+''' + stage + '\nconfigure_target_fail2ban\n')
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertEqual(result.stdout, '')
+
+    def test_selected_software_worker_reports_completion_only_after_success(self) -> None:
+        stage = function_source('scripts/late/software.sh.tmpl', 'software_run_selected_app')
+        # Unlike sourced modules, this entrypoint has executable top-level
+        # installation work between definitions. Keep all of it out of fixtures.
+        stage = stage.split('\nif [ "$software_scx_only"', 1)[0]
+        for status in (0, 37):
+            with self.subTest(status=status):
+                result = self.shell('''
+installer_class_selected_any() { return 0; }
+installer_operation_context_repo() { printf 'context:%s\n' "$3"; }
+software_info() { printf '%s\n' "$*"; }
+software_warn() { printf '%s\n' "$*" >&2; }
+software_fatal() { printf '%s\n' "$*" >&2; exit 1; }
+fixture_worker() { return ''' + str(status) + '''; }
+target_root=$PWD
+work_dir=/unused-private-fixture-state
+installed=false
+''' + stage + '\nsoftware_run_selected_app role/desktop/full Fixture fixture_worker installed\n'
+                    + 'printf "installed:%s\\n" "$installed"\n')
+                self.assertIn('context:install_managed_application:fixture_worker', result.stdout)
+                self.assertIn('starting Fixture', result.stdout)
+                if status == 0:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn('completed Fixture', result.stdout)
+                    self.assertIn('installed:true', result.stdout)
+                else:
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertNotIn('completed Fixture', result.stdout)
+                    self.assertIn('status=37', result.stderr)
+
+    def test_software_logs_use_the_shared_console_sink(self) -> None:
+        source = '\n'.join(function_source('scripts/late/software.sh.tmpl', name)
+                           for name in ('software_info', 'software_warn'))
+        result = self.shell('''
+installer_info() { printf 'info:%s\n' "$*"; }
+installer_warn() { printf 'warning:%s\n' "$*"; }
+''' + source + '\nsoftware_info Fixture\nsoftware_warn Fixture\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'info:Fixture\nwarning:Fixture\n')
+        self.assertEqual(result.stderr, '')
+
     def test_file_context_keeps_three_argument_line_and_operation(self) -> None:
         function = function_source('scripts/common/modules/runtime-console.sh',
                                    'installer_operation_context_repo')

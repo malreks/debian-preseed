@@ -203,9 +203,10 @@ btrfs_late_command_mark() {
   elif command -v installer_operation_context >/dev/null 2>&1; then
     installer_operation_context unknown "$1" "$2"
   fi
+  installer_info "Btrfs-family late operation: $2"
 }
 
-btrfs_late_command_mark 187 run_btrfs_family_late_command
+btrfs_late_command_mark 211 run_btrfs_family_late_command
 
 case "$HOOK_FAMILY" in
   btrfs|vm) ;;
@@ -213,27 +214,27 @@ case "$HOOK_FAMILY" in
 esac
 
 late_command_shared_init "$requested_seed_base" "$requested_host_profile" "$HOOK_FAMILY"
-btrfs_late_command_mark 207 run_btrfs_family_late_command
+btrfs_late_command_mark 219 run_btrfs_family_late_command
 
-btrfs_late_command_mark 211 late_command_fetch_common_assets
+btrfs_late_command_mark 220 late_command_fetch_common_assets
 late_command_fetch_common_assets_file FILE_RUNTIME_BTRFS
-btrfs_late_command_mark 213 late_command_load_runtime_env
+btrfs_late_command_mark 222 late_command_load_runtime_env
 late_command_load_runtime_env true
-btrfs_late_command_mark 215 fetch_grub_profiles_template
+btrfs_late_command_mark 224 fetch_grub_profiles_template
 late_command_fetch_repo_file FILE_TARGET_DEFAULT_GRUB_PROFILES_TMPL "$TMP_ENV_DIR/grub-profiles" grub-profiles.tmpl
-btrfs_late_command_mark 217 fetch_grub_profile_generator
+btrfs_late_command_mark 226 fetch_grub_profile_generator
 late_command_fetch_repo_file FILE_TARGET_GRUB_D_40_CUSTOM_TMPL "$TMP_ENV_DIR/grub-profile-generator" grub-profile-generator.tmpl
-btrfs_late_command_mark 219 late_command_load_host_env
+btrfs_late_command_mark 228 late_command_load_host_env
 late_command_load_host_env || return $?
 # Architecture policy owns the required EFI placeholders and must exist before
 # *any* renderer (including the unrelated runtime defaults) is called.
-btrfs_late_command_mark 223 late_command_require_class_policy_env
+btrfs_late_command_mark 232 late_command_require_class_policy_env
 late_command_require_class_policy_env || return $?
-btrfs_late_command_mark 225 install_target_runtime_defaults
+btrfs_late_command_mark 234 install_target_runtime_defaults
 install_target_runtime_defaults || return $?
-btrfs_late_command_mark 227 install_target_wpa_supplicant_runtime_policy
+btrfs_late_command_mark 236 install_target_wpa_supplicant_runtime_policy
 install_target_wpa_supplicant_runtime_policy || return $?
-btrfs_late_command_mark 229 installer_ensure_context_loaded
+btrfs_late_command_mark 238 installer_ensure_context_loaded
 installer_ensure_context_loaded "${SEED_BASE:-}"
 CPU_CLASS=$(installer_selected_class_for_purpose cpu 2>__INSTALLER_PATH_DIR_DEV__/null || printf '%s' "${INSTALLER_CPU_CLASS:-}")
 DISK_CLASS=$(installer_selected_class_for_purpose storage 2>__INSTALLER_PATH_DIR_DEV__/null || printf '%s' "${INSTALLER_DISK_CLASS:-}")
@@ -260,10 +261,10 @@ if [ "$NVIDIA_CLASS_SELECTED" = true ] && [ "$NVIDIA_GPU_DETECTED" != true ]; th
 fi
 info "late installer context: host_profile=${INSTALLER_HOST_PROFILE:-unset} selected_groups=${INSTALLER_SELECTED_GROUPS:-unset} selected_classes=${INSTALLER_SELECTED_CLASSES:-unset} cpu=${CPU_CLASS:-unset} disk=${DISK_CLASS:-unset} gpu=${GPU_CLASSES:-none} nvidia_class=${NVIDIA_CLASS_SELECTED} nvidia_gpu=${NVIDIA_GPU_DETECTED} timeshift_enabled=${TIMESHIFT_PROFILE_ENABLED} podman_class=${PODMAN_CLASS_SELECTED}"
 
-btrfs_late_command_mark 256 select_btrfs_hardware_policy
+btrfs_late_command_mark 265 select_btrfs_hardware_policy
 select_btrfs_hardware_policy
 
-btrfs_late_command_mark 259 runtime_apply_ssh_from_classes
+btrfs_late_command_mark 268 runtime_apply_ssh_from_classes
 runtime_apply_ssh_from_classes
 
 ensure_target_volatile_runtime_dirs() {
@@ -570,90 +571,90 @@ write_target_kernel_tunables() {
 
 
 
-btrfs_late_command_mark 722 write_target_fstab
+btrfs_late_command_mark 575 write_target_fstab
 write_target_fstab
-btrfs_late_command_mark 724 ensure_target_boot_mounts
+btrfs_late_command_mark 577 ensure_target_boot_mounts
 ensure_target_boot_mounts
-btrfs_late_command_mark 726 ensure_target_volatile_backing_mounts
+btrfs_late_command_mark 579 ensure_target_volatile_backing_mounts
 ensure_target_volatile_backing_mounts
-btrfs_late_command_mark 728 ensure_target_managed_runtime_storage_roots
+btrfs_late_command_mark 581 ensure_target_managed_runtime_storage_roots
 ensure_target_managed_runtime_storage_roots
-btrfs_late_command_mark 730 provision_target_identity
+btrfs_late_command_mark 583 provision_target_identity
 provision_target_identity
-btrfs_late_command_mark 732 stage_target_docs_index
+btrfs_late_command_mark 585 stage_target_docs_index
 stage_target_docs_index
-btrfs_late_command_mark 734 stage_target_account_shell_assets
+btrfs_late_command_mark 587 stage_target_account_shell_assets
 stage_target_account_shell_assets
-btrfs_late_command_mark 736 ensure_target_account_home_ownership
+btrfs_late_command_mark 589 ensure_target_account_home_ownership
 ensure_target_account_home_ownership
-btrfs_late_command_mark 738 install_target_account_shell_assets
+btrfs_late_command_mark 591 install_target_account_shell_assets
 install_target_account_shell_assets
-btrfs_late_command_mark 740 install_target_account_sudoers
+btrfs_late_command_mark 593 install_target_account_sudoers
 install_target_account_sudoers
-btrfs_late_command_mark 742 configure_target_shared_account_access
+btrfs_late_command_mark 595 configure_target_shared_account_access
 configure_target_shared_account_access
-btrfs_late_command_mark 744 repair_target_pkgsel_include_packages
+btrfs_late_command_mark 597 repair_target_pkgsel_include_packages
 repair_target_pkgsel_include_packages
-btrfs_late_command_mark 750 install_target_mullvad_vpn_if_selected
+btrfs_late_command_mark 599 install_target_mullvad_vpn_if_selected
 install_target_mullvad_vpn_if_selected
-btrfs_late_command_mark 752 stage_target_secure_boot_runtime_assets
+btrfs_late_command_mark 601 stage_target_secure_boot_runtime_assets
 stage_target_secure_boot_runtime_assets
-btrfs_late_command_mark 754 stage_target_xssh_helpers
+btrfs_late_command_mark 603 stage_target_xssh_helpers
 stage_target_xssh_helpers
-btrfs_late_command_mark 756 provision_target_ssh_client
+btrfs_late_command_mark 605 provision_target_ssh_client
 provision_target_ssh_client
-btrfs_late_command_mark 758 provision_target_git_ssh_identity
+btrfs_late_command_mark 607 provision_target_git_ssh_identity
 provision_target_git_ssh_identity
-btrfs_late_command_mark 760 configure_target_rootless_podman_if_selected
+btrfs_late_command_mark 609 configure_target_rootless_podman_if_selected
 configure_target_rootless_podman_if_selected
-btrfs_late_command_mark 762 sanitize_target_xfs_scrub_systemd_units
+btrfs_late_command_mark 611 sanitize_target_xfs_scrub_systemd_units
 sanitize_target_xfs_scrub_systemd_units
-btrfs_late_command_mark 764 install_target_wpa_supplicant_runtime_policy
+btrfs_late_command_mark 613 install_target_wpa_supplicant_runtime_policy
 install_target_wpa_supplicant_runtime_policy
-btrfs_late_command_mark 766 configure_target_smartmontools_defaults
+btrfs_late_command_mark 615 configure_target_smartmontools_defaults
 configure_target_smartmontools_defaults
-btrfs_late_command_mark 768 ensure_target_secure_boot_packages
+btrfs_late_command_mark 617 ensure_target_secure_boot_packages
 ensure_target_secure_boot_packages
-btrfs_late_command_mark 770 configure_target_btrfsmaintenance
+btrfs_late_command_mark 619 configure_target_btrfsmaintenance
 configure_target_btrfsmaintenance
-btrfs_late_command_mark 774 provision_target_ssh_server
+btrfs_late_command_mark 621 provision_target_ssh_server
 provision_target_ssh_server
-btrfs_late_command_mark 776 install_target_managed_network_handoff
+btrfs_late_command_mark 623 install_target_managed_network_handoff
 install_target_managed_network_handoff
-btrfs_late_command_mark 778 configure_target_apparmor_auditd
+btrfs_late_command_mark 625 configure_target_apparmor_auditd
 configure_target_apparmor_auditd
-btrfs_late_command_mark 780 install_target_firstboot_logger
+btrfs_late_command_mark 627 install_target_firstboot_logger
 install_target_firstboot_logger
-btrfs_late_command_mark 782 write_target_grub_dropins
+btrfs_late_command_mark 629 write_target_grub_dropins
 write_target_grub_dropins
-btrfs_late_command_mark 784 set_target_grub_default_entry
+btrfs_late_command_mark 631 set_target_grub_default_entry
 set_target_grub_default_entry
-btrfs_late_command_mark 786 write_target_kernel_tunables
+btrfs_late_command_mark 633 write_target_kernel_tunables
 write_target_kernel_tunables
-btrfs_late_command_mark 788 prepare_target_secure_boot_runtime
+btrfs_late_command_mark 635 prepare_target_secure_boot_runtime
 prepare_target_secure_boot_runtime
-btrfs_late_command_mark 790 sign_target_installed_kernel_modules
+btrfs_late_command_mark 637 sign_target_installed_kernel_modules
 sign_target_installed_kernel_modules
-btrfs_late_command_mark 792 dedupe_target_tmpfiles_legacy_lock
+btrfs_late_command_mark 639 dedupe_target_tmpfiles_legacy_lock
 dedupe_target_tmpfiles_legacy_lock
-btrfs_late_command_mark 794 enable_target_storage_units
+btrfs_late_command_mark 641 enable_target_storage_units
 enable_target_storage_units
-btrfs_late_command_mark 796 set_target_default_unit
+btrfs_late_command_mark 643 set_target_default_unit
 set_target_default_unit
-btrfs_late_command_mark 798 disable_stock_kernel_menu
+btrfs_late_command_mark 645 disable_stock_kernel_menu
 disable_stock_kernel_menu
 
 if target_exec_available; then
   # Regenerate signed kernels/initrds BEFORE discovering boot menu entries.
-  btrfs_late_command_mark 803 repair_target_installed_kernels
+  btrfs_late_command_mark 650 repair_target_installed_kernels
   repair_target_installed_kernels
-  btrfs_late_command_mark 805 require_target_grub_installed
+  btrfs_late_command_mark 652 require_target_grub_installed
   require_target_grub_installed
-  btrfs_late_command_mark 807 install_target_grub_profiles
+  btrfs_late_command_mark 654 install_target_grub_profiles
   install_target_grub_profiles
-  btrfs_late_command_mark 813 require_target_dualboot_os_prober_package
+  btrfs_late_command_mark 656 require_target_dualboot_os_prober_package
   require_target_dualboot_os_prober_package
-  btrfs_late_command_mark 815 run_target_grub_config_update
+  btrfs_late_command_mark 658 run_target_grub_config_update
   run_target_grub_config_update
   # This is the unconditional d-i late reset point: GRUB, shim, MokManager,
   # kernel/initrd and grub.cfg are complete before mokutil is called. Reset
@@ -663,20 +664,20 @@ if target_exec_available; then
   else
     installer_warn "MOK reset/boot preparation failed after GRUB installation; continuing installation"
   fi
-  btrfs_late_command_mark 825 sync_target_secure_boot_bundle_to_installer_usb
+  btrfs_late_command_mark 668 sync_target_secure_boot_bundle_to_installer_usb
   sync_target_secure_boot_bundle_to_installer_usb
-  btrfs_late_command_mark 827 close_target_secure_boot_state
+  btrfs_late_command_mark 670 close_target_secure_boot_state
   close_target_secure_boot_state
 fi
 
-  btrfs_late_command_mark 831 configure_target_dbus_broker
+  btrfs_late_command_mark 674 configure_target_dbus_broker
 configure_target_dbus_broker
-  btrfs_late_command_mark 833 prepare_target_deferred_tmpfs_roots
+  btrfs_late_command_mark 676 prepare_target_deferred_tmpfs_roots
 prepare_target_deferred_tmpfs_roots
-  btrfs_late_command_mark 835 prepare_target_volatile_mountpoints_for_first_boot
+  btrfs_late_command_mark 678 prepare_target_volatile_mountpoints_for_first_boot
 prepare_target_volatile_mountpoints_for_first_boot
-  btrfs_late_command_mark 837 stage_target_logging_foundation
+  btrfs_late_command_mark 680 stage_target_logging_foundation
 stage_target_logging_foundation || return $?
-  btrfs_late_command_mark 839 installer_archive_logs_to_target
+  btrfs_late_command_mark 682 installer_archive_logs_to_target
 installer_archive_logs_to_target copy || true
 }
