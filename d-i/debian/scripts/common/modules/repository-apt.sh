@@ -655,35 +655,46 @@ installer_render_logging_asset() (
 )
 
 installer_fetch_seed_path() (
+  # EXIT can run inside a nested fatal helper, whose positional arguments are
+  # different. Retain this acquisition's inputs for both execution and errors.
+  repository_fetch_seed_base=${1:-}
+  repository_fetch_source=${2:-}
+  repository_fetch_destination=${3:-}
+  repository_fetch_mode=${4:-0600}
   logging_fetch_work=
-  repository_fetch_step=load_source
+  repository_fetch_step=validate
   repository_fetch_status=0
   # The caller owns mandatory/optional policy. Report the original cause here
   # without publishing a terminal failure for a caller-handled fetch result.
-  trap 'repository_fetch_status=$?; trap - 0; if [ -n "$logging_fetch_work" ]; then rm -rf -- "$logging_fetch_work" || :; fi; if [ "$repository_fetch_status" -ne 0 ]; then installer_error "repository asset acquisition failed: status=${repository_fetch_status} step=${repository_fetch_step} source=$2 destination=$3 source_file=${INSTALLER_FAILURE_SOURCE:-unknown} line=${INSTALLER_FAILURE_LINE:-unknown} operation=${INSTALLER_FAILURE_OPERATION:-unknown}" || :; fi; exit "$repository_fetch_status"' 0
-  installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 637 load_asset_source
-  installer_load_source_library "$1" || exit "$?"
-  case "$2" in
+  trap 'repository_fetch_status=$?; trap - 0; if [ -n "$logging_fetch_work" ]; then rm -rf -- "$logging_fetch_work" || :; fi; if [ "$repository_fetch_status" -ne 0 ]; then installer_error "repository asset acquisition failed: status=${repository_fetch_status} step=${repository_fetch_step} source=${repository_fetch_source} destination=${repository_fetch_destination} source_file=${INSTALLER_FAILURE_SOURCE:-unknown} line=${INSTALLER_FAILURE_LINE:-unknown} operation=${INSTALLER_FAILURE_OPERATION:-unknown}" || :; fi; exit "$repository_fetch_status"' 0
+  if [ -z "$repository_fetch_source" ] || [ -z "$repository_fetch_destination" ]; then
+    installer_error 'repository asset source and destination must be nonempty' || :
+    exit 64
+  fi
+  repository_fetch_step=load_source
+  installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 676 load_asset_source
+  installer_load_source_library "$repository_fetch_seed_base" || exit "$?"
+  case "$repository_fetch_source" in
     "${DIR_HOOKS_TARGET}/"*|"${DIR_SCRIPTS_LATE}/"*|"${DIR_SCRIPTS_DESKTOP}/"*|"${DIR_SCRIPTS_FIRSTBOOT}/"*)
       # Fetch and rendering form one transaction; invalid data cannot replace
       # a destination with an unrendered source template.
-      mkdir -p "$(dirname "$3")" || exit "$?"
-      logging_fetch_work=$(mktemp -d "${3}.fetch-render.XXXXXX") || exit "$?"
+      mkdir -p "$(dirname "$repository_fetch_destination")" || exit "$?"
+      logging_fetch_work=$(mktemp -d "${repository_fetch_destination}.fetch-render.XXXXXX") || exit "$?"
       trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
       chmod 0700 "$logging_fetch_work" || exit "$?"
       repository_fetch_step=fetch
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 648 source_fetch
-      source_fetch "$1" "$2" "$logging_fetch_work/asset" "${4:-0600}" || exit "$?"
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 687 source_fetch
+      source_fetch "$repository_fetch_seed_base" "$repository_fetch_source" "$logging_fetch_work/asset" "$repository_fetch_mode" || exit "$?"
       repository_fetch_step=render_logging
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 651 installer_render_logging_asset
-      installer_render_logging_asset "$1" "$2" "$logging_fetch_work/asset" || exit "$?"
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 690 installer_render_logging_asset
+      installer_render_logging_asset "$repository_fetch_seed_base" "$repository_fetch_source" "$logging_fetch_work/asset" || exit "$?"
       repository_fetch_step=publish
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 654 publish_fetched_asset
-      mv -f -- "$logging_fetch_work/asset" "$3" || exit "$?" ;;
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 693 publish_fetched_asset
+      mv -f -- "$logging_fetch_work/asset" "$repository_fetch_destination" || exit "$?" ;;
     *)
       repository_fetch_step=fetch
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 658 source_fetch
-      source_fetch "$1" "$2" "$3" "${4:-0600}" || exit "$?" ;;
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 697 source_fetch
+      source_fetch "$repository_fetch_seed_base" "$repository_fetch_source" "$repository_fetch_destination" "$repository_fetch_mode" || exit "$?" ;;
   esac
 )
 

@@ -1513,7 +1513,11 @@ configure_target_nftables() {
   write_target_nftables_default_config "$selected_profile" "${requested_profile:-default}" "$selected_services" "$runtime_cidrs"
   # These are administrator state, not disposable generated policy. Seed them
   # once only. A suspicious existing path fails instead of being silently erased.
-  for local_state in __INSTALLER_PATH_DIR_ETC__/nftables/firewall-security.rules __INSTALLER_PATH_DIR_ETC__/nftables.d/95-firewall-security.nft; do
+  # Repository membership and installed paths have separate owners. In
+  # particular, the desktop policy source lives below its physical role root.
+  # Never reconstruct a source path by stripping the target path prefix.
+  installer_operation_context_repo FILE_LATE_SECURITY 1520 seed_persistent_firewall_state
+  while IFS='|' read -r local_state_selector local_state; do
     if [ -e "${TARGET_ROOT}${local_state}" ] || [ -L "${TARGET_ROOT}${local_state}" ]; then
       [ -f "${TARGET_ROOT}${local_state}" ] && [ ! -L "${TARGET_ROOT}${local_state}" ] ||
         installer_fatal "unsafe persistent firewall state: $local_state"
@@ -1522,9 +1526,13 @@ configure_target_nftables() {
         *) installer_fatal "unsafe persistent firewall state metadata: $local_state" ;;
       esac
     else
-      stage_target_asset "$(installer_repo_asset_path DIR_HOOKS_TARGET "${local_state#/}")" "$local_state" 0644
+      local_state_source=$(installer_repo_file_value "$local_state_selector") || return "$?"
+      stage_target_asset "$local_state_source" "$local_state" 0644 || return "$?"
     fi
-  done
+  done <<'EOF'
+FILE_TARGET_NFTABLES_FIREWALL_SECURITY|__INSTALLER_PATH_DIR_ETC__/nftables/firewall-security.rules
+FILE_TARGET_NFTABLES_D_95_FIREWALL_SECURITY_NFT|__INSTALLER_PATH_DIR_ETC__/nftables.d/95-firewall-security.nft
+EOF
 
   stage_target_asset \
     "$(installer_repo_file_value FILE_TARGET_UNIT_NFTABLES_SERVICE_D_OVERRIDE)" \

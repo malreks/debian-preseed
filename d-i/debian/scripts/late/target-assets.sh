@@ -171,11 +171,18 @@ publish_target_asset() (
   target_publish_step=validate
   target_publish_status=0
   trap 'target_publish_status=$?; trap - 0; if [ -n "$asset_work" ]; then rm -rf -- "$asset_work" || :; fi; if [ "$target_publish_status" -ne 0 ]; then installer_fatal_status "$target_publish_status" "target asset publication failed: step=${target_publish_step} kind=${asset_kind} source=${asset_source} target=${asset_target}"; fi' 0
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 180 validate_target_asset
+  # A failed command substitution can leave an empty source argument while
+  # the enclosing command still runs. Reject it before preparing or fetching
+  # any target path; stdin publication has its own explicit source contract.
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 178 validate_target_asset
+  if [ "$asset_kind" != stdin ] && [ -z "$asset_source" ]; then
+    installer_fatal 'target asset source is empty; repository selector resolution failed'
+    exit 1
+  fi
   case "$asset_mode" in [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
     *) installer_fatal "invalid target asset mode"; exit 1 ;; esac
   target_publish_step=prepare_destination
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 185 prepare_target_asset_destination
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 186 prepare_target_asset_destination
   asset_destination=$(target_asset_host_path "$asset_target") || exit "$?"
   ensure_target_asset_parent "$asset_target" || exit "$?"
   [ ! -d "$asset_destination" ] || { installer_fatal "asset destination is a directory"; exit 1; }
@@ -184,14 +191,14 @@ publish_target_asset() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   target_publish_step=acquire
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 193 acquire_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 195 acquire_target_asset
   if [ "$asset_kind" = stdin ]; then
     cat >"$asset_work/payload" || exit "$?"
   else
     (fetch_hook "$asset_source" "$asset_work/payload") || exit "$?"
   fi
   target_publish_step=render
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 200 render_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 202 render_target_asset
   case "$asset_kind" in
     plain|stdin)
       # Plain target assets may still contain canonical path tokens.  Render
@@ -224,7 +231,7 @@ publish_target_asset() (
     *) installer_fatal "invalid target asset operation"; exit 1 ;;
   esac
   target_publish_step=publish
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 228 publish_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 235 publish_target_asset
   chmod "$asset_mode" "$asset_work/payload" || exit "$?"
   mv -fT -- "$asset_work/payload" "$asset_destination" || exit "$?"
 )

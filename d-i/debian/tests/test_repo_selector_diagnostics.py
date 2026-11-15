@@ -113,6 +113,118 @@ installer_fatal_status() { printf '%s\n' unexpected-terminal-failure >&2; exit 9
         self.assertIn('status=43 step=load_source source=asset.tmpl destination=destination', result.stderr)
         self.assertNotIn('unexpected-terminal-failure', result.stderr)
 
+    def test_nested_fetch_exit_retains_original_acquisition_arguments(self) -> None:
+        function = function_source('scripts/common/modules/repository-apt.sh',
+                                   'installer_fetch_seed_path')
+        for boundary in ('load', 'fetch'):
+            with self.subTest(boundary=boundary):
+                result = self.shell('''
+DIR_HOOKS_TARGET=hooks/target
+DIR_SCRIPTS_LATE=scripts/late
+DIR_SCRIPTS_DESKTOP=scripts/desktop
+DIR_SCRIPTS_FIRSTBOOT=scripts/firstboot
+installer_operation_context_repo() { :; }
+fixture_nested_fatal() { exit 43; }
+installer_load_source_library() {
+  [ "$FIXTURE_BOUNDARY" != load ] || fixture_nested_fatal unrelated wrong-source wrong-destination
+}
+source_fetch() { fixture_nested_fatal unrelated wrong-source wrong-destination; }
+installer_error() { printf '%s\n' "$*" >&2; }
+''' + f'FIXTURE_BOUNDARY={boundary}\n' + function +
+                    '\ninstaller_fetch_seed_path fixture-source asset.tmpl destination 0600\n')
+                self.assertEqual(result.returncode, 43, result.stderr)
+                self.assertIn('source=asset.tmpl destination=destination', result.stderr)
+                self.assertNotIn('wrong-source', result.stderr)
+                self.assertNotIn('wrong-destination', result.stderr)
+
+    def test_empty_fetch_inputs_fail_before_loading_source_library(self) -> None:
+        function = function_source('scripts/common/modules/repository-apt.sh',
+                                   'installer_fetch_seed_path')
+        for arguments in ('fixture-source "" destination', 'fixture-source asset.tmpl ""'):
+            with self.subTest(arguments=arguments):
+                result = self.shell('''
+installer_operation_context_repo() { :; }
+installer_load_source_library() { printf '%s\n' unexpected-source-load >&2; exit 99; }
+installer_error() { printf '%s\n' "$*" >&2; }
+''' + function + '\ninstaller_fetch_seed_path ' + arguments + ' 0600\n')
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertIn('step=validate', result.stderr)
+                self.assertNotIn('unexpected-source-load', result.stderr)
+
+    def test_empty_publication_source_fails_before_destination_preparation(self) -> None:
+        function = function_source('scripts/late/target-assets.sh', 'publish_target_asset')
+        result = self.shell('''
+installer_operation_context_repo() { :; }
+installer_fatal() { printf '%s\n' "$*" >&2; exit 43; }
+installer_fatal_status() { fixture_status=$1; shift; printf '%s\n' "$*" >&2; exit "$fixture_status"; }
+target_asset_host_path() { printf '%s\n' unexpected-target-preparation >&2; exit 99; }
+''' + function + '\npublish_target_asset "" /fixture-destination 0644 plain\n')
+        self.assertEqual(result.returncode, 43, result.stderr)
+        self.assertIn('source is empty', result.stderr)
+        self.assertNotIn('unexpected-target-preparation', result.stderr)
+
+    def firewall_seed_program(self) -> str:
+        source = (SEED / 'scripts/late/security.sh').read_text(encoding='utf-8')
+        start = source.index('  # These are administrator state, not disposable generated policy.')
+        end = source.index('\n  stage_target_asset \\\n    "$(installer_repo_file_value FILE_TARGET_UNIT_NFTABLES_SERVICE_D_OVERRIDE)"', start)
+        block = source[start:end].replace('__INSTALLER_PATH_DIR_ETC__', '/etc')
+        values = repository_selectors()
+        keys = ('FILE_TARGET_NFTABLES_FIREWALL_SECURITY',
+                'FILE_TARGET_NFTABLES_D_95_FIREWALL_SECURITY_NFT')
+        catalog_path = self.path / 'selectors.tsv'
+        catalog_path.write_text(''.join(key + '\t' + values[key] + '\n' for key in keys))
+        return '''
+TARGET_ROOT=$PWD
+installer_operation_context_repo() { :; }
+installer_fatal() { printf '%s\n' "$*" >&2; exit 43; }
+installer_metadata_value() { printf '%s\n' 0:0:644:1; }
+installer_repo_file_value() {
+  [ "${FIXTURE_MISSING_SELECTOR:-false}" = false ] || return 44
+  awk -F '\t' -v key="$1" '$1==key {print $2; found=1; exit} END {if(!found) exit 44}' selectors.tsv
+}
+stage_target_asset() {
+  case "$2" in /etc/nftables/firewall-security.rules|/etc/nftables.d/95-firewall-security.nft) ;; *) exit 92 ;; esac
+  printf '%s|%s|%s\n' "$1" "$2" "$3" >>published.tsv
+}
+seed_firewall_state() {
+''' + block + '\n}\nseed_firewall_state\n'
+
+    def test_firewall_state_uses_both_physical_source_selectors(self) -> None:
+        result = self.shell(self.firewall_seed_program())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = (self.path / 'published.tsv').read_text().splitlines()
+        values = repository_selectors()
+        self.assertEqual(rows, [
+            values['FILE_TARGET_NFTABLES_FIREWALL_SECURITY'] +
+            '|/etc/nftables/firewall-security.rules|0644',
+            values['FILE_TARGET_NFTABLES_D_95_FIREWALL_SECURITY_NFT'] +
+            '|/etc/nftables.d/95-firewall-security.nft|0644',
+        ])
+
+    def test_firewall_state_preserves_existing_bytes_and_rejects_symlink(self) -> None:
+        program = self.firewall_seed_program()
+        first = self.path / 'etc/nftables/firewall-security.rules'
+        second = self.path / 'etc/nftables.d/95-firewall-security.nft'
+        for path in (first, second):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('existing administrator state\n')
+        result = self.shell(program)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.path / 'published.tsv').exists())
+        self.assertEqual(first.read_text(), 'existing administrator state\n')
+        second.unlink()
+        second.symlink_to(first)
+        result = self.shell(program)
+        self.assertEqual(result.returncode, 43, result.stderr)
+        self.assertTrue(second.is_symlink())
+        self.assertEqual(first.read_text(), 'existing administrator state\n')
+        self.assertFalse((self.path / 'published.tsv').exists())
+
+    def test_missing_firewall_selector_stops_before_publication(self) -> None:
+        result = self.shell('FIXTURE_MISSING_SELECTOR=true\n' + self.firewall_seed_program())
+        self.assertEqual(result.returncode, 44, result.stderr)
+        self.assertFalse((self.path / 'published.tsv').exists())
+
     def test_required_account_fetch_retains_original_status(self) -> None:
         function = function_source('scripts/common/modules/profiles.sh',
                                    'installer_fetch_account_env')
