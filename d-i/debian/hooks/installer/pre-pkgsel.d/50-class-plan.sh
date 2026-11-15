@@ -33,7 +33,8 @@ while IFS='|' read -r stage_id stage_phase stage_selector || [ -n "$stage_id" ];
   if installer_phase_stage_begin pre-pkgsel "$stage_id"; then
     installer_info "starting pre-pkgsel stage ${stage_id} (${stage_selector})"
     installer_operation_context_repo "$stage_selector" 1 "pre_pkgsel:${stage_id}"
-    destination="${runtime_dir}/bootstrap/${stage_id}.sh"
+    destination=$(installer_pre_pkgsel_stage_path "$stage_id") ||
+      installer_fatal 'invalid pre-pkgsel stage destination'
     installer_fetch_file "$seed_base" "$(installer_repo_file_value "$stage_selector")" "$destination" 0755
     if installer_apply_scalar_placeholders "$destination" "${destination}.rendered"; then
       :

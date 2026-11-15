@@ -80,6 +80,8 @@ check_absent_path() {
 
 desktop_read_selected_role() (
   # The installer receipt is restricted non-secret data, never shell input.
+  receipt_field=${1:-role}
+  case "$receipt_field" in role|suite) ;; *) return 1 ;; esac
   receipt=__INSTALLER_PATH_FILE_INSTALLER_CLASSES__
   [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
   receipt_metadata=$(find -P "$receipt" -maxdepth 0 -printf '%U:%G:%m:%n:%s') || return 1
@@ -87,16 +89,17 @@ desktop_read_selected_role() (
   receipt_size=${receipt_metadata##*:}
   case "$receipt_size" in ''|*[!0-9]*) return 1 ;; esac
   [ "$receipt_size" -gt 0 ] && [ "$receipt_size" -le 262144 ] || return 1
-  awk -F '\t' '
+  awk -F '\t' -v field="$receipt_field" '
     NR>4096 || length($0)>4096 {bad=1; exit 1}
     $1=="format" {if(NF!=2 || $2!="2" || ++formats!=1) bad=1}
     $1=="family" {if(NF!=2 || $2!="desktop" || ++families!=1) bad=1}
+    $1=="suite" {if(NF!=2 || $2 !~ /^(forky|trixie)$/ || ++suites!=1) bad=1; suite=$2}
     $1=="role" {if(NF!=2 || ++roles!=1) bad=1; role=$2}
     $1=="class" && $2 ~ /^role\// {if(NF!=2 || ++classes!=1) bad=1; selected=substr($2,6)}
     END {
-      if(bad || formats!=1 || families!=1 || roles!=1 || classes!=1 || selected!=role ||
+      if(bad || formats!=1 || families!=1 || suites!=1 || roles!=1 || classes!=1 || selected!=role ||
          role !~ /^desktop\/(base|medium|full)$/) exit 1
-      print role
+      print (field=="suite" ? suite : role)
     }
   ' "$receipt"
 )
@@ -342,7 +345,8 @@ validate_desktop_role() {
 
   record "desktop_role=selected"
   log_line validation info desktop "desktop_role=selected"
-  if desktop_selected_role=$(desktop_read_selected_role); then
+  if desktop_selected_role=$(desktop_read_selected_role) &&
+     desktop_selected_suite=$(desktop_read_selected_role suite); then
     record "desktop_class=${desktop_selected_role}"
   else
     record 'FAIL desktop-class-receipt: missing, unsafe or inconsistent selected class'
@@ -782,11 +786,20 @@ printf "desktop_kanshi_verification enabled=%s\n" "$enabled"
       [ ! -L __INSTALLER_PATH_DIR_TMP__/.X11-unix ]
       [ "$(find -P __INSTALLER_PATH_DIR_TMP__/.X11-unix -maxdepth 0 -printf "%U:%G:%m")" = "0:0:1777" ]
     ' sh
-  check_absent_path desktop-public-xwayland-binary __INSTALLER_PATH_DIR_USR_BIN__/Xwayland
-  check_command desktop-public-xwayland-package-absent \
-    __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+  if [ "$desktop_selected_suite" = trixie ]; then
+    check_command desktop-trixie-required-xwayland-dependencies \
+      __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+        for package in xwayland xserver-common x11-xkb-utils; do
+          [ "$(dpkg-query -W -f="\${Status}" "$package")" = "install ok installed" ] || exit 1
+        done
+      ' sh
+  else
+    check_absent_path desktop-public-xwayland-binary __INSTALLER_PATH_DIR_USR_BIN__/Xwayland
+    check_command desktop-public-xwayland-package-absent \
+      __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
       [ "$(dpkg-query -W -f="\${Status}" xwayland 2>__INSTALLER_PATH_DIR_DEV__/null || true)" != "install ok installed" ]
-    ' sh
+      ' sh
+  fi
   check_command desktop-pool-root-metadata \
     __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
       [ -d __INSTALLER_PATH_DIR_POOL__ ]

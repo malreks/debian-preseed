@@ -28,7 +28,7 @@ cuda_prepkgsel_fatal() {
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib ""
 TMP_ENV_DIR=${INSTALLER_CUDA_PREPKGSEL_ENV_DIR:-${DIR_INSTALLER_PRE_PKGSEL_ENV}/cuda-legacy}
-CUDA_FRAGMENT_REL=$(installer_repo_file_value FILE_CLASS_OPTIONAL_CUDA_LEGACY)
+CUDA_FRAGMENT_REL=$(installer_repo_file_value FILE_CLASS_OPTIONAL_NVIDIA_LEGACY)
 
 LOG="$(installer_runtime_log_file)"
 INSTALLER_DEBUG_LOGS=1
@@ -50,8 +50,8 @@ if ! installer_cuda_legacy_selected 2>/dev/null; then
   exit 0
 fi
 
-# CUDA userspace/compiler packages are useful on build hosts without a GPU.
-# Explicit class selection is authoritative; PCI detection must not skip them.
+# The validated class plan requires the matching legacy driver and hardware.
+# Do not re-detect hardware here and silently skip an already selected stage.
 
 install -d -m 0700 "$TMP_ENV_DIR"
 bootstrap_source_common_support_libs "$SEED_BASE" "$TMP_ENV_DIR" fetch hook target || {

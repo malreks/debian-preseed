@@ -921,6 +921,23 @@ def compile_classes(sources: dict[str, bytes]) -> tuple[dict[str, bytes], dict[s
                         'Description': 'explicit host profile ' + profile['id'],
                         'HostProfilePrefix': profile['family'], 'HostFamily': profile['filesystem'],
                         'HookFamily': profile['filesystem']})
+    # Early selection validation and the frozen planner consume the same
+    # physical dispatch constraints. Do not leave RequiresClasses empty while
+    # only the later graph knows a toolkit requires an explicit driver class.
+    for record in records:
+        ref = record['Group'] + '/' + record['Name']
+        if ref not in suite_classes['forky']:
+            continue
+        for source_field, registry_field in (('requires', 'RequiresClasses'),
+                                              ('conflicts', 'RejectedClasses')):
+            constraint = suite_classes['forky'][ref][source_field]
+            if constraint != suite_classes['trixie'][ref][source_field]:
+                raise ValueError(ref + ': suite dispatch constraints differ')
+            previous = record.get(registry_field, '').split()
+            if previous and previous != constraint:
+                raise ValueError(ref + ': registry duplicates a different dispatch constraint')
+            if constraint:
+                record[registry_field] = ' '.join(constraint)
     table = ['manifest\tversion\t8', 'manifest\tclass_token_formats\tcanonical']
     state = ['[manifest]', 'version=8', 'class_token_formats=canonical', '']
     def cells(values):

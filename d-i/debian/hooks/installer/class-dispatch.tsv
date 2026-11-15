@@ -1,8 +1,8 @@
 format	1
 class	role/desktop/base,role/desktop/medium,role/desktop/full,role/server/github-actions,role/server/gitlab-cicd,role/server/devops	amd64	-	-
 class	role/server/technitium	amd64	-	role/server/github-actions,role/server/gitlab-cicd,role/server/devops
-class	optional/cuda	amd64	-	-
-class	optional/cuda-legacy	amd64	-	-
+class	optional/cuda	amd64	optional/nvidia	optional/cuda-legacy,optional/nvidia-legacy
+class	optional/cuda-legacy	amd64	optional/nvidia-legacy	optional/cuda,optional/nvidia
 class	optional/nvidia	amd64	-	optional/nvidia-legacy
 class	optional/nvidia-legacy	amd64	-	optional/nvidia
 class	arch/arm64,cpu/generic-arm64,kernel/arm64	arm64	-	-

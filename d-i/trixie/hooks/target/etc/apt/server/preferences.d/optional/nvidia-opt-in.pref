@@ -3,7 +3,7 @@
 # vendor userspace libraries are opt-in. This policy is staged only when no
 # NVIDIA class is both selected and backed by detected NVIDIA display hardware.
 
-Package: firmware-nvidia*:any nvidia*:any libnvidia*:any libcuda*:any libnvcuvid*:any libnvoptix*:any xserver-xorg-video-nvidia:any glx-alternative-nvidia:any
+Package: firmware-nvidia*:any nvidia*:any libnvidia*:any libegl-nvidia*:any libgles-nvidia*:any libglx-nvidia*:any libcudadebugger*:any libcuda*:any libnvcuvid*:any libnvoptix*:any xserver-xorg-video-nvidia:any glx-alternative-nvidia:any
 Pin: version *
 Pin-Priority: -1
 

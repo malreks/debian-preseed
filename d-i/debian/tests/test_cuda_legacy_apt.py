@@ -181,7 +181,9 @@ installer_cuda_refresh_target_apt
                                   'Verify-Peer=false', 'sequoia.config'):
                     self.assertNotIn(forbidden, text)
 
-    def test_selected_cuda_stack_is_not_gated_on_pci_detection(self):
+    def test_selected_cuda_stage_does_not_silently_filter_a_validated_plan(self):
+        # Class selection checks the matching NVIDIA class and hardware before
+        # partitioning. A later helper must not silently skip that frozen plan.
         path = SEED/'scripts/preseed/answers.sh'
         definition = payload_read_text(path).split('selected_fragment_applies_to_detected_hardware() {', 1)[1].split('\nselected_arch_class()', 1)[0]
         result = shell('selected_fragment_applies_to_detected_hardware() {' + definition +
@@ -292,7 +294,7 @@ refresh_non_cuda_target_metadata apt-get update
             self.assertEqual(payload_read_text(self.source), rendered_source())
             self.assertFalse(payload_source_exists(Path(str(self.source)+'.installer-disabled')))
 
-    def test_cleanup_honors_target_root_and_preserves_unrelated_sources(self):
+    def test_cleanup_retains_signed_driver_repository_and_unrelated_sources(self):
         self.source.parent.mkdir(parents=True)
         self.source.write_text(rendered_source())
         other = self.source.parent/'debian.sources'; other.write_text('debian policy\n')
@@ -302,7 +304,11 @@ cuda_legacy_cleanup_target_apt_state
         ''', self.env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(payload_source_exists(self.source))
-        self.assertNotIn(REPO, payload_read_text(self.source))
+        self.assertIn(REPO, payload_read_text(self.source))
+        self.assertIn(f'signed-by={KEY_PATH}', payload_read_text(self.source))
+        for option in ('trusted=yes', 'allow-insecure=yes', 'allow-weak=yes',
+                       'check-valid-until=no', 'check-date=no'):
+            self.assertNotIn(option, payload_read_text(self.source))
         self.assertEqual(payload_read_text(other), 'debian policy\n')
 
     def test_no_global_authentication_or_tls_bypass_was_added(self):

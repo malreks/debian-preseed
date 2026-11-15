@@ -33,7 +33,7 @@ function merge_answer(row, key,value,words,count,i,slot,field,identity) {
   if(answer_owner[row]=="d-i" && answer_question[row] ~ /^apt-setup\/local[0-9]+\//) {
     # CUDA-legacy's explicit authentication exception is owned by its selected
     # apt-setup/pre-pkgsel hooks, never by the generic local-repository generator.
-    if(answer_class[row]=="optional/cuda-legacy") return
+    if(answer_class[row]=="optional/nvidia-legacy" && ("optional/cuda-legacy" in selected)) return
     slot=answer_question[row]; sub(/^apt-setup\/local/,"",slot); sub(/\/.*/,"",slot)
     field=answer_question[row]; sub(/^apt-setup\/local[0-9]+\//,"",field)
     identity=answer_class[row] SUBSEP slot
@@ -110,6 +110,14 @@ END {
   }
   add("common.cfg"); add("fragments/network.cfg"); add("fragments/partman.cfg"); add("fragments/apt.cfg")
   count=split(refs,words," ")
+  # Selection requirements are explicit opt-ins, not permission to add a
+  # hardware driver implicitly while expanding the frozen class plan.
+  for(i=1;i<=count;i++) if(words[i]!="") explicit_refs[words[i]]=1
+  for(ref in explicit_refs) {
+    required_count=split(requires[ref],required_words,",")
+    for(i=1;i<=required_count;i++) if(required_words[i]!="" && !(required_words[i] in explicit_refs))
+      fail("selected class " ref " requires selected class " required_words[i])
+  }
   for(i=1;i<=count;i++) if(words[i]!="") add(words[i])
   # Profile-enabled desktop package policy is an ordinary suite fragment.
   if(profile_ssh=="true" && family=="desktop") add("fragments/ssh.cfg")

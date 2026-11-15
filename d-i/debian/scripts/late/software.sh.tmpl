@@ -283,7 +283,8 @@ software_update_service=__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/apt-repo-local-sof
 software_update_timer=__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/apt-repo-local-software-update.timer
 software_notify_service=__INSTALLER_PATH_DIR_SYSTEMD_USER__/apt-repo-local-software-notify.service
 software_notify_path=__INSTALLER_PATH_DIR_SYSTEMD_USER__/apt-repo-local-software-notify.path
-temporary_unshare_hook=__INSTALLER_PATH_DIR_USR_LIB__/pre-pkgsel.d/89temporary-unshare
+temporary_unshare_hook=$(installer_pre_pkgsel_stage_path installer.namespace) ||
+  software_fatal "temporary unshare stage destination is invalid"
 temporary_unshare_path=__INSTALLER_PATH_DIR_USR_BIN__/unshare
 temporary_unshare_divert_path=__INSTALLER_PATH_DIR_USR_BIN__/unshare.installer-real
 temporary_unshare_state_path=__INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/temporary-unshare-shim
@@ -1523,7 +1524,8 @@ software_ensure_temporary_unshare() {
   target_unshare_divert="${target_root}${temporary_unshare_divert_path}"
   target_unshare_state="${target_root}${temporary_unshare_state_path}"
 
-  [ -x "$temporary_unshare_hook" ] ||
+  [ -f "$temporary_unshare_hook" ] && [ ! -L "$temporary_unshare_hook" ] &&
+    [ -x "$temporary_unshare_hook" ] ||
     software_fatal "temporary unshare installer hook is unavailable: $temporary_unshare_hook"
   INSTALLER_TARGET_DIR="$target_root" "$temporary_unshare_hook" ||
     software_fatal "failed to activate the temporary unshare installer shim"

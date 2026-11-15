@@ -4,7 +4,10 @@
 # Debian ships Xwayland's common data in xserver-common. There is no separate
 # xwayland-common binary package.
 #
-# Xwayland, xserver-common, libxcb-cursor0, and x11-xkb-utils remain
+# Forky keeps Xwayland, xserver-common and x11-xkb-utils private. Trixie may
+# install those packages to satisfy native compositor/keyboard dependencies.
+# The private runtime and its application eligibility remain the same.
+# libxcb-cursor0 and the other private dependencies remain
 # SHA-256-pinned Debian Snapshot payloads. Xwayland-only X11/XCB libraries are
 # downloaded through authenticated APT metadata and extracted into
 # __INSTALLER_PATH_DIR_OPT__/xwayland without host installation. The private xkbcomp executable uses
@@ -469,6 +472,14 @@ desktop_xwayland_require_target_package() {
     desktop_xwayland_fail "target package is not installed for private Xwayland: ${xwayland_required_package}"
 }
 
+desktop_xwayland_suite_requires_public_runtime() {
+  case "${TARGET_SUITE:?target suite required}" in
+    trixie) return 0 ;;
+    forky) return 1 ;;
+    *) desktop_xwayland_fail "unsupported target suite for Xwayland dependency policy" ;;
+  esac
+}
+
 desktop_xwayland_prepare_xkbcomp_overlay() {
   xwayland_system_xkbcomp_host=${TARGET_ROOT}${DIR_USR_BIN}/xkbcomp
   xwayland_xkbcomp_source="${xwayland_extract_host}__INSTALLER_PATH_DIR_USR_BIN__/xkbcomp"
@@ -477,8 +488,8 @@ desktop_xwayland_prepare_xkbcomp_overlay() {
 
   [ -d ${TARGET_ROOT}${DIR_USR_BIN} ] && [ ! -L ${TARGET_ROOT}${DIR_USR_BIN} ] ||
     desktop_xwayland_fail "target __INSTALLER_PATH_DIR_USR_BIN__ is unavailable or unsafe for private Xwayland"
-  if [ -e "$xwayland_system_xkbcomp_host" ] ||
-    [ -L "$xwayland_system_xkbcomp_host" ]
+  if ! desktop_xwayland_suite_requires_public_runtime &&
+    { [ -e "$xwayland_system_xkbcomp_host" ] || [ -L "$xwayland_system_xkbcomp_host" ]; }
   then
     desktop_xwayland_fail \
       "target __INSTALLER_PATH_DIR_USR_BIN__/xkbcomp must remain absent; x11-xkb-utils must not be installed system-wide"
@@ -512,6 +523,14 @@ desktop_xwayland_prepare_xkbcomp_overlay() {
 }
 
 desktop_xwayland_assert_public_runtime_absent() {
+  if desktop_xwayland_suite_requires_public_runtime; then
+    # Native Trixie dependencies coexist with the unchanged private runtime.
+    # Neither package installation nor this check enables global Xwayland.
+    desktop_xwayland_require_target_package xwayland
+    desktop_xwayland_require_target_package xserver-common
+    desktop_xwayland_require_target_package x11-xkb-utils
+    return 0
+  fi
   # The in-target dpkg-query expands the format token; pass it literally.
   # shellcheck disable=SC2016
   xwayland_public_status=$(
@@ -530,6 +549,10 @@ dpkg-query -W -f="\${Status}" xwayland 2>__INSTALLER_PATH_DIR_DEV__/null || true
 }
 
 desktop_xwayland_remove_public_runtime() {
+  if desktop_xwayland_suite_requires_public_runtime; then
+    desktop_xwayland_assert_public_runtime_absent
+    return 0
+  fi
   run_in_target_quiet \
     "purge public Xwayland package" \
     __INSTALLER_PATH_DIR_USR_BIN__/env \

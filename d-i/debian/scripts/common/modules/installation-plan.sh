@@ -5,6 +5,13 @@ installer_class_plan_path() {
   printf '%s/installation-plan.tsv\n' "$(installer_runtime_state_dir)"
 }
 
+# A selected pre-pkgsel provider is published once by the frozen-plan dispatcher.
+# Late consumers must address that same stage instead of a retired d-i hook name.
+installer_pre_pkgsel_stage_path() {
+  case "${1:-}" in ''|*[!a-z0-9.-]*) return 1 ;; esac
+  printf '%s/bootstrap/%s.sh\n' "${DIR_INSTALLER_RUNTIME:?installer runtime required}" "$1"
+}
+
 installer_multiboot_profile_selected() {
   case "${INSTALLER_HOST_PROFILE_ENV_NAME:-}" in *-duo|*-trio) return 0 ;; esac
   return 1

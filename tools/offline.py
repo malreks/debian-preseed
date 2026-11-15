@@ -1016,7 +1016,7 @@ class AptPolicy:
                     raise ValueError('new optional APT policy needs an explicit staging rule')
                 self.optional_classes.update('optional/' + value for value in optional)
                 # Mirror installer_stage_suite_apt_preferences: immediate files,
-                # selected 30-nvidia, then 31-cuda (legacy wins if both selected).
+                # selected 30-nvidia, then its corresponding optional 31-cuda.
                 combinations = [()]
                 for value in optional:
                     combinations += [(*values, value) for values in list(combinations)]

@@ -209,8 +209,8 @@
       "classes": [
         "role/desktop/base"
       ],
-      "result": "block-before-partman",
-      "reason": "native Labwc depends on xwayland forbidden by the required X11 pin; no foreign-suite fallback"
+      "result": "accept-source-candidate-native-unverified",
+      "reason": "native Trixie compositor and keyboard dependencies are allowed; private Zoom/Discord runtime remains scoped"
     },
     {
       "id": "phase-claim-io-error",

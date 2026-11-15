@@ -518,7 +518,16 @@ installer_cuda_source_line() (
   [ "$suite" = / ] && [ -z "$components" ] || {
     installer_fatal 'legacy CUDA must use a flat archive with no components'; exit 1;
   }
-  printf 'deb [arch=amd64 signed-by=%s trusted=yes allow-insecure=yes allow-weak=yes allow-downgrade-to-insecure=yes check-valid-until=no check-date=no pdiffs=no lang=en] %s /\n' "$keyring" "$repository"
+  case "${4:-installer}" in
+    installer)
+      printf 'deb [arch=amd64 signed-by=%s trusted=yes allow-insecure=yes allow-weak=yes allow-downgrade-to-insecure=yes check-valid-until=no check-date=no pdiffs=no lang=en] %s /\n' "$keyring" "$repository"
+      ;;
+    persistent)
+      # The installer-only legacy exception never becomes an upgrade policy.
+      printf 'deb [arch=amd64 signed-by=%s pdiffs=no lang=en] %s /\n' "$keyring" "$repository"
+      ;;
+    *) installer_fatal 'unsupported legacy NVIDIA source lifetime'; exit 1 ;;
+  esac
 )
 
 installer_cuda_stage_target_key() (

@@ -1,5 +1,5 @@
 format	1
 forky	desktop	source-candidate	native-acceptance-unverified	Source implementation only; native acceptance remains unverified.
 forky	server	source-candidate	native-acceptance-unverified	Source implementation only; native acceptance remains unverified.
-trixie	desktop	blocked	trixie-labwc-x11-dependency	Native Trixie labwc depends on xwayland, excluded by this desktop policy. No foreign-suite fallback is permitted.
+trixie	desktop	source-candidate	native-acceptance-unverified	Source implementation only; native acceptance remains unverified.
 trixie	server	source-candidate	native-acceptance-unverified	Source implementation only; native acceptance remains unverified.

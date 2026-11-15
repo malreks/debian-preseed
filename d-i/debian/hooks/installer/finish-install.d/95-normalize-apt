@@ -194,6 +194,15 @@ remove_cdrom_repo_state() {
 }
 
 remove_cuda_legacy_repo_state() {
+  if installer_nvidia_legacy_selected; then
+    if installer_cuda_legacy_selected; then
+      # The source belongs to the driver class. End the temporary CUDA-only
+      # authentication exception before publishing the installed APT policy.
+      installer_cuda_stage_target_source "$(installer_cuda_repository_url)" / "" persistent || return "$?"
+    fi
+    log "retained selected legacy NVIDIA repository with normal signature verification"
+    return 0
+  fi
   sources_list="${TARGET}${DIR_APT}/sources.list"
   remaining_source=
 
@@ -244,11 +253,13 @@ target_is_mounted || exit 0
 installer_apt_dedupe_source_list "${TARGET}${DIR_APT}/sources.list"
 
 log "repairing and normalizing apt sources before apt modernize-sources"
-run_in_target "$FILE_INSTALLER_APT_NORMALIZE_SOURCES"
-
 rewrite_apt_http_to_https
 remove_cdrom_repo_state
+# End the installer-only legacy source policy before the normalizer moves
+# sources.list entries into vendor .sources files. Otherwise an old temporary
+# stanza and a new persistent stanza could disagree about authentication.
 remove_cuda_legacy_repo_state
+run_in_target "$FILE_INSTALLER_APT_NORMALIZE_SOURCES"
 log "running apt modernize-sources in target"
 run_in_target env DEBIAN_FRONTEND=noninteractive APT_LISTCHANGES_FRONTEND=none apt -y modernize-sources
 

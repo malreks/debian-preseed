@@ -1,5 +1,16 @@
 # Shared installer implementation checkpoint
 
+## 2026-11-15 installer hook, Trixie dependency and GPU-class correction
+
+The current source permits Trixie desktop plans with their native compositor
+and keyboard dependencies. CUDA requires its explicitly selected matching
+NVIDIA class; either driver class remains usable without a CUDA toolkit class.
+The pre-pkgsel namespace stage and late managed-software provisioning share
+one publication-path resolver. See [class selection](class-selection.md) and
+the [installer-repair validation record](../validation/installer-hooks-trixie-gpu-20261115.md). Older entries below describe
+their recorded snapshots; native installation and GPU acceptance remain
+unverified.
+
 This is work in progress. No installation, test runner, enrollment, publication,
 deployment, package operation, service operation or native policy check has run.
 The checkout started clean at `88a341c9d4b8864db5a63f79357eeaebbe92a821`.

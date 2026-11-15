@@ -2647,6 +2647,38 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
         if re.search(r'^sub apply\s*\{', vendor, re.M) or 'acquisition requires the native repository publisher' not in vendor:
             raise ValueError('vendor acquisition retains an unused direct publisher: ' + application)
     counts['vendor_native_publisher_guards'] = 3
+    constraints = {}
+    for line in members['catalog/compiled/class-plan.tsv'].decode().splitlines():
+        cells = line.split('\t')
+        if cells[0] == 'class':
+            constraints[cells[1], cells[2]] = (list(filter(None, cells[3].split(','))),
+                                             list(filter(None, cells[4].split(','))))
+    registry = configparser.ConfigParser(interpolation=None)
+    registry.read_string(members['catalog/compiled/class-registry.conf'].decode())
+    for toolkit, driver, other in (('cuda', 'nvidia', 'cuda-legacy'),
+                                    ('cuda-legacy', 'nvidia-legacy', 'cuda')):
+        wrong_driver = 'nvidia-legacy' if driver == 'nvidia' else 'nvidia'
+        rejected = ['optional/' + other, 'optional/' + wrong_driver]
+        for suite in ('forky', 'trixie'):
+            if constraints.get((suite, 'optional/' + toolkit)) != (['optional/' + driver], rejected):
+                raise ValueError('CUDA class loses its corresponding driver requirement/conflict')
+        section = registry['class.optional.' + toolkit]
+        if section.get('requires_classes') != 'optional/' + driver or section.get('rejected_classes') != ' '.join(rejected):
+            raise ValueError('early CUDA selection metadata differs from the frozen plan')
+    for driver, other_driver in (('nvidia', 'nvidia-legacy'), ('nvidia-legacy', 'nvidia')):
+        for suite in ('forky', 'trixie'):
+            if constraints.get((suite, 'optional/' + driver)) != ([], ['optional/' + other_driver]):
+                raise ValueError('NVIDIA driver-only selection is not independent of CUDA')
+        if registry['class.optional.' + driver].get('requires_classes', ''):
+            raise ValueError('early NVIDIA selection unexpectedly requires a toolkit class')
+    dispatcher = members['hooks/installer/pre-pkgsel.d/50-class-plan.sh'].decode()
+    software = members['scripts/late/software.sh.tmpl'].decode()
+    if ('installer_pre_pkgsel_stage_path "$stage_id"' not in dispatcher
+            or 'installer_pre_pkgsel_stage_path installer.namespace' not in software
+            or '/pre-pkgsel.d/89temporary-unshare' in software):
+        raise ValueError('managed software does not reuse the published namespace stage')
+    counts['cuda_driver_selection_contracts'] = 8
+    counts['temporary_unshare_stage_contracts'] = 1
     matrix = json.loads(products['support-matrix.json'])['tuples']
     roles = ('desktop/base','desktop/medium','desktop/full','server/github-actions',
              'server/gitlab-cicd','server/technitium','server/devops')
@@ -2663,11 +2695,21 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
             raise ValueError('server role combination plans are incomplete')
         for family in ('desktop', 'server'):
             preference = members[f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/x11.pref'].decode()
-            if not all(token in preference for token in (
-                    'xserver-xorg*', 'xwayland', 'xserver-common', 'xvfb',
+            required_exclusions = ['xserver-xorg*', 'xvfb',
                     'mesa-vulkan-drivers', 'vulkan-tools', 'vulkan-headers',
-                    'nvidia-vulkan-icd', 'Pin: version *', 'Pin-Priority: -1')):
-                raise ValueError('suite/family loses its universal system X11 exclusion')
+                    'nvidia-vulkan-icd', 'Pin: version *', 'Pin-Priority: -1']
+            if (suite, family) == ('trixie', 'desktop'):
+                forbidden = set(' '.join(re.findall(r'^Package: (.*)$', preference, re.M)).split())
+                if forbidden & {'xwayland', 'x11-xkb-utils', 'xserver-common'}:
+                    raise ValueError('Trixie desktop blocks a required native compositor/keyboard dependency')
+            else:
+                required_exclusions += ['xwayland', 'xserver-common']
+                if suite == 'forky':
+                    required_exclusions += ['x11-xkb-utils']
+                elif 'x11-xkb-utils' in set(' '.join(re.findall(r'^Package: (.*)$', preference, re.M)).split()):
+                    raise ValueError('Trixie server blocks Timeshift keyboard dependencies')
+            if not all(token in preference for token in required_exclusions):
+                raise ValueError('suite/family loses its system X.Org or Vulkan exclusion')
             xanmod = members[f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/15-kernel.pref'].decode()
             if ('Pin: release o=xanmod\nPin-Priority: 1001' not in xanmod
                     or 'Package: *\nPin: release o=xanmod\nPin-Priority: 100' not in xanmod):
@@ -2862,6 +2904,10 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
         system_x11 = {'dbus-x11', 'x11-xkb-utils', 'x11-xserver-utils', 'xauth',
                       'xinit', 'xterm', 'xwayland', 'xserver-common', 'xorg',
                       'xvfb', 'xnest', 'xserver-xephyr'}
+        if (plan['suite'], plan['family']) == ('trixie', 'desktop'):
+            system_x11 -= {'xwayland', 'x11-xkb-utils', 'xserver-common'}
+        elif plan['suite'] == 'trixie':
+            system_x11 -= {'x11-xkb-utils'}
         if names & system_x11 or any(name.startswith('xserver-xorg') for name in names):
             raise ValueError('tuple selects the forbidden system X11 runtime')
         if plan['family'] == 'desktop':

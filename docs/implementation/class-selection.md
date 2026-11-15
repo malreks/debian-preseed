@@ -54,10 +54,29 @@ class directories contain the plain kernel package fragments. The shared
 The generated minimum plans use the qualified v2 baseline; native CPU/boot
 acceptance remains unverified. Arm64 role installations remain unqualified.
 
-`optional/cuda`, `optional/cuda-legacy`, `optional/nvidia`,
-`optional/nvidia-legacy` may be selected together when their declared constraints and
-the actual hardware permit it. Modern and 580-series NVIDIA driver branches remain mutually exclusive.
-CUDA compiler selections are independent of a display-driver choice. Every server role lists the OpenSSH server packages. Desktop profiles add the
+`optional/cuda` requires an explicitly selected `optional/nvidia` class;
+`optional/cuda-legacy` requires `optional/nvidia-legacy`. Either NVIDIA class
+can be selected without CUDA. The driver branches, and therefore the two CUDA
+branches, are mutually exclusive. Missing or mismatched pairs fail before
+partitioning; detected NVIDIA display hardware remains mandatory. Repository
+declarations belong to the NVIDIA classes, so driver-only installations retain
+their channel. The current class uses NVIDIA's open kernel modules and matching
+Wayland/compute component packages, with the CUDA 13.5 compiler, libraries,
+development headers and command-line tools in the optional CUDA class. The
+580-series compatibility class and CUDA 12.8/12.9 remain separate. The temporary
+legacy installer source exception ends before finish-install publishes its
+normal signed repository for upgrades.
+
+Both suites permit desktop roles. Trixie desktop allows the native `xwayland`,
+`xserver-common` and `x11-xkb-utils` dependencies; its private Zoom/Discord
+runtime, fixed application eligibility and global compositor policy remain
+unchanged. Trixie servers allow `x11-xkb-utils` for the shared Timeshift
+dependency chain while retaining their Xwayland exclusion. Full X.Org sessions
+remain excluded. Forky's package exclusions
+remain in force. Runtime installation and GPU acceptance require separate
+native evidence.
+
+Every server role lists the OpenSSH server packages. Desktop profiles add the
 suite SSH package fragment only when `SSH_SERVER_ENABLE=true`; this boolean
 also controls configuration, authorization, detection and activation on both families.
 An explicit `-duo` or `-trio` profile selects multiboot and includes `os-prober`

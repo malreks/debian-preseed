@@ -1,7 +1,7 @@
-# The system X11/X.Org runtime is forbidden for every suite and role.
-# Client libraries do not create an X11 server or a login session.
+# Timeshift's Trixie libxklavier16 dependency requires x11-xkb-utils.
+# Keep Xwayland and the full X.Org server/login stack excluded on servers.
 
-Package: dbus-x11 x11-xkb-utils x11-xserver-utils xauth xinit xterm xwayland xserver-common xserver-xorg* xorg xvfb xnest xserver-xephyr
+Package: dbus-x11 x11-xserver-utils xauth xinit xterm xwayland xserver-common xserver-xorg* xorg xvfb xnest xserver-xephyr
 Pin: version *
 Pin-Priority: -1
 

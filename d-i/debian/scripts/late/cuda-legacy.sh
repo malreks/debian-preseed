@@ -22,7 +22,7 @@ cuda_legacy_fetch_fragment() {
   fragment_path=$(cuda_legacy_fragment_cache_path)
   if [ ! -s "$fragment_path" ]; then
     installer_fetch_file "$SEED_BASE" \
-      "$(installer_repo_file_value FILE_CLASS_OPTIONAL_CUDA_LEGACY)" \
+      "$(installer_repo_file_value FILE_CLASS_OPTIONAL_NVIDIA_LEGACY)" \
       "$fragment_path" 0600
   fi
   printf '%s\n' "$fragment_path"
@@ -98,12 +98,9 @@ cuda_legacy_prepare_target_apt_state() {
 }
 
 cuda_legacy_cleanup_target_apt_state() {
-  target_source_path="${INSTALLER_TARGET_DIR:-${TARGET_ROOT}}$(cuda_legacy_target_source_path)"
-  target_keyring_path="${INSTALLER_TARGET_DIR:-${TARGET_ROOT}}$(cuda_legacy_target_keyring_path)"
-
-  # Remove both the temporary source line and the scoped legacy key after the
-  # CUDA package repair has completed.
-  installer_cuda_remove_target_source || return "$?"
-  rm -f "$target_keyring_path" || return "$?"
-  installer_info "removed legacy CUDA target APT source and keyring after pkgsel/include repair"
+  # nvidia-legacy now owns this repository even when no toolkit is selected.
+  # Retain its scoped key and repository for upgrades, without the temporary
+  # installer authentication/date exception.
+  installer_cuda_stage_target_source "$(installer_cuda_repository_url)" / "" persistent || return "$?"
+  installer_info "retained signed legacy NVIDIA repository after pkgsel/include repair"
 }

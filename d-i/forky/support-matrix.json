@@ -211,9 +211,9 @@
       "mode": "fresh",
       "plan": "catalog/compiled/trixie/plans/desktop/base/amd64.json",
       "qualification": {
-        "id": "trixie-labwc-x11-dependency",
-        "reason": "Native Trixie labwc depends on xwayland, excluded by this desktop policy. No foreign-suite fallback is permitted.",
-        "status": "blocked"
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
       },
       "role": "desktop/base",
       "roles": [
@@ -229,9 +229,9 @@
       "mode": "fresh",
       "plan": "catalog/compiled/trixie/plans/desktop/full/amd64.json",
       "qualification": {
-        "id": "trixie-labwc-x11-dependency",
-        "reason": "Native Trixie labwc depends on xwayland, excluded by this desktop policy. No foreign-suite fallback is permitted.",
-        "status": "blocked"
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
       },
       "role": "desktop/full",
       "roles": [
@@ -247,9 +247,9 @@
       "mode": "fresh",
       "plan": "catalog/compiled/trixie/plans/desktop/medium/amd64.json",
       "qualification": {
-        "id": "trixie-labwc-x11-dependency",
-        "reason": "Native Trixie labwc depends on xwayland, excluded by this desktop policy. No foreign-suite fallback is permitted.",
-        "status": "blocked"
+        "id": "native-acceptance-unverified",
+        "reason": "Source implementation only; native acceptance remains unverified.",
+        "status": "source-candidate"
       },
       "role": "desktop/medium",
       "roles": [
