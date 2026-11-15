@@ -654,6 +654,29 @@ bootstrap_require_seed_url_base() {
 
 bootstrap_fetch_seed_file() (
   bootstrap_load_source_library "$1" || exit "$?"
+  bootstrap_path_destination=$3
+  bootstrap_path_work=
+  case "$2" in
+    "${DIR_SCRIPTS_LATE:-}/"*|"${DIR_SCRIPTS_DESKTOP:-}/"*|"${DIR_SCRIPTS_FIRSTBOOT:-}/"*|"${DIR_HOOKS_TARGET:-}/"*)
+      # Keep the previous destination intact until acquisition and rendering
+      # both succeed. The private sibling also bounds cleanup to this fetch.
+      bootstrap_path_parent=$(dirname "$bootstrap_path_destination") || exit "$?"
+      mkdir -p "$bootstrap_path_parent" || exit "$?"
+      bootstrap_path_work=$(mktemp -d "$bootstrap_path_parent/.bootstrap-asset.XXXXXX") || exit "$?"
+      bootstrap_path_cleanup() {
+        bootstrap_cleanup_status=$?
+        trap - 0
+        if ! rm -rf -- "$bootstrap_path_work"; then
+          [ "$bootstrap_cleanup_status" -ne 0 ] || bootstrap_cleanup_status=125
+        fi
+        exit "$bootstrap_cleanup_status"
+      }
+      trap bootstrap_path_cleanup 0
+      trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+      chmod 0700 "$bootstrap_path_work" || exit "$?"
+      set -- "$1" "$2" "$bootstrap_path_work/asset" "${4:-0600}"
+      ;;
+  esac
   if command -v installer_fetch_seed_path >/dev/null 2>&1; then
     installer_fetch_seed_path "$1" "$2" "$3" "${4:-0600}"
     bootstrap_fetch_status=$?
@@ -664,7 +687,7 @@ bootstrap_fetch_seed_file() (
       installer_render_logging_asset "$1" "$2" "$3" || exit "$?"
     else
       case "$2" in
-        "${DIR_HOOKS_TARGET}/"*|"${DIR_SCRIPTS_LATE}/"*|"${DIR_SCRIPTS_DESKTOP}/"*|"${DIR_SCRIPTS_FIRSTBOOT}/"*)
+        "${DIR_HOOKS_TARGET:-}/"*|"${DIR_SCRIPTS_LATE:-}/"*|"${DIR_SCRIPTS_DESKTOP:-}/"*|"${DIR_SCRIPTS_FIRSTBOOT:-}/"*)
           if LC_ALL=C grep -q '__INSTALLER_LOG_' "$3"; then
             bootstrap_fatal 'logging template requested before common library initialization'
           fi ;;
@@ -672,8 +695,15 @@ bootstrap_fetch_seed_file() (
     fi
   fi
   case "$2" in
-    "${DIR_SCRIPTS_DESKTOP_COMPONENTS}/"*.sh|"${DIR_SCRIPTS_DESKTOP_COMPONENTS}/"*.sh.tmpl|"${DIR_SCRIPTS_LATE_DEVOPS}/"*.sh|"${DIR_SCRIPTS_LATE_DEVOPS}/"*.sh.tmpl)
-      if LC_ALL=C grep -q '__INSTALLER_PATH_' "$3"; then
+    "${DIR_SCRIPTS_LATE:-}/"*|"${DIR_SCRIPTS_DESKTOP:-}/"*|"${DIR_SCRIPTS_FIRSTBOOT:-}/"*|"${DIR_HOOKS_TARGET:-}/"*)
+      if LC_ALL=C grep -Eq '__INSTALLER_(PATH|APPARMOR_PROFILE)_[A-Z0-9_]+__' "$3"; then
+        # Direct helper fetches (including Python and target re-entry scripts)
+        # share the publication renderer. Limiting this to sourced .sh modules
+        # leaves executable helpers with literal path tokens. Common bootstrap
+        # modules and authenticated parser data remain outside this boundary.
+        command -v installer_apply_scalar_placeholders >/dev/null 2>&1 &&
+          command -v installer_assert_no_unresolved_path_placeholders >/dev/null 2>&1 ||
+          bootstrap_fatal 'runtime path asset requested before common library initialization'
         # The caller supplies the protected destination mode.  Do not invoke
         # `stat`: busybox-udeb intentionally omits that applet.
         bootstrap_path_mode=${4:-0600}
@@ -688,6 +718,9 @@ bootstrap_fetch_seed_file() (
       fi
       ;;
   esac
+  if [ -n "$bootstrap_path_work" ]; then
+    mv -f -- "$3" "$bootstrap_path_destination" || exit "$?"
+  fi
 )
 
 # Modules share the same source snapshot, transport and logging renderer as every

@@ -15,6 +15,9 @@ from typing import BinaryIO
 
 
 COPY_CHUNK_BYTES = 1024 * 1024
+# Count ignored metadata and directories too: a compressed archive can contain
+# many small headers without reaching the installed-payload byte limit.
+MAXIMUM_ARCHIVE_MEMBERS = 16384
 SAFE_BASENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 
 
@@ -182,10 +185,21 @@ def extract_archive(
     seen: set[str] = set()
     binary_names: set[str] = set()
     schema_extracted = False
-    extracted_bytes = 0
+    archive_payload_bytes = 0
 
     with tarfile.open(archive_path, mode="r:gz") as archive:
-        for member in archive:
+        for member_count, member in enumerate(archive, start=1):
+            if member_count > MAXIMUM_ARCHIVE_MEMBERS:
+                raise ArchiveValidationError("archive contains too many members")
+            if member.size < 0:
+                raise ArchiveValidationError("archive member has a negative byte count")
+            # Charge every advertised payload before skipping metadata. An
+            # ignored file still costs decompression work while seeking ahead.
+            archive_payload_bytes += member.size
+            if archive_payload_bytes > maximum_extracted_bytes:
+                raise ArchiveValidationError(
+                    "archive payload exceeds the configured byte limit"
+                )
             if member.name in seen:
                 raise ArchiveValidationError(
                     f"duplicate archive member: {member.name!r}"
@@ -199,12 +213,6 @@ def extract_archive(
             )
             if member_kind in ("directory", "metadata"):
                 continue
-
-            extracted_bytes += member.size
-            if extracted_bytes > maximum_extracted_bytes:
-                raise ArchiveValidationError(
-                    "installed archive payload exceeds the configured byte limit"
-                )
 
             source = archive.extractfile(member)
             if source is None:

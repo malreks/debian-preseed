@@ -492,6 +492,160 @@ def check_shell(paths: list[Path], errors: list[str], counts: dict[str, int]) ->
         )
 
 
+def _literal_shell_word(source: str, start: int) -> str:
+    """Decode one literal shell word, without expansion or shell execution.
+
+    Shell scripts can concatenate single quotes, escaped quotes, double-quoted
+    apostrophes and unquoted literal segments in one -c argument. Stopping at
+    the first closing quote truncates otherwise valid scripts. Reject dynamic
+    or globbing segments rather than guessing their eventual target contents.
+    """
+    if source[start:start + 1] != "'":
+        raise ValueError('embedded shell -c requires a literal single-quoted script')
+    position = start
+    parts: list[str] = []
+    quote = ''
+    while position < len(source):
+        character = source[position]
+        if quote == "'":
+            end = source.find("'", position)
+            if end < 0:
+                raise ValueError('unterminated embedded shell string')
+            parts.append(source[position:end])
+            position = end + 1
+            quote = ''
+            continue
+        if not quote and (character.isspace() or character in ';|&()<>'):
+            break
+        if character == quote:
+            quote = ''
+        elif not quote and character in "'\"":
+            quote = character
+        elif character in '$`' or (not quote and character in '*?[~'):
+            raise ValueError('embedded shell -c contains a nonliteral segment')
+        elif character == '\\':
+            position += 1
+            if position >= len(source):
+                raise ValueError('unterminated embedded shell escape')
+            escaped = source[position]
+            if escaped != '\n':
+                if quote == '"' and escaped not in '$`"\\':
+                    parts.append('\\')
+                parts.append(escaped)
+        else:
+            parts.append(character)
+        position += 1
+    if quote:
+        raise ValueError('unterminated embedded shell string')
+    return ''.join(parts)
+
+
+def _late_target_shells(source: str) -> list[tuple[int, str, str]]:
+    """Read literal -c and explicitly named *_SH heredoc scripts as data."""
+    prefix = (r'(?:/(?:usr/)?bin|"\$\{DIR_(?:USR_)?BIN\})/(?:sh|dash|bash)"?'
+              r'\s+(?:-[a-z]+\s+)*-[a-z]*c[a-z]*\b')
+    commands = list(re.finditer(prefix, source))
+    scripts = []
+    for command in commands:
+        start = command.end()
+        while start < len(source) and source[start].isspace():
+            start += 1
+        command_start = source.rfind('\n', 0, command.start()) + 1
+        while command_start > 0:
+            previous_start = source.rfind('\n', 0, command_start - 1) + 1
+            if not source[previous_start:command_start - 1].endswith('\\'):
+                break
+            command_start = previous_start
+        scripts.append((source.count('\n', 0, start) + 1,
+                        _literal_shell_word(source, start),
+                        source[command_start:command.start()]))
+    for heredoc in re.finditer(r"<<'([A-Z][A-Z0-9_]*_SH)'\n", source):
+        end = re.search(r'^' + re.escape(heredoc[1]) + r'$', source[heredoc.end():], re.M)
+        if end is None:
+            raise ValueError('unterminated embedded shell heredoc')
+        scripts.append((source.count('\n', 0, heredoc.end()) + 1,
+                        source[heredoc.end():heredoc.end() + end.start()], ''))
+    return scripts
+
+
+def check_late_target_shells(paths: list[Path], errors: list[str],
+                            counts: dict[str, int]) -> None:
+    """Check separate shell scopes against their explicit invocation contract."""
+    late_root = DEBIAN_ROOT / 'scripts/late'
+    account_wrapper = late_root / 'devops/account-execution.sh'
+    shared_inputs = {DEBIAN_ROOT / 'hosts/installer/runtime.env', account_wrapper,
+                     Path(__file__).resolve()}
+    if shared_inputs.intersection(paths):
+        # A changed renderer/checker/account wrapper affects all child scopes.
+        # This is a shared-contract lookup, not a whole-tree parent shell audit.
+        owners = sorted(path for path in late_root.rglob('*')
+                        if path.is_file() and not path.is_symlink() and _shell_kind(path))
+    else:
+        owners = sorted(path for path in paths if path.is_relative_to(late_root)
+                        and _shell_kind(path))
+    if not owners:
+        return
+    shellcheck = shutil.which('shellcheck')
+    dash, busybox = shutil.which('dash'), shutil.which('busybox')
+    if not shellcheck or not dash or not busybox:
+        errors.append('embedded shell checker requires shellcheck, dash and busybox')
+        return
+    # Only this wrapper's env -i declarations establish its target API. Never
+    # declare arbitrary installer/global names merely to silence SC2154.
+    wrapper_source = _read_text(account_wrapper)
+    wrapper_names = sorted(set(re.findall(r'^\s+([A-Z][A-Z0-9_]*)=', wrapper_source, re.M)))
+    if not re.search(r'/env -i\s+\\', wrapper_source) or '"$@"' not in wrapper_source:
+        errors.append('DevOps account wrapper no longer has an explicit env -i argv contract')
+        return
+    checked = 0
+    managed_checked = 0
+    for owner in owners:
+        try:
+            source = _render_installer_path_placeholders(_read_text(owner))
+            if re.search(r'__INSTALLER_PATH_[A-Z0-9_]+__', source):
+                raise ValueError('late installer has unresolved runtime path placeholders')
+            for source_line, body, invocation in _late_target_shells(source):
+                declared: set[str] = set()
+                if re.match(r'\s*devops_run_as_account\b', invocation):
+                    declared.update(wrapper_names)
+                elif owner.name == 'dispatch.sh':
+                    # The storage-family children run in d-i, not the target.
+                    # Record only explicit inline environment assignments;
+                    # their values may be ordinary unquoted variable words.
+                    declared.update(re.findall(r'(?<!\S)([A-Z][A-Z0-9_]*)=', invocation))
+                for command in ([dash, '-n'], [busybox, 'sh', '-n']):
+                    result = _run(command, timeout=15, input_text=body)
+                    if result.returncode:
+                        _report_command(errors, f'{owner.relative_to(ROOT)}:{source_line}: '
+                                        'embedded shell syntax', result)
+                # Outer shellcheck directives and assignments do not apply to
+                # this new shell. Include uppercase names: DIR_* variables are
+                # not an implicit target environment API.
+                checked_body = '\n'.join(name + '=' for name in sorted(declared)) + '\n' + body
+                for options in (['--severity=error'],
+                                ['--severity=warning', '--include=SC2154',
+                                 '--enable=check-unassigned-uppercase']):
+                    result = _run([shellcheck, '--norc', '--shell=sh', '--format=json',
+                                   *options, '-'], timeout=15, input_text=checked_body)
+                    if result.returncode not in (0, 1):
+                        _report_command(errors, f'{owner.relative_to(ROOT)}:{source_line}: '
+                                        'embedded target shell', result)
+                        continue
+                    for message in json.loads(result.stdout):
+                        errors.append(f'{owner.relative_to(ROOT)}:{source_line}: '
+                                      f"target shell line {message.get('line', 0) - len(declared) - 1}: "
+                                      f"ShellCheck SC{message.get('code', '?')}: "
+                                      f"{message.get('message', 'error')}")
+                checked += 1
+                if owner.name in {'software.sh.tmpl', 'tor-browser.sh'}:
+                    managed_checked += 1
+        except (OSError, UnicodeError, ValueError) as error:
+            errors.append(f'{owner.relative_to(ROOT)}: embedded target shell: {error}')
+    counts['late_target_shell_owners'] = len(owners)
+    counts['late_target_shells'] = checked
+    counts['managed_software_target_shells'] = managed_checked
+
+
 def check_lifecycle_frontend_contract(paths: list[Path], errors: list[str],
                                       counts: dict[str, int]) -> None:
     """Check the bootstrapped fatal UI contract as data, without opening a frontend."""
@@ -3457,6 +3611,7 @@ def main() -> int:
         check_text_files(paths, errors, counts)
         check_python(paths, errors, counts)
         check_shell(paths, errors, counts)
+        check_late_target_shells(paths, errors, counts)
         check_preseed_commands(paths, errors, counts)
         check_lifecycle_frontend_contract(paths, errors, counts)
         check_markers(paths, errors, counts)

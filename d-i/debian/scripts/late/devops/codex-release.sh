@@ -375,6 +375,8 @@ cleanup() {
   fi
   rm -f -- "$archive_helper_path" "$state_helper_path"
 }
+# cleanup_status is assigned inside this deferred EXIT trap.
+# shellcheck disable=SC2154
 trap '"'"'cleanup_status=$?; trap - EXIT; set +e; cleanup; exit "$cleanup_status"'"'"' EXIT
 trap "exit 129" HUP
 trap "exit 130" INT

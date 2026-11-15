@@ -1,5 +1,31 @@
 # Shared installer implementation checkpoint
 
+## 2026-11-15 expanded late-script contract audit
+
+The expanded review inventories all 78 late-script files, checks 50 shell
+parents and 13 Python sources, and independently checks 62 embedded child
+shells. Additional corrections pass the GRUB efivars mount argument explicitly,
+render directly fetched late helpers through the shared publication renderer,
+preserve the previous fetch destination on failure, and bound Codex archive
+members and ignored payload bytes. Both suite products were regenerated.
+After the user's instruction to stop VM runs, work continued with source
+inspection, static parsing and pure generation only. The
+[late-script audit record](../validation/late-script-contract-audit-20261115.md)
+distinguishes current static evidence from earlier isolated fixture runs,
+including interrupted runs and the final bootstrap refinements that have no
+native execution evidence. Complete installation remains unverified.
+
+## 2026-11-15 Tor Browser target-shell correction
+
+Tor authentication now receives the rendered installer-helper path and private
+work directory as explicit target-shell arguments. A disposable RAM-only QEMU
+fixture reproduced the old unset-variable failure and passed all 16 corrected
+and failure-injection cases across Dash and BusyBox. The static audit separately
+checks all ten embedded managed-software shell scripts. See the
+[Tor target-shell validation record](../validation/tor-target-shell-20261115.md)
+for exact scope, fixture failures, identities, cleanup and deferred native
+installation checks. Older records below describe their historical snapshots.
+
 ## 2026-11-15 installer hook, Trixie dependency and GPU-class correction
 
 The current source permits Trixie desktop plans with their native compositor

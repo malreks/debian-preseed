@@ -831,6 +831,9 @@ set -eu
 disk=$1
 efi_part=$2
 shim_path=$3
+# /proc/mounts can retain the installer bind-mount spelling after chroot.
+# Receive that spelling explicitly; installer variables are not target state.
+installer_efivars_mount=$4
 label=debian
 
 find_shim_boot_entry() {
@@ -859,8 +862,8 @@ command -v efibootmgr >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
   printf "target efivars are unavailable; cannot force firmware boot through shim\n" >&2
   exit 1
 }
-grep -qs " __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars " __INSTALLER_PATH_DIR_PROC__/mounts ||
-  grep -qs " ${TARGET_ROOT}${DIR_SYS}/firmware/efi/efivars " __INSTALLER_PATH_DIR_PROC__/mounts || {
+grep -Fqs " __INSTALLER_PATH_DIR_SYS__/firmware/efi/efivars " __INSTALLER_PATH_DIR_PROC__/mounts ||
+  grep -Fqs " ${installer_efivars_mount} " __INSTALLER_PATH_DIR_PROC__/mounts || {
   printf "target efivars are not mounted; cannot force firmware boot through shim\n" >&2
   exit 1
 }
@@ -926,7 +929,8 @@ printf "%s\n" "$boot_state" | grep -E -i -q "^BootNext:[[:space:]]*${entry_id}$"
 ' sh \
     "${DEV_INSTALL_DISK}" \
     "${DEV_PART_EFI}" \
-    "${INSTALLER_GRUB_SHIM_EFI_PATH}"
+    "${INSTALLER_GRUB_SHIM_EFI_PATH}" \
+    "${TARGET_ROOT}${DIR_SYS}/firmware/efi/efivars"
 }
 
 queue_target_grub_mok_enrollment_boot_for_reset() {

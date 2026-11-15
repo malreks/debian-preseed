@@ -171,7 +171,7 @@ case "$target_arch" in
     ;;
 esac
 
-work_dir=/tmp/installer-software
+work_dir=__INSTALLER_PATH_DIR_TMP__/installer-software
 bitwarden_deb="${work_dir}/bitwarden-latest.deb"
 obsidian_version=${SOFTWARE_OBSIDIAN_VERSION:?SOFTWARE_OBSIDIAN_VERSION must be set by the host profile}
 obsidian_url=${SOFTWARE_OBSIDIAN_URL:?SOFTWARE_OBSIDIAN_URL must be set by the host profile}

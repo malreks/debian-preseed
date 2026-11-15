@@ -70,13 +70,14 @@ software_install_tor_browser() (
   software_install_tor_media_runtime
   tor_archive="${work_dir}/tor-browser.tar.xz"
   tor_signature="${work_dir}/tor-browser.tar.xz.asc"
-  tor_key=__INSTALLER_PATH_DIR_USR_LOCAL__/share/software/tor-browser/developers.asc
+  tor_key=__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_SOFTWARE__/tor-browser/developers.asc
+  tor_install_helper=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tor-browser-install
   software_stage_seed_asset \
     "$(installer_repo_file_value FILE_TARGET_SHARE_SOFTWARE_TOR_BROWSER_DEVELOPERS_ASC)" \
     "$tor_key" 0644
   software_stage_seed_asset \
     "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TOR_BROWSER_INSTALL)" \
-    "${DIR_USR_LOCAL_LIBEXEC}/tor-browser-install" 0755
+    "$tor_install_helper" 0755
   software_download_tor_browser_asset \
     "Tor Browser" \
     "$tor_url" \
@@ -93,12 +94,15 @@ software_install_tor_browser() (
     "$SOFTWARE_TOR_BROWSER_SIGNATURE_MINIMUM_BYTES" \
     "$SOFTWARE_TOR_BROWSER_SIGNATURE_MAXIMUM_BYTES" \
     signature
+  # Target execution does not inherit installer path variables. Pass the
+  # rendered helper and private work directory as data, never shell source.
   run_in_target "authenticate and install Tor Browser" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
     umask 077
     archive=$1; signature=$2; key=$3; expected=$4; key_expected=$5; fingerprint=$6
+    installer=$7; work_dir=$8
     key_actual=$(sha256sum "$key"); [ "${key_actual%% *}" = "$key_expected" ]
     actual=$(sha256sum "$archive"); [ "${actual%% *}" = "$expected" ]
-    key_home=$(mktemp -d /tmp/installer-software/tor-verify.XXXXXX)
+    key_home=$(mktemp -d "$work_dir/tor-verify.XXXXXX")
     trap '\''rm -rf -- "$key_home"'\'' 0
     trap '\''exit 129'\'' HUP
     trap '\''exit 130'\'' INT
@@ -110,19 +114,20 @@ software_install_tor_browser() (
     __INSTALLER_PATH_DIR_USR_BIN__/awk -v expected="$fingerprint" '\''$1 == "[GNUPG:]" && $2 == "VALIDSIG" &&
       ($3 == expected || $NF == expected) { valid++ }
       END { exit valid != 1 }'\'' "$key_home/status"
-    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "${DIR_USR_LOCAL_LIBEXEC}/tor-browser-install" "$archive" "$expected"
-  ' sh "$tor_archive" "$tor_signature" "$tor_key" "$tor_sha" "$tor_key_sha" "$SOFTWARE_TOR_BROWSER_SIGNING_FINGERPRINT"
+    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "$installer" "$archive" "$expected"
+  ' sh "$tor_archive" "$tor_signature" "$tor_key" "$tor_sha" "$tor_key_sha" \
+    "$SOFTWARE_TOR_BROWSER_SIGNING_FINGERPRINT" "$tor_install_helper" "$work_dir"
   # The root-owned immutable bundle is maintained through release pins and
   # installer publication; never permit a browser-owned binary replacement.
   software_stage_seed_asset \
     "$(installer_repo_file_value FILE_TARGET_OPT_TOR_BROWSER_BROWSER_DISTRIBUTION_POLICIES)" \
-    __INSTALLER_PATH_DIR_OPT__/tor-browser/Browser/distribution/policies.json 0644
+    __INSTALLER_PATH_DIR_OPT_TOR_BROWSER__/Browser/distribution/policies.json 0644
   software_stage_seed_asset \
     "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TOR_BROWSER_RUN)" \
-    "${DIR_USR_LOCAL_LIBEXEC}/tor-browser-run" 0755
+    __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tor-browser-run 0755
   software_stage_seed_asset \
     "$(installer_repo_file_value FILE_TARGET_APPS_TOR_BROWSER_TMPL)" \
-    __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/tor-browser.desktop 0644
+    __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/tor-browser.desktop 0644
   # Firefox uses the distribution FFmpeg library for H.264/AAC. Check the
   # actual target ABI and decoders, not merely the ffmpeg command's presence.
   # This is installer target execution with dropped privileges, never a host
@@ -163,6 +168,6 @@ if missing:
     raise SystemExit("Tor Browser system media decoders missing: " + ", ".join(missing))
 print("Tor Browser FFmpeg ABI 62 decoder availability: " + ", ".join(required))
 '
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/tor-browser.desktop
+  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/tor-browser.desktop
   software_info "installed authenticated Tor Browser version=${tor_version} sha256=${tor_sha}"
 )
