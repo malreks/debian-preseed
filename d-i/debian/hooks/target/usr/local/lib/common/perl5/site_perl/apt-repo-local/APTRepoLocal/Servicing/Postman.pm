@@ -117,7 +117,6 @@ sub validate {
     return {
         version => $self->_release($archive),
         sha256  => $self->_sha256($archive),
-        size    => $size,
     };
 }
 

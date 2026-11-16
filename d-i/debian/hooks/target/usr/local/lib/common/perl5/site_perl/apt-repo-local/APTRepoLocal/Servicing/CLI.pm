@@ -376,7 +376,7 @@ sub _fetch_generic_deb {
     if (!$metadata) {
         my $detail = $@ || 'package download returned no metadata';
         $self->_record_apply_failure_detail($stage, $detail);
-        return (1, $detail =~ /download|HTTP|URL/i ? 'download' : 'validation');
+        return (1, $stage eq 'download' ? 'download' : 'validation');
     }
     return $self->_stage_deb($deb, $event, $repository, $app, $path, $metadata);
 }
@@ -655,7 +655,7 @@ sub _run_bootstrap_chatgpt {
         release_policy => $release_policy,
     );
     $chatgpt->enabled()
-        or die "ChatGPT bootstrap requires a selected desktop medium/full class receipt\n";
+        or die "ChatGPT bootstrap requires a desktop medium/full role receipt\n";
     my $http = APTRepoLocal::Servicing::HTTP->new();
     my $repository = APTRepoLocal::Servicing::Repository->new(directory => $state->deb_dir());
     my $deb = APTRepoLocal::Servicing::Deb->new(repository => $repository);

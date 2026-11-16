@@ -27,6 +27,39 @@ sub _validate_url {
     $self->_host($url);
 }
 
+sub _transport_failure {
+    my ($self, $result) = @_;
+    return 'HTTP operation deadline exhausted'
+        if ($result->{error} // q{}) eq 'timeout';
+    my $status = $result->{status};
+    return 'curl terminated by signal ' . ($status & 127) if $status & 127;
+    my $exit = $status >> 8;
+    my %reasons = (
+        5 => 'proxy name resolution failed',
+        6 => 'server name resolution failed',
+        7 => 'connection failed',
+        18 => 'incomplete response body',
+        22 => 'server rejected the HTTP request',
+        23 => 'writing the downloaded artifact failed',
+        26 => 'reading local transfer input failed',
+        28 => 'transfer timed out or stalled',
+        35 => 'TLS handshake failed',
+        52 => 'server returned an empty reply',
+        55 => 'sending request data failed',
+        56 => 'receiving response data failed',
+        60 => 'TLS certificate verification failed',
+        77 => 'configured CA certificates are unavailable',
+        92 => 'HTTP/2 stream failed',
+    );
+    my $reason = $reasons{$exit} // 'curl transport failed';
+    my ($http_status) = split /\n/, $result->{stdout} // q{}, 2;
+    my $http = defined($http_status) && $http_status =~ /\A[1-5][0-9]{2}\z/
+        ? "; HTTP $http_status" : q{};
+    # Use controlled categories and a numeric status. Raw curl stderr/effective
+    # URLs may contain redirect credentials or access-bearing query strings.
+    return "$reason (curl exit $exit$http)";
+}
+
 sub download {
     my ($self, %args) = @_;
     require Managed::Process;
@@ -74,6 +107,7 @@ sub download {
             $remaining > 0 or die "HTTP operation deadline exhausted\n";
             my @command = (
                 '__INSTALLER_PATH_DIR_USR__/bin/curl', '--disable', '--fail', '--silent', '--show-error',
+                '--globoff', '--disallow-username-in-url',
                 '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '15',
                 '--max-redirs', '0', '--max-time', $remaining, '--speed-limit', '1024', '--speed-time', '45',
                 '--retry', '3', '--retry-max-time', $remaining, '--retry-delay', '2',
@@ -96,11 +130,7 @@ sub download {
                 },
             );
             if ($result->{status} != 0) {
-                my $reason = ($result->{error} // q{}) eq 'timeout'
-                    ? 'transfer made no progress through its retry window'
-                    : ($result->{status} & 127)
-                        ? 'curl terminated by signal ' . ($result->{status} & 127)
-                        : 'curl transport error (exit ' . ($result->{status} >> 8) . ')';
+                my $reason = $self->_transport_failure($result);
                 die "$args{label} download failed: $reason\n";
             }
             my $next;
@@ -116,7 +146,10 @@ sub download {
             }
             last;
         }
-        defined $status && $status eq '200' or die "$args{label} download returned an unexpected HTTP status\n";
+        if (!defined($status) || $status ne '200') {
+            my $safe_status = defined($status) && $status =~ /\A[0-9]{3}\z/ ? $status : 'invalid';
+            die "$args{label} download returned HTTP status $safe_status; expected 200\n";
+        }
         defined $effective && length($effective) <= 2048 or die "$args{label} effective URL is invalid\n";
         $validate->($effective);
         $content_type //= q{};

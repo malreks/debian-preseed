@@ -3111,6 +3111,8 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
                  or bool(set(plan['roles']) & {'desktop/medium', 'desktop/full', 'server/devops'}))
         if (plan['codex_enable'] == 'true') != codex or ('os.codex' in stages) != codex:
             raise ValueError('Codex tuple stage differs from primary-account role/profile ownership')
+        if plan['classes'].count('fragments/codex.cfg') != int(codex):
+            raise ValueError('Codex fragment must be included exactly once by its role/profile policy')
         if codex and not {'bubblewrap', 'openssh-client'} <= names:
             raise ValueError('Codex tuple lacks its namespace and private Git prerequisites')
         if ('server.devops.tools' in stages) != ('server/devops' in plan['roles']):
@@ -3647,11 +3649,20 @@ def check_download_contract(paths: list[Path], errors: list[str], counts: dict[s
     helper = target_source('usr/local/libexec/installer-artifact-fetch').read_text(encoding='utf-8')
     if '@ARGV == 3 || @ARGV == 4' not in helper:
         errors.append('installer artifact fetch must accept URL, destination, content policy, optional hosts')
-    for component in ('Obsidian', 'Sleek', 'Tomat'):
-        source = target_source('usr/local/lib/perl5/site_perl/apt-repo-local/'
-                               f'APTRepoLocal/Servicing/{component}.pm').read_text(encoding='utf-8')
-        if re.search(r'\bsize\s*=>\s*0\s*\+\s*\$size\b', source):
-            errors.append(f'{component}: obsolete release-size record after transfer-bound removal')
+    servicing = target_source('usr/local/lib/perl5/site_perl/apt-repo-local/'
+                              'APTRepoLocal/Servicing/Postman.pm').parent
+    perl_owners = sorted(servicing.glob('*.pm*'))
+    # Inspect the complete shared owner set. This catches leftover transfer
+    # variables as source data; it is not a Perl compiler or a lexical proof.
+    for path in perl_owners:
+        source = _read_text(path)
+        for variable in ('size', 'minimum', 'maximum', 'minimum_bytes', 'maximum_bytes',
+                         'download_limit', 'archive_limit', 'release_bytes'):
+            if (re.search(r'\$' + variable + r'\b', source)
+                    and not re.search(r'\b(?:my|our|state)\s+(?:\$' + variable
+                                      + r'\b|\([^;]*\$' + variable + r'\b)', source)):
+                errors.append(f'{path.relative_to(ROOT)}: undeclared transfer variable ${variable}')
+    counts['download_contract_perl_owners'] = len(perl_owners)
 
     policy_path = target_source('usr/local/share/software/software-release-policy.json.tmpl')
     template = policy_path.read_text(encoding='utf-8')
@@ -3687,6 +3698,67 @@ def check_download_contract(paths: list[Path], errors: list[str], counts: dict[s
     counts['download_contract_sources'] = checked
     counts['download_contract_calls'] = calls
     counts['download_policy_render_fields'] = len(tokens)
+
+
+def check_chatgpt_bootstrap_contract(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Cross-check role ownership, payload paths and failure handling as data."""
+    software_path = DEBIAN_ROOT / 'scripts/late/software.sh.tmpl'
+    chatgpt_path = target_source('usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm')
+    http_path = target_source('usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/HTTP.pm')
+    cli_path = target_source('usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/CLI.pm')
+    if not set(paths) & {software_path, chatgpt_path, http_path, cli_path, Path(__file__).resolve()}:
+        return
+    software = _read_text(software_path)
+    chatgpt = _read_text(chatgpt_path)
+    bootstrap = software.split('software_enable_chatgpt_integration() {', 1)[1].split(
+        '\nsoftware_restore_managed_apparmor_profiles()', 1)[0]
+    if (bootstrap.count('--bootstrap-chatgpt') != 1 or 'attempt_in_target' in bootstrap
+            or re.search(r'^\s*while\b', bootstrap, re.M) or 'return 75' in bootstrap):
+        errors.append('ChatGPT bootstrap must execute its package transaction once; HTTP owns transfer retries')
+    if 'run_in_target' not in bootstrap or 'three-retry budget' in bootstrap:
+        errors.append('ChatGPT bootstrap masks its stage diagnostic or skips a required application')
+    if ('INSTALLER_LOG_CONTEXT=desktop.software' not in software
+            or 'export INSTALLER_LOG_CONTEXT' not in software
+            or 'software_fatal_status "$selected_status"' not in software):
+        errors.append('managed software loses its component or original worker failure status')
+    target = _read_text(DEBIAN_ROOT / 'scripts/common/target.sh')
+    if ('target_record_command_failure "$1" "$2" "$4"' not in target
+            or '"${INSTALLER_LOG_CONTEXT:-in-target}" "$target_failure_detail"' not in target
+            or 'tail -c 4096 "$3"' not in target):
+        errors.append('target command failure receipt loses its bounded managed diagnostic or component')
+    worker_call = re.search(r'^\s*"\$selected_worker"\s*$', software, re.M)
+    worker_context = re.search(r'installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL (\d+) '
+                               r'"install_managed_application:', software)
+    if (worker_call is None or worker_context is None
+            or int(worker_context[1]) != software.count('\n', 0, worker_call.end()) + 1):
+        errors.append('managed software worker context names a stale source line')
+    rendered_bootstrap = _render_installer_path_placeholders(bootstrap)
+    rendered_spec = _render_installer_path_placeholders(chatgpt.split('sub spec {', 1)[1].split('\nsub enabled', 1)[0])
+    resources = _render_installer_path_placeholders('__INSTALLER_PATH_DIR_USR_LIB_CHATGPT_RESOURCES__')
+    codex = _render_installer_path_placeholders('__INSTALLER_PATH_DIR_USR_LIB_CHATGPT_CODEX__')
+    for path in (codex, resources + '/codex-code-mode-host'):
+        if path not in rendered_bootstrap or path not in rendered_spec:
+            errors.append('ChatGPT installer and servicing disagree on required payload: ' + path)
+    if codex + '/code-mode-host' in rendered_bootstrap:
+        errors.append('ChatGPT installer treats the Codex executable as a directory')
+    classes = re.search(r'^software_run_selected_app "([^"]+)" "ChatGPT/Codex desktop" '
+                        r'software_enable_chatgpt_integration\b', software, re.M)
+    if classes is None or set(classes[1].split()) != {'role/desktop/medium', 'role/desktop/full'}:
+        errors.append('ChatGPT must be selected automatically by desktop medium/full roles')
+    http = _read_text(http_path)
+    if ('$self->_transport_failure($result)' not in http
+            or 'HTTP $http_status' not in http or '--globoff' not in http):
+        errors.append('HTTP acquisition loses safe transport diagnostics or literal URL handling')
+    vendor = _read_text(target_source('usr/local/libexec/apt-repo-local-vendor'))
+    for module in ('Discord', 'Postman', 'Tuta', 'Ledger'):
+        if re.search(r'^use APTRepoLocal::Servicing::' + module + r';', vendor, re.M):
+            errors.append('ChatGPT configure must not eagerly import sibling vendor module: ' + module)
+    if ('require $module;' not in vendor
+            or vendor.index('require $module;') < vendor.index("if ($action eq 'configure-chatgpt')")
+            or vendor.index('require $module;') > vendor.index('$state->prepare();')):
+        errors.append('vendor module loading must follow action validation and precede state mutation')
+    counts['chatgpt_bootstrap_contracts'] = 1
+    counts['chatgpt_payload_path_contracts'] = 2
 
 
 def check_diff(errors: list[str]) -> None:
@@ -3735,6 +3807,7 @@ def main() -> int:
         check_build_capture(paths, errors, counts)
         check_release_equality(paths, errors, counts)
         check_download_contract(paths, errors, counts)
+        check_chatgpt_bootstrap_contract(paths, errors, counts)
         check_diff(errors)
     except (OSError, UnicodeError, RuntimeError, ValueError) as error:
         errors.append(f'checker failure: {error}')

@@ -259,9 +259,29 @@ target_clear_command_failure_state() {
 target_record_command_failure() {
   target_failure_label=$1
   target_failure_status=$2
+  target_failure_detail=$target_failure_label
+  # Managed helpers already emit a stage-specific error. Preserve that bounded,
+  # redacted cause in the first-failure receipt, not only in the long phase log.
+  # Never copy arbitrary child output or a truncated line lacking its prefix.
+  if [ -n "${3:-}" ] && [ -r "$3" ] &&
+     command -v tail >/dev/null 2>&1 &&
+     command -v installer_redact_log_stream >/dev/null 2>&1; then
+    target_failure_cause=$(
+      tail -c 4096 "$3" 2>/dev/null | installer_redact_log_stream | awk '
+        /^(ChatGPT bootstrap |Discord bootstrap |apt-repo-local: )/ {
+          gsub(/https?:\/\/[^[:space:]]+/, "[redacted-url]")
+          gsub(/[[:cntrl:]]/, " ")
+          cause=substr($0, 1, 768)
+        }
+        END { if (cause != "") print cause }
+      '
+    ) || target_failure_cause=
+    [ -z "$target_failure_cause" ] ||
+      target_failure_detail="${target_failure_label}: ${target_failure_cause}"
+  fi
   target_failure_state_path=$(target_command_failure_state_path)
   if [ "${INSTALLER_LIFECYCLE_ACTIVE:-0}" = 1 ]; then
-    installer_record_failure "$target_failure_status" in-target "$target_failure_label" || :
+    installer_record_failure "$target_failure_status" "${INSTALLER_LOG_CONTEXT:-in-target}" "$target_failure_detail" || :
   fi
   [ ! -e "$target_failure_state_path" ] || return 0
   install -d -m 0700 "$(dirname "$target_failure_state_path")" || return 1
@@ -355,7 +375,7 @@ target_log_command_complete() {
 target_log_command_failure() {
   target_output_lines=$(target_output_line_count "$4")
   if [ "$3" = error ]; then
-    target_record_command_failure "$1" "$2"
+    target_record_command_failure "$1" "$2" "$4"
   fi
   installer_append_log_category "$TARGET_LOG_CATEGORY" "$TARGET_LOG_STAGE" "$3" in-target "failed $1 status=$2$(target_log_duration_field) output_lines=${target_output_lines}" || true
   installer_log_target_command_output "$TARGET_LOG_CATEGORY" "$TARGET_LOG_STAGE" in-target "$4" "$3" || true

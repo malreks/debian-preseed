@@ -3,11 +3,12 @@ set -eu
 
 target_root=${1:-${TARGET_ROOT}}
 
-software_fatal() {
+software_fatal_status() {
+  software_exit_status=$1
+  shift
   software_message=$(printf '%s' "$*" | tr '\r\n\t' '   ')
-  if command -v installer_fatal >/dev/null 2>&1; then
-    installer_fatal "managed software: ${software_message}"
-    exit 1
+  if command -v installer_fatal_status >/dev/null 2>&1; then
+    installer_fatal_status "$software_exit_status" "managed software: ${software_message}"
   fi
   printf '[late:software] fatal: %s\n' "$software_message" >&2
   if [ -c /dev/tty4 ] && [ -w /dev/tty4 ]; then
@@ -19,7 +20,11 @@ software_fatal() {
   if command -v logger >/dev/null 2>&1; then
     logger -t preseed-software "fatal: $software_message" 2>/dev/null || :
   fi
-  exit 1
+  exit "$software_exit_status"
+}
+
+software_fatal() {
+  software_fatal_status 1 "$@"
 }
 
 software_info() {
@@ -103,13 +108,15 @@ bootstrap_source_common_lib "" || software_fatal "failed to source installer com
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/software}
 if command -v installer_operation_context >/dev/null 2>&1; then
-  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 108 software
+  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 113 software
 fi
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target || {
   software_fatal "failed to source installer late support libraries"
 }
 installer_ensure_context_loaded "$seed_base"
+INSTALLER_LOG_CONTEXT=desktop.software
+export INSTALLER_LOG_CONTEXT
 
 [ "${INSTALLER_HOST_VARIANT:-}" = desktop ] ||
   software_fatal "managed software provisioning is restricted to the desktop role"
@@ -984,24 +991,13 @@ __INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$account_user" -- \
   chmod 0644 "$chatgpt_enable_tmp"
   mv -f -- "$chatgpt_enable_tmp" "${target_root}${chatgpt_enable_file}"
 
-  chatgpt_bootstrap_status=1
-  chatgpt_bootstrap_attempt=1
-  while [ "$chatgpt_bootstrap_attempt" -le 4 ]; do
-    if attempt_in_target \
-      "download, retain, and install the managed ChatGPT/Codex desktop package" \
-      "$software_update_helper" \
-      --bootstrap-chatgpt
-    then
-      chatgpt_bootstrap_status=0
-      break
-    fi
-    [ "$chatgpt_bootstrap_attempt" -lt 4 ] && sleep 1
-    chatgpt_bootstrap_attempt=$((chatgpt_bootstrap_attempt + 1))
-  done
-  if [ "$chatgpt_bootstrap_status" -ne 0 ]; then
-    software_warn "ChatGPT/Codex download failed after the three-retry budget; skipping ChatGPT/Codex"
-    return 75
-  fi
+  # HTTP owns transfer retries. Import, APT and policy recovery are mutations;
+  # repeating the entire bootstrap cannot safely repair a failed transaction.
+  # Keep its stage-specific diagnostic and original status in the installer log.
+  run_in_target \
+    "bootstrap the managed ChatGPT/Codex desktop package" \
+    "$software_update_helper" \
+    --bootstrap-chatgpt
 
   chatgpt_status=$(
     chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-query \
@@ -1016,7 +1012,7 @@ __INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$account_user" -- \
     __INSTALLER_PATH_DIR_USR_LIB_CHATGPT__/ChatGPT \
     __INSTALLER_PATH_DIR_USR_LIB_CHATGPT__/codex-launcher \
     __INSTALLER_PATH_DIR_USR_LIB_CHATGPT_CODEX__ \
-    __INSTALLER_PATH_DIR_USR_LIB_CHATGPT_CODEX__/code-mode-host \
+    __INSTALLER_PATH_DIR_USR_LIB_CHATGPT_RESOURCES__/codex-code-mode-host \
     "$chatgpt_icon" \
     "$chatgpt_launcher" \
     "$chatgpt_log_runner" \
@@ -2160,7 +2156,7 @@ software_run_selected_app() {
   selected_worker=$3
   selected_result=$4
   installer_class_selected_any $selected_classes || return 0
-  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2267 "install_managed_application:${selected_worker}"
+  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2165 "install_managed_application:${selected_worker}"
   software_info "starting ${selected_label}"
   # A required worker runs outside a conditional context so Dash keeps errexit.
   (
@@ -2184,7 +2180,7 @@ EOF_SELECTED
     software_warn "$selected_label outcome unknown; retain ${work_dir}; do not retry automatically"
     exit 3
   fi
-  software_fatal "$selected_label required by $selected_classes failed (status=$selected_status)"
+  software_fatal_status "$selected_status" "$selected_label required by $selected_classes failed (status=$selected_status); inspect the preceding stage diagnostic"
 }
 
 if [ "$software_scx_only" = true ]; then

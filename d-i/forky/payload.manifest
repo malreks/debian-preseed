@@ -85,7 +85,7 @@ format=3
 8351	1e5227e70c254f1a2417570cf70d7ff7d5b9fc2b1236af8e71e4220ea6a71eca	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.artifacts.json
 121102	111f5f58ed964df1eeac96da83c0ec80752457fa852a5afe92542ae510fb7167	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.env
 154496	6cb9960b8ca7b0cb661844237f150219db48eeae1a4de4b2db883154b502e533	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.provenance.json
-154	45342d67a23c9769abee73b4f9ab9217ea061309f9706a75043bbb9bfe2001f1	catalog/compiled/release.tsv
+154	64eae0fd18a4806efc180283ac657c2f056e28aa0b0eacd7583aad7d45c87bd7	catalog/compiled/release.tsv
 22105	3d0bd73d48a0577301724b209c9afb0b42ad006a7de9ee1cf156a8460e84982a	catalog/compiled/shared-perl-assets.tsv
 513	7e8a843e51a8d28472e5eb07fa9fdedc7f69760491de02682a6e018be5b6056b	catalog/compiled/suite-qualification.tsv
 12966	d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef	catalog/compiled/support-matrix.json
@@ -1559,17 +1559,17 @@ format=3
 374	8a438f69db6f128a8a5cb9d4ec1498345927199f08b9568b08d48df514bed453	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ArtifactLimits.pm.tmpl
 6034	e336d444fc712843e6fe226638c32fde7c0d078c05c82b13a949270b5dd383ed	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Atomic.pm
 4772	f034979148b2dc98c8c7b7204a2b164846b212635cfb04b07b3e77d9f3ad21d0	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Bitwarden.pm
-28989	6b53fda61160b0f95c804eace33f3c09eddc7dd1c69945d83f497b21f7f2f28a	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/CLI.pm
-29218	8633ef0bdfff2f1f623f6550497ebc8609deecb144e6377303d1d0808d395aab	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm
+28968	2ee46439552cac9d422e61bd509d2b88d78b7e4def62b7e2c0823c2df61f47f5	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/CLI.pm
+29198	df0beb7c5589c4ad63d04051045a0dc38814b95c68284c056dcac5afe2da2271	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm
 27334	638ca8e81546cdfd234950909270ce41595e937a3b8d02eb5e1ddc5eb1356712	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Deb.pm
 42326	d1197aad5c6fb9efa631a6dd417a67e7f31007676eb649085b53b65fcd438826	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Discord.pm
 1617	3349f9e778802618599bd8d04b4fa69dc95ce42fde3d993b21eb91bcbb80b03b	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Event.pm
-7208	e5c034db6163a97833077123b51c65c2cc687cd65baaf570b793c4103facec4b	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/HTTP.pm
+8578	4d5fc859c22c1894cc05392a09b70690e95e3d7e6ff59c62962b57543bc4ff7e	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/HTTP.pm
 7174	7fb03e52ace2820f8e2d0883ddb26a99f0537ddf710bf70857a9c5e3c0bc05bf	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Ledger.pm
 750	afe5404143348967178fead9a0e3c85c2749a66991a54e5f0f8b5284a73b47d8	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Logger.pm
 8942	5d7b8615d0f34ab1260654b50dcc48b9176ed4d36c2391833a928c7bdf0fa96e	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Notifier.pm.tmpl
 3428	c125717d45f81bc88a4db7fd8e152240aebce06bf0baa496b9b31ca0daf789d2	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Obsidian.pm
-6262	beeb1281705844f82840a492b906497cbc9c65b6ddb3bf026845ef0658bf7e6a	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Postman.pm
+6236	c2aca41b90f5ad28795d2e2a407a81d1361d576ebcfa240d53018f704e06d9d5	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Postman.pm
 2833	eac8d271bf7bcbd942302e92aa166d76fd3a1e7f98aa7860096360c5aa756bf5	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Process.pm
 7630	f38add22a6c28ae42026d9e25237370b3c06c539186cfde4919a26c8547af5b5	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Repository.pm
 3355	dfa5e4e411e6c8cedc0ab4fd4a551acac3e9364520e5b17e7bce2ffe1abcc196	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Sleek.pm
@@ -1861,7 +1861,7 @@ format=3
 1224	5244f324a52ab2c4a237c9ce4fd370a5f848d5b7b98d5313d83c01ca37986484	hooks/target/usr/local/libexec/desktop/apparmor-generate-rules
 285	2f4118d168c28b065810925dc7622a61ece8e889414a0d7f07156a817279bee9	hooks/target/usr/local/libexec/desktop/apt-repo-local-software-notify
 227	dd61ccb1abbae21534c7b11b9caf6808ee9d4565ed5b42ffb1c89a792c0316fd	hooks/target/usr/local/libexec/desktop/apt-repo-local-software-update
-9791	45a09fee0bff7dd0d66248fd3110868bfa7a54e143eb55f6cd616616c16263d5	hooks/target/usr/local/libexec/desktop/apt-repo-local-vendor
+9886	dbb757c55c03f3128df5511ee8f3dd7080adf4ad9ab5b73f9a7f6ab0c4178428	hooks/target/usr/local/libexec/desktop/apt-repo-local-vendor
 5201	44b74e84ab9516e193404e11c0a3e169b202579f6c30f3960c438062cfe18e72	hooks/target/usr/local/libexec/desktop/bluetooth-controller-init
 12849	14201df36c33782a15b856b61914d007420937a6188d05a0b52f07a2a7df5e3d	hooks/target/usr/local/libexec/desktop/calix-fruux-bootstrap
 7732	e23354bae9e85abd73f4a053d81c19215c7d6d275a975ff20663e8eff3644689	hooks/target/usr/local/libexec/desktop/clamav-fangfrisch
@@ -2201,7 +2201,7 @@ format=3
 28746	9d9f8e6f1c255989e9caa5f23747073b63ad510f78d6ac1a246f0c5a70bfeaa1	scripts/common/ssh.sh
 6658	cf2b04f8d5b6865c37f69743f57bee7b0a021420b2396e629eae33ac06c8bf79	scripts/common/system-foundation.sh
 10950	6359099e2b8a0ce1f5df6a534d81d173f65b7d62cc4f754eb60c95bd0b069238	scripts/common/system-services.sh
-20008	75ab0aa3426c43a805080cf4613206db8dba5a2dee8f77ab040b6d8d18013c64	scripts/common/target.sh
+20991	f1abda071d14e4ff3f0701408075985a02743a374cd7a90d6a6b434e4c059711	scripts/common/target.sh
 6136	59c12c8ff5415ee2f29fd550777a4491c6541c8d46e02842fc85198ae221ff42	scripts/common/timeshift.sh
 5550	6e9ad765e2f7cc8ec7ec7ba24708679d7309f50003888f9f08d257ed6bd0552d	scripts/common/uplinks.sh
 4920	d64984d9f6e56ff079d29c78e55e9f2be087646aa28fd4cad0cbb38b06de594d	scripts/common/virtualization.sh
@@ -2343,7 +2343,7 @@ format=3
 16246	5c3a94bc3f1d0c30592980db7d9bdb9a5351ddeaf36d3563063a791c39352f3d	scripts/late/packer-plugins.py
 7137	7938051714df254abc59db60a9b31ef11b88bd2861b9d2b5fd16e85add2cc7a0	scripts/late/podman.sh
 80061	831c5ee5d24b6069da4930f1e48634cdc1c8a8af1a84597f66a6afc1e65cf6c3	scripts/late/security.sh
-120652	93c7780297a13b21a7ffe57f24079aabc64fdf7cd80f11d954c5a625ac2c3660	scripts/late/software.sh.tmpl
+120674	a753356eb302e96aae3c1341fdccf01d5d303dfa7fe433df3deabc65babee283	scripts/late/software.sh.tmpl
 463	1842e351f1962587609ad55d7377f2afbdf65ed387d24aff1db689dce194625c	scripts/late/ssh/clone.conf.tmpl
 273	ab63846a0399575b7675eb71ac257592675bee2be0ab73c82bc0a411b7a09147	scripts/late/ssh/ssh-install-askpass
 39874	b972632620cd0c1ea3498aa37832d9aa68b91f2d1ac8e1b3a20b9b739f8d9e0c	scripts/late/ssh/ssh-install.py

@@ -200,25 +200,25 @@ sub spec {
             'xtrans-*',
             'xwayland*',
         ],
-        executable => '__INSTALLER_PATH_DIR_USR__/lib/chatgpt/ChatGPT',
+        executable => '__INSTALLER_PATH_DIR_USR_LIB_CHATGPT__/ChatGPT',
         in_use_executables => ['__INSTALLER_PATH_DIR_USR__/bin/chatgpt'],
-        in_use_roots => ['__INSTALLER_PATH_DIR_USR__/lib/chatgpt'],
+        in_use_roots => ['__INSTALLER_PATH_DIR_USR_LIB_CHATGPT__'],
         desktop    => DESKTOP_PATH,
         library    => q{},
         # These paths are verified after installation. Download validation is
         # intentionally limited to Debian package identity and architecture.
         required_paths => [
             '__INSTALLER_PATH_DIR_USR__/bin/chatgpt',
-            '__INSTALLER_PATH_DIR_USR__/lib/chatgpt/codex-launcher',
-            '__INSTALLER_PATH_DIR_USR__/lib/chatgpt/resources/codex',
-            '__INSTALLER_PATH_DIR_USR__/lib/chatgpt/resources/codex-code-mode-host',
+            '__INSTALLER_PATH_DIR_USR_LIB_CHATGPT__/codex-launcher',
+            '__INSTALLER_PATH_DIR_USR_LIB_CHATGPT_CODEX__',
+            '__INSTALLER_PATH_DIR_USR_LIB_CHATGPT_RESOURCES__/codex-code-mode-host',
             ICON_PATH,
         ],
         required_executables => [
             '__INSTALLER_PATH_DIR_USR__/bin/chatgpt',
-            '__INSTALLER_PATH_DIR_USR__/lib/chatgpt/codex-launcher',
-            '__INSTALLER_PATH_DIR_USR__/lib/chatgpt/resources/codex',
-            '__INSTALLER_PATH_DIR_USR__/lib/chatgpt/resources/codex-code-mode-host',
+            '__INSTALLER_PATH_DIR_USR_LIB_CHATGPT__/codex-launcher',
+            '__INSTALLER_PATH_DIR_USR_LIB_CHATGPT_CODEX__',
+            '__INSTALLER_PATH_DIR_USR_LIB_CHATGPT_RESOURCES__/codex-code-mode-host',
         ],
     };
 }

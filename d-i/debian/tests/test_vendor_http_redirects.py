@@ -7,6 +7,8 @@ _isolation_sys.path.insert(0, str(_IsolationPath(__file__).resolve().parents[3] 
 from isolation import require_test_isolation as _require_test_isolation
 _require_test_isolation()
 
+from payload_fixture import installed_argv
+
 import json
 from pathlib import Path
 import shutil
@@ -31,6 +33,8 @@ my @calls;
         push @calls, \@argv;
         die "unexpected automatic redirect\n" if grep { $_ eq '--location' } @argv;
         die "missing curl configuration isolation\n" if $argv[1] ne '--disable';
+        die "curl URL expansion is enabled\n" unless grep { $_ eq '--globoff' } @argv;
+        die "missing curl URL credential guard\n" unless grep { $_ eq '--disallow-username-in-url' } @argv;
         die "unbounded inactivity window\n" if $request{timeout} > 1500;
         die "missing artifact progress owner\n" if ref($request{progress}) ne 'CODE';
         my ($url, $partial);
@@ -48,7 +52,7 @@ my @calls;
 my $ok = eval {
     APTRepoLocal::Servicing::HTTP->new->download(
         label => 'fixture', url => 'https://api.example/start', destination => $destination,
-        minimum => 1, maximum => 1024, allowed_hosts => ['api.example', 'cdn.example'],
+        allowed_hosts => ['api.example', 'cdn.example'],
         content_policy => 'artifact');
     1;
 };
@@ -60,7 +64,7 @@ class VendorHTTPTests(unittest.TestCase):
     def setUp(self):
         if not shutil.which('perl'):
             self.skipTest('Perl unavailable')
-        probe = subprocess.run(['perl', '-MMoo', '-MMooX::StrictConstructor', '-e', '1'],
+        probe = subprocess.run(['/usr/bin/perl', '-MMoo', '-MMooX::StrictConstructor', '-e', '1'],
                                env=ENV, capture_output=True, timeout=5)
         if probe.returncode:
             self.skipTest('packaged Moo dependencies unavailable')
@@ -69,8 +73,9 @@ class VendorHTTPTests(unittest.TestCase):
         self.destination = Path(temporary.name) / 'artifact'
 
     def request(self, redirect):
-        result = subprocess.run(['perl', '-I' + str(LIB / 'apt-repo-local'), '-I' + str(LIB / 'runtime'),
-                                 '-e', DRIVER, '--', str(self.destination), redirect],
+        result = subprocess.run(installed_argv([
+            '/usr/bin/perl', '-I' + str(LIB / 'apt-repo-local'), '-I' + str(LIB / 'runtime'),
+            '-e', DRIVER, '--', str(self.destination), redirect]),
                                 env=ENV, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
@@ -100,3 +105,34 @@ class VendorHTTPTests(unittest.TestCase):
         self.assertEqual(len(result['calls']), 9)
         self.assertFalse(self.destination.exists())
         self.assertFalse(Path(str(self.destination) + '.part').exists())
+
+    def test_transport_diagnostics_preserve_status_without_exposing_response_urls(self):
+        driver = r'''
+use strict; use warnings;
+use APTRepoLocal::Servicing::HTTP;
+use JSON::PP;
+my $http = APTRepoLocal::Servicing::HTTP->new();
+my @errors;
+for my $result (
+    {status => 22 << 8, stdout => "404\nhttps://user:password\@cdn.example/file?token=secret\n"},
+    {status => 6 << 8}, {status => 23 << 8}, {status => 60 << 8},
+    {status => 124 << 8, error => 'timeout'}, {status => 9},
+) {
+    $result->{stderr} = "curl: raw-hostile-output https://cdn.example/?token=secret\n";
+    push @errors, $http->_transport_failure($result);
+}
+print encode_json(\@errors);
+'''
+        result = subprocess.run(installed_argv([
+            '/usr/bin/perl', '-I' + str(LIB / 'apt-repo-local'), '-I' + str(LIB / 'runtime'),
+            '-e', driver]), env=ENV, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        errors = json.loads(result.stdout)
+        self.assertIn('curl exit 22; HTTP 404', errors[0])
+        self.assertIn('server name resolution failed', errors[1])
+        self.assertIn('writing the downloaded artifact failed', errors[2])
+        self.assertIn('TLS certificate verification failed', errors[3])
+        self.assertEqual(errors[4], 'HTTP operation deadline exhausted')
+        self.assertEqual(errors[5], 'curl terminated by signal 9')
+        for secret in ('password', 'token=', 'secret', 'raw-hostile-output'):
+            self.assertNotIn(secret, result.stdout)

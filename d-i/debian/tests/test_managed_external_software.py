@@ -112,7 +112,7 @@ class ManagedAPTRepoLocalTests(unittest.TestCase):
         return subprocess.run(
             payload_installed_argv(['/usr/bin/perl', '-I', str(PERL_LIB), '-I', str(PERL_LIB.parent / 'runtime'), '-e', source,
              *(str(argument) for argument in arguments)]),
-            env={**os.environ, 'LC_ALL': 'C.UTF-8', 'PATH': SYSTEM_PATH},
+            env={'LC_ALL': 'C.UTF-8', 'PATH': SYSTEM_PATH},
             text=True,
             capture_output=True,
             timeout=30,
@@ -517,6 +517,49 @@ for my $result ({status => 124 << 8, error => 'timeout'}, {status => 9}) {
         self.assertIn('managed repository import failed (signal 9)', result.stdout)
         self.assertNotIn('exit 124', result.stdout)
 
+    def test_all_servicing_modules_load_before_any_application_transaction(self):
+        source = r'''
+use strict; use warnings;
+my @modules = qw(Atomic ArtifactLimits Bitwarden ChatGPT CLI Deb Discord Event HTTP Ledger
+                 Logger Notifier Obsidian Postman Process Repository Sleek State Tomat Tuta);
+for my $name (@modules) {
+    my $module = "APTRepoLocal/Servicing/$name.pm";
+    require $module;
+}
+print scalar(@modules), " servicing modules loaded\n";
+'''
+        result = self.run_perl(source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '20 servicing modules loaded\n')
+
+    def test_chatgpt_configure_does_not_load_postman(self):
+        if os.geteuid() != 0:
+            self.skipTest('vendor entrypoint requires root in the isolated fixture')
+        source = r'''
+use strict; use warnings;
+use APTRepoLocal::Servicing::State;
+use APTRepoLocal::Servicing::CLI;
+use APTRepoLocal::Servicing::ChatGPT;
+no warnings 'redefine';
+local *APTRepoLocal::Servicing::State::new = sub { bless {}, 'FixtureState' };
+local *APTRepoLocal::Servicing::CLI::_software_release_policy = sub { {} };
+local *APTRepoLocal::Servicing::ChatGPT::new = sub { bless {}, 'FixtureChatGPT' };
+delete $INC{'APTRepoLocal/Servicing/Postman.pm'};
+unshift @INC, sub {
+    die "unrelated Postman module loaded during ChatGPT configure\n"
+        if $_[1] eq 'APTRepoLocal/Servicing/Postman.pm';
+    return;
+};
+my $vendor = shift @ARGV;
+@ARGV = ('configure-chatgpt');
+$ENV{DPKG_ROOT} = '/fixture/offline-target';
+do $vendor;
+die $@ || "vendor entrypoint did not exit\n";
+'''
+        result = self.run_perl(source, FORKY / 'hooks/target/usr/local/libexec/apt-repo-local-vendor')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('unrelated Postman module', result.stdout + result.stderr)
+
     def test_chatgpt_import_failure_is_not_labelled_as_download_failure(self):
         source = r'''
 use strict;
@@ -534,6 +577,7 @@ local *APTRepoLocal::Servicing::ChatGPT::new = sub { bless {}, 'FixtureChatGPT' 
 local *APTRepoLocal::Servicing::HTTP::new = sub { bless {}, 'FixtureHTTP' };
 local *APTRepoLocal::Servicing::Repository::new = sub { bless {}, 'FixtureRepository' };
 local *APTRepoLocal::Servicing::Deb::new = sub { bless {}, 'FixtureDeb' };
+local *APTRepoLocal::Servicing::CLI::_software_release_policy = sub { {} };
 local *APTRepoLocal::Servicing::CLI::_fetch_generic_deb = sub {
     $_[0]->{apply_failure_detail} = 'repository: managed repository import failed (exit 2)';
     return (1, 'validation');

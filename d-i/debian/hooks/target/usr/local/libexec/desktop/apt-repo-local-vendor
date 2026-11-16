@@ -12,10 +12,6 @@ use APTRepoLocal::Servicing::Event;
 use APTRepoLocal::Servicing::HTTP;
 use APTRepoLocal::Servicing::CLI;
 use APTRepoLocal::Servicing::ChatGPT;
-use APTRepoLocal::Servicing::Discord;
-use APTRepoLocal::Servicing::Postman;
-use APTRepoLocal::Servicing::Tuta;
-use APTRepoLocal::Servicing::Ledger;
 
 $> == 0 or die "apt-repo-local-vendor must run as root\n";
 my ($action, $app, $work) = @ARGV;
@@ -89,11 +85,15 @@ if ($action ne 'installed') {
 } else {
     @ARGV == 2 or die "unexpected installed arguments\n";
 }
+my %classes = (discord => 'Discord', postman => 'Postman', tuta => 'Tuta', ledger => 'Ledger');
+my $class = 'APTRepoLocal::Servicing::' . $classes{$app};
+# Only this fixed, validated application map determines a module name. Load it
+# before state mutation, and keep sibling vendor modules out of ChatGPT postinst.
+my $module = 'APTRepoLocal/Servicing/' . $classes{$app} . '.pm';
+require $module;
 $state->prepare();
 my $lock = $state->lock();
 defined $lock or die "another explicit vendor operation is running\n";
-my %classes = (discord => 'Discord', postman => 'Postman', tuta => 'Tuta', ledger => 'Ledger');
-my $class = 'APTRepoLocal::Servicing::' . $classes{$app};
 my $vendor_policy = $app eq 'discord' ? $release_policy->{discord}
     : $app eq 'ledger' ? $release_policy->{ledger}
     : $release_policy;
