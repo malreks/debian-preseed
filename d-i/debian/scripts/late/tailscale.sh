@@ -207,6 +207,9 @@ account_env=${INSTALLER_LATE_ACCOUNT_ENV:-${DIR_INSTALLER_LATE_ENV}/account.env}
 runtime_common=${DIR_INSTALLER_LATE_ENV}/runtime-common.sh
 account_runtime=${DIR_INSTALLER_LATE_ENV}/account-runtime.sh
 [ -r "$host_env" ] || installer_fetch_host_env "$seed_base" "$host_profile" "$host_env" 0600
+# A child late-command shell does not inherit the dispatcher's unexported
+# target paths. Load the validated composite before fetching path templates.
+installer_load_data_env "$host_env"
 [ -r "$account_env" ] || installer_prepare_late_account_env "$seed_base" "$account_env"
 [ -r "$runtime_common" ] || fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_COMMON)" "$runtime_common"
 [ -r "$account_runtime" ] || fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" "$account_runtime"
@@ -216,10 +219,10 @@ if [ ! -r "$runtime_env_file" ]; then
 fi
 [ -r "$runtime_env_file" ] || tailscale_fatal "runtime env is unavailable for tailscale helper: ${runtime_env_file}"
 dbus_helper="${tmp_env_dir}/dbus-broker.sh"
-[ -r "$dbus_helper" ] || fetch_hook_file "$(installer_repo_file_value FILE_LATE_DBUS_BROKER)" "$dbus_helper"
+# Reacquire through the authenticated renderer even on a resumed attempt: a
+# readable file left by an older failed render is not a usable module cache.
+fetch_hook_file "$(installer_repo_file_value FILE_LATE_DBUS_BROKER)" "$dbus_helper"
 
-# shellcheck disable=SC1090,SC1091
-installer_load_data_env "$host_env"
 # shellcheck disable=SC1090,SC1091
 unset ACCOUNT_USERNAME ACCOUNT_HOME
 installer_load_data_env "$account_env"

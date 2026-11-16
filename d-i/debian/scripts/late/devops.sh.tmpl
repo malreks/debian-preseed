@@ -17,6 +17,15 @@ bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
 bootstrap_source_common_lib ""
 installer_operation_context_repo FILE_LATE_DEVOPS_TMPL 18 devops
 
+# Module rendering needs the selected target paths in this child shell, before
+# devops_main (which is itself defined by one of those modules) can run.
+seed_base=$(installer_seed_base "")
+installer_ensure_context_loaded "$seed_base"
+installer_tools_class_selected || exit 0
+host_env=${INSTALLER_LATE_HOST_ENV:-${DIR_INSTALLER_LATE_ENV}/host.env}
+[ -r "$host_env" ] || installer_fetch_host_env "$seed_base" "$(installer_resolve_host_profile "")" "$host_env" 0600
+installer_load_data_env "$host_env"
+
 bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_VALIDATION_BASE)" || exit "$?"
 bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_UPSTREAM_POLICY)" || exit "$?"
 bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_POLICY_RESOLUTION_TMPL)" || exit "$?"

@@ -139,6 +139,7 @@ printf 'PASS tor-target-boundary shell=%s mode=%s status=%s\n' "$target_shell" "
 
 BOOTSTRAP_PATH_BOUNDARY_DRIVER = r'''#!/bin/sh
 set -eu
+umask 077
 module=$1
 runtime_contract=$2
 asset=$3
@@ -155,6 +156,7 @@ BOOTPROFILE_DEFAULT=balanced
 BOOTPROFILE_HARDENED=hardened
 BOOTPROFILE_PERFORMANCE=performance
 . "$runtime_contract"
+DIR_REPO_SCRIPTS=scripts
 DIR_SCRIPTS_LATE=scripts/late
 DIR_SCRIPTS_DESKTOP=scripts/desktop
 DIR_SCRIPTS_FIRSTBOOT=scripts/firstboot
@@ -164,26 +166,38 @@ DIR_SCRIPTS_LATE_DEVOPS=$DIR_SCRIPTS_LATE/devops
 bootstrap_fatal() { printf '%s\n' "$*" >&2; exit 91; }
 installer_fatal() { bootstrap_fatal "$@"; }
 bootstrap_load_source_library() { :; }
+installer_load_source_library() { :; }
+installer_operation_context_repo() { :; }
+installer_error() { printf '%s\n' "$*" >&2; }
+source_cache_root() { printf '%s\n' "$work/immutable"; }
 source_fetch() {
+  case "$3" in "$work"/*) ;; *) exit 125 ;; esac
   if [ "$mode" = fetch-failure ]; then printf partial >"$3"; return 71; fi
   cp "$asset" "$3"
   chmod "$4" "$3"
 }
 installer_render_logging_asset() { :; }
+. "$module"
 case "$transport" in
-  common) installer_fetch_seed_path() { source_fetch "$@"; } ;;
-  fallback) : ;;
+  common) : ;;
+  fallback) unset -f installer_fetch_seed_path installer_load_source_library ;;
+  partial) unset -f installer_load_source_library ;;
   *) exit 125 ;;
 esac
-. "$module"
 case "$mode" in
   render-failure) installer_apply_scalar_placeholders() { printf partial >"$2"; return 72; } ;;
   missing-renderer|entrypoint) unset -f installer_apply_scalar_placeholders ;;
-  catalog) unset DIR_SCRIPTS_LATE DIR_SCRIPTS_DESKTOP DIR_SCRIPTS_FIRSTBOOT DIR_HOOKS_TARGET ;;
+  missing-profile) unset DIR_DEV DIR_ETC DIR_USR_LOCAL DIR_USR_SHARE DIR_USR_LOCAL_LIBEXEC ;;
 esac
 destination=$work/result
 printf previous >"$destination"
 printf previous >"$work/previous"
+if [ "$mode" = stale ]; then
+  printf '%s\n' '__INSTALLER_PATH_DIR_DEV__' >"$destination"
+fi
+cp "$destination" "$work/previous"
+chmod 0640 "$destination"
+cp "$asset" "$work/source.before"
 (
   set -eu
   bootstrap_fetch_seed_file /fixture/source "$source_path" "$destination" 0700
@@ -191,8 +205,8 @@ printf previous >"$work/previous"
 worker=$!
 if wait "$worker"; then status=0; else status=$?; fi
 case "$mode" in
-  baseline|success|passthrough|concrete|entrypoint|catalog) expected_status=0 ;;
-  unknown|missing-renderer) expected_status=91 ;;
+  baseline|success|passthrough|concrete|entrypoint|catalog|dbus|stale) expected_status=0 ;;
+  unknown|missing-renderer|missing-profile) expected_status=91 ;;
   render-failure) expected_status=72 ;;
   fetch-failure) expected_status=71 ;;
   *) exit 125 ;;
@@ -203,11 +217,12 @@ esac
   exit 1
 }
 case "$mode" in
-  success|concrete|entrypoint) cmp "$expected" "$destination"; [ -x "$destination" ] ;;
+  success|concrete|entrypoint|dbus|stale) cmp "$expected" "$destination"; [ -x "$destination" ] ;;
   baseline|passthrough|catalog) cmp "$asset" "$destination" ;;
   *) cmp "$work/previous" "$destination" ;;
 esac
-for retained in "$work"/.bootstrap-asset.* "$work"/*.path-rendered; do
+cmp "$asset" "$work/source.before"
+for retained in "$work"/.bootstrap-asset.* "$work"/*.path-rendered "$work"/*.fetch-render.*; do
   [ ! -e "$retained" ] || { printf 'bootstrap staging retained: %s\n' "$retained" >&2; exit 1; }
 done
 printf 'PASS bootstrap-path-boundary mode=%s transport=%s source=%s status=%s\n' "$mode" "$transport" "$source_path" "$status"
@@ -377,10 +392,12 @@ class InstallerContracts(unittest.TestCase):
 
     def test_bootstrap_helper_paths_are_rendered_before_publication(self):
         bootstrap = (SEED / 'scripts/common/bootstrap.sh').read_text()
+        repository = (SEED / 'scripts/common/modules/repository-apt.sh').read_text()
         logging = (SEED / 'scripts/common/modules/files-logging.sh').read_text()
         bodies = []
         for source, name, closing in [
                 (bootstrap, 'bootstrap_fetch_seed_file', ')'),
+                (repository, 'installer_fetch_seed_path', ')'),
                 *[(logging, name, '}') for name in (
                     'installer_escape_sed_replacement', 'installer_contains_unresolved_path_placeholders',
                     'installer_assert_no_unresolved_path_placeholders',
@@ -392,12 +409,13 @@ class InstallerContracts(unittest.TestCase):
         module.write_text('\n\n'.join(bodies) + '\n')
         driver = self.work / 'bootstrap-driver.sh'
         driver.write_text(BOOTSTRAP_PATH_BOUNDARY_DRIVER)
-        for mode, transport in itertools.product(
+        for mode, transport, family in itertools.product(
                 ('success', 'unknown', 'render-failure', 'fetch-failure', 'missing-renderer',
-                 'passthrough', 'concrete', 'entrypoint', 'catalog'),
-                ('common', 'fallback')):
-            with self.subTest(mode=mode, transport=transport):
-                work = self.work / (mode + '-' + transport)
+                 'missing-profile', 'passthrough', 'concrete', 'entrypoint', 'catalog', 'dbus', 'stale'),
+                ('common', 'fallback', 'partial'),
+                ('common', 'runtime', 'server', 'desktop', 'firstboot', 'late', 'target')):
+            with self.subTest(mode=mode, transport=transport, family=family):
+                work = self.work / (mode + '-' + transport + '-' + family)
                 work.mkdir(mode=0o700)
                 asset, expected = work / 'asset', work / 'expected'
                 token = ('__INSTALLER_PATH_UNKNOWN__' if mode == 'unknown'
@@ -405,14 +423,27 @@ class InstallerContracts(unittest.TestCase):
                 source = 'helper=' + token + '/fixture\n'
                 if mode == 'concrete':
                     source = 'already concrete\n'
+                elif mode in ('dbus', 'missing-profile'):
+                    source = ('null=__INSTALLER_PATH_DIR_DEV__/null\n'
+                              'etc=__INSTALLER_PATH_DIR_ETC__\n'
+                              'local=__INSTALLER_PATH_DIR_USR_LOCAL__\n'
+                              'share=__INSTALLER_PATH_DIR_USR_SHARE__\n')
+                elif mode == 'passthrough':
+                    source = '# parser grammar: __INSTALLER_PATH_[A-Z0-9_]+__\n'
                 elif mode == 'entrypoint':
                     # The pre-common dispatcher contains a literal marker
                     # prefix in its guard; it needs no path renderer yet.
                     source = '# guard prefix: __INSTALLER_PATH_\n'
                 asset.write_text(source)
-                expected.write_text(source.replace(token, '/usr/local/libexec'))
-                source_path = ('scripts/common/credential-data.awk' if mode == 'passthrough'
-                               else 'scripts/late/devops-tools.py')
+                rendered = source.replace(token, '/usr/local/libexec')
+                for name, value in (('DIR_DEV', '/dev'), ('DIR_ETC', '/etc'),
+                                    ('DIR_USR_LOCAL', '/usr/local'), ('DIR_USR_SHARE', '/usr/share')):
+                    rendered = rendered.replace('__INSTALLER_PATH_' + name + '__', value)
+                expected.write_text(rendered)
+                source_path = ('hooks/target/fixture.sh' if family == 'target'
+                               else 'scripts/' + family + '/fixture.sh')
+                if mode == 'passthrough':
+                    source_path = 'scripts/common/credential-data.awk'
                 if mode == 'entrypoint':
                     source_path = 'scripts/late/dispatch.sh'
                 elif mode == 'catalog':
@@ -421,6 +452,11 @@ class InstallerContracts(unittest.TestCase):
                                            str(SEED / 'hosts/installer/runtime.env'), str(asset),
                                            str(expected), str(work), mode, transport, source_path])
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                expected_mode = 0o700 if mode in {'success', 'concrete', 'entrypoint', 'dbus', 'stale'} else 0o640
+                # Data passthrough is still published with the requested mode.
+                if mode in {'passthrough', 'catalog'}:
+                    expected_mode = 0o700
+                self.assertEqual((work / 'result').stat().st_mode & 0o777, expected_mode)
 
     def test_grub_target_mount_lookup_receives_installer_spelling(self):
         source = (SEED / 'scripts/late/grub.sh').read_text()

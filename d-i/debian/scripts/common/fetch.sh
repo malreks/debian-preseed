@@ -36,7 +36,6 @@ fetch_hook_file() {
   dest=$2
   fetch_resolve_seed_base || return $?
   installer_fetch_file "$FETCH_SEED_BASE" "$src" "$dest" 0755 || return $?
-  fetch_render_runtime_path_asset "$src" "$dest" 0755 || return $?
   case "$dest" in
     ${DIR_INSTALLER_BASE_INSTALLER_D}/*) installer_guard_hook "$dest" base ;;
     ${DIR_INSTALLER_POST_BASE_INSTALLER_D}/*) installer_guard_hook "$dest" post-base ;;
@@ -45,35 +44,6 @@ fetch_hook_file() {
     ${DIR_INSTALLER_FINISH_INSTALL_D}/*) installer_guard_hook "$dest" finish ;;
     ${DIR_INSTALLER_LIB_PARTMAN_FINISH_D}/*) installer_guard_hook "$dest" partman ;;
   esac
-}
-
-fetch_render_runtime_path_asset() {
-  fetch_path_source=$1
-  fetch_path_dest=$2
-  fetch_path_mode=${3:-0755}
-  case "$fetch_path_source" in
-    "${DIR_SCRIPTS_LATE}/"*|"${DIR_SCRIPTS_DESKTOP}/"*|"${DIR_SCRIPTS_FIRSTBOOT}/"*|"${DIR_HOOKS_TARGET}/"*) ;;
-    *) return 0 ;;
-  esac
-  if LC_ALL=C grep -q '__INSTALLER_PATH_' "$fetch_path_dest"; then
-    fetch_path_rendered="${fetch_path_dest}.path-rendered"
-    installer_apply_scalar_placeholders "$fetch_path_dest" "$fetch_path_rendered" || {
-      rm -f -- "$fetch_path_rendered"
-      return 1
-    }
-    installer_assert_no_unresolved_path_placeholders "$fetch_path_rendered" "$fetch_path_source" || {
-      rm -f -- "$fetch_path_rendered"
-      return 1
-    }
-    chmod "$fetch_path_mode" "$fetch_path_rendered" || {
-      rm -f -- "$fetch_path_rendered"
-      return 1
-    }
-    mv -f -- "$fetch_path_rendered" "$fetch_path_dest"
-  else
-    fetch_path_probe_status=$?
-    [ "$fetch_path_probe_status" = 1 ] || return 1
-  fi
 }
 
 fetch_ssh_asset() {

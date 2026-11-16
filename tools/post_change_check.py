@@ -3761,6 +3761,95 @@ def check_chatgpt_bootstrap_contract(paths: list[Path], errors: list[str], count
     counts['chatgpt_payload_path_contracts'] = 2
 
 
+def check_runtime_path_publication(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Materialize shared path contracts as data and inspect loader ordering.
+
+    No installer function, target helper or fixture is sourced or executed.
+    These shared-contract lookups cover sibling scripts and target assets when
+    their common publisher, bootstrap or one of the affected entrypoints changes.
+    """
+    owners = {DEBIAN_ROOT / name for name in (
+        'scripts/common/bootstrap.sh', 'scripts/common/fetch.sh',
+        'scripts/common/modules/repository-apt.sh',
+        'scripts/common/modules/files-logging.sh', 'hosts/installer/runtime.env',
+        'scripts/late/tailscale.sh', 'scripts/late/devops.sh.tmpl',
+        'scripts/late/devops/main-orchestration.sh')}
+    if not (owners | {Path(__file__).resolve()}).intersection(paths):
+        return
+    values = dict(_installer_path_token_values())
+    marker = re.compile(r'__INSTALLER_PATH_[A-Z0-9_]+__')
+    for root, label in ((DEBIAN_ROOT / 'scripts', 'script'), (TARGET_ROOT, 'target')):
+        checked = 0
+        for path in sorted(root.rglob('*')):
+            if not path.is_file() or path.is_symlink() or path.suffix.lower() in BINARY_SUFFIXES:
+                continue
+            source = _read_text(path)
+            tokens = set(marker.findall(source))
+            if not tokens:
+                continue
+            # All selected profiles include this single canonical path owner.
+            # Missing names are errors, never replaced with empty strings.
+            unresolved = sorted(token for token in tokens if token not in values)
+            if unresolved:
+                errors.append(f'{path.relative_to(ROOT)}: undefined runtime paths: {unresolved}')
+            rendered = marker.sub(lambda match: values.get(match[0], match[0]), source)
+            if marker.search(rendered):
+                errors.append(f'{path.relative_to(ROOT)}: unresolved rendered runtime path')
+            checked += 1
+        counts[f'runtime_path_{label}_assets'] = checked
+
+    bootstrap = _read_text(DEBIAN_ROOT / 'scripts/common/bootstrap.sh')
+    repository = _read_text(DEBIAN_ROOT / 'scripts/common/modules/repository-apt.sh')
+    for label, source in (('bootstrap', bootstrap), ('repository', repository)):
+        if '"${DIR_REPO_SCRIPTS' not in source or '"${DIR_HOOKS_TARGET' not in source:
+            errors.append(f'{label}: path publication does not cover every script/target family')
+    module = re.search(r'^bootstrap_module_path\(\) \(\n.*?^\)', bootstrap, re.M | re.S)
+    if (module is None or 'bootstrap_fetch_seed_file "$module_seed"' not in module[0]
+            or re.search(r'^\s*source_fetch\b', module[0], re.M)):
+        errors.append('shell module loader bypasses shared path publication')
+    fetch = re.search(r'^installer_fetch_seed_path\(\) \(\n.*?^\)', repository, re.M | re.S)
+    if fetch is None:
+        errors.append('shared repository publisher is missing')
+    else:
+        stages = [fetch[0].find(text) for text in (
+            'source_fetch "$repository_fetch_seed_base"',
+            'installer_apply_scalar_placeholders "$logging_fetch_work/asset"',
+            'installer_assert_no_unresolved_path_placeholders "$logging_fetch_work/rendered"',
+            'mv -f -- "$logging_fetch_work/asset" "$repository_fetch_destination"')]
+        if -1 in stages or stages != sorted(stages):
+            errors.append('repository publisher must fetch, render and validate before replacement')
+    if 'command -v installer_load_source_library' not in bootstrap:
+        errors.append('bootstrap may invoke the partially initialized common library')
+
+    # Renderer dependencies must be token-free: they load before profile paths.
+    common = _read_text(DEBIAN_ROOT / 'scripts/common/lib.sh')
+    selectors = _repository_selector_values()
+    early = {'FILE_COMMON_BOOTSTRAP', 'FILE_COMMON_SOURCE', 'FILE_COMMON_LIB',
+             'FILE_COMMON_FETCH', 'FILE_COMMON_HOOK', 'FILE_COMMON_TARGET', 'FILE_COMMON_SSH',
+             'FILE_PRESEED_BOOTSTRAP_ENTRY', 'FILE_PRESEED_APPLY', 'FILE_PRESEED_GUARD_HOOK',
+             'FILE_PRESEED_ANSWERS', 'FILE_EARLY_DISPATCH', 'FILE_PARTMAN_DISPATCH', 'FILE_LATE_DISPATCH'}
+    early.update(re.findall(r'bootstrap_source_module "\$\(bootstrap_repo_file_value (FILE_[A-Z0-9_]+)\)"', common))
+    for selector in sorted(early):
+        relative = selectors.get(selector)
+        if relative is None or not (DEBIAN_ROOT / relative).is_file():
+            errors.append('early script selector is unavailable: ' + selector)
+        elif marker.search(_read_text(DEBIAN_ROOT / relative)):
+            errors.append('pre-profile bootstrap dependency contains runtime path tokens: ' + selector)
+    counts['runtime_path_bootstrap_dependencies'] = len(early)
+
+    tailscale = _read_text(DEBIAN_ROOT / 'scripts/late/tailscale.sh')
+    devops = _read_text(DEBIAN_ROOT / 'scripts/late/devops.sh.tmpl')
+    for label, source, consumer in (
+            ('Tailscale', tailscale, 'fetch_hook_file "$(installer_repo_file_value FILE_LATE_DBUS_BROKER)"'),
+            ('DevOps', devops, 'bootstrap_source_module ')):
+        loaded, used = source.find('installer_load_data_env "$host_env"'), source.find(consumer)
+        if loaded < 0 or used < 0 or loaded > used:
+            errors.append(label + ': profile paths must load before helper rendering')
+    if '[ -r "$dbus_helper" ] ||' in tailscale:
+        errors.append('Tailscale must not reuse a raw helper cached by a failed older renderer')
+    counts['runtime_path_entrypoint_contracts'] = 2
+
+
 def check_diff(errors: list[str]) -> None:
     for command in (
         ['git', 'diff', '--check'],
@@ -3808,6 +3897,7 @@ def main() -> int:
         check_release_equality(paths, errors, counts)
         check_download_contract(paths, errors, counts)
         check_chatgpt_bootstrap_contract(paths, errors, counts)
+        check_runtime_path_publication(paths, errors, counts)
         check_diff(errors)
     except (OSError, UnicodeError, RuntimeError, ValueError) as error:
         errors.append(f'checker failure: {error}')

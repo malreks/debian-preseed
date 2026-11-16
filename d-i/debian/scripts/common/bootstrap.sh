@@ -654,10 +654,18 @@ bootstrap_require_seed_url_base() {
 
 bootstrap_fetch_seed_file() (
   bootstrap_load_source_library "$1" || exit "$?"
+  # repository-apt is loaded before context-target during common bootstrap.
+  # Delegate only when its source-library dependency exists. The initialized
+  # publisher already owns the private fetch/render transaction.
+  if command -v installer_fetch_seed_path >/dev/null 2>&1 &&
+     command -v installer_load_source_library >/dev/null 2>&1; then
+    installer_fetch_seed_path "$1" "$2" "$3" "${4:-0600}"
+    exit "$?"
+  fi
   bootstrap_path_destination=$3
   bootstrap_path_work=
   case "$2" in
-    "${DIR_SCRIPTS_LATE:-}/"*|"${DIR_SCRIPTS_DESKTOP:-}/"*|"${DIR_SCRIPTS_FIRSTBOOT:-}/"*|"${DIR_HOOKS_TARGET:-}/"*)
+    "${DIR_REPO_SCRIPTS:-}/"*|"${DIR_HOOKS_TARGET:-}/"*)
       # Keep the previous destination intact until acquisition and rendering
       # both succeed. The private sibling also bounds cleanup to this fetch.
       bootstrap_path_parent=$(dirname "$bootstrap_path_destination") || exit "$?"
@@ -677,30 +685,29 @@ bootstrap_fetch_seed_file() (
       set -- "$1" "$2" "$bootstrap_path_work/asset" "${4:-0600}"
       ;;
   esac
-  if command -v installer_fetch_seed_path >/dev/null 2>&1; then
-    installer_fetch_seed_path "$1" "$2" "$3" "${4:-0600}"
-    bootstrap_fetch_status=$?
-    [ "$bootstrap_fetch_status" -eq 0 ] || exit "$bootstrap_fetch_status"
+  source_fetch "$1" "$2" "$3" "${4:-0600}" || exit "$?"
+  if command -v installer_render_logging_asset >/dev/null 2>&1; then
+    installer_render_logging_asset "$1" "$2" "$3" || exit "$?"
   else
-    source_fetch "$1" "$2" "$3" "${4:-0600}" || exit "$?"
-    if command -v installer_render_logging_asset >/dev/null 2>&1; then
-      installer_render_logging_asset "$1" "$2" "$3" || exit "$?"
-    else
-      case "$2" in
-        "${DIR_HOOKS_TARGET:-}/"*|"${DIR_SCRIPTS_LATE:-}/"*|"${DIR_SCRIPTS_DESKTOP:-}/"*|"${DIR_SCRIPTS_FIRSTBOOT:-}/"*)
-          if LC_ALL=C grep -q '__INSTALLER_LOG_' "$3"; then
-            bootstrap_fatal 'logging template requested before common library initialization'
-          fi ;;
-      esac
-    fi
+    case "$2" in
+      "${DIR_HOOKS_TARGET:-}/"*|"${DIR_REPO_SCRIPTS:-}/"*)
+        if LC_ALL=C grep -Eq '__INSTALLER_LOG_[A-Z0-9_]+__' "$3"; then
+          bootstrap_fatal 'logging template requested before common library initialization'
+        fi ;;
+    esac
   fi
   case "$2" in
-    "${DIR_SCRIPTS_LATE:-}/"*|"${DIR_SCRIPTS_DESKTOP:-}/"*|"${DIR_SCRIPTS_FIRSTBOOT:-}/"*|"${DIR_HOOKS_TARGET:-}/"*)
+    "${DIR_REPO_SCRIPTS:-}/"*|"${DIR_HOOKS_TARGET:-}/"*)
       if LC_ALL=C grep -Eq '__INSTALLER_(PATH|APPARMOR_PROFILE)_[A-Z0-9_]+__' "$3"; then
         # Direct helper fetches (including Python and target re-entry scripts)
-        # share the publication renderer. Limiting this to sourced .sh modules
-        # leaves executable helpers with literal path tokens. Common bootstrap
-        # modules and authenticated parser data remain outside this boundary.
+        # share the publication renderer. Early common/bootstrap modules and
+        # authenticated parser data contain no concrete path tokens, so they
+        # can load before the renderer and profile are initialized.
+        bootstrap_path_cache=$(source_cache_root "$1") || exit "$?"
+        case "$bootstrap_path_destination" in
+          "$bootstrap_path_cache"|"$bootstrap_path_cache"/*)
+            bootstrap_fatal 'refusing to render inside the authenticated source snapshot' ;;
+        esac
         command -v installer_apply_scalar_placeholders >/dev/null 2>&1 &&
           command -v installer_assert_no_unresolved_path_placeholders >/dev/null 2>&1 ||
           bootstrap_fatal 'runtime path asset requested before common library initialization'
@@ -787,14 +794,10 @@ bootstrap_module_path() (
     [ "$(installer_metadata_value "$module_destination" links)" = 1 ] || exit 1
   fi
   mkdir -p "$module_parent" || exit 1
-  case "$module_relative" in
-    "${DIR_SCRIPTS_COMMON}/"*|"${DIR_SCRIPTS_COMMON_MODULES}/"*|"${DIR_SCRIPTS_RUNTIME_MODULES}/"*)
-      # Common modules bootstrap the higher-level renderer itself. Never call
-      # its half-loaded functions while resolving those dependencies.
-      source_fetch "$module_seed" "$module_relative" "$module_destination" 0600 || exit "$?" ;;
-    *)
-      bootstrap_fetch_seed_file "$module_seed" "$module_relative" "$module_destination" 0600 'installer module' || exit "$?" ;;
-  esac
+  # Common and runtime modules follow the same checked publication path. The
+  # bootstrap fallback handles definition-only dependencies before the higher
+  # library is ready; no module may bypass path validation merely by its root.
+  bootstrap_fetch_seed_file "$module_seed" "$module_relative" "$module_destination" 0600 'installer module' || exit "$?"
   [ -s "$module_destination" ] && [ ! -L "$module_destination" ] || exit 1
   [ "$(installer_metadata_value "$module_destination" mode)" = 600 ] || exit 1
   printf '%s\n' "$module_destination"

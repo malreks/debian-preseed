@@ -675,7 +675,7 @@ installer_fetch_seed_path() (
   installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 676 load_asset_source
   installer_load_source_library "$repository_fetch_seed_base" || exit "$?"
   case "$repository_fetch_source" in
-    "${DIR_HOOKS_TARGET}/"*|"${DIR_SCRIPTS_LATE}/"*|"${DIR_SCRIPTS_DESKTOP}/"*|"${DIR_SCRIPTS_FIRSTBOOT}/"*)
+    "${DIR_HOOKS_TARGET}/"*|"${DIR_REPO_SCRIPTS}/"*)
       # Fetch and rendering form one transaction; invalid data cannot replace
       # a destination with an unrendered source template.
       mkdir -p "$(dirname "$repository_fetch_destination")" || exit "$?"
@@ -688,12 +688,35 @@ installer_fetch_seed_path() (
       repository_fetch_step=render_logging
       installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 690 installer_render_logging_asset
       installer_render_logging_asset "$repository_fetch_seed_base" "$repository_fetch_source" "$logging_fetch_work/asset" || exit "$?"
+      repository_fetch_step=render_paths
+      # This is the code/data publication boundary for every script family,
+      # including common, runtime and server helpers. Keep the authenticated
+      # source bytes untouched and publish only a complete rendered candidate.
+      if installer_contains_unresolved_path_placeholders "$logging_fetch_work/asset"; then
+        repository_path_cache=$(source_cache_root "$repository_fetch_seed_base") || exit "$?"
+        case "$repository_fetch_destination" in
+          "$repository_path_cache"|"$repository_path_cache"/*)
+            installer_error 'refusing to render inside the authenticated source snapshot'; exit 1 ;;
+        esac
+        command -v installer_apply_scalar_placeholders >/dev/null 2>&1 &&
+          command -v installer_assert_no_unresolved_path_placeholders >/dev/null 2>&1 ||
+          installer_fatal 'runtime path asset requested before common library initialization'
+        installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 705 render_runtime_paths
+        installer_apply_scalar_placeholders "$logging_fetch_work/asset" "$logging_fetch_work/rendered" || exit "$?"
+        installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 707 validate_runtime_paths
+        installer_assert_no_unresolved_path_placeholders "$logging_fetch_work/rendered" "$repository_fetch_source" || exit "$?"
+        chmod "$repository_fetch_mode" "$logging_fetch_work/rendered" || exit "$?"
+        mv -f -- "$logging_fetch_work/rendered" "$logging_fetch_work/asset" || exit "$?"
+      else
+        repository_path_probe_status=$?
+        [ "$repository_path_probe_status" -eq 1 ] || exit "$repository_path_probe_status"
+      fi
       repository_fetch_step=publish
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 693 publish_fetched_asset
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 716 publish_fetched_asset
       mv -f -- "$logging_fetch_work/asset" "$repository_fetch_destination" || exit "$?" ;;
     *)
       repository_fetch_step=fetch
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 697 source_fetch
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 720 source_fetch
       source_fetch "$repository_fetch_seed_base" "$repository_fetch_source" "$repository_fetch_destination" "$repository_fetch_mode" || exit "$?" ;;
   esac
 )
