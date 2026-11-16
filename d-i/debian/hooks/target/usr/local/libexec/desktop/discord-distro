@@ -143,6 +143,16 @@ def validate_module_version(value: object, label: str) -> int:
     return value
 
 
+def validate_package_size(package: dict[str, object], maximum: int, label: str) -> None:
+    # Discord adds this transport hint to full and delta packages. Older
+    # manifests omit it; hashes and archive limits remain authoritative.
+    if "package_size" not in package:
+        return
+    size = package["package_size"]
+    if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= maximum:
+        fail(f"{label} package size is outside approved bounds")
+
+
 def validate_distro_url_path(value: object, expected_path: str) -> str:
     if not isinstance(value, str) or len(value) > 2048:
         fail("Discord distribution URL is invalid")
@@ -182,8 +192,9 @@ def validate_host_deltas(value: object, version: str) -> None:
     if not isinstance(value, list) or len(value) > MAX_DELTAS:
         fail("Discord host delta metadata is invalid")
     for delta in value:
-        if not isinstance(delta, dict) or set(delta) != HOST_DELTA_FIELDS:
+        if not isinstance(delta, dict) or set(delta) - {"package_size"} != HOST_DELTA_FIELDS:
             fail("Discord host delta schema is invalid")
+        validate_package_size(delta, MAX_HOST_BYTES, "Discord host delta")
         source_version = version_from_triple(
             delta.get("host_version"),
             "Discord host delta source version",
@@ -210,8 +221,9 @@ def validate_module_deltas(
     if not isinstance(value, list) or len(value) > MAX_DELTAS:
         fail(f"Discord module {module_name} delta metadata is invalid")
     for delta in value:
-        if not isinstance(delta, dict) or set(delta) != MODULE_DELTA_FIELDS:
+        if not isinstance(delta, dict) or set(delta) - {"package_size"} != MODULE_DELTA_FIELDS:
             fail(f"Discord module {module_name} delta schema is invalid")
+        validate_package_size(delta, MAX_MODULE_BYTES, f"Discord module {module_name} delta")
         source_version = version_from_triple(
             delta.get("host_version"),
             f"Discord module {module_name} delta source host version",
@@ -247,7 +259,7 @@ def validate_manifest(path: str) -> dict[str, object]:
     deltas = manifest.get("deltas")
     if (
         not isinstance(full, dict)
-        or set(full) != HOST_FULL_FIELDS
+        or set(full) - {"package_size"} != HOST_FULL_FIELDS
         or not isinstance(modules, dict)
     ):
         fail("Discord manifest is missing its host or module maps")
@@ -265,6 +277,7 @@ def validate_manifest(path: str) -> dict[str, object]:
         fail("Discord manifest required-update flag is invalid")
 
     version = version_from_triple(full.get("host_version"), "Discord host version")
+    validate_package_size(full, MAX_HOST_BYTES, "Discord host")
     host = {
         "sha256": validate_sha256(
             full.get("package_sha256"),
@@ -297,10 +310,11 @@ def validate_manifest(path: str) -> dict[str, object]:
             not isinstance(package, dict)
             or set(package) != MODULE_FIELDS
             or not isinstance(package.get("full"), dict)
-            or set(package["full"]) != MODULE_FULL_FIELDS
+            or set(package["full"]) - {"package_size"} != MODULE_FULL_FIELDS
         ):
             fail(f"Discord module {name} lacks a full package")
         package_full = package["full"]
+        validate_package_size(package_full, MAX_MODULE_BYTES, f"Discord module {name}")
         package_version = version_from_triple(
             package_full.get("host_version"),
             f"Discord module {name} host version",

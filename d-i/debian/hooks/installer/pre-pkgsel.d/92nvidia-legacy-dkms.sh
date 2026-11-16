@@ -74,6 +74,78 @@ installer_load_data_env "$PREPKGSEL_HOST_ENV" ||
   nvidia_legacy_prepkgsel_fatal "installer target root is unavailable"
 [ -n "${DIR_USR_SBIN:-}" ] ||
   nvidia_legacy_prepkgsel_fatal "target runtime path DIR_USR_SBIN is unavailable"
+
+nvidia_legacy_install_initramfs_guard() {
+  [ -n "${DIR_BOOT:-}" ] && [ -n "${DIR_LIB:-}" ] ||
+    nvidia_legacy_prepkgsel_fatal "target boot and library paths are unavailable"
+  nvidia_installer_kernel=$(uname -r 2>/dev/null || true)
+  case "$nvidia_installer_kernel" in
+    ''|*[!A-Za-z0-9.+_-]*)
+      nvidia_legacy_prepkgsel_fatal "installer kernel release is unavailable or invalid" ;;
+  esac
+  nvidia_initramfs_path="${TARGET_ROOT}${FILE_INSTALLER_UPDATE_INITRAMFS}"
+  nvidia_initramfs_real="${TARGET_ROOT}${FILE_INSTALLER_UPDATE_INITRAMFS_REAL}"
+  installer_apt_safe_path "$nvidia_initramfs_path" &&
+    installer_apt_safe_path "$nvidia_initramfs_real" ||
+    nvidia_legacy_prepkgsel_fatal "target initramfs entrypoint ancestry is unsafe"
+  nvidia_initramfs_diversion=$(
+    chroot "$TARGET_ROOT" "$FILE_INSTALLER_DPKG_DIVERT" --truename "$FILE_INSTALLER_UPDATE_INITRAMFS"
+  ) || nvidia_legacy_prepkgsel_fatal "cannot inspect the target initramfs diversion"
+  case "$nvidia_initramfs_diversion" in
+    "$FILE_INSTALLER_UPDATE_INITRAMFS")
+      [ -f "$nvidia_initramfs_path" ] && [ -x "$nvidia_initramfs_path" ] &&
+        [ ! -L "$nvidia_initramfs_path" ] &&
+        [ ! -e "$nvidia_initramfs_real" ] && [ ! -L "$nvidia_initramfs_real" ] ||
+        nvidia_legacy_prepkgsel_fatal "target initramfs executable or diversion destination is unsafe"
+      if grep -Fqx '# INSTALLER_TEMPORARY_NVIDIA_INITRAMFS_GUARD_V1' "$nvidia_initramfs_path"; then
+        nvidia_legacy_prepkgsel_fatal "initramfs guard exists without its expected diversion"
+      fi
+      run_in_target "reserve temporary NVIDIA initramfs guard" \
+        "$FILE_INSTALLER_DPKG_DIVERT" --quiet --local --rename \
+        --divert "$FILE_INSTALLER_UPDATE_INITRAMFS_REAL" --add "$FILE_INSTALLER_UPDATE_INITRAMFS"
+      ;;
+    "$FILE_INSTALLER_UPDATE_INITRAMFS_REAL")
+      if [ -e "$nvidia_initramfs_path" ] || [ -L "$nvidia_initramfs_path" ]; then
+        [ -f "$nvidia_initramfs_path" ] && [ ! -L "$nvidia_initramfs_path" ] &&
+          grep -Fqx '# INSTALLER_TEMPORARY_NVIDIA_INITRAMFS_GUARD_V1' "$nvidia_initramfs_path" ||
+          nvidia_legacy_prepkgsel_fatal "refusing to replace an unexpected initramfs guard"
+      fi
+      ;;
+    *) nvidia_legacy_prepkgsel_fatal "target initramfs entrypoint has an unexpected diversion" ;;
+  esac
+  [ -f "$nvidia_initramfs_real" ] && [ -x "$nvidia_initramfs_real" ] &&
+    [ ! -L "$nvidia_initramfs_real" ] ||
+    nvidia_legacy_prepkgsel_fatal "preserved target initramfs executable is unavailable"
+  if grep -Fqx '# INSTALLER_TEMPORARY_NVIDIA_INITRAMFS_GUARD_V1' "$nvidia_initramfs_real"; then
+    nvidia_legacy_prepkgsel_fatal "preserved target initramfs executable unexpectedly contains the guard"
+  fi
+  # NVIDIA's Ubuntu-derived maintainer scripts explicitly update uname -r in
+  # a chroot. That is the d-i kernel, which has no target modules. Keep normal
+  # updates and target-kernel requests intact; finish-install removes this guard.
+  cat >"$TMP_ENV_DIR/initramfs-guard" <<EOF_INITRAMFS_GUARD
+#!/bin/sh
+# INSTALLER_TEMPORARY_NVIDIA_INITRAMFS_GUARD_V1
+set -eu
+case "\${DPKG_MAINTSCRIPT_PACKAGE:-}" in
+  nvidia-kernel-common-580|nvidia-dkms-580)
+    if [ "\$#" -eq 3 ] && [ "\$1" = -u ] && [ "\$2" = -k ] &&
+       [ "\$3" = '$nvidia_installer_kernel' ] &&
+       [ ! -e '${DIR_LIB}/modules/'"\$3" ] && [ ! -L '${DIR_LIB}/modules/'"\$3" ] &&
+       [ ! -e '${DIR_BOOT}/vmlinuz-'"\$3" ] && [ ! -L '${DIR_BOOT}/vmlinuz-'"\$3" ]; then
+      printf 'update-initramfs: skipping NVIDIA request for installer-only kernel %s\n' "\$3" >&2
+      exit 0
+    fi
+    ;;
+esac
+exec '$FILE_INSTALLER_UPDATE_INITRAMFS_REAL' "\$@"
+EOF_INITRAMFS_GUARD
+  installer_copy_path_with_mode "$TMP_ENV_DIR/initramfs-guard" "$nvidia_initramfs_path" 0755 \
+    "temporary NVIDIA initramfs guard"
+  installer_info "installed temporary NVIDIA initramfs guard for installer kernel ${nvidia_installer_kernel}"
+  unset nvidia_installer_kernel nvidia_initramfs_path nvidia_initramfs_real nvidia_initramfs_diversion
+}
+
+nvidia_legacy_install_initramfs_guard
 wrapper_path="${TARGET_ROOT}${DIR_USR_SBIN}/dkms"
 
 cat >"$TMP_ENV_DIR/dkms-wrapper" <<'EOF'

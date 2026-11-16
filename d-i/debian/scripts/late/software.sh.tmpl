@@ -2334,10 +2334,8 @@ software_install_tomat_app() {
 # Bootstrap only the profile-pinned Tomat asset. The adapter validates the tag,
 # canonical URL, digest and exact Debian package version.
 # No latest-release API, source build or unverified fallback is used here.
-tomat_download_status=1
-tomat_download_attempt=1
-while [ "$tomat_download_attempt" -le 4 ]; do
-  if chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/perl \
+run_in_target "download and validate pinned Tomat package" \
+    __INSTALLER_PATH_DIR_USR_BIN__/perl \
     "-I${DIR_PERL5_SITE_PERL}/apt-repo-local" \
     -MAPTRepoLocal::Servicing::Tomat \
     -MAPTRepoLocal::Servicing::HTTP \
@@ -2351,17 +2349,6 @@ while [ "$tomat_download_attempt" -le 4 ]; do
           http => APTRepoLocal::Servicing::HTTP->new(), deb => $deb,
       )->download_pinned(@ARGV);' -- "$work_dir" \
       "$SOFTWARE_TOMAT_TAG" "$SOFTWARE_TOMAT_URL" "$SOFTWARE_TOMAT_SHA256"
-  then
-    tomat_download_status=0
-    break
-  fi
-  [ "$tomat_download_attempt" -lt 4 ] && sleep 1
-  tomat_download_attempt=$((tomat_download_attempt + 1))
-done
-[ "$tomat_download_status" -eq 0 ] || {
-  software_warn "Tomat download failed after the three-retry budget; skipping Tomat"
-  return 75
-}
 # Neither a packaged system daemon nor a default.target user daemon may compete
 # with the session-scoped transient daemon. Persistent admin masks survive dpkg
 # upgrades without editing vendor unit files or touching Xwayland.
@@ -2494,24 +2481,12 @@ software_stage_seed_asset \
   "$discord_desktop_file" \
   0644
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate "$discord_desktop_file"
-discord_bootstrap_status=1
-discord_bootstrap_attempt=1
-while [ "$discord_bootstrap_attempt" -le 4 ]; do
-  if attempt_in_target \
-    "install complete managed Discord stable runtime" \
-    "$software_update_helper" \
-    --bootstrap-discord
-  then
-    discord_bootstrap_status=0
-    break
-  fi
-  [ "$discord_bootstrap_attempt" -lt 4 ] && sleep 1
-  discord_bootstrap_attempt=$((discord_bootstrap_attempt + 1))
-done
-[ "$discord_bootstrap_status" -eq 0 ] || {
-  software_warn "Discord download failed after the three-retry budget; skipping Discord"
-  return 75
-}
+# The shared HTTP transport owns bounded network retries. Repeating the entire
+# transaction also repeats validation/publication failures and loses the cause.
+run_in_target \
+  "install complete managed Discord stable runtime" \
+  "$software_update_helper" \
+  --bootstrap-discord
 for discord_runtime_path in \
   "${discord_install_dir}/Discord" \
   "${discord_install_dir}/chrome-sandbox" \

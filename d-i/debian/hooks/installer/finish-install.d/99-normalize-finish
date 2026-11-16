@@ -170,6 +170,58 @@ restore_temporary_unshare() {
   log "info: restored real target unshare executable and removed the temporary installer shim"
 }
 
+restore_temporary_nvidia_initramfs_guard() {
+  initramfs_path="${TARGET}${FILE_INSTALLER_UPDATE_INITRAMFS}"
+  initramfs_real="${TARGET}${FILE_INSTALLER_UPDATE_INITRAMFS_REAL}"
+  if [ ! -e "$initramfs_real" ] && [ ! -L "$initramfs_real" ]; then
+    if [ -f "$initramfs_path" ] &&
+       grep -Fqx '# INSTALLER_TEMPORARY_NVIDIA_INITRAMFS_GUARD_V1' "$initramfs_path"; then
+      log "fatal: NVIDIA initramfs guard exists without its preserved package executable"
+      return 1
+    fi
+    return 0
+  fi
+  installer_apt_safe_path "$initramfs_path" &&
+    installer_apt_safe_path "$initramfs_real" &&
+    [ -f "$initramfs_real" ] && [ -x "$initramfs_real" ] || {
+      log "fatal: preserved target initramfs executable or ancestry is unsafe"
+      return 1
+    }
+  if grep -Fqx '# INSTALLER_TEMPORARY_NVIDIA_INITRAMFS_GUARD_V1' "$initramfs_real"; then
+    log "fatal: preserved target initramfs executable unexpectedly contains the guard"
+    return 1
+  fi
+  initramfs_diversion=$(
+    chroot "$TARGET" "$FILE_INSTALLER_DPKG_DIVERT" --truename "$FILE_INSTALLER_UPDATE_INITRAMFS"
+  ) || {
+    log "fatal: cannot inspect the temporary initramfs diversion"
+    return 1
+  }
+  [ "$initramfs_diversion" = "$FILE_INSTALLER_UPDATE_INITRAMFS_REAL" ] || {
+    log "fatal: target initramfs entrypoint has an unexpected diversion"
+    return 1
+  }
+  if [ -e "$initramfs_path" ] || [ -L "$initramfs_path" ]; then
+    [ -f "$initramfs_path" ] &&
+      grep -Fqx '# INSTALLER_TEMPORARY_NVIDIA_INITRAMFS_GUARD_V1' "$initramfs_path" || {
+        log "fatal: refusing to remove an unexpected target initramfs entrypoint"
+        return 1
+      }
+    rm -f -- "$initramfs_path" || return 1
+  fi
+  chroot "$TARGET" "$FILE_INSTALLER_DPKG_DIVERT" --quiet --local --rename \
+    --divert "$FILE_INSTALLER_UPDATE_INITRAMFS_REAL" --remove "$FILE_INSTALLER_UPDATE_INITRAMFS" || {
+      log "fatal: failed to restore the real target initramfs executable"
+      return 1
+    }
+  [ -f "$initramfs_path" ] && [ -x "$initramfs_path" ] && [ ! -L "$initramfs_path" ] &&
+    [ ! -e "$initramfs_real" ] && [ ! -L "$initramfs_real" ] || {
+      log "fatal: target initramfs entrypoint restoration is incomplete"
+      return 1
+    }
+  log "info: restored the real target initramfs executable and removed the NVIDIA installer guard"
+}
+
 restore_temporary_installer_os_prober() {
   if [ ! -e "$FILE_INSTALLER_OS_PROBER_STATE" ]; then
     if [ -e "$FILE_INSTALLER_OS_PROBER_REAL" ]; then
@@ -288,6 +340,7 @@ restore_temporary_installer_os_prober
 [ -d "$TARGET" ] || exit 0
 target_is_mounted || exit 0
 restore_temporary_unshare
+restore_temporary_nvidia_initramfs_guard
 [ -r "$HOST_ENV" ] || {
   log "fatal: missing host env: $HOST_ENV"
   exit 1

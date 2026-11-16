@@ -1,3 +1,7 @@
 // Debian's dpkg-preconfigure consumes APT's version-1 filenames on stdin.
 // Preconfiguration is advisory; dpkg still configures packages noninteractively.
+// in-target supplies the debconf passthrough writer on fd 3. Keep that
+// descriptor across APT's dpkg handoff so Passthrough does not fall back to a
+// closed descriptor during base installation.
+APT::Keep-Fds:: "3";
 DPkg::Pre-Install-Pkgs { "__INSTALLER_PATH_DIR_USR_SBIN__/dpkg-preconfigure --apt || true"; };

@@ -85,7 +85,7 @@ format=3
 8351	1e5227e70c254f1a2417570cf70d7ff7d5b9fc2b1236af8e71e4220ea6a71eca	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.artifacts.json
 121247	5505422a8f8fe7003c19de53858c48aa20f5db57d2c977f160f05dd6795c926e	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.env
 154679	4bc484b5395469a4f07d4b9ccfe71f04c40128eb303987ebd848021ffe038ef9	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.provenance.json
-154	fc6b92ccc7f4b8d0403f1d32b85ad679b35272db8d735a207aebd7afbb72df45	catalog/compiled/release.tsv
+154	01962b2ff61b93fdda3009c1de0007ca703d6cb50c5423cbc535edc8e0881156	catalog/compiled/release.tsv
 22105	3d0bd73d48a0577301724b209c9afb0b42ad006a7de9ee1cf156a8460e84982a	catalog/compiled/shared-perl-assets.tsv
 513	7e8a843e51a8d28472e5eb07fa9fdedc7f69760491de02682a6e018be5b6056b	catalog/compiled/suite-qualification.tsv
 12966	d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef	catalog/compiled/support-matrix.json
@@ -241,7 +241,7 @@ format=3
 249	bd796906a6bd438b2a2fdc2ea9a69ed10ff00e96aa32262789f6ea7dbf29211a	frontends/forky/hooks/target/etc/apt/apt.conf.d/01mok-maintenance-cleanup
 338	85f8aacbb9f3d11ec728e0bbd40b8ec7b97edcc6c421e7d8b4b6e6b963775c03	frontends/forky/hooks/target/etc/apt/apt.conf.d/20auto-upgrades
 862	c90afc20b784cbbfd79f36ca6c15a448e08daaaf799b9ba6276c0c83e272910b	frontends/forky/hooks/target/etc/apt/apt.conf.d/25no-pdiffs
-252	99dd91dc7904bbeec7335ef6773ee102223121e0a6140fe0daae800e25fdaa77	frontends/forky/hooks/target/etc/apt/apt.conf.d/70debconf
+471	507440d84e76e60b66567a6b903d00d4ec48d0b5a998e604486fbfb56b4ea056	frontends/forky/hooks/target/etc/apt/apt.conf.d/70debconf
 511	35ab4884550b66408661efb52273a8307ad37a4493c19d17983a422a071cebe6	frontends/forky/hooks/target/etc/apt/apt.conf.d/99mok-maintenance
 145	85e5d12d935252f18390755a5ee0d713476f54ac2be9e4167faebba44f8fa136	frontends/forky/hooks/target/etc/apt/apt.conf.d/99noinstall-recommends
 545	18d520d57c7ef6d3a485e013c05726427df3c6d61266395fffe6b92525bdad80	frontends/forky/hooks/target/etc/apt/desktop/apt.conf.d/20listchanges
@@ -344,7 +344,7 @@ format=3
 249	bd796906a6bd438b2a2fdc2ea9a69ed10ff00e96aa32262789f6ea7dbf29211a	frontends/trixie/hooks/target/etc/apt/apt.conf.d/01mok-maintenance-cleanup
 338	85f8aacbb9f3d11ec728e0bbd40b8ec7b97edcc6c421e7d8b4b6e6b963775c03	frontends/trixie/hooks/target/etc/apt/apt.conf.d/20auto-upgrades
 862	c90afc20b784cbbfd79f36ca6c15a448e08daaaf799b9ba6276c0c83e272910b	frontends/trixie/hooks/target/etc/apt/apt.conf.d/25no-pdiffs
-252	99dd91dc7904bbeec7335ef6773ee102223121e0a6140fe0daae800e25fdaa77	frontends/trixie/hooks/target/etc/apt/apt.conf.d/70debconf
+471	507440d84e76e60b66567a6b903d00d4ec48d0b5a998e604486fbfb56b4ea056	frontends/trixie/hooks/target/etc/apt/apt.conf.d/70debconf
 511	35ab4884550b66408661efb52273a8307ad37a4493c19d17983a422a071cebe6	frontends/trixie/hooks/target/etc/apt/apt.conf.d/99mok-maintenance
 145	85e5d12d935252f18390755a5ee0d713476f54ac2be9e4167faebba44f8fa136	frontends/trixie/hooks/target/etc/apt/apt.conf.d/99noinstall-recommends
 545	18d520d57c7ef6d3a485e013c05726427df3c6d61266395fffe6b92525bdad80	frontends/trixie/hooks/target/etc/apt/desktop/apt.conf.d/20listchanges
@@ -389,11 +389,11 @@ format=3
 5190	c2b505b46159eb1cc9dd60fe4117f717377db98138bea567849c51bf3c41d620	hooks/installer/class-dispatch.tsv
 11300	572b7d7bdd886cd484be8650bb5beaf26b93a11de29bc8f73d8b43e4071c74f8	hooks/installer/d-i/early.sh
 153	bbfe769d8616a4a062895aa59d3804c1d2cf2fc6aff48f2b33efbb3dce703e31	hooks/installer/d-i/nvidia-blacklist.conf
-2874	e6349f30d55156202f2ec775fbf2fb1492ffe44352f83e38ad26b50841e08918	hooks/installer/di.env
+3131	7b90f3acb45961d35725be5fc6abb3ce60f42488f9b80fecf04fd2f020fcb3b3	hooks/installer/di.env
 787	7797a7e0d4c73f2904725535da71100d62a5d797776151fdfc7ff3a3509b7863	hooks/installer/finish-install.d/00-installer-guard
 4377	01dbfe4877f072adb5b79148113eb6f853e70b9e9e755a9b3b71d6d99be0adb0	hooks/installer/finish-install.d/94zz-99-validate-target
 8509	206c5382edb2d6d46d4b792ae50152528ed887ba84d41601dcaeae660841cc9b	hooks/installer/finish-install.d/95-normalize-apt
-24842	3062107f102037d054625ee90d249db2377deb174fcf0cbd8ffb7e46342072c8	hooks/installer/finish-install.d/99-normalize-finish
+27178	f34c912e0288768dfc39c9013b7765393f13b7d5da8a8e688fe4eed4d5673f45	hooks/installer/finish-install.d/99-normalize-finish
 1347	19061cf24dcb73481c53d2d1308c4e39a1c58941897bc3869204fa6099396333	hooks/installer/late_command.sh
 8898	446f7f7d78039e8bb75d620a87480344bb4380c24068a5ac689f826f65832e12	hooks/installer/partman/btrfs-early.sh
 7869	69412b9daa3d0efa75674d9fa8900f9787a8df849893cb6c45d90619aca48f02	hooks/installer/partman/early.sh
@@ -413,7 +413,7 @@ format=3
 4022	693f3089197cfaab63bee503b7159a77317fb2dd285e88ea6c32fd0868a66ff2	hooks/installer/pre-pkgsel.d/89temporary-unshare.sh
 4421	292be6d037b485a09f2fda2ef70f16379042254de99f13ff9b790f58615c9ee4	hooks/installer/pre-pkgsel.d/90secure-boot-dkms.sh
 5943	9e48c31355b506d18f2833a1c72d117570b7ef878e0ee560fb211d606b528663	hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh
-23410	9de67dd3473a75d98ac6f25d0753dea9075425d19e4d535fc733211171850da8	hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh
+27455	ad5cf20bdc14b68d63b4084aa5378997845a9ef4dd5c890a8177d2775efbc309	hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh
 513	7e8a843e51a8d28472e5eb07fa9fdedc7f69760491de02682a6e018be5b6056b	hooks/installer/suite-policy.tsv
 96004	8cdc3f1960373eef5800360507ea2fa89b8b36755f22c52e8889fed752aaab3d	hooks/target/data/codex/lib/codex.tmpl
 334	b5bf9b3d03506203538e807253072633e76de3655c1e45abd3f31be3ff1217c9	hooks/target/data/config/podman/templates/devops/client.conf
@@ -1564,10 +1564,10 @@ format=3
 374	8a438f69db6f128a8a5cb9d4ec1498345927199f08b9568b08d48df514bed453	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ArtifactLimits.pm.tmpl
 6034	e336d444fc712843e6fe226638c32fde7c0d078c05c82b13a949270b5dd383ed	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Atomic.pm
 4768	69885a649c5ce0cc31b52be10f1772b13e22151d3aea91e937ca95435693971c	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Bitwarden.pm
-28968	2ee46439552cac9d422e61bd509d2b88d78b7e4def62b7e2c0823c2df61f47f5	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/CLI.pm
+29398	9df343f1f001f9a388031b88f5b35fe8d4eb8e5bf41f36128e7c9f762f5a1280	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/CLI.pm
 29198	df0beb7c5589c4ad63d04051045a0dc38814b95c68284c056dcac5afe2da2271	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm
 27334	638ca8e81546cdfd234950909270ce41595e937a3b8d02eb5e1ddc5eb1356712	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Deb.pm
-42326	d1197aad5c6fb9efa631a6dd417a67e7f31007676eb649085b53b65fcd438826	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Discord.pm
+43068	645e3bff6e87f0087f367dc419d6bed419ba68026c7f3c0ef261e432af929d75	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Discord.pm
 1617	3349f9e778802618599bd8d04b4fa69dc95ce42fde3d993b21eb91bcbb80b03b	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Event.pm
 8659	75554d01637416292cb7a8b36c35902dbb1dd7de7b39ccd142b0d40fe5460a9d	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/HTTP.pm
 7174	7fb03e52ace2820f8e2d0883ddb26a99f0537ddf710bf70857a9c5e3c0bc05bf	hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Ledger.pm
@@ -1874,7 +1874,7 @@ format=3
 1142	91304f96e4f747c002c4f61f30cddd6cb0aefbdbd92de76da25fc0538d0921eb	hooks/target/usr/local/libexec/desktop/compz-pipeline
 234	5a0e161da6a89676ee8a8a0a2be5ce8deb53dd46b60c495f20cf8515bcf20990	hooks/target/usr/local/libexec/desktop/compz-sandbox
 215	036682022ba651e9e4dbba6321031624a6f42de1a4995ad034bc6b49b2386f6e	hooks/target/usr/local/libexec/desktop/compz-worker
-25367	68a3b5043a5c31621dabb713457e92e64dca37ed78863f224ed87655f7a62e18	hooks/target/usr/local/libexec/desktop/discord-distro
+26242	9676dc75fc128d4066948c1ca30500d07d8b80a4eed13e209f7322247deb1246	hooks/target/usr/local/libexec/desktop/discord-distro
 461	d69a951e4859ae7d57f8a67b6f826394a934f3f1d9f94cc17146d01c587dd88d	hooks/target/usr/local/libexec/desktop/greetd-power-action-root
 1987	9f196a0076e273f722d0db0e34fe865753c1917e8d7a2f0306b75725c14f8dbe	hooks/target/usr/local/libexec/desktop/incus-desktop-ui-check
 2465	43721485864848653867f334c87e1fa5a54b838037adb90cecf1d92a37d9f53c	hooks/target/usr/local/libexec/desktop/labwc-admin-action-root
@@ -2167,7 +2167,7 @@ format=3
 117450	38db7fe351db29d33fb1359317386b07a4e6e75d69c39a54ea26f6b81bc4ba47	hosts/themes/theme-schema.tsv
 276959	6704cc5edc08867f7ff57a84862105a620055f48e8af1e81abdab652dbdbadd5	repo.env
 18879	c17206af0a6a2b5266fc581ddfee870ff330984b803965cb151ed62a35696f71	scripts/common/apt-sources.sh
-45192	bc6edbace24af499ab3611f8d2e7c28d1935d4795a71e7390ec293bfd1cec275	scripts/common/bootstrap.sh
+45261	070205a17443d6ba4fbaa703ade98396df5c1539b88a485130177a648be5d268	scripts/common/bootstrap.sh
 3403	5bf41f7ba0a2da9539ef404219bca4d9ebe50be8317ea033bc04dba9c4b32208	scripts/common/credential-data.awk
 13364	f6201722a4d8a4e2aced2ef248d27e240b907205dece7ff6819bd6ab38fac5d7	scripts/common/credentials.sh
 5924	b880156acc7c907027b609e7cd0f27d291e48bb7d8ec4e2614b99b69cab6136e	scripts/common/debconf.sh
@@ -2351,7 +2351,7 @@ format=3
 16446	2d8048eef289c8b993c246f18ee3a7158cc3d136cb9cda01970f7843c05aed8c	scripts/late/packer-plugins.py
 7137	7938051714df254abc59db60a9b31ef11b88bd2861b9d2b5fd16e85add2cc7a0	scripts/late/podman.sh
 80061	831c5ee5d24b6069da4930f1e48634cdc1c8a8af1a84597f66a6afc1e65cf6c3	scripts/late/security.sh
-121320	ce700f68ae5293978241fb8796ab2da4dd8d87333383ff622161e4bbea607da0	scripts/late/software.sh.tmpl
+120684	121977c2725525337898aff1fda6c7e901b527c2207c5294219556e704d0bc6a	scripts/late/software.sh.tmpl
 463	1842e351f1962587609ad55d7377f2afbdf65ed387d24aff1db689dce194625c	scripts/late/ssh/clone.conf.tmpl
 273	ab63846a0399575b7675eb71ac257592675bee2be0ab73c82bc0a411b7a09147	scripts/late/ssh/ssh-install-askpass
 39874	b972632620cd0c1ea3498aa37832d9aa68b91f2d1ac8e1b3a20b9b739f8d9e0c	scripts/late/ssh/ssh-install.py

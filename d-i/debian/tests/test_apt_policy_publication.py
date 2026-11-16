@@ -227,6 +227,7 @@ installer_apt_install_target_policy "$TARGET_ROOT" final
                     content = '\n'.join(path.read_text() for path in sorted(parts.iterdir()))
                     self.assertNotIn('__INSTALLER_', content)
                     self.assertIn('apt-mok-prehook::InfoFD "3";', content)
+                    self.assertIn('APT::Keep-Fds:: "3";', (parts / '70debconf').read_text())
 
     def test_commit_failure_restores_previous_or_retains_recovery(self) -> None:
         for recovery_failure in (False, True):

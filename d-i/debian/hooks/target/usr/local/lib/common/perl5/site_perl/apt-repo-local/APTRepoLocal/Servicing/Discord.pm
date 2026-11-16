@@ -64,7 +64,14 @@ sub _capture_limited {
     my ($self, $limit, @command) = @_;
     @command or return;
     my $result = capture_command(argv => \@command, timeout => 120, limit => $limit);
-    if ($result->{status} != 0) { die "Discord archive inspection failed\n"; }
+    if ($result->{status} != 0) {
+        my $detail = $result->{stderr} // q{};
+        $detail =~ s{https?://\S+}{[URL redacted]}g;
+        $detail =~ s/[\x00-\x1f\x7f]+/ /g;
+        $detail = substr($detail, 0, 512);
+        die "Discord archive inspection failed"
+            . (length($detail) ? ": $detail" : q{}) . "\n";
+    }
     return $result->{stdout};
 }
 
@@ -115,6 +122,7 @@ sub _record_failure_detail {
     defined $stage && $stage =~ /\A[a-z0-9]+(?:-[a-z0-9_]+)*\z/
         or die "Discord failure stage is invalid\n";
     $error = 'unknown failure' if !defined $error || $error eq q{};
+    $error =~ s{https?://\S+}{[URL redacted]}g;
     $error =~ s/[\r\n]+/ /g;
     $error =~ s/[\x00-\x1f\x7f]/?/g;
     $error =~ s/[[:space:]]+/ /g;
@@ -918,7 +926,10 @@ sub _publish {
             undef,
         );
     };
-    return (1, 'validation') if !$host_metadata;
+    if (!$host_metadata) {
+        $self->_record_failure_detail('host-inspect', $@);
+        return (1, 'validation');
+    }
     eval {
         $self->_accumulate_distribution_bounds($expanded, $host_metadata);
         for my $name (sort keys %module_paths) {
@@ -933,7 +944,10 @@ sub _publish {
             $self->_accumulate_distribution_bounds($expanded, $module_metadata);
         }
         1;
-    } or return (1, 'validation');
+    } or do {
+        $self->_record_failure_detail('module-inspect', $@);
+        return (1, 'validation');
+    };
 
     my $staged = $repository_stage // "__INSTALLER_PATH_DIR_OPT__/.discord.new.$$";
     my $backup = '__INSTALLER_PATH_DIR_OPT__/.discord.previous';
@@ -1038,6 +1052,8 @@ sub _publish {
         1;
     };
     if (!$published) {
+        my $publish_error = $@;
+        $self->_record_failure_detail('postinstall', $publish_error);
         $self->_rollback($install, $backup, $old, $had_install);
         return (1, 'postinstall');
     }
@@ -1049,8 +1065,14 @@ sub _publish {
 
 sub fetch {
     my ($self, $work) = @_;
+    $self->_clear_failure_detail();
     my $release = eval { $self->_download_release($work) };
-    return (1, $@ =~ /download|HTTP|URL/i ? 'download' : 'validation') if !$release;
+    if (!$release) {
+        my $error = $@;
+        my $reason = $error =~ /download|HTTP|URL/i ? 'download' : 'validation';
+        $self->_record_failure_detail('release-download', $error);
+        return (1, $reason);
+    }
     my $installed = eval { $self->_installed() };
     return (1, 'validation') if $@;
     eval { $self->_assert_non_downgrade($release, $installed); 1 }

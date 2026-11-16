@@ -156,6 +156,104 @@ class ManagedAPTRepoLocalTests(unittest.TestCase):
             archive.addfile(link)
         return payload
 
+    def discord_manifest(self, *, package_sizes: bool = True) -> dict:
+        required = ['discord_desktop_core', 'discord_erlpack', 'discord_spellcheck',
+                    'discord_utils', 'discord_voice']
+        base = 'https://stable.dl2.discordapp.net/distro/app/stable/linux/x64/1.0.170'
+
+        def package(url: str, *, module: bool = False, delta: bool = False) -> dict:
+            value = {'host_version': [1, 0, 169 if delta else 170],
+                     'package_sha256': 'a' * 64, 'url': base + url}
+            if module:
+                value['module_version'] = 1
+            if package_sizes:
+                value['package_size'] = 1024
+            return value
+
+        return {
+            'full': package('/full.distro'),
+            'deltas': [package('/from/1.0.169', delta=True)],
+            'modules': {
+                name: {'full': package(f'/{name}/1/full.distro', module=True),
+                       'deltas': [package(f'/{name}/1/from/1.0.169/1',
+                                          module=True, delta=True)]}
+                for name in required
+            },
+            'required_modules': required, 'metadata_version': 1, 'required_update': False,
+        }
+
+    def test_discord_manifest_accepts_optional_package_sizes_without_changing_adapter_schema(self):
+        with tempfile.TemporaryDirectory(prefix='discord-manifest-') as temporary:
+            path = Path(temporary) / 'manifest.json'
+            normalized = []
+            for package_sizes in (False, True):
+                path.write_text(json.dumps(self.discord_manifest(package_sizes=package_sizes)),
+                                encoding='utf-8')
+                result = self.run_discord_archive_helper('manifest', '--path', path)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                release = json.loads(result.stdout)
+                self.assertEqual(set(release), {'host', 'modules', 'required_modules', 'version'})
+                self.assertEqual(set(release['host']), {'sha256', 'url'})
+                for module in release['modules'].values():
+                    self.assertEqual(set(module), {'sha256', 'url', 'version', 'required'})
+                normalized.append(release)
+            self.assertEqual(normalized[0], normalized[1])
+
+    def test_discord_manifest_rejects_invalid_package_sizes_and_unknown_fields_in_all_records(self):
+        with tempfile.TemporaryDirectory(prefix='discord-manifest-invalid-') as temporary:
+            path = Path(temporary) / 'manifest.json'
+            for location in ('host-full', 'host-delta', 'module-full', 'module-delta'):
+                for value in (None, True, 0, -1, '1024', 1.5, 2**40, 'unknown-field'):
+                    with self.subTest(location=location, value=value):
+                        manifest = self.discord_manifest()
+                        package = {
+                            'host-full': manifest['full'],
+                            'host-delta': manifest['deltas'][0],
+                            'module-full': manifest['modules']['discord_voice']['full'],
+                            'module-delta': manifest['modules']['discord_voice']['deltas'][0],
+                        }[location]
+                        if value == 'unknown-field':
+                            package['unexpected'] = 1024
+                        else:
+                            package['package_size'] = value
+                        path.write_text(json.dumps(manifest), encoding='utf-8')
+                        result = self.run_discord_archive_helper('manifest', '--path', path)
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_managed_bootstrap_uses_transport_retries_without_repeating_publication(self):
+        source = payload_read_text(FORKY / 'scripts/late/software.sh')
+        for component in ('discord', 'tomat'):
+            with self.subTest(component=component):
+                match = re.search(r'(?ms)^software_install_' + component +
+                                  r'_app\(\) \{\n.*?^\}', source)
+                self.assertIsNotNone(match)
+                # Exercise the real worker under errexit. Only the target
+                # executor fails; no download or target command is executed.
+                script = '''
+target_root=/fixture-target
+discord_desktop_file=/fixture.desktop
+software_update_helper=/fixture-updater
+DIR_PERL5_SITE_PERL=/fixture-perl
+work_dir=/fixture-work
+SOFTWARE_TOMAT_TAG=v1.2.3
+SOFTWARE_TOMAT_URL=https://example.invalid/pinned.deb
+SOFTWARE_TOMAT_SHA256=fixture-digest
+software_stage_seed_asset() { :; }
+installer_repo_file_value() { printf fixture; }
+chroot() { :; }
+run_in_target() { printf 'TARGET_ATTEMPT\\n'; return 37; }
+attempt_in_target() { run_in_target "$@"; }
+'''
+                script += match[0] + '\nsoftware_install_' + component + '_app\n'
+                script += "printf 'INCORRECT_SUCCESS\\n'\n"
+                result = subprocess.run(
+                    payload_installed_argv(['/bin/sh', '-eu', '-c', script]),
+                    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'},
+                    text=True, capture_output=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 37, result.stderr)
+                self.assertEqual(result.stdout, 'TARGET_ATTEMPT\n')
+
     def test_discord_module_npm_bin_symlink_is_materialized_as_a_regular_file(self):
         with tempfile.TemporaryDirectory(prefix='discord-module-symlink-') as temporary:
             archive_path = Path(temporary) / 'discord_voice.tar'
@@ -443,6 +541,31 @@ print join('|', $result, $reason, $cli->apply_failure_detail()), "\n";
         self.assertEqual(
             result.stdout,
             '1|validation|repository: synthetic repository failure\n',
+        )
+
+    def test_release_module_failure_is_reported_for_every_release_managed_deb(self):
+        source = r'''
+use strict;
+use warnings;
+use APTRepoLocal::Servicing::CLI;
+{
+    package TestRelease;
+    sub download { die "synthetic release validation failure\n"; }
+}
+no warnings 'redefine';
+local *APTRepoLocal::Servicing::CLI::_log = sub { return 1; };
+my $cli = APTRepoLocal::Servicing::CLI->new();
+my ($result, $reason) = $cli->_fetch_release_deb(
+    bless({}, 'TestRelease'), undef, undef, undef, '/fixture',
+    {name => 'synthetic', label => 'Synthetic release package'},
+);
+print join('|', $result, $reason, $cli->apply_failure_detail()), "\n";
+'''
+        result = self.run_perl(source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout,
+            '1|validation|release-download: synthetic release validation failure\n',
         )
 
     def test_repository_import_has_no_transfer_deadline_and_retains_exact_path(self):

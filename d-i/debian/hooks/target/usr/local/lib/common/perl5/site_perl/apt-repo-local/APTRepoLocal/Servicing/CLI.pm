@@ -383,10 +383,22 @@ sub _fetch_generic_deb {
 
 sub _fetch_release_deb {
     my ($self, $module, $deb, $event, $repository, $work, $app) = @_;
+    $self->_clear_apply_failure_detail();
     my $release = eval { $module->download($work) };
-    return (1, $@ =~ /download|HTTP|URL/i ? 'download' : 'validation') if !$release;
+    if (!$release) {
+        my $detail = $@ || 'release module returned no package';
+        my $reason = $detail =~ /download|HTTP|URL/i ? 'download' : 'validation';
+        $self->_record_apply_failure_detail('release-download', $detail);
+        return (1, $reason);
+    }
     ref $release eq 'HASH' && defined $release->{path} && ref $release->{metadata} eq 'HASH'
-        or return (1, 'validation');
+        or do {
+            $self->_record_apply_failure_detail(
+                'release-download',
+                'release module returned invalid package metadata',
+            );
+            return (1, 'validation');
+        };
     return $self->_stage_deb(
         $deb,
         $event,
