@@ -18,54 +18,14 @@ devops_install_youtube_policy() (
     selector=${entry%%|*}; path=${entry#*|}
     [ ! -e "${target_root}$path" ] && [ ! -L "${target_root}$path" ] ||
       devops_fatal "fresh-install downloader policy path already exists: $path"
-    devops_stage_target_asset "$(installer_repo_file_value "$selector")" "$path" 0644 youtube-configuration
+    set --
+    if [ "$selector" = FILE_TARGET_SKEL_YT_DLP_CONFIG ]; then
+      set -- "stage downloader user configuration and plugin directory" \
+        .config/yt-dlp/config 0600 .config/yt-dlp/plugins
+    fi
+    devops_stage_target_asset "$(installer_repo_file_value "$selector")" "$path" 0644 youtube-configuration "$@"
     chown root:root "${target_root}$path"
   done
-  # The account creates its own config and plugin directories. No privileged
-  # writer follows same-UID desktop state, and no plugin is imported here.
-  # shellcheck disable=SC2016
-  devops_run_as_account "stage downloader user configuration and plugin directory" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
-source_config=$1
-config_root="${HOME}/.config"
-downloader_config="${config_root}/yt-dlp"
-ensure_directory() {
-  directory=$1
-  mode=$2
-  [ ! -L "$directory" ] || { printf "fatal: symlinked downloader user directory\n" >&2; exit 1; }
-  if [ -e "$directory" ]; then
-    [ -d "$directory" ] || { printf "fatal: downloader path is not a directory\n" >&2; exit 1; }
-  else
-    __INSTALLER_PATH_DIR_USR_BIN__/mkdir -m "$mode" -- "$directory"
-  fi
-  metadata=$(__INSTALLER_PATH_DIR_USR_BIN__/find -P "$directory" -maxdepth 0 -printf "%U") || {
-    printf "fatal: unable to inspect downloader user directory\n" >&2; exit 1;
-  }
-  set -- $metadata
-  [ "$#" -eq 1 ] && [ "$1" = "$(__INSTALLER_PATH_DIR_USR_BIN__/id -u)" ] || {
-    printf "fatal: downloader user directory is not privately owned\n" >&2; exit 1;
-  }
-  __INSTALLER_PATH_DIR_USR_BIN__/chmod "$mode" -- "$directory"
-}
-ensure_directory "$config_root" 0700
-ensure_directory "$downloader_config" 0700
-ensure_directory "$downloader_config/plugins" 0700
-config_file="$downloader_config/config"
-if [ -e "$config_file" ] || [ -L "$config_file" ]; then
-  [ -f "$config_file" ] && [ ! -L "$config_file" ] || {
-    printf "fatal: downloader user config is not a regular file\n" >&2; exit 1;
-  }
-  metadata=$(__INSTALLER_PATH_DIR_USR_BIN__/find -P "$config_file" -maxdepth 0 -printf "%U %n") || {
-    printf "fatal: unable to inspect downloader user config\n" >&2; exit 1;
-  }
-  set -- $metadata
-  [ "$#" -eq 2 ] && [ "$1" = "$(__INSTALLER_PATH_DIR_USR_BIN__/id -u)" ] && [ "$2" = 1 ] || {
-    printf "fatal: downloader user config is not privately owned\n" >&2; exit 1;
-  }
-  printf "fatal: fresh-install downloader user config already exists\n" >&2
-  exit 1
-fi
-__INSTALLER_PATH_DIR_USR_BIN__/install -m 0600 -- "$source_config" "$downloader_config/config"
-' sh "${DEVOPS_SKEL_DIR}/.config/yt-dlp/config"
 )
 
 devops_install_llama_runtime() {
@@ -236,9 +196,7 @@ devops_render_bazelrc() {
     "$template_tmp" \
     0600 \
     "DevOps Bazel rc template ${template_repo_path}"
-  installer_apply_scalar_placeholders \
-    "$template_tmp" \
-    "$rendered_tmp" \
+  set -- \
     DEVOPS_BAZEL_OUTPUT_USER_ROOT "$BAZEL_OUTPUT_USER_ROOT" \
     DEVOPS_BAZEL_SERVER_IDLE_SECONDS "$DEVOPS_BAZEL_SERVER_IDLE_SECONDS" \
     DEVOPS_BAZEL_DISK_CACHE "$BAZEL_DISK_CACHE" \
@@ -251,55 +209,45 @@ devops_render_bazelrc() {
     DEVOPS_BAZEL_ACTION_CACHE_GC_IDLE_DELAY "$DEVOPS_BAZEL_ACTION_CACHE_GC_IDLE_DELAY" \
     DEVOPS_BAZEL_ACTION_CACHE_GC_THRESHOLD "$DEVOPS_BAZEL_ACTION_CACHE_GC_THRESHOLD" \
     DEVOPS_BAZEL_INSTALL_BASE_GC_MAX_AGE "$DEVOPS_BAZEL_INSTALL_BASE_GC_MAX_AGE"
+  installer_apply_scalar_placeholders "$template_tmp" "$rendered_tmp" "$@"
   installer_assert_no_unresolved_installer_placeholders \
     "$rendered_tmp" \
     "DevOps Bazel rc template ${template_repo_path}"
 
-  install -d -m 0755 "$target_bazel_dir"
-  install -m 0644 "$rendered_tmp" "$target_bazelrc"
-  chown root:root "$target_bazel_dir" "$target_bazelrc"
-  rm -f -- "$template_tmp" "$rendered_tmp"
+  # The installation account gets its concrete configured paths directly from
+  # the rendered payload. Future-user defaults must not retain that identity.
+  devops_publish_account_config "$rendered_tmp" \
+    "publish the account Bazel cache policy" .bazelrc 0600
+  devops_publish_account_config "$rendered_tmp" \
+    "publish the account Bazel shell policy" .config/bazel/bazelrc 0600
 
-  # Bazel reads ~/.bazelrc without a desktop shell function. Publish the same
-  # rendered policy for the human account; never overwrite existing settings.
-  # The writer runs as that account, with a pinned home and no-replace create.
-  # shellcheck disable=SC2016
-  devops_run_as_account "publish the account Bazel cache policy" "${DIR_USR_BIN}/python3" -I -c '
-import os, pathlib, stat, sys
-source=pathlib.Path(sys.argv[1])
-if source.resolve(strict=True)!=source:
-    raise SystemExit("indirect Bazel policy source")
-fd=os.open(source,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
-try:
-    info=os.fstat(fd)
-    if not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid or info.st_mode&0o022 or info.st_size>16384:
-        raise SystemExit("unsafe Bazel policy source")
-    data=os.read(fd,16385)
-    if len(data)>16384:
-        raise SystemExit("oversized Bazel policy source")
-finally: os.close(fd)
-home=os.open(os.environ["HOME"],os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
-try:
-    info=os.fstat(home)
-    if info.st_uid!=os.getuid() or info.st_mode&0o022:
-        raise SystemExit("unsafe Bazel account home")
-    try:
-        fd=os.open(".bazelrc",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW|os.O_CLOEXEC,0o600,dir_fd=home)
-    except FileExistsError:
-        fd=os.open(".bazelrc",os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC,dir_fd=home)
-        try:
-            info=os.fstat(fd)
-            if (not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid!=os.getuid()
-                    or stat.S_IMODE(info.st_mode)!=0o600 or info.st_size!=len(data)
-                    or os.read(fd,len(data)+1)!=data):
-                raise SystemExit("existing Bazel account policy differs; preserve it for review")
-        finally: os.close(fd)
-    else:
-        with os.fdopen(fd,"wb") as stream:
-            stream.write(data); stream.flush(); os.fsync(stream.fileno())
-        os.fsync(home)
-finally: os.close(home)
-' "${DEVOPS_SKEL_DIR}/.config/bazel/bazelrc"
+  bazel_future_fields=$#
+  while [ "$bazel_future_fields" -gt 0 ]; do
+    bazel_future_key=$1; bazel_future_value=$2; shift 2
+    bazel_future_fields=$((bazel_future_fields - 2))
+    case "$bazel_future_key" in
+      DEVOPS_BAZEL_OUTPUT_USER_ROOT|DEVOPS_BAZEL_DISK_CACHE|DEVOPS_BAZEL_REPOSITORY_CACHE)
+        case "$bazel_future_value" in
+          "$DIR_POOL_BUILD/$ACCOUNT_USERNAME/"*)
+            bazel_future_value="${DIR_POOL_BUILD}/\$USER/${bazel_future_value#"$DIR_POOL_BUILD/$ACCOUNT_USERNAME/"}" ;;
+          "$DIR_POOL_CACHE/$ACCOUNT_USERNAME/"*)
+            bazel_future_value="${DIR_POOL_CACHE}/\$USER/${bazel_future_value#"$DIR_POOL_CACHE/$ACCOUNT_USERNAME/"}" ;;
+          *) devops_fatal 'Bazel account cache path is outside its configured account root' ;;
+        esac
+        ;;
+    esac
+    set -- "$@" "$bazel_future_key" "$bazel_future_value"
+  done
+  installer_apply_scalar_placeholders "$template_tmp" "$rendered_tmp" "$@"
+  installer_assert_no_unresolved_installer_placeholders "$rendered_tmp" 'future account Bazel defaults'
+  install -d -m 0755 "$target_bazel_dir"
+  for bazel_future_target in "$target_bazelrc" "${target_root}${DEVOPS_SKEL_DIR}/.bazelrc"; do
+    [ ! -L "$bazel_future_target" ] || devops_fatal 'indirect future account Bazel configuration'
+    install -m 0644 "$rendered_tmp" "$bazel_future_target"
+    chown root:root "$bazel_future_target"
+  done
+  chown root:root "$target_bazel_dir"
+  rm -f -- "$template_tmp" "$rendered_tmp"
 }
 
 devops_render_packer_template() {
@@ -328,90 +276,10 @@ devops_render_packer_template() {
     devops_fatal "fresh-install Packer template path already exists: ${target_skel_template}"
   install -m 0644 "$rendered_tmp" "$target_skel_template"
   chown root:root "$target_skel_dir" "$target_skel_template"
+  devops_publish_account_config "$rendered_tmp" \
+    "stage managed Packer template for primary account" \
+    .config/packer/template.pkr.hcl 0644 .config/mise
   rm -f -- "$template_tmp" "$rendered_tmp"
-
-  # Stage the account copy from inside the target namespace. This guarantees
-  # that the path validated below is the same path later seen by runuser.
-  # shellcheck disable=SC2016
-  run_in_target "stage managed Packer template for primary account" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
-packer_fatal() {
-  printf "fatal: %s\n" "$*" >&2
-  exit 1
-}
-
-account_user=$1
-account_home=$2
-source_template=$3
-config_dir="${account_home}/.config"
-template_dir="${config_dir}/packer"
-target_template="${template_dir}/template.pkr.hcl"
-mise_config_dir="${config_dir}/mise"
-
-for required_command in awk chmod chown getent id install runuser find; do
-  command -v "$required_command" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
-    packer_fatal "required Packer template staging command is unavailable: $required_command"
-done
-[ -x __INSTALLER_PATH_DIR_USR_BIN__/test ] ||
-  packer_fatal "required Packer template access test is unavailable: __INSTALLER_PATH_DIR_USR_BIN__/test"
-
-account_record=$(getent passwd "$account_user") ||
-  packer_fatal "primary account is unavailable while staging Packer policy: $account_user"
-resolved_home=$(printf "%s\n" "$account_record" | awk -F: "{ print \$6; exit }")
-[ "$resolved_home" = "$account_home" ] ||
-  packer_fatal "primary account home does not match Packer policy: expected $account_home, found ${resolved_home:-unset}"
-account_uid=$(id -u "$account_user")
-account_gid=$(id -g "$account_user")
-case "$account_uid:$account_gid" in
-  0:*|65534:*|*:65534|*[!0123456789:]*)
-    packer_fatal "unsafe primary account identity for Packer policy: $account_uid:$account_gid"
-    ;;
-esac
-
-[ -d "$account_home" ] && [ ! -L "$account_home" ] ||
-  packer_fatal "primary account home is unavailable or unsafe: $account_home"
-[ -f "$source_template" ] && [ ! -L "$source_template" ] ||
-  packer_fatal "managed Packer skeleton template is unavailable or unsafe: $source_template"
-for managed_path in \
-  "$config_dir" \
-  "$template_dir" \
-  "$target_template" \
-  "$mise_config_dir"
-do
-  [ ! -L "$managed_path" ] ||
-    packer_fatal "managed Packer account path must not be a symlink: $managed_path"
-done
-
-install -d -m 0755 "$config_dir"
-install -d -m 0700 "$template_dir"
-install -d -m 0755 "$mise_config_dir"
-[ ! -e "$target_template" ] ||
-  packer_fatal "fresh-install Packer account template already exists: $target_template"
-install -m 0644 "$source_template" "$target_template"
-chown "$account_uid:$account_gid" \
-  "$config_dir" \
-  "$template_dir" \
-  "$target_template" \
-  "$mise_config_dir"
-chmod 0755 "$config_dir"
-chmod 0700 "$template_dir"
-chmod 0644 "$target_template"
-chmod 0755 "$mise_config_dir"
-
-[ "$(find -P "$config_dir" -maxdepth 0 -printf "%U:%G:%m")" = "$account_uid:$account_gid:755" ] ||
-  packer_fatal "Packer account config directory ownership or mode is invalid: $config_dir"
-[ "$(find -P "$template_dir" -maxdepth 0 -printf "%U:%G:%m")" = "$account_uid:$account_gid:700" ] ||
-  packer_fatal "Packer template directory ownership or mode is invalid: $template_dir"
-[ "$(find -P "$target_template" -maxdepth 0 -printf "%U:%G:%m")" = "$account_uid:$account_gid:644" ] ||
-  packer_fatal "Packer account template ownership or mode is invalid: $target_template"
-[ "$(find -P "$mise_config_dir" -maxdepth 0 -printf "%U:%G:%m")" = "$account_uid:$account_gid:755" ] ||
-  packer_fatal "Mise account config directory ownership or mode is invalid: $mise_config_dir"
-__INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$account_user" -- __INSTALLER_PATH_DIR_USR_BIN__/test -x "$template_dir" ||
-  packer_fatal "primary account cannot traverse the managed Packer template directory"
-__INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$account_user" -- __INSTALLER_PATH_DIR_USR_BIN__/test -r "$target_template" ||
-  packer_fatal "primary account cannot read the managed Packer template"
-__INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$account_user" -- __INSTALLER_PATH_DIR_USR_BIN__/test -x "$mise_config_dir" ||
-  packer_fatal "primary account cannot traverse the managed Mise config directory"
-' sh "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" "${DEVOPS_SKEL_DIR}/.config/packer/template.pkr.hcl"
 }
 
 devops_write_packer_config() {

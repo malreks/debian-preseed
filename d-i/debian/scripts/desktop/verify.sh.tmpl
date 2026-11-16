@@ -375,7 +375,7 @@ desktop_skeleton=__INSTALLER_PATH_DIR_ETC__/skel-desktop
   fatal "desktop skeleton root is missing or unsafe: $desktop_skeleton"
 [ "$(find -P "$desktop_skeleton" -maxdepth 0 -printf "%U:%G")" = 0:0 ] ||
   fatal "desktop skeleton root must be owned by root:root: $desktop_skeleton"
-require_mode "$desktop_skeleton" 755
+require_mode "$desktop_skeleton" 700
 unset desktop_skeleton
 
 require_symlink_target() {

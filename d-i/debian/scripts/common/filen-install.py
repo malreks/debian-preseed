@@ -245,10 +245,17 @@ def validate_services(identities: dict[str, pwd.struct_passwd]) -> None:
     # synchronization; the static template has no boot enablement target.
 
 
-def install(stage: Path, env: dict[str, str]) -> None:
+def install(stage: Path, env: dict[str, str], payload_defaults: Path | None = None) -> None:
     family = env['INSTALLER_ROLE_FAMILY']
     if family not in ('desktop', 'server'):
         raise Error('invalid Filen role family')
+    if family == 'desktop':
+        if (payload_defaults is None or not payload_defaults.is_absolute()
+                or payload_defaults.resolve(strict=True) != payload_defaults):
+            raise Error('private primary payload defaults path is required')
+        directory(payload_defaults)
+        if stat.S_IMODE(payload_defaults.stat().st_mode) != 0o700:
+            raise Error('primary payload defaults must remain private')
     version, architecture = env['FILEN_CLI_VERSION'], env['FILEN_CLI_ARCHITECTURE']
     if not re.fullmatch(r'0\.0\.[0-9]+', version) or architecture not in {'amd64', 'arm64'}:
         raise Error('invalid pinned Filen release or architecture')
@@ -374,12 +381,15 @@ def install(stage: Path, env: dict[str, str]) -> None:
             raise Error('unresolved Filen policy token')
         publish(Path('__INSTALLER_PATH_DIR_APPARMOR__') / user.replace('filen-', 'filen-sync-'), policy.encode())
         if family == 'desktop':
-            bookmarks = Path('__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/gtk-3.0/bookmarks')
-            rows = read(bookmarks).decode().splitlines()
-            bookmark = f'file://{home}/{home_bind}/{user}'
-            if not any(row.split()[0] == bookmark for row in rows if row.strip()):
-                rows.append(bookmark + ' ' + user)
-            publish(bookmarks, ('\n'.join(rows) + '\n').encode())
+            for bookmarks, bookmark_home in (
+                    (payload_defaults / '.config/gtk-3.0/bookmarks', str(home)),
+                    (Path('__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/gtk-3.0/bookmarks'), '$HOME')):
+                directory(bookmarks.parent)
+                rows = read(bookmarks).decode().splitlines()
+                bookmark = f'file://{bookmark_home}/{home_bind}/{user}'
+                if not any(row.split()[0] == bookmark for row in rows if row.strip()):
+                    rows.append(bookmark + ' ' + user)
+                publish(bookmarks, ('\n'.join(rows) + '\n').encode())
     validate_services(identities)
     publish(Path('__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_DOC__/filen-cli/INSTALLATION.json'),
             (json.dumps({'version': version, 'architecture': architecture, 'url': url, 'sha256': sha,
@@ -389,7 +399,7 @@ def install(stage: Path, env: dict[str, str]) -> None:
 
 if __name__ == '__main__':
     try:
-        if os.geteuid() != 0 or len(sys.argv) != 2:
+        if os.geteuid() != 0 or len(sys.argv) != 3:
             raise Error('root target installer with a private staging directory required')
         stage = Path(path_value(sys.argv[1]))
         if stage.parent != Path('__INSTALLER_PATH_DIR_TMP__') or not re.fullmatch(r'installer-filen\.[A-Za-z0-9]{6}', stage.name):
@@ -397,7 +407,7 @@ if __name__ == '__main__':
         directory(stage)
         if stat.S_IMODE(stage.stat().st_mode) != 0o700:
             raise Error('staging directory must have mode 0700')
-        install(stage, dict(os.environ))
+        install(stage, dict(os.environ), Path(path_value(sys.argv[2])))
     except OutcomeUnknown:
         print('filen_install outcome=unknown cause=child-termination-unproved; retain private recovery evidence', file=sys.stderr)
         raise SystemExit(76)

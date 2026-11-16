@@ -66,7 +66,7 @@ desktop_run_appearance_setup() (
   set -eu
   setup_action=$1
   shift
-  case "$setup_action:$#" in themes:0|defaults:0|extract:2) ;; *) installer_fatal 'invalid appearance setup action' ;; esac
+  case "$setup_action:$#" in themes:0|defaults:1|extract:2) ;; *) installer_fatal 'invalid appearance setup action' ;; esac
   setup_parent="${TARGET_ROOT}${DIR_TMP}"
   installer_apt_safe_path "$setup_parent" || installer_fatal 'unsafe appearance setup ancestry'
   setup_stage=$(mktemp -d "$setup_parent/install-appearance.XXXXXX")
@@ -148,7 +148,7 @@ desktop_install_appearance_themes() (
 )
 
 desktop_capture_appearance_defaults() {
-  desktop_run_appearance_setup defaults
+  desktop_run_appearance_setup defaults "${DIR_INSTALLER_TARGET_DEFAULTS}/desktop"
 }
 
 desktop_verify_appearance_assets() {

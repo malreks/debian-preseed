@@ -72,5 +72,6 @@ configure_target_network_sharing() (
     "NFS_TCP_RMEM=${NFS_TCP_RMEM:?}" "NFS_TCP_WMEM=${NFS_TCP_WMEM:?}" \
     "NFS_SOCKET_RMEM_MAX=${NFS_SOCKET_RMEM_MAX:?}" \
     "NFS_SOCKET_WMEM_MAX=${NFS_SOCKET_WMEM_MAX:?}" \
-    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "${nfs_stage}/configure.py" "${nfs_stage}/assets"
+    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "${nfs_stage}/configure.py" "${nfs_stage}/assets" \
+      "${DIR_INSTALLER_TARGET_DEFAULTS}/desktop"
 )

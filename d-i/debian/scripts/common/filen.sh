@@ -68,5 +68,6 @@ install_profile_filen() (
     INSTALLER_ROLE_FAMILY="$INSTALLER_HOST_VARIANT" \
     ACCOUNT_USERNAME="$ACCOUNT_USERNAME" ACCOUNT_HOME="$ACCOUNT_HOME" \
     __INSTALLER_PATH_DIR_USR_BIN__/timeout --signal=TERM --kill-after=5s 420s \
-    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "${filen_stage}/install.py" "$filen_stage"
+    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "${filen_stage}/install.py" "$filen_stage" \
+      "${DIR_INSTALLER_TARGET_DEFAULTS}/desktop"
 )

@@ -165,6 +165,8 @@ INSTALLER_LATE_ACCOUNT_ENV=${INSTALLER_LATE_ACCOUNT_ENV:-${DIR_INSTALLER_LATE_EN
 export INSTALLER_LATE_ACCOUNT_ENV
 installer_operation_context_repo FILE_LATE_DISPATCH 166 prepare_late_account_env
 installer_prepare_late_account_env "$seed_base" "$INSTALLER_LATE_ACCOUNT_ENV"
+bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/account-provisioning" target
+installer_stage_account_creation
 plan_stages="${RUNTIME_DIR}/state/late-stages.tsv"
 awk -F '\t' '$1=="stage" {split($2, fields, "|"); if(fields[2]=="late") print $2}' \
   "$(installer_class_plan_path)" >"$plan_stages"
@@ -199,3 +201,11 @@ while IFS='|' read -r stage_id stage_phase stage_selector || [ -n "$stage_id" ];
   installer_phase_stage_finish "$stage_phase" "$stage_id"
   installer_info "completed selected stage ${stage_id}"
 done <"$plan_stages"
+
+# All selected stages have consumed their private rendered payload inputs.
+# Keep them on failure for diagnosis; no installed application consumes them.
+if [ -d "${TARGET_ROOT}${DIR_INSTALLER_TARGET_DEFAULTS}" ]; then
+  bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/defaults-cleanup" target
+  installer_run_target_setup FILE_COMMON_PRIMARY_DEFAULTS 'remove private primary-account payload staging' \
+    cleanup "$DIR_INSTALLER_TARGET_DEFAULTS"
+fi

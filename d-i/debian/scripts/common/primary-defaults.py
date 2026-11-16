@@ -1,0 +1,198 @@
+#!/usr/bin/python3
+"""Installation-only publication of rendered payload defaults, never a runtime helper.
+
+The interpreter spelling is Debian's package interface. All state and account
+paths arrive through explicit installer arguments, not installed skeletons.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import pwd
+import stat
+import sys
+import time
+
+FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+DEADLINE = time.monotonic() + 60
+MAX_MEMBERS = 8192
+MAX_BYTES = 128 * 1024 * 1024
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValueError(message)
+    if time.monotonic() > DEADLINE:
+        raise TimeoutError('primary defaults operation deadline exceeded')
+
+
+def open_source(path: Path) -> int:
+    require(path.is_absolute() and path.resolve(strict=True) == path, 'indirect payload defaults root')
+    for parent in (path, *path.parents):
+        info = parent.stat()
+        require(info.st_uid == info.st_gid == 0 and not info.st_mode & 0o022,
+                'payload defaults ancestry is not root controlled')
+    descriptor = os.open(path, FLAGS)
+    try:
+        require(stat.S_IMODE(os.fstat(descriptor).st_mode) == 0o700, 'payload defaults root is not private')
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def entries(directory: int):
+    names = []
+    with os.scandir(directory) as iterator:
+        for entry in iterator:
+            require(len(names) < MAX_MEMBERS, 'too many payload defaults in one directory')
+            require(entry.name not in ('.', '..'), 'invalid payload default name')
+            names.append(entry.name)
+    return sorted(names)
+
+
+def identity(info: os.stat_result) -> tuple[int, ...]:
+    return (info.st_dev, info.st_ino, info.st_uid, info.st_gid, info.st_mode,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def publish(source: int, destination: int, account, budget: list[int], depth: int = 0) -> None:
+    require(depth <= 32, 'payload defaults nesting exceeds the supported depth')
+    for name in entries(source):
+        budget[0] += 1
+        require(budget[0] <= MAX_MEMBERS, 'too many primary payload defaults')
+        info = os.stat(name, dir_fd=source, follow_symlinks=False)
+        require(info.st_uid == info.st_gid == 0 and not info.st_mode & 0o022,
+                'untrusted payload default metadata')
+        if stat.S_ISDIR(info.st_mode):
+            input_dir = os.open(name, FLAGS, dir_fd=source)
+            try:
+                require(identity(os.fstat(input_dir)) == identity(info), 'payload directory identity changed')
+                try:
+                    os.mkdir(name, 0o700, dir_fd=destination)
+                except FileExistsError:
+                    pass
+                output_dir = os.open(name, FLAGS, dir_fd=destination)
+                try:
+                    current = os.fstat(output_dir)
+                    require(current.st_uid in (0, account.pw_uid) and not current.st_mode & 0o022,
+                            'unsafe primary account directory')
+                    os.fchown(output_dir, account.pw_uid, account.pw_gid)
+                    os.fchmod(output_dir, 0o700)
+                    publish(input_dir, output_dir, account, budget, depth + 1)
+                    os.fsync(output_dir)
+                finally:
+                    os.close(output_dir)
+            finally:
+                os.close(input_dir)
+            continue
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, 'nonregular payload default')
+        input_file = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=source)
+        candidate = '.primary-default-' + os.urandom(16).hex()
+        try:
+            require(identity(os.fstat(input_file)) == identity(info), 'payload default identity changed')
+            try:
+                current = os.stat(name, dir_fd=destination, follow_symlinks=False)
+            except FileNotFoundError:
+                current = None
+            if current is not None:
+                require(stat.S_ISREG(current.st_mode) and current.st_nlink == 1
+                        and current.st_uid in (0, account.pw_uid), 'unsafe existing primary account file')
+            output_file = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                  0o600, dir_fd=destination)
+            try:
+                with os.fdopen(output_file, 'wb') as stream:
+                    copied = 0
+                    while chunk := os.read(input_file, 65536):
+                        budget[1] += len(chunk)
+                        copied += len(chunk)
+                        require(budget[1] <= MAX_BYTES, 'aggregate primary payload defaults exceed the policy')
+                        stream.write(chunk)
+                    require(copied == info.st_size and identity(os.fstat(input_file)) == identity(info),
+                            'payload default bytes changed during publication')
+                    stream.flush()
+                    os.fchown(stream.fileno(), account.pw_uid, account.pw_gid)
+                    os.fchmod(stream.fileno(), 0o700 if info.st_mode & 0o111 else 0o600)
+                    os.fsync(stream.fileno())
+                os.replace(candidate, name, src_dir_fd=destination, dst_dir_fd=destination)
+                os.fsync(destination)
+            finally:
+                try:
+                    os.unlink(candidate, dir_fd=destination)
+                except FileNotFoundError:
+                    pass
+        finally:
+            os.close(input_file)
+
+
+def cleanup(source: int, device: int, depth: int = 0, budget: list[int] | None = None) -> None:
+    if budget is None:
+        budget = [0]
+    require(depth <= 32, 'payload cleanup nesting exceeds the supported depth')
+    for name in entries(source):
+        budget[0] += 1
+        require(budget[0] <= MAX_MEMBERS, 'too many staged payload defaults to clean')
+        info = os.stat(name, dir_fd=source, follow_symlinks=False)
+        require(info.st_dev == device and info.st_uid == info.st_gid == 0
+                and not info.st_mode & 0o022, 'unsafe payload cleanup entry')
+        if stat.S_ISDIR(info.st_mode):
+            child = os.open(name, FLAGS, dir_fd=source)
+            try:
+                cleanup(child, device, depth + 1, budget)
+            finally:
+                os.close(child)
+            os.rmdir(name, dir_fd=source)
+        else:
+            require(stat.S_ISREG(info.st_mode), 'nonregular payload cleanup entry')
+            os.unlink(name, dir_fd=source)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('operation', choices=('publish', 'cleanup'))
+    parser.add_argument('source', type=Path)
+    parser.add_argument('username', nargs='?')
+    parser.add_argument('home', type=Path, nargs='?')
+    args = parser.parse_args()
+    require(os.geteuid() == 0, 'primary defaults require the installer root context')
+    source = open_source(args.source)
+    try:
+        if args.operation == 'cleanup':
+            cleanup(source, os.fstat(source).st_dev)
+            os.fsync(source)
+            parent = os.open(args.source.parent, FLAGS)
+            try:
+                require(identity(os.stat(args.source.name, dir_fd=parent, follow_symlinks=False))
+                        == identity(os.fstat(source)), 'payload cleanup root identity changed')
+                os.rmdir(args.source.name, dir_fd=parent)
+                os.fsync(parent)
+            finally:
+                os.close(parent)
+            return
+        account = pwd.getpwnam(args.username)
+        require(account.pw_uid >= 1000 and account.pw_gid != 0 and args.home == Path(account.pw_dir),
+                'primary account identity differs from the target passwd entry')
+        require(args.home.is_absolute() and args.home.resolve(strict=True) == args.home,
+                'indirect primary account home')
+        home = os.open(args.home, FLAGS)
+        try:
+            info = os.fstat(home)
+            require(info.st_uid == account.pw_uid and not info.st_mode & 0o022,
+                    'primary account home has unsafe ownership or permissions')
+            os.fchown(home, account.pw_uid, account.pw_gid)
+            os.fchmod(home, 0o700)
+            publish(source, home, account, [0, 0])
+            os.fsync(home)
+        finally:
+            os.close(home)
+    finally:
+        os.close(source)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, KeyError, TypeError, TimeoutError) as error:
+        print('primary payload defaults: ' + str(error), file=sys.stderr)
+        raise SystemExit(1)

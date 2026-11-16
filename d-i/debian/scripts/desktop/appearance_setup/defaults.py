@@ -14,13 +14,13 @@ from labwc_appearance.icon_catalog import ICON_NAMES, POINTER_NAMES
 from labwc_appearance.native import FILES, GREETER_FILES, VARIANTS, OPTIONAL_FILES
 
 
-def capture_registry() -> None:
+def capture_registry(payload_defaults: Path) -> None:
     """Bind every field and its reset value to the fully staged native configs."""
     if os.getuid() != 0 or os.geteuid() != 0:
         raise ValueError('appearance field capture is installation-only')
     registry = load_registry(require_captured=False)
     token_validator = _registry_token_validator(registry)
-    with Tree(Path('__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__'), uid=0) as skeleton, \
+    with Tree(payload_defaults, uid=0, private=True) as skeleton, \
             Tree(Path('__INSTALLER_PATH_DIR_ETC__/greetd'), uid=0) as greeter:
         contents: dict[str, list[str]] = {}
         for field in registry['fields']:
@@ -50,9 +50,10 @@ def capture_registry() -> None:
 
 
 def main(argv):
-    if argv != ['--capture'] or os.getuid() != 0:
+    if len(argv) != 2 or argv[0] != '--capture' or os.getuid() != 0:
         raise ValueError('native appearance defaults capture is installation-only')
-    capture_registry()
+    payload_defaults = Path(argv[1])
+    capture_registry(payload_defaults)
     DIRECTORY.mkdir(mode=0o755, parents=True, exist_ok=True)
     with Tree(DIRECTORY, uid=0) as output:
         existing = output.json('defaults.json')
@@ -60,7 +61,7 @@ def main(argv):
             validate(existing)
             return 0
         files = {}
-        with Tree(Path('__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__'), uid=0) as skeleton:
+        with Tree(payload_defaults, uid=0, private=True) as skeleton:
             for paths in FILES.values():
                 for path in paths:
                     for suffix in VARIANTS:

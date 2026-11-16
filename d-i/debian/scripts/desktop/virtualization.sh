@@ -52,5 +52,5 @@ fi
   destination="${TARGET_ROOT}${account_home}/.profile.d/72-incus.sh"
   [ ! -L "$destination" ] || installer_fatal 'indirect desktop Incus profile destination'
   install -o "$account_uid" -g "$account_gid" -m 0600 \
-    "${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d/72-incus.sh" "$destination"
+    "${TARGET_ROOT}${DIR_INSTALLER_TARGET_DEFAULTS}/desktop/.profile.d/72-incus.sh" "$destination"
 installer_info 'desktop Incus client login integration and selected UI package verified; shared host API remains local-only'

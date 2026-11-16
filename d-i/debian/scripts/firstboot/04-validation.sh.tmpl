@@ -365,7 +365,7 @@ validate_desktop_role() {
       skeleton=__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__
       [ -d "$skeleton" ]
       [ ! -L "$skeleton" ]
-      [ "$(find -P "$skeleton" -maxdepth 0 -printf "%U:%G:%m")" = "0:0:755" ]
+      [ "$(find -P "$skeleton" -maxdepth 0 -printf "%U:%G:%m")" = "0:0:700" ]
     ' sh
   desktop_account_user=$(
     __INSTALLER_PATH_DIR_BIN__/sh -eu -c '

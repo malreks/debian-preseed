@@ -11,7 +11,7 @@ from managed_workflows.fs import Tree
 
 def main(argv):
     if (os.getuid() != 0 or os.geteuid() != 0 or not (
-            argv in (['themes'], ['defaults']) or (len(argv) == 3 and argv[0] == 'extract'))):
+            argv == ['themes'] or (len(argv) == 2 and argv[0] == 'defaults') or (len(argv) == 3 and argv[0] == 'extract'))):
         raise ValueError('invalid private appearance setup request')
     staging = Path(__file__).parent
     with Tree(staging, uid=0, private=True) as tree:
@@ -37,7 +37,7 @@ def main(argv):
                 print('appearance-setup: status=committed-cleanup-pending ' + str(error), file=sys.stderr)
                 raise SystemExit(5) from error
         from appearance_setup.defaults import main as setup
-        return setup(['--capture'])
+        return setup(['--capture', argv[1]])
 
 
 if __name__ == '__main__':

@@ -131,6 +131,9 @@ installer_stage_profile_file FILE_SERVER_NFTABLES "${DIR_ETC}/nftables.d/70-mana
 installer_stage_profile_file FILE_SERVER_NFTABLES_UNIT "${DIR_SYSTEMD_SYSTEM_NFTABLES_DROPIN}/70-managed-server.conf" 0644
 installer_run_target_setup FILE_SERVER_SETUP 'install the Bash-only server account skeleton' \
   account server "$server_operator"
+# Include every selected payload default, including optional login fragments.
+# The private future-account template is an independent publication destination.
+installer_publish_primary_defaults server "$server_operator" "$ACCOUNT_HOME"
 if [ "$SSH_SERVER_ENABLE" = true ]; then
   provision_target_lan_ssh_key "$server_operator"
 else

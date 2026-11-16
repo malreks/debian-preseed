@@ -29,6 +29,12 @@ devops_stage_target_asset() {
   [ -d "${target_root}$(dirname "$target_path")" ] ||
     devops_fatal "required DevOps target directory is missing: ${target_root}$(dirname "$target_path")"
   install -m "$mode" "$tmp_asset" "$target_host_path"
+  # Optional account publication consumes these same authenticated, rendered
+  # bytes. Never reopen the separately installed root-owned skeleton copy.
+  shift 4
+  if [ "$#" -gt 0 ]; then
+    devops_publish_account_config "$tmp_asset" "$@"
+  fi
   rm -f -- "$tmp_asset"
 }
 

@@ -203,7 +203,11 @@ desktop_replace_block_placeholder_in_target() {
   placeholder=$2
   replacement=$3
 
-  replace_placeholder_line_block "$(target_asset_host_path "$target_path")" "$placeholder" "$replacement"
+  payload_target=$(installer_primary_default_path "$target_path") ||
+    installer_fatal 'block rendering requires a captured payload default'
+  payload_host=$(target_asset_host_path "$payload_target")
+  replace_placeholder_line_block "$payload_host" "$placeholder" "$replacement"
+  install -m 0644 "$payload_host" "$(target_asset_host_path "$target_path")"
 }
 
 desktop_labwc_workspace_name_lines() {

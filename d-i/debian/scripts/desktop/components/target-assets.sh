@@ -385,11 +385,13 @@ desktop_stage_target_assets() {
   desktop_stage_role_asset FILE_TARGET_BIN_LABWC_OCR __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-ocr 0755
   desktop_stage_role_asset FILE_TARGET_BIN_DISCORD __INSTALLER_PATH_DIR_USR_LOCAL__/bin/discord 0755
   desktop_stage_role_asset FILE_TARGET_BIN_TELBOT __INSTALLER_PATH_DIR_USR_LOCAL__/bin/telbot 0755
-  desktop_render_role_target_template \
-    FILE_TARGET_SKEL_APPS_TUTANOTA_DESKTOP_TMPL \
-    __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/applications/tutanota-desktop.desktop \
-    0644 \
-    LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
+  for tuta_launcher in \
+    "${DIR_ETC_SKEL_DESKTOP}/.local/share/applications/tutanota-desktop.desktop" \
+    "${DIR_USR_LOCAL_SHARE_APPLICATIONS}/tutanota-desktop.desktop"; do
+    desktop_render_role_target_template \
+      FILE_TARGET_SKEL_APPS_TUTANOTA_DESKTOP_TMPL "$tuta_launcher" 0644 \
+      LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
+  done
   desktop_stage_labwc_managed_app_python_modules
   if [ -e ${TARGET_ROOT}${DIR_OPT}/vivaldi/vivaldi ]; then
     [ -x ${TARGET_ROOT}${DIR_OPT}/vivaldi/update-ffmpeg ] &&
@@ -665,6 +667,7 @@ if len(source) > 16384 or re.search(rb"__[A-Z][A-Z0-9_]{2,}__", source):
   # activate the desktop secret-service stack. Debian's D-Bus activation owns
   # the on-demand kwalletd6 compatibility daemon.
   desktop_stage_role_asset FILE_TARGET_SKEL_USER_UNIT_LABWC_KWALLET_PORTAL_SERVICE __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-kwallet-portal.service 0644
+  desktop_stage_role_asset FILE_TARGET_SKEL_USER_UNIT_LABWC_KWALLET_PORTAL_SERVICE "${DIR_USR_LOCAL_SHARE}/labwc-app/defaults/labwc-kwallet-portal.service" 0644
   desktop_stage_role_asset FILE_TARGET_LIBEXEC_LABWC_HYPRPOLKIT_AGENT __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-hyprpolkit-agent 0755 || return 1
   desktop_stage_role_asset FILE_TARGET_SKEL_USER_UNIT_LABWC_OUTPUT_WATCH_SERVICE __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-output-watch.service 0644
   # The DevOps class helper renders and publishes the Codex units, environment
@@ -805,7 +808,7 @@ if len(source) > 16384 or re.search(rb"__[A-Z][A-Z0-9_]{2,}__", source):
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/xarchiver/xarchiverrc \
     0600 \
     ACCOUNT_USERNAME "$ACCOUNT_USERNAME" \
-    ACCOUNT_HOME "$ACCOUNT_HOME"
+    DIR_HOME_DOWNLOADS "$DIR_HOME_DOWNLOADS"
   desktop_stage_role_asset FILE_TARGET_SKEL_TASK_TASKRC_TMPL __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/task/taskrc 0644
   install -d -m 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.local/share/task ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.local/share/task/hooks
   desktop_stage_role_asset FILE_TARGET_SKEL_VIM_VIMRC __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/vim/vimrc 0644
@@ -916,6 +919,7 @@ __INSTALLER_PATH_DIR_USR_BIN__/update-mime-database __INSTALLER_PATH_DIR_USR_SHA
   desktop_render_gtk_settings
   desktop_render_qt6ct_config
   desktop_stage_role_asset FILE_TARGET_SKEL_KWALLETRC __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/kwalletrc 0644
+  desktop_stage_role_asset FILE_TARGET_SKEL_KWALLETRC "${DIR_USR_LOCAL_SHARE}/labwc-app/defaults/kwalletrc" 0644
   install -d -m 0700 \
     ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.config/Code/User \
     ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.config/chromium/Default \
@@ -933,6 +937,9 @@ __INSTALLER_PATH_DIR_USR_BIN__/update-mime-database __INSTALLER_PATH_DIR_USR_SHA
   desktop_stage_syncthing_ignore
   install -d -m 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.config/keepassxc
   desktop_stage_role_asset FILE_TARGET_SKEL_KEEPASSXC_KEEPASSXC_TMPL __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/keepassxc/keepassxc.ini 0600
+  # Non-secret fallback defaults for unprivileged runtime repair. The private
+  # skeleton is reserved for privileged provisioning of future accounts.
+  desktop_stage_role_asset FILE_TARGET_SKEL_KEEPASSXC_KEEPASSXC_TMPL "${DIR_USR_LOCAL_SHARE}/keepassxc/keepassxc.ini" 0644
   chmod 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.config/keepassxc
   install -d -m 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.config/zoom
   desktop_stage_role_asset FILE_TARGET_SKEL_ZOOM_ZOOMUS_TMPL __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/zoom/zoomus.conf 0600

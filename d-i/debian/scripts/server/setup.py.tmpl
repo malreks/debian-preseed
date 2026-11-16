@@ -811,7 +811,7 @@ def foundation_identity(role: str, subordinate_ids: dict[str, tuple[int, int]], 
             pwd.getpwuid(uid)
         except KeyError:
             command(['/usr/sbin/useradd', '--system', '--uid', str(uid), '--gid', str(uid), '--no-user-group',
-                     '--password', '!', '--home-dir', str(home), '--shell', '/usr/sbin/nologin', user])
+                     '--no-create-home', '--password', '!', '--home-dir', str(home), '--shell', '/usr/sbin/nologin', user])
         else:
             raise ValueError('reserved service UID is already owned') from None
     os.chmod(home, 0o750)
@@ -1162,6 +1162,18 @@ def foundation(roles: list[str], policy: str, private_input: str = '') -> None:
             link.symlink_to(vendor)
 
 
+DEFAULTS_ROOT: Path | None = None
+
+
+def payload_defaults_root() -> Path:
+    if DEFAULTS_ROOT is None or not DEFAULTS_ROOT.is_absolute() or DEFAULTS_ROOT.resolve(strict=True) != DEFAULTS_ROOT:
+        raise ValueError('private rendered payload defaults root is unavailable')
+    for parent in (DEFAULTS_ROOT, *DEFAULTS_ROOT.parents):
+        if not trusted_directory(parent, parent.lstat()):
+            raise ValueError('untrusted rendered payload defaults ancestry')
+    return DEFAULTS_ROOT
+
+
 def account_skeleton(username: str) -> None:
     """Publish only the four declared Bash files to the selected human account."""
     if re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', username) is None:
@@ -1181,7 +1193,7 @@ def account_skeleton(username: str) -> None:
             if (home / forbidden).exists() or (home / forbidden).is_symlink():
                 raise ValueError('server home contains desktop/zsh state; no automatic cleanup is permitted')
         for name in ('.bashrc', '.bash_aliases', '.bash_profile', '.profile'):
-            data = regular(Path('__INSTALLER_PATH_DIR_ETC_SKEL_SERVER__') / name, maximum=16384)
+            data = regular(payload_defaults_root() / name, maximum=16384)
             # Use the pinned home descriptor, never a path through user-controlled parents.
             temporary = '.installer-' + name.removeprefix('.')
             fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=descriptor)
@@ -1236,7 +1248,7 @@ def operator_profile(account: pwd.struct_passwd, filename: str) -> None:
     if filename not in {'71-devops-srv.sh', '72-ci-runners-srv.sh', '99-codex-srv.sh'}:
         raise ValueError('unregistered operator login fragment')
     home = Path(account.pw_dir)
-    source = Path('__INSTALLER_PATH_DIR_ETC_SKEL_SERVER__') / ('.profile.d/' + filename)
+    source = payload_defaults_root() / ('.profile.d/' + filename)
     data = regular(source, maximum=16384)
     descriptor = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
@@ -1669,6 +1681,7 @@ def configure_runner(role: str, input_path: str) -> None:
 
 def setup_main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--defaults-root', type=Path)
     parser.add_argument('operation', choices=('foundation', 'profile-packages', 'account', 'devops-account', 'codex-account', 'install', 'configure-runner'))
     parser.add_argument('role', choices=('server', *ROLES))
     parser.add_argument('argument', nargs='?')
@@ -1676,7 +1689,8 @@ def setup_main() -> int:
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('offline server setup requires target root')
-    global DEADLINE
+    global DEADLINE, DEFAULTS_ROOT
+    DEFAULTS_ROOT = args.defaults_root
     DEADLINE = time.monotonic() + 1800
     try:
         roles = selected_server_roles()

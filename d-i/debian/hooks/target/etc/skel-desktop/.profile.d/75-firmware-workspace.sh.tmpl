@@ -58,24 +58,33 @@ fwops_account_owned_directory_is_mode() (
     [ "$fwops_directory_actual_mode" = "$fwops_mode" ]
 )
 
+fwops_account_name() (
+  fwops_current_user=$(__INSTALLER_PATH_DIR_USR__/bin/id -un 2>__INSTALLER_PATH_DIR_DEV__/null) || return 1
+  fwops_current_uid=$(__INSTALLER_PATH_DIR_USR__/bin/id -u 2>__INSTALLER_PATH_DIR_DEV__/null) || return 1
+  case "$fwops_current_user" in
+    [a-z_]*) ;;
+    *) return 1 ;;
+  esac
+  case "$fwops_current_user" in *[!a-z0-9_-]*) return 1 ;; esac
+  case "$fwops_current_uid" in ''|*[!0-9]*) return 1 ;; esac
+  [ "${#fwops_current_user}" -le 32 ] && [ "$fwops_current_uid" -ge 1000 ] || return 1
+  # Resolve the executing identity, never a primary-account substitution or an
+  # unverified inherited USER value. Ownership checks still authorize access.
+  printf '%s\n' "$fwops_current_user"
+)
+
 fwops_validate_workspace() (
   case "$#" in
     0) ;;
     *) return 64 ;;
   esac
 
-  fwops_current_user=$(__INSTALLER_PATH_DIR_USR__/bin/id -un 2>__INSTALLER_PATH_DIR_DEV__/null) || {
+  fwops_current_user=$(fwops_account_name) || {
     printf '%s\n' 'fwops: cannot resolve the current account name' >&2
     return 1
   }
-  [ "$fwops_current_user" = '__INSTALLER_ACCOUNT_USERNAME__' ] || {
-    printf 'fwops: this profile belongs to account %s, not %s\n' \
-      '__INSTALLER_ACCOUNT_USERNAME__' "$fwops_current_user" >&2
-    return 1
-  }
-
   fwops_pool='__INSTALLER_DIR_POOL_FIRMWARE__'
-  fwops_workspace="${fwops_pool}/__INSTALLER_ACCOUNT_USERNAME__"
+  fwops_workspace="${fwops_pool}/${fwops_current_user}"
   fwops_path_is_safe_absolute "$fwops_pool" || return 1
   [ -d "$fwops_pool" ] && [ ! -L "$fwops_pool" ] || {
     printf 'fwops: firmware pool is unavailable: %s\n' "$fwops_pool" >&2
@@ -164,7 +173,9 @@ fwops_apply_environment() {
   # already validated PATH (including an active DevOps PATH) rather than
   # replacing it while entering the workspace.
   FIRMWARE_POOL_ROOT='__INSTALLER_DIR_POOL_FIRMWARE__'
-  FIRMWARE_WORKSPACE_ROOT="${FIRMWARE_POOL_ROOT}/__INSTALLER_ACCOUNT_USERNAME__"
+  fwops_environment_user=$(fwops_account_name) || return 1
+  FIRMWARE_WORKSPACE_ROOT="${FIRMWARE_POOL_ROOT}/${fwops_environment_user}"
+  unset fwops_environment_user
   FIRMWARE_ORIGINAL_DIR="${FIRMWARE_WORKSPACE_ROOT}/original"
   FIRMWARE_ANALYSIS_DIR="${FIRMWARE_WORKSPACE_ROOT}/analysis"
   FIRMWARE_WORKING_DIR="${FIRMWARE_WORKSPACE_ROOT}/working"
@@ -302,7 +313,8 @@ fwops_environment_is_active() (
   }
 
   fwops_expected_pool='__INSTALLER_DIR_POOL_FIRMWARE__'
-  fwops_expected_workspace="${fwops_expected_pool}/__INSTALLER_ACCOUNT_USERNAME__"
+  fwops_expected_user=$(fwops_account_name) || return 1
+  fwops_expected_workspace="${fwops_expected_pool}/${fwops_expected_user}"
   [ "${FIRMWARE_POOL_ROOT:-}" = "$fwops_expected_pool" ] &&
     [ "${FIRMWARE_WORKSPACE_ROOT:-}" = "$fwops_expected_workspace" ] &&
     [ "${FIRMWARE_ORIGINAL_DIR:-}" = "$fwops_expected_workspace/original" ] &&
@@ -397,7 +409,8 @@ fwops_status() (
   esac
 
   printf 'active=%s mode=%s\n' "${FWOPS_ACTIVE:-0}" "${FWOPS_MODE:-inactive}"
-  printf 'workspace=%s\n' '__INSTALLER_DIR_POOL_FIRMWARE__/__INSTALLER_ACCOUNT_USERNAME__'
+  fwops_status_user=$(fwops_account_name) || return 1
+  printf 'workspace=%s/%s\n' '__INSTALLER_DIR_POOL_FIRMWARE__' "$fwops_status_user"
   if fwops_validate_workspace >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
     printf '%s\n' 'workspace_state=ready'
   else

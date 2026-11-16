@@ -1,6 +1,21 @@
 #!/bin/sh
 # Sourced installer module; edit this file directly.
 
+desktop_account_relative_home_path() (
+  # Retain the selected directory layout without binding shared defaults to
+  # the primary account. Account provisioning resolves this typed field in
+  # the HOME copy before the UI application can consume it.
+  case "$1" in
+    "$ACCOUNT_HOME"/*) account_relative=${1#"$ACCOUNT_HOME"/} ;;
+    *) installer_fatal 'desktop default directory is outside the selected account HOME'; exit 1 ;;
+  esac
+  case "$account_relative" in
+    ''|.|..|/*|*/../*|../*|*/..|*//*|*[!A-Za-z0-9_./-]*)
+      installer_fatal 'unsafe account-relative desktop directory'; exit 1 ;;
+  esac
+  printf '$HOME/%s\n' "$account_relative"
+)
+
 desktop_target_hostname() {
   target_hostname=
 
@@ -80,6 +95,36 @@ desktop_render_target_template_impl() {
   fi
   ensure_target_asset_parent "$target_path"
   rendered_target=$(target_asset_host_path "$target_path")
+  # The primary user's fully configured input is retained independently from
+  # the private future-user template. Both are rendered from tmp_source with
+  # the same shared renderer; neither reads the installed template as input.
+  installer_capture_primary_default "$tmp_rendered" "$target_path" "$mode"
+  case "$rendered_target" in
+    "${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/"*)
+      future_fields=$#
+      future_changed=false
+      while [ "$future_fields" -gt 0 ]; do
+        future_key=$1; future_value=$2; shift 2
+        future_fields=$((future_fields - 2))
+        case "$future_key" in
+          ACCOUNT_HOME) future_value='$HOME'; future_changed=true ;;
+          ACCOUNT_USERNAME) future_value='$USER'; future_changed=true ;;
+          DIR_HOME_*)
+            future_value=$(desktop_account_relative_home_path "$future_value") || return 1
+            future_changed=true
+            ;;
+        esac
+        set -- "$@" "$future_key" "$future_value"
+      done
+      if [ "$future_changed" = true ]; then
+        if ! installer_apply_scalar_placeholders "$tmp_source" "$tmp_rendered" "$@"; then
+          rm -f "$tmp_source" "$tmp_rendered"
+          installer_fatal "failed to render reusable account template ${source_path}"
+        fi
+        desktop_assert_no_unresolved_template_placeholders "$tmp_rendered" "future account template ${source_path}"
+      fi
+      ;;
+  esac
   install -m "$mode" "$tmp_rendered" "$rendered_target"
   # Rendering is performed in several installer execution contexts. Make the
   # ownership contract explicit so a copied or fakeroot-backed target cannot

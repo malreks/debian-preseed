@@ -454,8 +454,8 @@ def storage_path(s: Settings, path: str) -> Path:
     return Path(storage_root(s)) / relative
 
 
-def home_bind_bookmarks(s: Settings) -> str:
-    base = 'file://' + s['ACCOUNT_HOME'] + '/' + s['NETWORK_SHARING_HOME_BIND_PATH']
+def home_bind_bookmarks(s: Settings, *, home: str | None = None) -> str:
+    base = 'file://' + (s['ACCOUNT_HOME'] if home is None else home) + '/' + s['NETWORK_SHARING_HOME_BIND_PATH']
     rows = [base + ' Sharing']
     for role in ('SERVER', 'CLIENT'):
         if s.enabled(f'NFS_{role}_ENABLE'):
@@ -617,7 +617,14 @@ def server_firewall(s: Settings) -> None:
     atomic_write(path, source[:start] + '\n' + '\n'.join(rows) + '\n    ' + source[stop:], 0o600)
 
 
-def configure(s: Settings, assets: Path) -> None:
+def configure(s: Settings, assets: Path, payload_defaults: Path | None = None) -> None:
+    if s['INSTALLER_ROLE_FAMILY'] == 'desktop':
+        if (payload_defaults is None or not payload_defaults.is_absolute()
+                or payload_defaults.resolve(strict=True) != payload_defaults):
+            raise ValueError('private primary payload defaults path is required')
+        system_directory(payload_defaults)
+        if stat.S_IMODE(payload_defaults.stat().st_mode) != 0o700:
+            raise ValueError('primary payload defaults must remain private')
     # Reject changed-role reruns: this is an offline installer, not a live
     # reconfiguration tool. Never silently leave stale exports/mounts enabled.
     config_path = Path('__INSTALLER_PATH_DIR_ETC_NETWORK_SHARING__/config.json')
@@ -674,14 +681,16 @@ def configure(s: Settings, assets: Path) -> None:
     home_bind_directory(s, account)
     protect_home_bind_parents(s)
     if s['INSTALLER_ROLE_FAMILY'] == 'desktop':
-        bookmarks = home_bind_bookmarks(s)
-        path = Path('__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/gtk-3.0/bookmarks')
-        system_directory(path.parent)
-        lines = read_regular(path).splitlines()
-        for line in bookmarks.splitlines():
-            if line.split()[0] not in {row.split()[0] for row in lines if row.strip()}:
-                lines.append(line)
-        atomic_write(path, '\n'.join(lines) + '\n')
+        for path, bookmarks in (
+                (payload_defaults / '.config/gtk-3.0/bookmarks', home_bind_bookmarks(s)),
+                (Path('__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/gtk-3.0/bookmarks'),
+                 home_bind_bookmarks(s, home='$HOME'))):
+            system_directory(path.parent)
+            lines = read_regular(path).splitlines()
+            for line in bookmarks.splitlines():
+                if line.split()[0] not in {row.split()[0] for row in lines if row.strip()}:
+                    lines.append(line)
+            atomic_write(path, '\n'.join(lines) + '\n')
     if s.active:
         # primary_account already checked AUTH_SYS numeric credentials before
         # preparing the home view; NFSv4 name mapping cannot replace that check.
@@ -761,13 +770,13 @@ def configure(s: Settings, assets: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if os.getuid() != 0 or os.geteuid() != 0 or len(argv) != 1:
-        raise ValueError('usage (installer chroot, root only): network-sharing.py ASSET_DIRECTORY')
+    if os.getuid() != 0 or os.geteuid() != 0 or len(argv) != 2:
+        raise ValueError('usage (installer chroot, root only): network-sharing.py ASSET_DIRECTORY PAYLOAD_DEFAULTS')
     assets = Path(argv[0])
     if not assets.is_absolute() or not assets.is_dir() or assets.is_symlink():
         raise ValueError('assets must be an existing absolute directory')
     settings = Settings.from_environment(os.environ)
-    configure(settings, assets)
+    configure(settings, assets, Path(argv[1]))
     return 0
 
 

@@ -320,7 +320,8 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(installer.remote_value(value), value)
 
     def environment(self):
-        return {'FILEN_CLI_VERSION': '0.0.36', 'FILEN_CLI_ARCHITECTURE': 'amd64',
+        return {'INSTALLER_ROLE_FAMILY': 'server',
+                'FILEN_CLI_VERSION': '0.0.36', 'FILEN_CLI_ARCHITECTURE': 'amd64',
                 'FILEN_CLI_URL': 'https://github.com/FilenCloudDienste/filen-cli/releases/download/v0.0.36/filen-cli-v0.0.36-linux-x64',
                 'FILEN_CLI_SHA256': 'b' * 64, 'FILEN_CLI_MAXIMUM_BYTES': '411041792',
                 'NETWORK_SHARING_ROOT_PATH': '/data/sharing', 'NETWORK_SHARING_HOME_BIND_PATH': 'Sharing',

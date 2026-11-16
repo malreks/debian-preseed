@@ -890,6 +890,8 @@ class TargetFilesystemTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         for directory in ('etc', 'usr/sbin', 'usr/bin', 'home/mcramer'):
             (self.root/directory).mkdir(parents=True, exist_ok=True)
+        self.payload_defaults = self.root / 'payload-defaults'
+        self.payload_defaults.mkdir(mode=0o700)
         try:
             os.chown(self.root/'home/mcramer', 1000, 1000)
         except OSError as error:
@@ -921,7 +923,7 @@ class TargetFilesystemTests(unittest.TestCase):
 
     def configure(self, **options):
         settings = NFS.Settings.from_environment(profile(**options))
-        NFS.configure(settings, TARGET)
+        NFS.configure(settings, TARGET, self.payload_defaults)
         return settings
 
     def test_disabled_still_creates_root_without_packages_or_services(self):

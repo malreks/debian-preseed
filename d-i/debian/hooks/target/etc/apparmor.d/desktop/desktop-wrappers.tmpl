@@ -80,18 +80,18 @@ profile code flags=(attach_disconnected, mediate_deleted) {
   include if exists <local/code>
 }
 
-profile labwc-autostart-hook /{etc/skel-desktop,home/*}/.config/labwc/autostart flags=(attach_disconnected) {
+profile labwc-autostart-hook __INSTALLER_PATH_DIR_HOME__/*/.config/labwc/autostart flags=(attach_disconnected) {
   #include <abstractions/wrapper-desktop>
 
-  /{etc/skel-desktop,home/*}/.config/labwc/autostart rix,
+  __INSTALLER_PATH_DIR_HOME__/*/.config/labwc/autostart rix,
 
   include if exists <local/home.labwc.autostart>
 }
 
-profile labwc-shutdown-hook /{etc/skel-desktop,home/*}/.config/labwc/shutdown flags=(attach_disconnected) {
+profile labwc-shutdown-hook __INSTALLER_PATH_DIR_HOME__/*/.config/labwc/shutdown flags=(attach_disconnected) {
   #include <abstractions/wrapper-desktop>
 
-  /{etc/skel-desktop,home/*}/.config/labwc/shutdown rix,
+  __INSTALLER_PATH_DIR_HOME__/*/.config/labwc/shutdown rix,
 
   include if exists <local/home.labwc.shutdown>
 }
@@ -2576,6 +2576,7 @@ profile labwc-app __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{labwc-app,labwc-agenda,l
   owner __INSTALLER_PATH_DIR_POOL__/db/*/qoredb/ rw,
   owner __INSTALLER_PATH_DIR_POOL__/db/*/qoredb/** rwkl,
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/keepassxc/keepassxc.ini r,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-*-privacy-*/ rw,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-*-privacy-*/** rwkl,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-*-sandbox-*/ rw,
@@ -3549,7 +3550,6 @@ profile labwc-sync-application-launchers __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/la
 
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-sync-application-launchers rix,
   __INSTALLER_PATH_DIR_USR__/bin/desktop-file-validate pux,
-  __INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.local/share/applications/tutanota-desktop.desktop r,
   owner @{HOME}/.config/ rw,
   owner @{HOME}/.config/mimeapps.list rw,
   owner @{HOME}/.config/.mimeapps.list.* rw,
@@ -4420,8 +4420,8 @@ profile apt-repo-local-software-update __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/
   __INSTALLER_PATH_DIR_ETC__/apt/sources.list.d/chatgpt.{list,sources} rw,
   __INSTALLER_PATH_DIR_USR_SHARE__/keyrings/chatgpt-archive-keyring.gpg rw,
   __INSTALLER_PATH_DIR_USR_SHARE__/applications/{Filen.desktop,Zoom.desktop,bitwarden.desktop,md.obsidian.Obsidian.desktop,obsidian.desktop,sleek.desktop,tuta-mail.desktop} r,
-  __INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.local/share/applications/tutanota-desktop.desktop r,
-  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications/{discord,postman,ledger-live}.desktop r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications/{discord,postman,ledger-live,tutanota-desktop}.desktop r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/defaults/{kwalletrc,labwc-kwallet-portal.service,org.freedesktop.secrets.service} r,
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications/ rw,
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications/chatgpt.desktop{,.tmp.*} rw,
   __INSTALLER_PATH_DIR_USR_SHARE__/icons/hicolor/512x512/apps/{ledger-live-desktop.png,tuta-mail.png} rw,

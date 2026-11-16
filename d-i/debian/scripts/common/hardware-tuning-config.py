@@ -401,10 +401,13 @@ def patch_waybar_battery_actions(root: Path, relative: str) -> str:
 
 
 def install(root: Path, uid: int, gid: int, environment: dict, vendors: list[str],
-            templates: Path, *, family: str = "desktop") -> list[str]:
+            templates: Path, *, family: str = "desktop", payload_defaults: Path | None = None) -> list[str]:
     from broker import validate_config
     if family not in ("desktop", "server"):
         raise ValueError("invalid hardware tuning role family")
+    if family == "desktop" and (payload_defaults is None or not payload_defaults.is_absolute()
+                                 or '..' in payload_defaults.parts):
+        raise ValueError("desktop hardware tuning requires explicit rendered payload defaults")
     if not vendors or any(v not in PREFIXES for v in vendors) or len(set(vendors)) != len(vendors):
         raise ValueError("the installer must supply a nonempty, uniquely gated vendor list")
     if type(gid) is not int or not 0 <= gid < 2**31:
@@ -489,9 +492,11 @@ def install(root: Path, uid: int, gid: int, environment: dict, vendors: list[str
         # reserialize the complete Waybar configuration: doing so changes every
         # indentation and line boundary, invalidates appearance registry anchors,
         # and creates needless churn in the installed user's configuration.
+        # Patch each independently rendered input. The primary account's copy
+        # must never be sourced from the separately installed future-user tree.
         for relative in (
-                "etc/skel-desktop/.config/waybar/modules/battery",
-        ):
+                str(Path('__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__') / '.config/waybar/modules/battery').lstrip('/'),
+                str(payload_defaults / '.config/waybar/modules/battery').lstrip('/')):
             put(relative, patch_waybar_battery_actions(root, relative))
     # Publish provider selection only after all of its units and activation
     # policy have been rendered. Offline staging never starts a consumer.
@@ -507,11 +512,12 @@ def install(root: Path, uid: int, gid: int, environment: dict, vendors: list[str
 
 
 def main(argv: list[str]) -> int:
-    if os.geteuid() != 0 or len(argv) < 5:
-        raise ValueError("usage (root): hardware-tuning-config.py ENV_FILE ACCOUNT TEMPLATE_ROOT FAMILY VENDOR [VENDOR]")
+    if os.geteuid() != 0 or len(argv) < 6:
+        raise ValueError("usage (root): hardware-tuning-config.py ENV_FILE ACCOUNT TEMPLATE_ROOT FAMILY PAYLOAD_DEFAULTS VENDOR [VENDOR]")
     environment = parse_environment(Path(argv[0]).read_text(encoding="ascii"))
     account = pwd.getpwnam(argv[1])
-    install(Path("/"), account.pw_uid, account.pw_gid, environment, argv[4:], Path(argv[2]), family=argv[3])
+    install(Path("/"), account.pw_uid, account.pw_gid, environment, argv[5:], Path(argv[2]),
+            family=argv[3], payload_defaults=Path(argv[4]))
     return 0
 
 

@@ -11,10 +11,11 @@ stage_target_account_shell_assets() {
     installer_fatal "desktop skeleton root must not be a symlink: ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}"
   [ ! -L ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d ] ||
     installer_fatal "desktop skeleton profile directory must not be a symlink: ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d"
-  install -d -m 0755 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}
+  install -d -m 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}
   install -d -m 0755 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d
   chown root:root ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP} ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d
-  chmod 0755 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP} ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d
+  chmod 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}
+  chmod 0755 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d
   stage_target_asset "$(installer_repo_file_value FILE_LATE_ASSET_ETC_SKEL_DESKTOP_PROFILE_INSTALLER_BASE)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile 0644
   stage_target_asset "$(installer_repo_file_value FILE_LATE_ASSET_ETC_SKEL_DESKTOP_BASH_PROFILE_INSTALLER_BASE)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bash_profile 0644
   stage_target_asset "$(installer_repo_file_value FILE_LATE_ASSET_ETC_SKEL_DESKTOP_BASHRC_INSTALLER_BASE)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bashrc 0644
@@ -29,73 +30,7 @@ stage_target_account_shell_assets() {
 install_target_account_shell_assets() {
   : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set}"
   : "${ACCOUNT_HOME:?ACCOUNT_HOME must be set}"
-
-  case "$ACCOUNT_USERNAME" in
-    [abcdefghijklmnopqrstuvwxyz_]*)
-      ;;
-    *)
-      installer_fatal "ACCOUNT_USERNAME must start with a lowercase letter or underscore for shell assets"
-      ;;
-  esac
-  case "$ACCOUNT_USERNAME" in
-    *[!abcdefghijklmnopqrstuvwxyz0123456789_-]*)
-      installer_fatal "ACCOUNT_USERNAME contains unsupported characters for shell assets"
-      ;;
-  esac
-  case "$ACCOUNT_HOME" in
-    /*) ;;
-    *)
-      installer_fatal "ACCOUNT_HOME must be an absolute path for shell assets"
-      ;;
-  esac
-  case "$ACCOUNT_HOME" in
-    /|*..*|*//*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-]*)
-      installer_fatal "ACCOUNT_HOME contains unsupported path syntax for shell assets"
-      ;;
-  esac
-
-  # shellcheck disable=SC2016
-  run_in_target "install managed shell assets for primary account" __INSTALLER_PATH_DIR_BIN__/sh -c '
-set -eu
-account_user=$1
-account_home=$2
-
-uid=$(id -u "$account_user")
-gid=$(id -g "$account_user")
-
-install -d -m 0700 "$account_home"
-for rel_file in .profile .bash_profile .bashrc; do
-  src="__INSTALLER_PATH_DIR_ETC__/skel-desktop/${rel_file}"
-  dst="${account_home}/${rel_file}"
-  [ -r "$src" ] || {
-    printf "fatal: missing managed shell asset: %s\n" "$src" >&2
-    exit 1
-  }
-  [ ! -L "$dst" ] || {
-    printf "fatal: managed account shell file must not be a symlink: %s\n" "$dst" >&2
-    exit 1
-  }
-  install -m 0600 "$src" "$dst"
-  chown "$uid:$gid" "$dst"
-done
-
-if [ -d __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile.d ] && [ ! -L __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile.d ]; then
-  install -d -m 0700 "$account_home/.profile.d"
-  chown "$uid:$gid" "$account_home/.profile.d"
-  for src in __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile.d/[0-9][0-9]-*.sh; do
-    [ -e "$src" ] || break
-    [ -f "$src" ] || continue
-    file_name=$(basename "$src")
-    dst="$account_home/.profile.d/$file_name"
-    [ ! -L "$dst" ] || {
-      printf "fatal: managed account profile fragment must not be a symlink: %s\n" "$dst" >&2
-      exit 1
-    }
-    install -m 0600 "$src" "$dst"
-    chown "$uid:$gid" "$dst"
-  done
-fi
-' sh "$ACCOUNT_USERNAME" "$ACCOUNT_HOME"
+  installer_publish_primary_defaults desktop "$ACCOUNT_USERNAME" "$ACCOUNT_HOME"
 }
 
 account_home_managed_paths() {

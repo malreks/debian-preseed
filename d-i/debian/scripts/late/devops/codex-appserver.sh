@@ -140,22 +140,26 @@ devops_stage_codex_app_server() {
   fi
 
   for managed_base_dir in "${target_root}__INSTALLER_PATH_DIR_ETC__/codex" "${target_root}${DEVOPS_SKEL_DIR}"; do
+    case "$managed_base_dir" in
+      "${target_root}${DEVOPS_SKEL_DIR}") managed_base_mode=0700 ;;
+      *) managed_base_mode=0755 ;;
+    esac
     if [ -e "$managed_base_dir" ] || [ -L "$managed_base_dir" ]; then
       [ -d "$managed_base_dir" ] && [ ! -L "$managed_base_dir" ] ||
         devops_fatal "Codex app-server base directory is indirect: $managed_base_dir"
     else
-      install -d -m 0755 -- "$managed_base_dir"
+      install -d -m "$managed_base_mode" -- "$managed_base_dir"
     fi
     [ "$(readlink -f -- "$managed_base_dir")" = "$managed_base_dir" ] ||
       devops_fatal "Codex app-server base directory traverses a symlink: $managed_base_dir"
-    chmod 0755 "$managed_base_dir"
+    chmod "$managed_base_mode" "$managed_base_dir"
     chown root:root "$managed_base_dir"
     devops_assert_target_metadata \
-      0:0:755 \
+      "0:0:${managed_base_mode#0}" \
       "$managed_base_dir" \
       "Codex app-server base directory"
   done
-  unset managed_base_dir
+  unset managed_base_dir managed_base_mode
 
   for managed_unit_dir in \
     "$template_config_dir" \

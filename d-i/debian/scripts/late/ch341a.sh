@@ -42,5 +42,5 @@ with os.fdopen(fd,"wb") as stream:
 for binary in ("IMSProg","IMSProg_editor","uefitool"):
     if not os.access(Path("/usr/bin")/binary,os.X_OK):
         raise SystemExit("desktop firmware package entrypoint is missing")
-' "$ACCOUNT_USERNAME" "${DIR_ETC_SKEL_DESKTOP}/.profile.d/75-firmware-workspace.sh"
+' "$ACCOUNT_USERNAME" "${DIR_INSTALLER_TARGET_DEFAULTS}/desktop/.profile.d/75-firmware-workspace.sh"
 installer_info 'desktop firmware login/GUI integration staged independently of the common backend'

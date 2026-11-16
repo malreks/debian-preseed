@@ -61,7 +61,7 @@ sub policy_valid {
             ],
         ],
         [
-            '__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.config/systemd/user/labwc-kwallet-portal.service',
+            '__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/defaults/labwc-kwallet-portal.service',
             [
                 'Type=dbus',
                 'BusName=org.freedesktop.secrets',
@@ -71,7 +71,7 @@ sub policy_valid {
             ],
         ],
         [
-            '__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.local/share/dbus-1/services/org.freedesktop.secrets.service',
+            '__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/defaults/org.freedesktop.secrets.service',
             [
                 'Name=org.freedesktop.secrets',
                 'QT_QPA_PLATFORM=wayland',
@@ -79,7 +79,7 @@ sub policy_valid {
             ],
         ],
         [
-            '__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__/.config/kwalletrc',
+            '__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/defaults/kwalletrc',
             [
                 '[org.freedesktop.secrets]',
                 'apiEnabled=true',

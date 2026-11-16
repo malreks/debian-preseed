@@ -1,6 +1,56 @@
 #!/bin/sh
 # Role-independent target publication, using the one placeholder renderer.
 # The target must be offline, root-owned and private from account processes.
+installer_primary_default_path() (
+  case "$1" in
+    "${DIR_ETC_SKEL_DESKTOP}/"*) default_family=desktop; default_relative=${1#"${DIR_ETC_SKEL_DESKTOP}/"} ;;
+    "${DIR_ETC_SKEL_SERVER}/"*) default_family=server; default_relative=${1#"${DIR_ETC_SKEL_SERVER}/"} ;;
+    *) exit 1 ;;
+  esac
+  printf '%s/%s/%s\n' "$DIR_INSTALLER_TARGET_DEFAULTS" "$default_family" "$default_relative"
+)
+
+installer_capture_primary_default() (
+  set -eu
+  umask 077
+  default_input=$1; default_target=$2; default_mode=$3
+  default_output=$(installer_primary_default_path "$default_target") || exit 0
+  default_output="${TARGET_ROOT}${default_output}"
+  installer_apt_safe_path "$default_output" || installer_fatal 'unsafe primary payload default ancestry'
+  default_family=${default_output#"${TARGET_ROOT}${DIR_INSTALLER_TARGET_DEFAULTS}/"}
+  default_family=${default_family%%/*}
+  install -d -m 0700 -- "${TARGET_ROOT}${DIR_INSTALLER_TARGET_DEFAULTS}" \
+    "${TARGET_ROOT}${DIR_INSTALLER_TARGET_DEFAULTS}/${default_family}"
+  install -d -m 0700 -- "${default_output%/*}"
+  default_work=$(mktemp "${default_output%/*}/.payload-default.XXXXXX")
+  trap 'rm -f -- "$default_work"' 0
+  trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  install -m "$default_mode" -- "$default_input" "$default_work"
+  chown root:root "$default_work"
+  mv -fT -- "$default_work" "$default_output"
+)
+
+installer_publish_primary_defaults() {
+  installer_run_target_setup FILE_COMMON_PRIMARY_DEFAULTS 'publish rendered payload defaults for the primary account' \
+    publish "${DIR_INSTALLER_TARGET_DEFAULTS}/$1" "$2" "$3"
+}
+
+installer_stage_account_creation() {
+  # This is the only installed helper permitted to read private templates:
+  # an administrator explicitly creates an account and selects its type.
+  installer_apt_safe_path "${TARGET_ROOT}${DIR_USR_LOCAL_SBIN}" || installer_fatal 'unsafe account helper ancestry'
+  install -d -m 0755 -- "${TARGET_ROOT}${DIR_USR_LOCAL_SBIN}"
+  installer_stage_profile_file FILE_TARGET_SBIN_ACCOUNT_CREATE "$FILE_ACCOUNT_CREATE" 0755
+  installer_stage_profile_file FILE_TARGET_SKEL_BASE_PROFILE \
+    "${DIR_ETC_SKEL_BASE}/.profile" 0644
+  installer_stage_profile_file FILE_TARGET_SKEL_BASE_BASH_PROFILE \
+    "${DIR_ETC_SKEL_BASE}/.bash_profile" 0644
+  installer_stage_profile_file FILE_TARGET_SKEL_BASE_BASHRC \
+    "${DIR_ETC_SKEL_BASE}/.bashrc" 0644
+  installer_stage_profile_file FILE_TARGET_SKEL_BASE_BASH_LOGOUT \
+    "${DIR_ETC_SKEL_BASE}/.bash_logout" 0644
+}
+
 installer_stage_profile_asset() (
   set -eu
   source_path=$1; target_path=$2; asset_mode=$3
@@ -11,6 +61,18 @@ installer_stage_profile_asset() (
   case "$target_path" in /*) ;; *) installer_fatal 'target path must be absolute' ;; esac
   case "$asset_mode" in 0[0-7][0-7][0-7]) ;; *) installer_fatal 'invalid target asset mode' ;; esac
   installer_apt_safe_path "${TARGET_ROOT}${target_path}" || installer_fatal 'untrusted target asset ancestry'
+  # Skeletons are private defaults for privileged account provisioning. Target
+  # users consume their own published files, never the root-owned defaults.
+  for skeleton in "${DIR_ETC_SKEL_BASE:-}" "${DIR_ETC_SKEL_DESKTOP:-}" "${DIR_ETC_SKEL_SERVER:-}"; do
+    [ -n "$skeleton" ] || continue
+    case "$target_path" in
+      "$skeleton"|"$skeleton/"*)
+        install -d -m 0700 -- "${TARGET_ROOT}${skeleton}"
+        chown root:root "${TARGET_ROOT}${skeleton}"
+        chmod 0700 "${TARGET_ROOT}${skeleton}"
+        ;;
+    esac
+  done
   parent="${TARGET_ROOT}${target_path%/*}"
   if [ ! -d "$parent" ]; then install -d -m 0755 "$parent"; fi
   installer_apt_safe_path "$parent" || installer_fatal 'target ancestry changed before publication'
@@ -37,6 +99,7 @@ installer_stage_profile_asset() (
   done
   installer_apply_scalar_placeholders "$input" "$output" "$@"
   if LC_ALL=C grep -qE '__INSTALLER_[A-Z0-9_]+__' "$output"; then installer_fatal 'unresolved target asset placeholder'; fi
+  installer_capture_primary_default "$output" "$target_path" "$asset_mode"
   installer_apt_safe_path "${TARGET_ROOT}${target_path}" || installer_fatal 'target identity changed before publication'
   chmod "$asset_mode" "$output"
   mv -f "$output" "${TARGET_ROOT}${target_path}"
@@ -71,6 +134,9 @@ installer_run_target_setup() (
   trap setup_cleanup 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   installer_stage_profile_file "$setup_selector" "$setup_program" 0600
+  if [ "$setup_selector" = FILE_SERVER_SETUP ]; then
+    set -- --defaults-root "${DIR_INSTALLER_TARGET_DEFAULTS}/server" "$@"
+  fi
   run_in_target "$setup_context" "${DIR_USR_BIN}/python3" -I -B "$setup_program" "$@"
 )
 

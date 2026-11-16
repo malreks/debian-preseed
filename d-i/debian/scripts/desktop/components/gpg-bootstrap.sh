@@ -71,7 +71,7 @@ passphrase_file=$4
 fingerprint_file=$5
 gnupg_dir="${account_home}/.gnupg"
 gpg_agent_conf="${gnupg_dir}/gpg-agent.conf"
-gpg_agent_template=__INSTALLER_PATH_DIR_ETC__/skel-desktop/.gnupg/gpg-agent.conf
+gpg_agent_template=$6
 
 fatal() {
   printf "fatal: %s\n" "$*" >&2
@@ -252,7 +252,8 @@ printf "%s\n" "$gpg_fingerprint" >"$fingerprint_file" ||
   fatal "failed to return the managed desktop GPG fingerprint"
 printf "desktop_gpg_bootstrap user=%s status=ready gnupg=%s fingerprint=%s\n" \
   "$account_user" "$gnupg_dir" "$gpg_fingerprint"
-' sh "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" "$gpg_user_id" "$gpg_passphrase_target" "$gpg_fingerprint_target"; then
+' sh "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" "$gpg_user_id" "$gpg_passphrase_target" "$gpg_fingerprint_target" \
+    "${DIR_INSTALLER_TARGET_DEFAULTS}/desktop/.gnupg/gpg-agent.conf"; then
     installer_fatal "failed to bootstrap primary account GPG key for KWallet"
   fi
 

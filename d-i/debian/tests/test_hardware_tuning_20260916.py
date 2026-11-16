@@ -361,6 +361,7 @@ HARDWARE_INTEL_CPU_TUNING_ENABLE={str(intelflag).lower()}
 HARDWARE_NVIDIA_GPU_TUNING_ENABLE={str(nvflag).lower()}
 LATE_COMMAND_HOST_ENV="$FIXTURE/profile.env"
 ACCOUNT_USERNAME=desktop
+DIR_INSTALLER_TARGET_DEFAULTS=/payload-defaults
 install_profile_hardware_tuning
 '''
                 result = subprocess.run(payload_installed_argv(["/bin/sh", "-eu", "-c", script]), env=dict(os.environ, FIXTURE=str(root), FIXTURE_SOURCE=str(FORKY)), capture_output=True, text=True, timeout=10)
@@ -381,13 +382,18 @@ install_profile_hardware_tuning
         for vendors in (["intel"], ["nvidia"], ["intel", "nvidia"]):
             with self.subTest(vendors=vendors), private_temp() as temporary:
                 root = Path(temporary)
-                path = root / "etc/skel-desktop/.config/waybar/config"
+                path = root / "etc/skel-desktop/.config/waybar/modules/battery"
                 path.parent.mkdir(parents=True)
                 original = [{"name": "internal", "custom/battery": {"on-click": "original-energy-profile-command", "interval": 5}},
                             {"name": "external", "custom/battery": {"on-click": "another original", "states": {"critical": 15}}}]
                 path.write_text(json.dumps(original))
+                primary = root / "payload-defaults/.config/waybar/modules/battery"
+                primary.parent.mkdir(parents=True)
+                primary.write_text(json.dumps(original))
                 packaged = package_activation(root)
-                installer.install(root, 1000, 1000, environment(), vendors, FORKY / "hooks/target")
+                installer.install(root, 1000, 1000, environment(), vendors, FORKY / "hooks/target",
+                                  payload_defaults=Path('/payload-defaults'))
+                self.assertEqual(primary.read_bytes(), path.read_bytes())
                 for activation, before in packaged.items():
                     self.assertEqual(activation.read_text(), before)
                 config = json.loads((root / "etc/hardware-tuning/broker.json").read_text())
@@ -476,7 +482,8 @@ install_profile_hardware_tuning
                     duplicate.parent.mkdir(parents=True)
                     duplicate.write_text("administrator-owned activation\n")
                 with self.assertRaises((ValueError, OSError)):
-                    installer.install(root, 1000, 1000, environment(), ["intel"], FORKY / "hooks/target")
+                    installer.install(root, 1000, 1000, environment(), ["intel"], FORKY / "hooks/target",
+                                      payload_defaults=Path('/payload-defaults'))
                 self.assertFalse((root / "etc").exists())
                 if failure == "local-duplicate":
                     self.assertEqual(duplicate.read_text(), "administrator-owned activation\n")
@@ -495,7 +502,8 @@ install_profile_hardware_tuning
         with private_temp() as temporary:
             root = Path(temporary)
             with self.assertRaises(ValueError):
-                installer.install(root, 1000, 1000, environment("btrfs-de"), ["intel"], FORKY / "hooks/target")
+                installer.install(root, 1000, 1000, environment("btrfs-de"), ["intel"], FORKY / "hooks/target",
+                                  payload_defaults=Path('/payload-defaults'))
             self.assertEqual(list(root.iterdir()), [])
             (root / "etc").symlink_to("/tmp")
             with self.assertRaises(ValueError):

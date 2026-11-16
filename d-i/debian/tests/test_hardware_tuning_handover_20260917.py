@@ -623,10 +623,16 @@ class ClientAndInstallTests(unittest.TestCase):
     def test_system_and_user_units_have_correct_slice_and_lifecycle_roles(self):
         with base.private_temp() as temp:
             root = Path(temp)
-            waybar = root / "etc/skel-desktop/.config/waybar/config"
+            waybar = root / "etc/skel-desktop/.config/waybar/modules/battery"
             waybar.parent.mkdir(parents=True)
             waybar.write_text('[{"name":"internal","battery":{"on-click":"unchanged"}},{"name":"external","battery":{"on-click":"unchanged"}}]')
-            base.installer.install(root, 1000, 1000, base.environment(), ["intel", "nvidia"], base.FORKY / "hooks/target")
+            primary = root / "payload-defaults/.config/waybar/modules/battery"
+            primary.parent.mkdir(parents=True)
+            primary.write_bytes(waybar.read_bytes())
+            base.package_activation(root)
+            base.installer.install(root, 1000, 1000, base.environment(), ["intel", "nvidia"], base.FORKY / "hooks/target",
+                                   payload_defaults=Path('/payload-defaults'))
+            self.assertEqual(primary.read_bytes(), waybar.read_bytes())
             units = root / "etc/systemd/system"
             for name in ("hardware-tuning.service", "hardware-tuning-autostart.service", "hardware-tuning-sleep.service"):
                 self.assertIn("Slice=system.slice", payload_read_text(units / name))

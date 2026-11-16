@@ -1012,15 +1012,10 @@ class InstalledFailureRegressionTests(unittest.TestCase):
         staging = render_theme_defaults(payload_read_text(ROOT / 'scripts/desktop/components.sh'))
         verification = render_theme_defaults(payload_read_text(ROOT / 'scripts/desktop/verify.sh'))
         firstboot = render_theme_defaults(payload_read_text(ROOT / 'scripts/firstboot/04-validation.sh'))
-        self.assertIn('install -d -m 0755 /target/etc/skel-desktop', account)
-        self.assertIn(
-            'src="/etc/skel-desktop/' + chr(36) + '{rel_file}"',
-            account,
-        )
-        self.assertIn(
-            'src="/etc/skel-desktop/' + chr(36) + '{rel}"',
-            staging,
-        )
+        self.assertIn('install -d -m 0700 /target/etc/skel-desktop', account)
+        for source in (account, staging):
+            self.assertIn('installer_publish_primary_defaults desktop "$ACCOUNT_USERNAME" "$ACCOUNT_HOME"', source)
+            self.assertNotRegex(source, r'src="/etc/skel-desktop/')
         for relative_path in (
             '.config/btop/btop.conf',
             '.config/fzf/default-opts',

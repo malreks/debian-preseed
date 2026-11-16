@@ -221,6 +221,13 @@ def _shell_kind(path: Path) -> str | None:
         return 'bash'
     if first.startswith('#!') and re.search(r'\b(?:sh|dash|ash)\b', first):
         return 'sh'
+    # Login defaults are sourced shell programs without shebangs or suffixes.
+    # Include them in syntax/SC2154 checks when they are changed regular files.
+    login_name = path.name.removesuffix('.tmpl')
+    if login_name in {'.bashrc', '.bash_profile', '.bash_logout'}:
+        return 'bash'
+    if login_name == '.profile':
+        return 'sh'
     if _logical_suffix(path) in SHELL_SUFFIXES or path.name.endswith('.sh.tmpl'):
         return 'sh'
     return None
@@ -688,7 +695,7 @@ def check_late_target_shells(paths: list[Path], errors: list[str],
                 raise ValueError('installer script has unresolved runtime path placeholders')
             for source_line, body, invocation in _late_target_shells(source):
                 declared = _target_shell_policy_fields(body)
-                if re.match(r'\s*devops_run_as_account\b', invocation):
+                if re.match(r'\s*devops_run_as_account(?:_from_payload)?\b', invocation):
                     declared.update(wrapper_names)
                 else:
                     # Early/partman children can run in d-i rather than the
@@ -757,6 +764,397 @@ def check_late_target_shells(paths: list[Path], errors: list[str],
     counts['late_target_install_scopes'] = target_modes
     counts['late_target_install_functions'] = target_functions
     counts['late_target_install_config_fields'] = target_fields
+
+
+def _devops_account_publication_issues(wrapper: str, configs: str, orchestration: str,
+                                     layout: str) -> list[str]:
+    """Inspect direct payload publication as data, never run target code."""
+    issues = []
+    programs = []
+    for command in re.finditer(r'(?:/usr/bin/python3|"\$\{DIR_USR_BIN\}/python3")\s+-I\s+-c\s+', wrapper):
+        try:
+            program, _end = _literal_shell_word(wrapper, command.end())
+            ast.parse(program)
+            programs.append(program)
+        except (SyntaxError, ValueError) as error:
+            issues.append('invalid account handoff Python: ' + str(error))
+    if len(programs) != 2:
+        issues.append('account handoff requires one privileged reader and one account writer')
+    else:
+        reader, writer = programs
+        for token in ('os.geteuid() != 0', 'source.is_relative_to(root)',
+                      'source.resolve(strict=True) != source', 'directory.stat()',
+                      'info.st_uid or info.st_gid or info.st_mode & 0o022',
+                      'os.O_NOFOLLOW', 'os.O_NONBLOCK', 'info.st_nlink != 1'):
+            if token not in reader:
+                issues.append('privileged payload reader omits ' + token)
+        positions = [reader.find(token) for token in (
+            'fd = os.open(source,', 'info = os.fstat(fd)',
+            'os.dup2(fd, 0, inheritable=True)', 'os.close(fd)', 'os.execv(')]
+        if -1 in positions or positions != sorted(positions):
+            issues.append('payload input must be opened and checked before descriptor handoff and exec')
+        for token in ('source = os.fstat(0)', 'data = sys.stdin.buffer.read(',
+                      'source.st_nlink != 1', 'source.st_mode & 0o022',
+                      'home_path.resolve(strict=True) != home_path',
+                      'name in (".", "..")', 'owned_directory(home)', 'owned_directory(parent)',
+                      'os.O_DIRECTORY | os.O_NOFOLLOW', 'info.st_uid != os.getuid()',
+                      'info.st_gid != os.getgid()',
+                      'os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW', 'os.link(candidate,',
+                      'follow_symlinks=False', 'except FileExistsError:',
+                      'existing account configuration differs; preserve it for review',
+                      'os.unlink(candidate, dir_fd=parent)', 'os.fsync(parent)'):
+            if token not in writer:
+                issues.append('account configuration writer omits ' + token)
+        if re.search(r'os\.open\(source\b|Path\(sys\.argv\[1\]\)', writer):
+            issues.append('account writer must consume the open payload descriptor')
+
+    for token in ("devops_execute_as_account '' \"$@\"", '/env -i \\\n',
+                  "set -- \"${DIR_USR_BIN}/python3\" -I -c '",
+                  "' \"${account_input%/*}\" \"$account_input\" \"$@\"",
+                  'run_in_target "$run_label" "$@"',
+                  'devops_run_as_account_from_payload "$config_source" "$config_label"',
+                  'input_parent="${target_root}${DIR_VAR_LIB_INSTALLER_STATE}"',
+                  'installer_apt_safe_path "$input_parent"',
+                  'mktemp -d "$input_parent/.devops-account.XXXXXX"',
+                  'install -m 0600 -- "$payload_input" "$input_stage/input"',
+                  'chown root:root "$input_stage" "$input_stage/input"',
+                  'trap cleanup_account_input 0', 'rmdir -- "$input_stage"'):
+        if token not in wrapper:
+            issues.append('account execution/publication contract omits ' + repr(token))
+    publications = []
+    for match in re.finditer(r'(?m)^  devops_publish_account_config\b(?:[^\n]*\\\n)*[^\n]*', configs):
+        try:
+            words = shlex.split(match[0].replace('\\\n', ''), comments=True)
+            publications.append(tuple(words[1:]))
+        except ValueError as error:
+            issues.append('invalid account publication argv: ' + str(error))
+    expected = {
+        ('$rendered_tmp',
+         'publish the account Bazel cache policy', '.bazelrc', '0600'),
+        ('$rendered_tmp',
+         'publish the account Bazel shell policy', '.config/bazel/bazelrc', '0600'),
+        ('$rendered_tmp',
+         'stage managed Packer template for primary account',
+         '.config/packer/template.pkr.hcl', '0644', '.config/mise'),
+    }
+    if len(publications) != len(expected) or set(publications) != expected:
+        issues.append('both Bazel entrypoints and Packer must publish their account copies directly from the rendered payload')
+    for token in ('[ "$selector" = FILE_TARGET_SKEL_YT_DLP_CONFIG ]',
+                  'set -- "stage downloader user configuration and plugin directory"',
+                  '.config/yt-dlp/config 0600 .config/yt-dlp/plugins',
+                  '0644 youtube-configuration "$@"'):
+        if token not in configs:
+            issues.append('yt-dlp must publish its private account copy directly from the payload: ' + token)
+    stages = [layout.find(token) for token in (
+        'install -m "$mode" "$tmp_asset" "$target_host_path"', 'shift 4',
+        'devops_publish_account_config "$tmp_asset" "$@"', 'rm -f -- "$tmp_asset"')]
+    if -1 in stages or stages != sorted(stages):
+        issues.append('shared asset publication must use the rendered payload for both destinations before cleanup')
+    if 'DEVOPS_SKEL_DIR' in wrapper or any('DEVOPS_SKEL_DIR' in words[0] for words in publications):
+        issues.append('primary account publication must not read the separately installed skeleton')
+    for name in ('devops_install_youtube_policy', 'devops_render_bazelrc', 'devops_render_packer_template'):
+        function = re.search(r'^' + name + r'\(\) [({]\n.*?^[})]$', configs, re.M | re.S)
+        if function is None:
+            issues.append('missing skeleton publisher: ' + name)
+            continue
+        body = function[0]
+        if re.search(r'\bdevops_run_as_account\b', body):
+            issues.append(name + ': unprivileged command must not open a private skeleton pathname')
+        if 'install ' not in body or 'chown root:root' not in body or 'DEVOPS_SKEL_DIR' not in body:
+            issues.append(name + ': retain the separately published root-owned skeleton copy')
+        if name != 'devops_install_youtube_policy':
+            stages = [body.find('devops_publish_account_config '),
+                      body.rfind('rm -f -- "$template_tmp" "$rendered_tmp"')]
+            if -1 in stages or stages != sorted(stages):
+                issues.append(name + ': rendered account input must remain available until publication')
+    for family in ('desktop', 'server'):
+        if family + ') DEVOPS_SKEL_DIR=$DIR_ETC_SKEL_' + family.upper() not in orchestration:
+            issues.append('account publication must use the selected ' + family + ' skeleton')
+    return issues
+
+
+def check_devops_account_publication(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    directory = DEBIAN_ROOT / 'scripts/late/devops'
+    owners = [directory / name for name in (
+        'account-execution.sh', 'tool-configs.sh', 'main-orchestration.sh', 'publication-layout.sh')]
+    if not set(owners + [Path(__file__).resolve()]).intersection(paths):
+        return
+    for issue in _devops_account_publication_issues(*map(_read_text, owners)):
+        errors.append('DevOps skeleton/account publication: ' + issue)
+    counts['devops_account_publications'] = 4
+    counts['devops_account_python_programs'] = 2
+
+
+def check_private_skeletons(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    owners = {
+        DEBIAN_ROOT / 'scripts/late/account.sh': (
+            'install -d -m 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}',
+            'chmod 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}'),
+        DEBIAN_ROOT / 'scripts/late/devops/codex-appserver.sh': (
+            '"${target_root}${DEVOPS_SKEL_DIR}") managed_base_mode=0700',
+            'chmod "$managed_base_mode" "$managed_base_dir"'),
+        DEBIAN_ROOT / 'scripts/common/modules/target-publication.sh': (
+            '"${DIR_ETC_SKEL_BASE:-}" "${DIR_ETC_SKEL_DESKTOP:-}" "${DIR_ETC_SKEL_SERVER:-}"',
+            'install -d -m 0700 -- "${TARGET_ROOT}${skeleton}"',
+            'chown root:root "${TARGET_ROOT}${skeleton}"'),
+        DEBIAN_ROOT / 'scripts/desktop/verify.sh.tmpl': ('require_mode "$desktop_skeleton" 700',),
+        DEBIAN_ROOT / 'scripts/firstboot/04-validation.sh.tmpl': (
+            'find -P "$skeleton" -maxdepth 0 -printf "%U:%G:%m")" = "0:0:700"',),
+        target_source('usr/local/bin/labwc-sync-application-launchers.tmpl'): (
+            'TUTA_MANAGED_DESKTOP_SOURCE = "__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/tutanota-desktop.desktop"',),
+        target_source('usr/local/lib/python3/dist-packages/labwc_managed_app/profiles.py.tmpl'): (
+            '"__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/keepassxc/keepassxc.ini"',),
+        DEBIAN_ROOT / 'scripts/desktop/components/target-assets.sh': (
+            '"${DIR_USR_LOCAL_SHARE_APPLICATIONS}/tutanota-desktop.desktop"',
+            'FILE_TARGET_SKEL_KEEPASSXC_KEEPASSXC_TMPL "${DIR_USR_LOCAL_SHARE}/keepassxc/keepassxc.ini" 0644'),
+        DEBIAN_ROOT / 'scripts/late/software.sh.tmpl': (
+            'tuta_desktop_file=__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/tutanota-desktop.desktop',),
+        target_source('etc/apparmor.d/desktop-wrappers.tmpl'): (
+            '__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/keepassxc/keepassxc.ini r,',
+            'applications/{discord,postman,ledger-live,tutanota-desktop}.desktop r,'),
+    }
+    if not set(owners.keys() | {Path(__file__).resolve()}).intersection(paths):
+        return
+    for owner, contracts in owners.items():
+        source = _read_text(owner)
+        for token in contracts:
+            if token not in source:
+                errors.append(f'{owner.relative_to(ROOT)}: private skeleton contract omits {token}')
+    counts['private_skeleton_roots'] = 3
+    counts['private_skeleton_runtime_defaults'] = 2
+
+
+def _skeleton_destination_issues(foundation: str, waypaper: str, publication: str,
+                                 program: str) -> list[str]:
+    """Check independent template/HOME destinations without running installer code."""
+    issues = []
+    server_publish = 'installer_publish_primary_defaults server "$server_operator" "$ACCOUNT_HOME"'
+    account_check = 'account server "$server_operator"'
+    if server_publish not in foundation:
+        issues.append('server foundation must publish every selected payload default to the primary HOME')
+    elif account_check not in foundation or foundation.index(server_publish) < foundation.index(account_check):
+        issues.append('server primary defaults must follow the explicit account identity check')
+    for token in ('FILE_SERVER_SKEL_PROFILE_AI', 'FILE_SERVER_SKEL_PROFILE_CI_RUNNERS',
+                  'FILE_SERVER_SKEL_BASHRC', 'FILE_SERVER_SKEL_BASH_PROFILE',
+                  'FILE_SERVER_SKEL_BASH_ALIASES', 'FILE_SERVER_SKEL_PROFILE '):
+        if token not in foundation:
+            issues.append('server template publication omits ' + token)
+    for token in ('waypaper_launcher_dir="${ACCOUNT_HOME}/.local/share/applications"',
+                  'waypaper_launcher="${waypaper_launcher_dir}/waypaper.desktop"',
+                  'for waypaper_launcher_target in',
+                  '"${DIR_ETC_SKEL_DESKTOP}/.local/share/applications/waypaper.desktop"',
+                  '"$waypaper_launcher"', 'FILE_TARGET_SKEL_APPS_WAYPAPER_TMPL',
+                  '"$waypaper_launcher_target" "$waypaper_launcher_mode"',
+                  '"$waypaper_launcher") waypaper_launcher_mode=0600',
+                  '*) waypaper_launcher_mode=0644',
+                  '"$waypaper_account_uid:$waypaper_account_gid"',
+                  '"${TARGET_ROOT}${waypaper_launcher}"'):
+        if token not in waypaper:
+            issues.append('Waypaper must render its payload launcher to both destinations: ' + token)
+    for family in ('desktop', 'server'):
+        token = '"${DIR_ETC_SKEL_' + family.upper() + '}/"*) default_family=' + family
+        if token not in publication:
+            issues.append(f'{family} template publication must retain an independent payload input')
+    for token in ('with os.scandir(directory) as iterator:', 'for name in entries(source):',
+                  'publish(input_dir, output_dir, account, budget, depth + 1)',
+                  'os.fchown(stream.fileno(), account.pw_uid, account.pw_gid)',
+                  'os.fchown(home, account.pw_uid, account.pw_gid)', 'os.fchmod(home, 0o700)'):
+        if token not in program:
+            issues.append('complete private HOME publication omits ' + token)
+    return issues
+
+
+def check_primary_payload_defaults(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    publication = DEBIAN_ROOT / 'scripts/common/modules/target-publication.sh'
+    program = DEBIAN_ROOT / 'scripts/common/primary-defaults.py'
+    boundaries = [DEBIAN_ROOT / name for name in (
+        'scripts/late/target-assets.sh', 'scripts/desktop/components/rendering-access.sh')]
+    runtime_roots = [TARGET_ROOT / 'usr/local' / leaf for leaf in ('bin', 'sbin', 'libexec', 'lib')]
+    foundation = DEBIAN_ROOT / 'scripts/server/foundation.sh'
+    waypaper = DEBIAN_ROOT / 'scripts/desktop/waypaper.sh'
+    related = [DEBIAN_ROOT / name for name in (
+        'scripts/late/account.sh', 'scripts/desktop/components/user-config.sh',
+        'scripts/desktop/components/gpg-bootstrap.sh', 'scripts/late/ch341a.sh',
+        'scripts/common/hardware-tuning-config.py', 'scripts/common/hardware-tuning.sh',
+        'scripts/server/setup.py.tmpl', 'scripts/late/dispatch.sh')]
+    affected = ({publication, program, foundation, waypaper, Path(__file__).resolve(),
+                 DEBIAN_ROOT / 'hooks/installer/di.env'} | set(boundaries) | set(related))
+    if not (affected.intersection(paths) or any(
+            path.is_relative_to(directory) for path in paths for directory in runtime_roots)):
+        return
+    banned = re.compile(rb'skel[-_](?:base|desktop|server)', re.I)
+    account_creator = target_source('usr/local/sbin/account-create')
+    inspected = 0
+    for directory in runtime_roots:
+        for owner in sorted(directory.rglob('*')):
+            if not owner.is_file() or owner.is_symlink():
+                continue
+            # The sole administrative account creator has a separate root-only
+            # provisioning contract below. No application/library is exempt.
+            if owner == account_creator:
+                continue
+            # Every library/wrapper file, including all Python and Perl tree
+            # support files, is data here. Never import even a discovery hook.
+            inspected += 1
+            if banned.search(owner.read_bytes()):
+                errors.append(f'{owner.relative_to(ROOT)}: installed runtime code mentions a private future-account skeleton')
+    for owner in [publication, *boundaries]:
+        source = _read_text(owner)
+        if 'installer_capture_primary_default ' not in source:
+            errors.append(f'{owner.relative_to(ROOT)}: publication does not retain independent rendered payload defaults')
+    source = _read_text(publication)
+    for token in ('default_output=$(installer_primary_default_path "$default_target")',
+                  'FILE_COMMON_PRIMARY_DEFAULTS', '"${DIR_INSTALLER_TARGET_DEFAULTS}/$1"'):
+        if token not in source:
+            errors.append('primary account payload contract omits ' + token)
+    source = _read_text(program)
+    ast.parse(source)
+    for token in ('account.pw_uid', 'account.pw_gid', 'args.home == Path(account.pw_dir)',
+                  'args.home.resolve(strict=True) == args.home', 'os.O_DIRECTORY | os.O_NOFOLLOW',
+                  'os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW', 'os.fchown(stream.fileno(),',
+                  'os.replace(candidate, name, src_dir_fd=destination, dst_dir_fd=destination)',
+                  'os.fsync(destination)', 'identity(os.fstat(input_file)) == identity(info)'):
+        if token not in source:
+            errors.append('primary account publication omits ' + token)
+    if source.find('os.fchown(stream.fileno(),') > source.find('os.replace(candidate, name,'):
+        errors.append('primary payload files must receive their account ownership before publication')
+    for issue in _skeleton_destination_issues(_read_text(foundation), _read_text(waypaper),
+                                              _read_text(publication), source):
+        errors.append('payload template/HOME destinations: ' + issue)
+    for owner in [DEBIAN_ROOT / 'scripts/late/account.sh',
+                  DEBIAN_ROOT / 'scripts/desktop/components/user-config.sh']:
+        if 'installer_publish_primary_defaults desktop "$ACCOUNT_USERNAME" "$ACCOUNT_HOME"' not in _read_text(owner):
+            errors.append(f'{owner.relative_to(ROOT)}: primary home is not published from payload inputs')
+    server = _read_text(DEBIAN_ROOT / 'scripts/server/setup.py.tmpl')
+    if 'source = payload_defaults_root() /' not in server or 'DIR_ETC_SKEL' in server:
+        errors.append('server account setup must consume private payload inputs')
+    gpg = _read_text(DEBIAN_ROOT / 'scripts/desktop/components/gpg-bootstrap.sh')
+    if ('gpg_agent_template=$6' not in gpg
+            or '"${DIR_INSTALLER_TARGET_DEFAULTS}/desktop/.gnupg/gpg-agent.conf"' not in gpg
+            or banned.search(gpg.encode())):
+        errors.append('desktop GPG setup must consume independent rendered payload inputs')
+    firmware = _read_text(DEBIAN_ROOT / 'scripts/late/ch341a.sh')
+    if '"${DIR_INSTALLER_TARGET_DEFAULTS}/desktop/.profile.d/75-firmware-workspace.sh"' not in firmware:
+        errors.append('desktop firmware account profile must consume independent payload inputs')
+    hardware = _read_text(DEBIAN_ROOT / 'scripts/common/hardware-tuning-config.py')
+    hardware_caller = _read_text(DEBIAN_ROOT / 'scripts/common/hardware-tuning.sh')
+    if ("str(payload_defaults / '.config/waybar/modules/battery')" not in hardware
+            or 'payload_defaults=Path(argv[4])' not in hardware
+            or '"${DIR_INSTALLER_TARGET_DEFAULTS}/desktop" $hardware_vendors' not in hardware_caller):
+        errors.append('hardware battery defaults must be rendered independently for both publications')
+    policy = _read_text(target_source('etc/apparmor.d/desktop-wrappers.tmpl'))
+    for hook in ('autostart', 'shutdown'):
+        attachment = '__INSTALLER_PATH_DIR_HOME__/*/.config/labwc/' + hook
+        if (f'profile labwc-{hook}-hook {attachment} flags=' not in policy
+                or attachment + ' rix,' not in policy):
+            errors.append('desktop ' + hook + ' confinement must cover future accounts under the home root')
+    if banned.search(policy.encode()):
+        errors.append('desktop wrappers must not execute or read private skeleton defaults')
+    counts['runtime_skeleton_free_files'] = inspected
+    counts['primary_payload_capture_boundaries'] = 3
+    counts['primary_account_payload_publishers'] = 4
+    counts['skeleton_payload_source_files'] = sum(
+        1 for family in ('desktop', 'server')
+        for path in (TARGET_ROOT / 'etc' / ('skel-' + family)).rglob('*') if path.is_file())
+    counts['skeleton_role_destination_pairs'] = 2
+
+
+def _account_creation_issues(program: str, publication: str, rendering: str,
+                             dispatcher: str) -> list[str]:
+    """Inspect the administrative boundary without importing its implementation."""
+    issues = []
+    try:
+        tree = ast.parse(program)
+    except SyntaxError as error:
+        return ['account creator has invalid Python: ' + str(error)]
+    functions = {node.name: ast.get_source_segment(program, node) or ''
+                 for node in tree.body if isinstance(node, ast.FunctionDef)}
+    main = functions.get('main', '')
+    root_gate = 'os.getuid() == os.geteuid() == 0'
+    if root_gate not in main or main.find(root_gate) > main.find('create(args.username, args.role)'):
+        issues.append('future account creation requires real and effective root before mutation')
+    for token in ("choices=('base', 'desktop', 'server'), default='base'",
+                  "'base': Path('__INSTALLER_PATH_DIR_ETC_SKEL_BASE__')",
+                  "'desktop': Path('__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__')",
+                  "'server': Path('__INSTALLER_PATH_DIR_ETC_SKEL_SERVER__')",
+                  "'--create-home'", "'--user-group', '--groups', ''",
+                  "'--password', '!'", "'HOME_MODE=0700'", "'UMASK=077'",
+                  'os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC',
+                  'fcntl.LOCK_EX | fcntl.LOCK_NB',
+                  'info.st_uid == info.st_gid == 0', 'stat.S_IMODE(info.st_mode) == 0o700',
+                  'same-named group already exists', 'HOME already exists',
+                  'info.st_nlink == 1', 'template file identity changed',
+                  'template directory changed during capture',
+                  "role == 'desktop'", "incoming / '.config/labwc/rc.xml'",
+                  'user=account.pw_uid, group=account.pw_gid',
+                  'os.getuid() == os.geteuid() == account.pw_uid',
+                  'a service or non-login account cannot receive human defaults',
+                  'external_unit_link(relative, target)',
+                  "record(work, username, role, 'outcome-unknown')",
+                  'do not retry automatically; retained evidence:',
+                  'os.fsync(parent)'):
+        if token not in program:
+            issues.append('future-account ownership/recovery contract omits ' + token)
+    personalize = functions.get('personalize', '')
+    initializer = next((node for node in tree.body
+                        if isinstance(node, ast.FunctionDef) and node.name == 'personalize'), None)
+    if initializer is None or any(
+            isinstance(node, ast.Name) and node.id == 'SOURCES'
+            or isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id in {'snapshot', 'create'} for node in ast.walk(initializer)):
+        issues.append('unprivileged HOME initialization must not read private templates or create accounts')
+    for token in ("'todoFilePath'", "'lastSavePath', 'lastOpenPath', 'lastImagePath', 'audioFolder'",
+                  "'preferred_temp_dir', 'preferred_extract_dir'", "uri.startswith('file://$HOME/')",
+                  "user_file(home, '.bazelrc'", "user_file(home, '.config/bazel/bazelrc'"):
+        if token not in personalize:
+            issues.append('future HOME typed application initialization omits ' + token)
+    for suffix, leaf in (('PROFILE', '.profile'), ('BASH_PROFILE', '.bash_profile'),
+                         ('BASHRC', '.bashrc'), ('BASH_LOGOUT', '.bash_logout')):
+        token = 'installer_stage_profile_file FILE_TARGET_SKEL_BASE_' + suffix
+        if token not in publication or '${DIR_ETC_SKEL_BASE}/' + leaf not in publication:
+            issues.append('base skeleton requires an explicit registered source selector: ' + suffix)
+    if '"FILE_TARGET_SKEL_BASE_${' in publication:
+        issues.append('base skeleton source selectors must not be constructed from an incomplete prefix')
+    primary = publication.split('installer_publish_primary_defaults()', 1)[-1].split('\n}', 1)[0]
+    if 'FILE_ACCOUNT_CREATE' in primary or '--personalize' in primary or '--prepare-home' in primary:
+        issues.append('installer primary HOME must be published directly from its own rendered payload input')
+    staged = dispatcher.find('\ninstaller_stage_account_creation\n')
+    plan = dispatcher.find('while IFS=')
+    if staged < 0 or (plan >= 0 and staged > plan):
+        issues.append('future-account assets must be staged before late plan execution')
+    captured = rendering.find('installer_capture_primary_default "$tmp_rendered"')
+    generic = rendering.find("ACCOUNT_HOME) future_value='$HOME'")
+    if captured < 0 or generic < 0 or captured > generic:
+        issues.append('primary concrete HOME input must be captured before reusable account-relative rendering')
+    if "ACCOUNT_USERNAME) future_value='$USER'" not in rendering:
+        issues.append('reusable defaults must not retain the installer primary username')
+    return issues
+
+
+def check_account_creation(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    creator = target_source('usr/local/sbin/account-create')
+    publication = DEBIAN_ROOT / 'scripts/common/modules/target-publication.sh'
+    rendering = DEBIAN_ROOT / 'scripts/desktop/components/rendering-access.sh'
+    dispatcher = DEBIAN_ROOT / 'scripts/late/dispatch.sh'
+    base = TARGET_ROOT / 'etc/skel-base'
+    runtime = DEBIAN_ROOT / 'hosts/installer/runtime.env'
+    renderer = DEBIAN_ROOT / 'scripts/common/modules/files-logging.sh'
+    if not ({creator, publication, rendering, dispatcher, runtime, renderer, Path(__file__).resolve()}.intersection(paths)
+            or any(path.is_relative_to(base) for path in paths)):
+        return
+    for issue in _account_creation_issues(*map(_read_text, (creator, publication, rendering, dispatcher))):
+        errors.append('account defaults: ' + issue)
+    runtime_source, renderer_source = _read_text(runtime), _read_text(renderer)
+    for name in ('FILE_ACCOUNT_CREATE', 'DIR_ACCOUNT_PROVISIONING', 'DIR_ETC_SKEL_BASE'):
+        if not re.search(r'^' + name + r'="', runtime_source, re.M) or 'PATH_' + name not in renderer_source:
+            errors.append('new account path lacks its canonical runtime owner/shared renderer: ' + name)
+    for leaf in ('.profile', '.bash_profile', '.bashrc', '.bash_logout'):
+        source = _read_text(base / leaf)
+        if (re.search(r'skel[-_](?:desktop|server)|/home/[A-Za-z0-9_-]+', source)
+                or 'umask 077' not in source and leaf not in ('.bash_profile',)):
+            errors.append('minimal base defaults must remain private and independent of desktop/server defaults: ' + leaf)
+    counts['future_account_types'] = 3
+    counts['base_shell_defaults'] = 4
 
 
 def check_lifecycle_frontend_contract(paths: list[Path], errors: list[str],
@@ -3891,6 +4289,12 @@ def check_runtime_path_publication(paths: list[Path], errors: list[str], counts:
     if not (owners | {Path(__file__).resolve()}).intersection(paths):
         return
     values = dict(_installer_path_token_values())
+    renderer_source = _read_text(DEBIAN_ROOT / 'scripts/common/modules/files-logging.sh')
+    published_paths = {}
+    for key, variable in re.findall(r"printf 'PATH_([A-Z0-9_]+)=%s\\n' \"\$([A-Z0-9_]+)\"", renderer_source):
+        if key != variable:
+            errors.append('shared renderer publishes a different runtime path for ' + key)
+        published_paths['__INSTALLER_PATH_' + key + '__'] = variable
     marker = re.compile(r'__INSTALLER_PATH_[A-Z0-9_]+__')
     for root, label in ((DEBIAN_ROOT / 'scripts', 'script'), (TARGET_ROOT, 'target')):
         checked = 0
@@ -3906,6 +4310,9 @@ def check_runtime_path_publication(paths: list[Path], errors: list[str], counts:
             unresolved = sorted(token for token in tokens if token not in values)
             if unresolved:
                 errors.append(f'{path.relative_to(ROOT)}: undefined runtime paths: {unresolved}')
+            unpublished = sorted(tokens - published_paths.keys())
+            if unpublished:
+                errors.append(f'{path.relative_to(ROOT)}: runtime paths absent from the shared renderer: {unpublished}')
             rendered = marker.sub(lambda match: values.get(match[0], match[0]), source)
             if marker.search(rendered):
                 errors.append(f'{path.relative_to(ROOT)}: unresolved rendered runtime path')
@@ -3994,6 +4401,10 @@ def main() -> int:
         check_python(paths, errors, counts)
         check_shell(paths, errors, counts)
         check_late_target_shells(paths, errors, counts)
+        check_devops_account_publication(paths, errors, counts)
+        check_private_skeletons(paths, errors, counts)
+        check_primary_payload_defaults(paths, errors, counts)
+        check_account_creation(paths, errors, counts)
         check_preseed_commands(paths, errors, counts)
         check_lifecycle_frontend_contract(paths, errors, counts)
         check_markers(paths, errors, counts)

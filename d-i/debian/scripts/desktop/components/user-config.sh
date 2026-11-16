@@ -74,146 +74,23 @@ desktop_install_user_config() {
   : "${ACCOUNT_HOME:?ACCOUNT_HOME must be set}"
 
   desktop_log "installing primary account desktop config user=${ACCOUNT_USERNAME} home=${ACCOUNT_HOME}"
+  installer_publish_primary_defaults desktop "$ACCOUNT_USERNAME" "$ACCOUNT_HOME"
   # shellcheck disable=SC2016
   run_in_target "install Labwc desktop config for primary account" __INSTALLER_PATH_DIR_BIN__/sh -c '
 set -eu
 account_user=$1
 account_home=$2
-kanshi_enabled=$3
-tools_enabled=$4
-copied_dirs=0
-copied_files=0
-
-case "$account_home" in
-  /*) ;;
-  *) printf "fatal: account home must be absolute\n" >&2; exit 1 ;;
-esac
-case "$account_home" in
-  /|*..*|*//*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-]*)
-    printf "fatal: account home contains unsupported path syntax: %s\n" "$account_home" >&2
-    exit 1
-    ;;
-esac
-
+payload_defaults=$3
 uid=$(id -u "$account_user")
 gid=$(id -g "$account_user")
-
-  install -d -m 0700 "$account_home" "$account_home/.config"
-  install -d -m 0700 "$account_home/.cache"
-  chown "$uid:$gid" "$account_home/.cache"
-  for rel in \
-    .profile.d \
-    .config/labwc \
-    .config/waypaper \
-    .config/waybar \
-    .config/waycal \
-    .config/tomat \
-    .config/cargo \
-    .config/mise \
-    .config/l3afpad \
-    .config/foot \
-    .config/git \
-    .config/gitops \
-    .config/gnote \
-    .config/GottCode \
-    .config/zathura \
-    .local/share/GottCode \
-    .local/share/dbus-1 \
-    .cache/recoll \
-    .config/Recoll.org \
-    .recoll \
-    .config/fontconfig \
-    .config/kitty \
-    .config/micro \
-    .config/nano \
-    .config/mpv \
-    .config/nvim \
-    .config/qalculate \
-    .config/lxqt \
-    .config/xarchiver \
-    .config/task \
-    .config/retroarch \
-    .config/sleek \
-    .config/tesseract \
-    .config/xfce4 \
-    .config/btop \
-    .config/Code \
-    .config/autostart \
-    .config/chromium \
-    .config/fzf \
-    .config/fuzzel \
-    .config/Thunar \
-    .config/crystal-dock \
-    .config/mako \
-    .config/satty \
-    .config/wayscriber \
-    .config/swaylock \
-    .config/wireplumber \
-    .config/gtk-3.0 \
-    .config/gtk-4.0 \
-    .config/keepassxc \
-    .config/microsoft-edge \
-    .config/obsidian \
-    .config/zoom \
-    .config/qt5ct \
-    .config/qt6ct \
-    .config/systemd \
-    .config/vim \
-    .config/vivaldi \
-    .config/xournalpp \
-    .config/xdg-desktop-portal
-  do
-  case "$rel" in
-    .config/cargo|.config/mise|.config/Code|.config/zoom|.config/retroarch|.config/microsoft-edge)
-      [ "$tools_enabled" = true ] || continue ;;
-  esac
-  src="__INSTALLER_PATH_DIR_ETC__/skel-desktop/${rel}"
-  dst="${account_home}/${rel}"
-  [ -d "$src" ] || { printf "fatal: missing skel source: %s\n" "$src" >&2; exit 1; }
-  install -d -m 0700 "$dst"
-  cp -a "$src/." "$dst/"
-  chown -R "$uid:$gid" "$dst"
-  copied_dirs=$((copied_dirs + 1))
-done
-if [ ! -f __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/wireplumber/wireplumber.conf.d/30-p15s-audio.conf ]; then
-  rm -f "${account_home}/.config/wireplumber/wireplumber.conf.d/30-p15s-audio.conf"
-fi
-for user_systemd_dir in \
-  "$account_home/.config/systemd" \
-  "$account_home/.config/systemd/user" \
-  "$account_home/.config/systemd/user"/*.d
-do
-  [ -d "$user_systemd_dir" ] || continue
-  chmod 0700 "$user_systemd_dir"
-  chown "$uid:$gid" "$user_systemd_dir"
-done
-if [ "$kanshi_enabled" = true ]; then
-  src=__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/kanshi
-  dst="$account_home/.config/kanshi"
-  [ -d "$src" ] && [ ! -L "$src" ] || exit 1
-  [ ! -L "$dst" ] || exit 1
-  install -d -m 0700 "$dst"
-  cp -a "$src/." "$dst/"
-  chown -R "$uid:$gid" "$dst"
-  copied_dirs=$((copied_dirs + 1))
-fi
-if [ -d __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/bazel ]; then
-  src=__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/bazel
-  dst="${account_home}/.config/bazel"
-  install -d -m 0700 "$dst"
-  cp -a "$src/." "$dst/"
-  chown -R "$uid:$gid" "$dst"
-  copied_dirs=$((copied_dirs + 1))
-fi
-install -d -m 0700 "$account_home/.local/share/applications"
-chown "$uid:$gid" "$account_home/.local/share/applications"
-install -m 0600 __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/applications/tutanota-desktop.desktop \
-  "$account_home/.local/share/applications/tutanota-desktop.desktop"
-chown "$uid:$gid" "$account_home/.local/share/applications/tutanota-desktop.desktop"
-install -m 0600 __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/applications/micro.desktop \
-  "$account_home/.local/share/applications/micro.desktop"
-chown "$uid:$gid" "$account_home/.local/share/applications/micro.desktop"
+[ "$uid" -ne 0 ] || exit 1
+[ -d "$account_home" ] && [ ! -L "$account_home" ] || exit 1
 for private_dir in \
+  "$account_home/.config" \
+  "$account_home/.cache" \
+  "$account_home/.cache/recoll" \
+  "$account_home/.local" \
+  "$account_home/.local/share" \
   "$account_home/.local/share/task" \
   "$account_home/.local/share/task/hooks" \
   "$account_home/Syncthing" \
@@ -221,27 +98,15 @@ for private_dir in \
   "$account_home/Syncthing/keepassxc" \
   "$account_home/Syncthing/keepassxc/backups"
 do
+  [ ! -L "$private_dir" ] || exit 1
   install -d -m 0700 "$private_dir"
   chown "$uid:$gid" "$private_dir"
 done
-rm -f "$account_home/.config/labwc/xinitrc"
-  for rel_file in .profile .bash_profile .bashrc .bash_aliases .zshenv .zprofile .zshrc .zlogout .zsh_aliases .dircolors .vimrc .config/kdiff3rc .config/kwalletrc .config/starship.toml .config/xdg-terminals.list .config/mimeapps.list .config/user-dirs.dirs Syncthing/.stignore; do
-  src="__INSTALLER_PATH_DIR_ETC__/skel-desktop/${rel_file}"
-  dst="${account_home}/${rel_file}"
-  [ -r "$src" ] || { printf "fatal: missing skel source: %s\n" "$src" >&2; exit 1; }
-  file_mode=0600
-  parent_mode=0700
-  if [ "$rel_file" = Syncthing/.stignore ]; then
-    file_mode=0600
-    parent_mode=0700
-  fi
-  install -d -m "$parent_mode" "$(dirname "$dst")"
-  install -m "$file_mode" "$src" "$dst"
-  chown "$uid:$gid" "$dst"
-  copied_files=$((copied_files + 1))
-done
-  chown "$uid:$gid" "$account_home" "$account_home/.config"
-  chmod 0700 "$account_home" "$account_home/.config"
+if [ ! -f "$payload_defaults/.config/wireplumber/wireplumber.conf.d/30-p15s-audio.conf" ]; then
+  rm -f "$account_home/.config/wireplumber/wireplumber.conf.d/30-p15s-audio.conf"
+fi
+chown "$uid:$gid" "$account_home"
+chmod 0700 "$account_home"
 if [ -x __INSTALLER_PATH_DIR_USR_BIN__/vivaldi-stable ]; then
   for vivaldi_dir in \
     "$account_home/.cache" \
@@ -266,9 +131,8 @@ if [ -n "$zsh_path" ]; then
   usermod -s "$zsh_path" "$account_user"
 fi
 account_shell=$(getent passwd "$account_user" | cut -d: -f7)
-printf "desktop_account_config user=%s home=%s copied_dirs=%s copied_files=%s shell=%s\n" "$account_user" "$account_home" "$copied_dirs" "$copied_files" "$account_shell"
-' sh "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" "$(if desktop_kanshi_enabled; then printf true; else printf false; fi)" \
-    "$(if installer_tools_class_selected; then printf true; else printf false; fi)"
+printf "desktop_account_config user=%s home=%s source=rendered-payload shell=%s\n" "$account_user" "$account_home" "$account_shell"
+' sh "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" "${DIR_INSTALLER_TARGET_DEFAULTS}/desktop"
   desktop_install_primary_account_calendar_stack
   run_in_target "synchronize primary account application launchers" \
     __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-sync-application-launchers "$ACCOUNT_USERNAME" "$ACCOUNT_HOME"

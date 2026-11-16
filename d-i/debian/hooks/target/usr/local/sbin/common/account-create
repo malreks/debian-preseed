@@ -1,0 +1,615 @@
+#!/usr/bin/python3 -I
+"""Create a local human account with an explicit base, desktop or server type.
+
+The Debian interpreter spelling above is an immutable package interface.
+Only this administrative entrypoint reads private future-account templates.
+Applications and the unprivileged HOME initializer never read those sources.
+"""
+from __future__ import annotations
+
+import argparse
+import configparser
+import contextlib
+import fcntl
+import grp
+import io
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import xml.etree.ElementTree as ET
+
+SOURCES = {
+    'base': Path('__INSTALLER_PATH_DIR_ETC_SKEL_BASE__'),
+    'desktop': Path('__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP__'),
+    'server': Path('__INSTALLER_PATH_DIR_ETC_SKEL_SERVER__'),
+}
+HOME_ROOT = Path('__INSTALLER_PATH_DIR_HOME__')
+CACHE_ROOT = Path('__INSTALLER_PATH_DIR_POOL_CACHE__')
+BUILD_ROOT = Path('__INSTALLER_PATH_DIR_POOL_BUILD__')
+STATE = Path('__INSTALLER_PATH_DIR_ACCOUNT_PROVISIONING__')
+PYTHON = '__INSTALLER_PATH_DIR_USR_BIN__/python3'
+USERADD = '__INSTALLER_PATH_DIR_USR_SBIN__/useradd'
+BASH = '__INSTALLER_PATH_DIR_BIN__/bash'
+HELPER = '__INSTALLER_PATH_FILE_ACCOUNT_CREATE__'
+PROCESS_PATH = '__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__'
+NAME = re.compile(r'[a-z_][a-z0-9_-]{0,31}\Z')
+DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+DEADLINE = 0.0
+MAX_ENTRIES = 8192
+MAX_BYTES = 128 * 1024 * 1024
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValueError(message)
+
+
+def bounded() -> None:
+    if time.monotonic() > DEADLINE:
+        raise TimeoutError('account provisioning deadline exceeded')
+
+
+def operation_timeout() -> float:
+    bounded()
+    return min(30.0, max(0.001, DEADLINE - time.monotonic()))
+
+
+def identity(info: os.stat_result) -> tuple[int, ...]:
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_nlink, info.st_uid,
+            info.st_gid, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+@contextlib.contextmanager
+def trusted_directory(path: Path, *, create: bool = False, private: bool = False):
+    require(path.is_absolute() and '..' not in path.parts, 'noncanonical administrative directory')
+    descriptor = os.open('/', DIRECTORY)
+    try:
+        for index, name in enumerate(path.parts[1:], 1):
+            bounded()
+            if create and index == len(path.parts) - 1:
+                try:
+                    os.mkdir(name, 0o700, dir_fd=descriptor)
+                    os.fsync(descriptor)
+                except FileExistsError:
+                    pass
+            child = os.open(name, DIRECTORY, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+            info = os.fstat(descriptor)
+            require(info.st_uid == info.st_gid == 0 and not info.st_mode & 0o022,
+                    'administrative directory must be root-owned and protected from other writers')
+        if private:
+            require(stat.S_IMODE(os.fstat(descriptor).st_mode) == 0o700,
+                    'administrative template/state root must have mode 0700')
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def relative_link(parent: tuple[str, ...], target: str) -> tuple[str, ...]:
+    require(target and len(target) <= 1024 and not Path(target).is_absolute()
+            and re.fullmatch(r'[A-Za-z0-9_.@+/-]+', target) is not None, 'unsupported account template link')
+    result = list(parent)
+    for part in Path(target).parts:
+        if part == '..':
+            require(bool(result), 'account template link escapes its root')
+            result.pop()
+        elif part != '.':
+            result.append(part)
+    require(bool(result), 'account template link cannot target its root')
+    return tuple(result)
+
+
+def external_unit_link(relative: tuple[str, ...], target: str) -> bool:
+    # Debian user-service enablement and masks are fixed package interfaces.
+    # No other absolute link is accepted into a new human HOME.
+    if relative[:3] != ('.config', 'systemd', 'user'):
+        return False
+    if re.fullmatch(r'[A-Za-z0-9_.@-]+\.(?:service|socket|timer|target|path|slice|mount)', relative[-1]) is None:
+        return False
+    if target == '__INSTALLER_PATH_DIR_DEV__/null':
+        return True
+    path = Path(target)
+    if not path.is_absolute() or '..' in path.parts:
+        return False
+    if path.parent not in (Path('__INSTALLER_PATH_DIR_SYSTEMD_USER_LIB__'),
+                           Path('__INSTALLER_PATH_DIR_SYSTEMD_USER__')):
+        return False
+    with trusted_directory(path.parent) as parent:
+        info = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        return stat.S_ISREG(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022
+
+
+def snapshot(source: int, destination: int, budget: list[int], depth: int = 0,
+             prefix: tuple[str, ...] = (), *, links: list, files: set) -> None:
+    """Copy only checked regular root-owned inputs into our private operation."""
+    require(depth <= 32, 'account template nesting exceeds the supported depth')
+    source_info = os.fstat(source)
+    with os.scandir(source) as entries:
+        for entry in entries:
+            bounded()
+            budget[0] += 1
+            require(budget[0] <= MAX_ENTRIES, 'too many account template entries')
+            name = entry.name
+            info = os.stat(name, dir_fd=source, follow_symlinks=False)
+            require(info.st_dev == source_info.st_dev and info.st_uid == info.st_gid == 0,
+                    'untrusted account template entry')
+            if stat.S_ISLNK(info.st_mode):
+                target = os.readlink(name, dir_fd=source)
+                require(info.st_nlink == 1 and identity(os.stat(name, dir_fd=source, follow_symlinks=False)) == identity(info),
+                        'account template link identity changed')
+                links.append((prefix + (name,), target))
+                continue
+            require(not info.st_mode & 0o022, 'account template is writable by another identity')
+            if stat.S_ISDIR(info.st_mode):
+                with contextlib.ExitStack() as stack:
+                    incoming = os.open(name, DIRECTORY, dir_fd=source)
+                    stack.callback(os.close, incoming)
+                    require(identity(os.fstat(incoming)) == identity(info), 'template directory identity changed')
+                    os.mkdir(name, 0o700, dir_fd=destination)
+                    outgoing = os.open(name, DIRECTORY, dir_fd=destination)
+                    stack.callback(os.close, outgoing)
+                    snapshot(incoming, outgoing, budget, depth + 1, prefix + (name,), links=links, files=files)
+                    os.fsync(outgoing)
+                continue
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, 'linked or special account template')
+            budget[1] += info.st_size
+            require(budget[1] <= MAX_BYTES, 'account template aggregate exceeds the parser policy')
+            incoming = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=source)
+            try:
+                require(identity(os.fstat(incoming)) == identity(info), 'template file identity changed')
+                data = bytearray()
+                while chunk := os.read(incoming, min(65536, max(1, info.st_size + 1 - len(data)))):
+                    bounded()
+                    data.extend(chunk)
+                    require(len(data) <= info.st_size, 'template grew while being captured')
+                require(len(data) == info.st_size and identity(os.fstat(incoming)) == identity(info),
+                        'template changed while being captured')
+                require((b'__INSTALLER' + b'_') not in data and (b'__THEME' + b'_') not in data,
+                        'unresolved account template marker')
+                outgoing = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                   0o700 if info.st_mode & 0o111 else 0o600, dir_fd=destination)
+                with os.fdopen(outgoing, 'wb') as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                files.add(prefix + (name,))
+            finally:
+                os.close(incoming)
+    require(identity(os.fstat(source)) == identity(source_info), 'template directory changed during capture')
+
+
+def account_identity(username: str):
+    require(NAME.fullmatch(username) is not None, 'invalid local account identifier')
+    account = pwd.getpwnam(username)
+    require(1000 <= account.pw_uid < 65534 and account.pw_gid != 0,
+            'account must have a non-system UID and non-root primary group')
+    home = Path(account.pw_dir)
+    require(home == HOME_ROOT / username, 'account HOME must be its direct canonical home-root child')
+    require(Path(account.pw_shell).name in ('bash', 'dash', 'sh', 'zsh')
+            and Path(account.pw_shell).parent in (Path('__INSTALLER_PATH_DIR_BIN__'),
+                                                Path('__INSTALLER_PATH_DIR_USR_BIN__')),
+            'a service or non-login account cannot receive human defaults')
+    return account
+
+
+@contextlib.contextmanager
+def home_directory(account):
+    with trusted_directory(HOME_ROOT) as parent:
+        descriptor = os.open(account.pw_name, DIRECTORY, dir_fd=parent)
+        try:
+            info = os.fstat(descriptor)
+            require((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode))
+                    == (account.pw_uid, account.pw_gid, 0o700), 'account HOME ownership or mode differs')
+            yield descriptor
+        finally:
+            os.close(descriptor)
+
+
+@contextlib.contextmanager
+def user_parent(home: int, relative: str, account, *, create: bool = False):
+    parts = Path(relative).parts
+    require(parts and not Path(relative).is_absolute() and all(part not in ('.', '..') for part in parts),
+            'unsafe account-relative path')
+    descriptor = os.dup(home)
+    try:
+        for name in parts[:-1]:
+            bounded()
+            if create:
+                try:
+                    os.mkdir(name, 0o700, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+            child = os.open(name, DIRECTORY, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+            info = os.fstat(descriptor)
+            require((info.st_uid, info.st_gid) == (account.pw_uid, account.pw_gid)
+                    and not info.st_mode & 0o077, 'unsafe private account directory')
+        yield descriptor, parts[-1]
+    finally:
+        os.close(descriptor)
+
+
+def user_file(home: int, relative: str, account, transform) -> None:
+    optional_missing = True
+    try:
+        with user_parent(home, relative, account) as (parent, name):
+            descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=parent)
+            optional_missing = False
+            try:
+                info = os.fstat(descriptor)
+                require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                        and (info.st_uid, info.st_gid) == (account.pw_uid, account.pw_gid)
+                        and not info.st_mode & 0o077 and info.st_size <= 2 * 1024 * 1024,
+                        'unsafe account configuration file')
+                with os.fdopen(os.dup(descriptor), 'rb') as stream:
+                    data = stream.read(2 * 1024 * 1024 + 1)
+                require(len(data) == info.st_size and identity(os.fstat(descriptor)) == identity(info),
+                        'account configuration changed while being read')
+                output = transform(data)
+                if output == data:
+                    return
+                candidate = '.account-default-' + os.urandom(16).hex()
+                try:
+                    target = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                     0o600, dir_fd=parent)
+                    with os.fdopen(target, 'wb') as stream:
+                        stream.write(output)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    require(identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) == identity(info),
+                            'account configuration was replaced; preserving the newer file')
+                    os.replace(candidate, name, src_dir_fd=parent, dst_dir_fd=parent)
+                    os.fsync(parent)
+                finally:
+                    try:
+                        os.unlink(candidate, dir_fd=parent)
+                    except FileNotFoundError:
+                        pass
+            finally:
+                os.close(descriptor)
+    except FileNotFoundError:
+        if optional_missing:
+            return  # A non-selected application gets no synthetic configuration.
+        raise
+
+
+def ensure_user_file(home: int, relative: str, account) -> None:
+    with user_parent(home, relative, account, create=True) as (parent, name):
+        try:
+            descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                 0o600, dir_fd=parent)
+        except FileExistsError:
+            info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                    and (info.st_uid, info.st_gid) == (account.pw_uid, account.pw_gid)
+                    and not info.st_mode & 0o077, 'unsafe existing account default file')
+            return
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.fsync(parent)
+
+
+def personalize(account, role: str) -> None:
+    # This branch runs with the account's real UID/GID and only its registered
+    # groups. A pathname replacement cannot gain administrative write authority.
+    require(os.getuid() == os.geteuid() == account.pw_uid
+            and os.getgid() == account.pw_gid, 'HOME initialization must run as its owner')
+    home_path = Path(account.pw_dir)
+    with home_directory(account) as home:
+        def home_value(value: str) -> str:
+            # Interpret only a known application's HOME-relative path field.
+            # This is account initialization, never shell evaluation or an
+            # alternative installer/system-path placeholder renderer.
+            if not value.startswith('$HOME/'):
+                require('$HOME' not in value and '${HOME}' not in value, 'unsupported account HOME expression')
+                return value
+            relative = value[len('$HOME/'):]
+            require(relative and not Path(relative).is_absolute() and '..' not in Path(relative).parts
+                    and re.fullmatch(r'[A-Za-z0-9_./-]+', relative) is not None,
+                    'unsafe account-relative application directory')
+            return str(home_path / relative)
+
+        def bazel(data: bytes) -> bytes:
+            lines = []
+            for line in data.decode('utf-8').splitlines(keepends=True):
+                for option, root in (('startup --output_user_root=', BUILD_ROOT),
+                                     ('common --disk_cache=', CACHE_ROOT),
+                                     ('common --repository_cache=', CACHE_ROOT)):
+                    prefix = option + str(root / '$USER') + '/'
+                    if line.startswith(prefix):
+                        suffix = line[len(prefix):].rstrip('\r\n')
+                        require(suffix and '..' not in Path(suffix).parts
+                                and re.fullmatch(r'[A-Za-z0-9_./-]+', suffix) is not None,
+                                'unsafe account Bazel directory')
+                        line = option + str(root / account.pw_name / suffix) + '\n'
+                        break
+                lines.append(line)
+            return ''.join(lines).encode()
+
+        user_file(home, '.bazelrc', account, bazel)
+        user_file(home, '.config/bazel/bazelrc', account, bazel)
+        if role != 'desktop':
+            return
+
+        def archive(data: bytes) -> bytes:
+            config = configparser.ConfigParser(interpolation=None)
+            config.read_string(data.decode('utf-8'))
+            changed = False
+            for key in ('preferred_temp_dir', 'preferred_extract_dir'):
+                current = config.get('xarchiver', key, fallback='')
+                value = home_value(current)
+                if current == str(CACHE_ROOT / '$USER/tmp'):
+                    candidate = CACHE_ROOT / account.pw_name / 'tmp'
+                    try:
+                        info = candidate.lstat()
+                        usable = (stat.S_ISDIR(info.st_mode) and info.st_uid == account.pw_uid
+                                  and stat.S_IMODE(info.st_mode) == 0o700
+                                  and candidate.resolve(strict=True) == candidate
+                                  and os.access(candidate, os.R_OK | os.W_OK | os.X_OK))
+                    except (FileNotFoundError, PermissionError):
+                        usable = False
+                    # Existing pool policy remains in effect for provisioned
+                    # operators. A new desktop user without shared pool access
+                    # gets private HOME storage and no implicit service group.
+                    value = str(candidate if usable else home_path / '.cache/xarchiver')
+                require('$USER' not in value, 'unresolved archive account expression')
+                if value == current:
+                    continue
+                config.set('xarchiver', key, value)
+                if Path(value).is_relative_to(home_path):
+                    with user_parent(home, str(Path(value).relative_to(home_path) / '.keep'), account, create=True):
+                        pass
+                changed = True
+            if not changed:
+                return data
+            output = io.StringIO()
+            config.write(output)
+            return output.getvalue().encode()
+
+        def tasks(data: bytes) -> bytes:
+            config = json.loads(data)
+            require(isinstance(config, dict), 'invalid task configuration shape')
+            files = config.get('files')
+            require(isinstance(files, list) and len(files) <= 128, 'invalid task file list')
+            changed = False
+            for entry in files:
+                require(isinstance(entry, dict) and isinstance(entry.get('todoFilePath'), str), 'invalid task file entry')
+                current = entry['todoFilePath']
+                value = home_value(current)
+                if value != current:
+                    ensure_user_file(home, str(Path(value).relative_to(home_path)), account)
+                    entry['todoFilePath'] = value
+                    changed = True
+            return (json.dumps(config, indent=2, ensure_ascii=False) + '\n').encode() if changed else data
+
+        def notes(data: bytes) -> bytes:
+            require(b'<!DOCTYPE' not in data and b'<!ENTITY' not in data, 'unsupported note configuration declaration')
+            config = ET.fromstring(data)
+            require(config.tag == 'settings', 'invalid note configuration shape')
+            changed = False
+            for item in config.findall('property'):
+                name = item.get('name')
+                if name in ('lastSavePath', 'lastOpenPath', 'lastImagePath', 'audioFolder'):
+                    current = item.get('value', '')
+                    value = home_value(current)
+                    if value != current:
+                        item.set('value', value)
+                        with user_parent(home, str(Path(value).relative_to(home_path) / '.keep'), account, create=True):
+                            pass
+                        changed = True
+            return ET.tostring(config, encoding='utf-8', xml_declaration=True) + b'\n' if changed else data
+
+        user_file(home, '.config/xarchiver/xarchiverrc', account, archive)
+        user_file(home, '.config/sleek/userData/config.json', account, tasks)
+        user_file(home, '.config/xournalpp/settings.xml', account, notes)
+
+        def bookmarks(data: bytes) -> bytes:
+            rows = []
+            for row in data.decode('utf-8').splitlines():
+                uri, separator, label = row.partition(' ')
+                if uri.startswith('file://$HOME/'):
+                    resolved = home_value(uri[len('file://'):])
+                    uri = Path(resolved).as_uri()
+                rows.append(uri + separator + label)
+            return ('\n'.join(rows) + '\n').encode()
+
+        user_file(home, '.config/gtk-3.0/bookmarks', account, bookmarks)
+
+
+def prepare(account, role: str) -> None:
+    env = {'PATH': PROCESS_PATH, 'HOME': account.pw_dir, 'USER': account.pw_name,
+           'LOGNAME': account.pw_name, 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8'}
+    subprocess.run([PYTHON, '-I', '-B', HELPER, '--personalize', '--type', role, account.pw_name],
+                   user=account.pw_uid, group=account.pw_gid,
+                   extra_groups=os.getgrouplist(account.pw_name, account.pw_gid), umask=0o077,
+                   cwd=account.pw_dir, env=env, stdin=subprocess.DEVNULL, check=True, timeout=operation_timeout())
+
+
+def normalize_new_home(directory: int, account, budget: list[int], files: set,
+                       depth: int = 0, prefix: tuple[str, ...] = ()) -> None:
+    require(depth <= 32, 'new HOME nesting exceeds the supported depth')
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            bounded()
+            budget[0] += 1
+            require(budget[0] <= MAX_ENTRIES, 'too many new HOME entries')
+            info = os.stat(entry.name, dir_fd=directory, follow_symlinks=False)
+            require((info.st_uid, info.st_gid) == (account.pw_uid, account.pw_gid), 'new HOME entry owner differs')
+            if stat.S_ISLNK(info.st_mode):
+                target = os.readlink(entry.name, dir_fd=directory)
+                relative = prefix + (entry.name,)
+                require(external_unit_link(relative, target) if Path(target).is_absolute()
+                        else relative_link(prefix, target) in files, 'unsafe new HOME link')
+                require(identity(os.stat(entry.name, dir_fd=directory, follow_symlinks=False)) == identity(info),
+                        'new HOME link identity changed')
+                continue
+            if stat.S_ISDIR(info.st_mode):
+                child = os.open(entry.name, DIRECTORY, dir_fd=directory)
+                try:
+                    require(identity(os.fstat(child)) == identity(info), 'new HOME directory identity changed')
+                    normalize_new_home(child, account, budget, files, depth + 1, prefix + (entry.name,))
+                    os.fchmod(child, 0o700)
+                    os.fsync(child)
+                finally:
+                    os.close(child)
+            else:
+                require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, 'unsafe new HOME file')
+                child = os.open(entry.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=directory)
+                try:
+                    require(identity(os.fstat(child)) == identity(info), 'new HOME file identity changed')
+                    os.fchmod(child, 0o700 if info.st_mode & 0o111 else 0o600)
+                    os.fsync(child)
+                finally:
+                    os.close(child)
+
+
+def record(work: Path, username: str, role: str, status: str) -> None:
+    with trusted_directory(work, private=True) as parent:
+        candidate = '.result-' + os.urandom(16).hex()
+        descriptor = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             0o600, dir_fd=parent)
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+            json.dump({'format': 1, 'username': username, 'type': role,
+                       'home': str(HOME_ROOT / username), 'status': status}, stream)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(candidate, 'result.json', src_dir_fd=parent, dst_dir_fd=parent)
+        os.fsync(parent)
+
+
+def create(username: str, role: str) -> None:
+    global DEADLINE
+    with trusted_directory(STATE, create=True, private=True) as state:
+        lock = os.open('create.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                       0o600, dir_fd=state)
+        try:
+            info = os.fstat(lock)
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                    and info.st_uid == info.st_gid == 0 and stat.S_IMODE(info.st_mode) == 0o600,
+                    'unsafe account provisioning lock')
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                pwd.getpwnam(username)
+            except KeyError:
+                pass
+            else:
+                raise ValueError('account already exists; existing accounts are never overwritten')
+            try:
+                grp.getgrnam(username)
+            except KeyError:
+                pass
+            else:
+                raise ValueError('same-named group already exists; refusing to inherit its authority')
+            with trusted_directory(HOME_ROOT) as home_root:
+                try:
+                    os.stat(username, dir_fd=home_root, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise ValueError('HOME already exists; refusing to adopt it')
+            work = Path(tempfile.mkdtemp(prefix=username + '.', dir=STATE))
+            incoming = work / 'input'
+            links: list[tuple[tuple[str, ...], str]] = []
+            files: set[tuple[str, ...]] = set()
+            try:
+                os.fsync(state)
+                incoming.mkdir(mode=0o700)
+                with trusted_directory(SOURCES[role], private=True) as source, trusted_directory(incoming, private=True) as target:
+                    snapshot(source, target, [0, 0], links=links, files=files)
+                    os.fsync(target)
+                for relative, target in links:
+                    require(external_unit_link(relative, target) if Path(target).is_absolute()
+                            else relative_link(relative[:-1], target) in files, 'unsafe account template link target')
+                    with trusted_directory(incoming.joinpath(*relative[:-1]), private=True) as parent:
+                        os.symlink(target, relative[-1], dir_fd=parent)
+                        os.fsync(parent)
+                # A selected desktop must be the staged desktop, never a
+                # fallback when this system has no desktop role.
+                if role == 'desktop':
+                    require((incoming / '.config/labwc/rc.xml').is_file(), 'desktop defaults are not installed on this system')
+                require((incoming / '.profile').is_file(), 'selected account defaults lack their login profile')
+                record(work, username, role, 'prepared')
+            except (OSError, ValueError) as error:
+                raise RuntimeError(f'account creation not started; rejected defaults; retained evidence: {work}') from error
+            try:
+                # Explicit -G overrides package defaults. No sudo, desktop
+                # device, server, container, or other service group is granted.
+                # useradd's documented --skel contract owns this one copy.
+                env = {'PATH': PROCESS_PATH, 'HOME': '__INSTALLER_PATH_DIR_ROOT_HOME__',
+                       'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8'}
+                with (work / 'useradd.log').open('xb') as log:
+                    subprocess.run([USERADD, '--create-home', '--home-dir', str(HOME_ROOT / username),
+                                    '--skel', str(incoming), '--shell', BASH, '--user-group', '--groups', '',
+                                    '--password', '!', '--no-log-init',
+                                    '-K', 'UMASK=077', '-K', 'HOME_MODE=0700', '-K', 'CREATE_MAIL_SPOOL=no',
+                                    '-K', 'UID_MIN=1000', '-K', 'UID_MAX=59999',
+                                    '-K', 'GID_MIN=1000', '-K', 'GID_MAX=59999', username],
+                                   cwd=work, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                   check=True, timeout=operation_timeout(), umask=0o077)
+                    log.flush()
+                    os.fsync(log.fileno())
+                account = account_identity(username)
+                with home_directory(account) as home:
+                    normalize_new_home(home, account, [0], files)
+                    os.fsync(home)
+                prepare(account, role)
+                record(work, username, role, 'complete-password-locked')
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                # Recovery reporting has its own small budget after the main
+                # operation deadline; retain the prepared record on any error.
+                DEADLINE = time.monotonic() + 5
+                try:
+                    record(work, username, role, 'outcome-unknown')
+                except (OSError, ValueError) as recovery_error:
+                    raise RuntimeError(f'account creation outcome unknown; journal update failed; retained evidence: {work}') from recovery_error
+                raise RuntimeError(f'account creation incomplete; do not retry automatically; retained evidence: {work}') from error
+            # Only our root-private, newly created input snapshot is removed.
+            # Keep the durable result and package diagnostic for the operator.
+            try:
+                shutil.rmtree(incoming)
+            except OSError as error:
+                raise RuntimeError(f'account configured with a locked password; input cleanup incomplete; retained evidence: {work}') from error
+            print(f'account-create: complete user={username} type={role} home={account.pw_dir} password=locked')
+        finally:
+            os.close(lock)
+
+
+def main() -> None:
+    global DEADLINE
+    DEADLINE = time.monotonic() + 120
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--type', choices=('base', 'desktop', 'server'), default='base', dest='role')
+    parser.add_argument('--personalize', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('username')
+    args = parser.parse_args()
+    require(NAME.fullmatch(args.username) is not None, 'invalid local account identifier')
+    os.umask(0o077)
+    if args.personalize:
+        personalize(account_identity(args.username), args.role)
+        return
+    require(os.getuid() == os.geteuid() == 0, 'account creation requires an authenticated root administrator')
+    create(args.username, args.role)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except BlockingIOError:
+        print('account-create: status=unavailable another account creation owns the lock', file=sys.stderr)
+        raise SystemExit(75)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, ET.ParseError, configparser.Error) as failure:
+        print(f'account-create: {failure}', file=sys.stderr)
+        raise SystemExit(1)

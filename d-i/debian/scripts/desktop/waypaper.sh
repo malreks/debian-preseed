@@ -338,11 +338,21 @@ desktop_install_waypaper() {
     "$waypaper_binary" \
     "$waypaper_system_binary"
 
-  desktop_render_role_target_template \
-    FILE_TARGET_SKEL_APPS_WAYPAPER_TMPL \
-    "$waypaper_launcher" \
-    0644 \
-    LABWC_WAYLAND_APP_DEFAULT_EXEC "$LABWC_WAYLAND_APP_DEFAULT_EXEC"
+  # The installer renders the payload launcher independently for future users
+  # and the primary account. No installed skeleton is used as a copy source.
+  for waypaper_launcher_target in \
+    "${DIR_ETC_SKEL_DESKTOP}/.local/share/applications/waypaper.desktop" \
+    "$waypaper_launcher"
+  do
+    case "$waypaper_launcher_target" in
+      "$waypaper_launcher") waypaper_launcher_mode=0600 ;;
+      *) waypaper_launcher_mode=0644 ;;
+    esac
+    desktop_render_role_target_template \
+      FILE_TARGET_SKEL_APPS_WAYPAPER_TMPL \
+      "$waypaper_launcher_target" "$waypaper_launcher_mode" \
+      LABWC_WAYLAND_APP_DEFAULT_EXEC "$LABWC_WAYLAND_APP_DEFAULT_EXEC"
+  done
   chown \
     "$waypaper_account_uid:$waypaper_account_gid" \
     "${TARGET_ROOT}${waypaper_launcher_dir}" \

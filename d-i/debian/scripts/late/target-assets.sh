@@ -233,6 +233,7 @@ publish_target_asset() (
   target_publish_step=publish
   installer_operation_context_repo FILE_LATE_TARGET_ASSETS 235 publish_target_asset
   chmod "$asset_mode" "$asset_work/payload" || exit "$?"
+  installer_capture_primary_default "$asset_work/payload" "$asset_target" "$asset_mode" || exit "$?"
   mv -fT -- "$asset_work/payload" "$asset_destination" || exit "$?"
 )
 

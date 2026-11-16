@@ -88,7 +88,8 @@ install_profile_hardware_tuning() (
   # Intentional split: hardware_vendors is assembled ONLY from literal names.
   # shellcheck disable=SC2086
   run_in_target "install gated hardware tuning profiles and lifecycle units" \
-    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I "${hardware_stage}/config.py" "${hardware_stage}/policy.env" "$ACCOUNT_USERNAME" "${hardware_stage}/templates" "$INSTALLER_HOST_VARIANT" $hardware_vendors || exit 1
+    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I "${hardware_stage}/config.py" "${hardware_stage}/policy.env" "$ACCOUNT_USERNAME" "${hardware_stage}/templates" "$INSTALLER_HOST_VARIANT" \
+    "${DIR_INSTALLER_TARGET_DEFAULTS}/desktop" $hardware_vendors || exit 1
   run_in_target "validate hardware tuning AppArmor policy without loading into the installer kernel" \
     __INSTALLER_PATH_DIR_USR_SBIN__/apparmor_parser --skip-kernel-load --skip-cache __INSTALLER_PATH_DIR_ETC__/apparmor.d/hardware-tuning || exit 1
   installer_info "installed hardware tuning vendors=${hardware_vendors} autostart=${HARDWARE_TUNING_AUTOSTART_ENABLE:-false}"

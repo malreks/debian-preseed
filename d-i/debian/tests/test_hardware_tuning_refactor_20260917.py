@@ -421,7 +421,8 @@ class PolicyAndPowerTests(unittest.TestCase):
         with base.private_temp() as temporary:
             root = Path(temporary)
             with self.assertRaisesRegex(ValueError, 'unknown common'):
-                base.installer.install(root, 1000, 1000, env, ['intel'], base.FORKY / "hooks/target")
+                base.installer.install(root, 1000, 1000, env, ['intel'], base.FORKY / "hooks/target",
+                                       payload_defaults=Path('/payload-defaults'))
             self.assertEqual(list(root.iterdir()), [])
 
     def test_sleep_with_safe_historical_fault_succeeds_but_pending_recovery_fails(self):

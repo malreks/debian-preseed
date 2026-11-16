@@ -187,6 +187,9 @@ desktop_stage_kwallet_dbus_activation_assets() {
     FILE_TARGET_SKEL_LOCAL_SHARE_DBUS_1_SERVICES_ORG_FREEDESKTOP_SECRETS_SERVICE \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service \
     0644
+  desktop_stage_role_asset \
+    FILE_TARGET_SKEL_LOCAL_SHARE_DBUS_1_SERVICES_ORG_FREEDESKTOP_SECRETS_SERVICE \
+    "${DIR_USR_LOCAL_SHARE}/labwc-app/defaults/org.freedesktop.secrets.service" 0644
   desktop_log "staged_account_local_kwallet_secret_service_activation path=__INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service"
 }
 
