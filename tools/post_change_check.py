@@ -492,7 +492,7 @@ def check_shell(paths: list[Path], errors: list[str], counts: dict[str, int]) ->
         )
 
 
-def _literal_shell_word(source: str, start: int) -> str:
+def _literal_shell_word(source: str, start: int) -> tuple[str, int]:
     """Decode one literal shell word, without expansion or shell execution.
 
     Shell scripts can concatenate single quotes, escaped quotes, double-quoted
@@ -537,16 +537,23 @@ def _literal_shell_word(source: str, start: int) -> str:
         position += 1
     if quote:
         raise ValueError('unterminated embedded shell string')
-    return ''.join(parts)
+    return ''.join(parts), position
 
 
-def _late_target_shells(source: str) -> list[tuple[int, str, str]]:
-    """Read literal -c and explicitly named *_SH heredoc scripts as data."""
+def _late_target_shells(source: str, depth: int = 0) -> list[tuple[int, str, str]]:
+    """Read child shell programs as data, including their nested -c scopes."""
+    if depth > 8:
+        raise ValueError('embedded shell quoting exceeds the supported nesting depth')
     prefix = (r'(?:/(?:usr/)?bin|"\$\{DIR_(?:USR_)?BIN\})/(?:sh|dash|bash)"?'
               r'\s+(?:-[a-z]+\s+)*-[a-z]*c[a-z]*\b')
     commands = list(re.finditer(prefix, source))
     scripts = []
+    consumed_until = 0
     for command in commands:
+        # The nested program is still shell-quoted at this layer. Decode its
+        # owning argument first, then inspect the resulting child source.
+        if command.start() < consumed_until:
+            continue
         start = command.end()
         while start < len(source) and source[start].isspace():
             start += 1
@@ -556,9 +563,12 @@ def _late_target_shells(source: str) -> list[tuple[int, str, str]]:
             if not source[previous_start:command_start - 1].endswith('\\'):
                 break
             command_start = previous_start
-        scripts.append((source.count('\n', 0, start) + 1,
-                        _literal_shell_word(source, start),
-                        source[command_start:command.start()]))
+        body, consumed_until = _literal_shell_word(source, start)
+        source_line = source.count('\n', 0, start) + 1
+        scripts.append((source_line, body, source[command_start:command.start()]))
+        scripts.extend((source_line + nested_line - 1, nested_body, invocation)
+                       for nested_line, nested_body, invocation
+                       in _late_target_shells(body, depth + 1))
     for heredoc in re.finditer(r"<<'([A-Z][A-Z0-9_]*_SH)'\n", source):
         end = re.search(r'^' + re.escape(heredoc[1]) + r'$', source[heredoc.end():], re.M)
         if end is None:
@@ -568,20 +578,91 @@ def _late_target_shells(source: str) -> list[tuple[int, str, str]]:
     return scripts
 
 
+def _target_install_scope(source: str) -> tuple[str, dict[int, int], set[str], set[str], int]:
+    """Project a self-reentering target mode from source data, never execution.
+
+    Installer globals and unreachable installer functions do not belong to the
+    child. Its serialized configuration and the mode flag establish its input
+    variables; reachable function definitions establish the rest of its scope.
+    """
+    mode = re.search(r'^if \[ "\$([a-z_]+_target_mode)" = 1 \]; then\n'
+                     r'  ([a-z_]+_target_install) "\$@"\n', source, re.M)
+    config = re.search(r'^\{\n((?:  write_shell_config_var [^\n]+\n)+)'
+                       r'\} >"\$target_profile_host"$', source, re.M)
+    if mode is None or config is None:
+        raise ValueError('target-install mode has no recognized entrypoint/configuration producer')
+    fields: set[str] = set()
+    for line in config[1].splitlines():
+        words = shlex.split(line)
+        if (len(words) != 3 or words[0] != 'write_shell_config_var'
+                or re.fullmatch(r'[A-Z][A-Z0-9_]*', words[1]) is None
+                or words[2] not in ('$' + words[1], '${' + words[1] + '}')
+                or words[1] in fields):
+            raise ValueError('target-install configuration has an ambiguous field producer')
+        fields.add(words[1])
+    definitions: dict[str, tuple[int, str]] = {}
+    for function in re.finditer(r'^([a-zA-Z_][a-zA-Z0-9_]*)\(\) \{\n', source, re.M):
+        closing = re.search(r'^\}\s*$', source[function.end():], re.M)
+        if closing is None or function[1] in definitions:
+            raise ValueError('target-install function definition is incomplete or duplicated')
+        end = function.end() + closing.end()
+        definitions[function[1]] = (source.count('\n', 0, function.start()) + 1,
+                                    source[function.start():end])
+    if mode[2] not in definitions:
+        raise ValueError('target-install entrypoint definition is missing')
+    reachable: set[str] = set()
+    pending = [mode[2]]
+    while pending:
+        name = pending.pop()
+        if name in reachable:
+            continue
+        reachable.add(name)
+        # Overapproximate literal function references, including trap callbacks.
+        # An extra definition is safe; omitting a reachable definition is not.
+        words = set(re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', definitions[name][1]))
+        pending.extend(sorted((words & definitions.keys()) - reachable))
+    lines = ['#!/bin/sh', 'set -eu', mode[1] + '=1',
+             *(field + '=' for field in sorted(fields))]
+    origins: dict[int, int] = {}
+    for name in sorted(reachable, key=lambda item: definitions[item][0]):
+        original_line, body = definitions[name]
+        for offset, line in enumerate(body.splitlines()):
+            origins[len(lines) + 1] = original_line + offset
+            lines.append(line)
+    lines.append(mode[2] + ' "$@"')
+    projected = '\n'.join(lines) + '\n'
+    component = mode[2].split('_', 1)[0].upper() + '_'
+    bodies = '\n'.join(definitions[name][1] for name in sorted(reachable))
+    required = set(re.findall(r'\$\{?(' + component + r'[A-Z0-9_]+)\b', bodies))
+    assigned = set(re.findall(r'^\s*(?:export\s+)?(' + component + r'[A-Z0-9_]+)=', bodies, re.M))
+    return projected, origins, fields, required - assigned - fields, len(reachable)
+
+
+def _target_shell_policy_fields(body: str) -> set[str]:
+    """Read the fields of a policy explicitly sourced by the child itself."""
+    published = _render_installer_path_placeholders('__INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf')
+    if re.search(r'^\s*\.\s+' + re.escape(published) + r'\s*$', body, re.M) is None:
+        return set()
+    selectors = _repository_selector_values()
+    source = _read_text(DEBIAN_ROOT / selectors['FILE_TARGET_LABWC_DESKTOP_TMPL'])
+    return set(re.findall(r'^([A-Z][A-Z0-9_]*)=', source, re.M))
+
+
 def check_late_target_shells(paths: list[Path], errors: list[str],
                             counts: dict[str, int]) -> None:
     """Check separate shell scopes against their explicit invocation contract."""
-    late_root = DEBIAN_ROOT / 'scripts/late'
+    scripts_root = DEBIAN_ROOT / 'scripts'
+    late_root = scripts_root / 'late'
     account_wrapper = late_root / 'devops/account-execution.sh'
     shared_inputs = {DEBIAN_ROOT / 'hosts/installer/runtime.env', account_wrapper,
                      Path(__file__).resolve()}
     if shared_inputs.intersection(paths):
         # A changed renderer/checker/account wrapper affects all child scopes.
         # This is a shared-contract lookup, not a whole-tree parent shell audit.
-        owners = sorted(path for path in late_root.rglob('*')
+        owners = sorted(path for path in scripts_root.rglob('*')
                         if path.is_file() and not path.is_symlink() and _shell_kind(path))
     else:
-        owners = sorted(path for path in paths if path.is_relative_to(late_root)
+        owners = sorted(path for path in paths if path.is_relative_to(scripts_root)
                         and _shell_kind(path))
     if not owners:
         return
@@ -599,19 +680,20 @@ def check_late_target_shells(paths: list[Path], errors: list[str],
         return
     checked = 0
     managed_checked = 0
+    target_modes = target_functions = target_fields = 0
     for owner in owners:
         try:
             source = _render_installer_path_placeholders(_read_text(owner))
             if re.search(r'__INSTALLER_PATH_[A-Z0-9_]+__', source):
-                raise ValueError('late installer has unresolved runtime path placeholders')
+                raise ValueError('installer script has unresolved runtime path placeholders')
             for source_line, body, invocation in _late_target_shells(source):
-                declared: set[str] = set()
+                declared = _target_shell_policy_fields(body)
                 if re.match(r'\s*devops_run_as_account\b', invocation):
                     declared.update(wrapper_names)
-                elif owner.name == 'dispatch.sh':
-                    # The storage-family children run in d-i, not the target.
-                    # Record only explicit inline environment assignments;
-                    # their values may be ordinary unquoted variable words.
+                else:
+                    # Early/partman children can run in d-i rather than the
+                    # target. Only explicit inline environment assignments
+                    # belong to the invocation, never the parent's globals.
                     declared.update(re.findall(r'(?<!\S)([A-Z][A-Z0-9_]*)=', invocation))
                 for command in ([dash, '-n'], [busybox, 'sh', '-n']):
                     result = _run(command, timeout=15, input_text=body)
@@ -639,11 +721,42 @@ def check_late_target_shells(paths: list[Path], errors: list[str],
                 checked += 1
                 if owner.name in {'software.sh.tmpl', 'tor-browser.sh'}:
                     managed_checked += 1
+            if re.search(r'^\s*--target-install\)', source, re.M):
+                body, origins, fields, missing, functions = _target_install_scope(source)
+                if (owner.name == 'whisper.sh'
+                        and '--target-install "$target_profile" "$INSTALLER_HOST_VARIANT"' not in source):
+                    errors.append('Whisper target installation omits its explicit role argument')
+                if missing:
+                    errors.append(f'{owner.relative_to(ROOT)}: target-install configuration omits '
+                                  + ', '.join(sorted(missing)))
+                for command in ([dash, '-n'], [busybox, 'sh', '-n']):
+                    result = _run(command, timeout=15, input_text=body)
+                    if result.returncode:
+                        _report_command(errors, f'{owner.relative_to(ROOT)}: target-install syntax', result)
+                for options in (['--severity=error'],
+                                ['--severity=warning', '--include=SC2154',
+                                 '--enable=check-unassigned-uppercase']):
+                    result = _run([shellcheck, '--norc', '--shell=sh', '--format=json',
+                                   *options, '-'], timeout=15, input_text=body)
+                    if result.returncode not in (0, 1):
+                        _report_command(errors, f'{owner.relative_to(ROOT)}: target-install scope', result)
+                        continue
+                    for message in json.loads(result.stdout):
+                        line = origins.get(message.get('line', 0), 1)
+                        errors.append(f'{owner.relative_to(ROOT)}:{line}: target-install '
+                                      f"ShellCheck SC{message.get('code', '?')}: "
+                                      f"{message.get('message', 'error')}")
+                target_modes += 1
+                target_functions += functions
+                target_fields += len(fields)
         except (OSError, UnicodeError, ValueError) as error:
             errors.append(f'{owner.relative_to(ROOT)}: embedded target shell: {error}')
-    counts['late_target_shell_owners'] = len(owners)
-    counts['late_target_shells'] = checked
+    counts['installer_child_shell_owners'] = len(owners)
+    counts['installer_child_shells'] = checked
     counts['managed_software_target_shells'] = managed_checked
+    counts['late_target_install_scopes'] = target_modes
+    counts['late_target_install_functions'] = target_functions
+    counts['late_target_install_config_fields'] = target_fields
 
 
 def check_lifecycle_frontend_contract(paths: list[Path], errors: list[str],
@@ -3773,7 +3886,8 @@ def check_runtime_path_publication(paths: list[Path], errors: list[str], counts:
         'scripts/common/modules/repository-apt.sh',
         'scripts/common/modules/files-logging.sh', 'hosts/installer/runtime.env',
         'scripts/late/tailscale.sh', 'scripts/late/devops.sh.tmpl',
-        'scripts/late/devops/main-orchestration.sh')}
+        'scripts/late/devops/main-orchestration.sh', 'scripts/late/whisper.sh',
+        'scripts/late/llama.sh', 'scripts/late/desktop.sh', 'scripts/desktop/waypaper.sh')}
     if not (owners | {Path(__file__).resolve()}).intersection(paths):
         return
     values = dict(_installer_path_token_values())
@@ -3847,7 +3961,17 @@ def check_runtime_path_publication(paths: list[Path], errors: list[str], counts:
             errors.append(label + ': profile paths must load before helper rendering')
     if '[ -r "$dbus_helper" ] ||' in tailscale:
         errors.append('Tailscale must not reuse a raw helper cached by a failed older renderer')
-    counts['runtime_path_entrypoint_contracts'] = 2
+    for selector, load, consumer in (
+            ('FILE_LATE_DESKTOP', 'late_command_load_host_env', 'fetch_hook '),
+            ('FILE_LATE_WHISPER', 'installer_load_data_env "$host_env"',
+             'whisper_stage_target_asset "$(installer_repo_file_value FILE_LATE_WHISPER)"'),
+            ('FILE_LATE_LLAMA', 'installer_load_data_env "$host_env"',
+             'bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value FILE_LATE_LLAMA)"')):
+        entrypoint = _read_text(DEBIAN_ROOT / selectors[selector])
+        loaded, used = entrypoint.find(load), entrypoint.find(consumer)
+        if loaded < 0 or used < 0 or loaded > used:
+            errors.append(selector + ': profile paths must load before helper rendering')
+    counts['runtime_path_entrypoint_contracts'] = 5
 
 
 def check_diff(errors: list[str]) -> None:

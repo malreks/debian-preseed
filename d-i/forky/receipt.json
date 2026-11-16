@@ -110,7 +110,7 @@
     "forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia-opt-in.pref": "f0807aa36985641cda05e26f57a17843d10d91937fa1d887b97278bf0935f576",
     "forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref": "53ddaec3db7a22f7f0abb039b06a0bc2b61a47d5eb339547e2ee7554841454b4",
     "forky/hooks/target/etc/apt/server/preferences.d/x11.pref": "f1bf7d0bf738e3c897ca67827fdb54bd174c130c5ab94603e5e1d9e8044cbc7d",
-    "forky/preseed.cfg": "f7ff78902452c7710bb9a5fdc025bf23e340c6a72ceae1eb97102f2b4e3aeaf1",
+    "forky/preseed.cfg": "6b90fa657c57fb2510bc7396eff284cc36f5b4b8b2256ac12e8495e03fa237c0",
     "trixie/classes/class-auto/arch/amd64.cfg": "ef281a7ab7e72279590ddc47ce2b7841520501e173b503297a810593471e0563",
     "trixie/classes/class-auto/arch/arm64.cfg": "4c3cfb002099fb17b5930ab6c31d1eb6b7f4adcea66ecbaae2c401eb6cc410a4",
     "trixie/classes/class-auto/cpu/amd.cfg": "a118fd164dafc9fc1b2c86d4f9f9ff369d2407e7a1f1ba1ea0768d24f0c624c6",
@@ -214,18 +214,18 @@
     "trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia-opt-in.pref": "f0807aa36985641cda05e26f57a17843d10d91937fa1d887b97278bf0935f576",
     "trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref": "53ddaec3db7a22f7f0abb039b06a0bc2b61a47d5eb339547e2ee7554841454b4",
     "trixie/hooks/target/etc/apt/server/preferences.d/x11.pref": "94baeed7859a83e8e469cac8b91b58e1992e803584a8576215c5a1d89d0e42f5",
-    "trixie/preseed.cfg": "e8216e21e75078c84a0ccd4675f4cd62d889960b015cbc3331e1ff8e4a348476"
+    "trixie/preseed.cfg": "c53c1976a63da90d244e69b6e6d2bc91d84a940bd5e79d194d0a3d2442eb509b"
   },
   "members": 2421,
   "products": {
-    "payload.manifest": "5c2cbbab1e89430e258d6f45257e66c15ef9e47e4d97b116d323c9123722e238",
-    "payload.tar.gz": "4ad6b7ffe1fe7e366984de538cb2082b9a4a2b9c490f4dca342d10da830fe698",
+    "payload.manifest": "27cea132d6950bbcf45886b88e7a287697a625cd998c2486d8fe9467933a8d5e",
+    "payload.tar.gz": "c8bd31c4484ca4c216dd21949da147056900d1d0289037288114d86ab06e819c",
     "source.sh": "4b79e30d528aa1e24f872574cda2b25fb198ae5028a49bedc907feb43002e944",
     "support-matrix.json": "d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef"
   },
-  "release": "caa6ec65037554a5d7ab2e6633afc63dbee918f8d27599a3702244e1e8c64cda",
+  "release": "e0a7aae200255bfcab831a73a8f67146bfbffb98f356b512c039a37de6ef24f1",
   "runtime_acceptance": "unverified; no installer, native checks or tests executed",
-  "source_fingerprint": "873348845ed6f7b8cd153213cd9a0deb4afaf880e94a7779dfc0ef84c16d1ff2",
+  "source_fingerprint": "8297b21e2423b815593394ac07e70097a2f6e32cac1e9fc10af4c8e1fd83c33d",
   "source_inputs": {
     "catalog/selection.json": "da1bf52a0fbb1850fc18a94f277b69bee0b2b1788096dff6f1ec18a7751dcc97",
     "catalog/target-assets.tsv": "1b938d3ee476875f63c18fa1bad8e7df7a639928876591567175d0c86e46df09",
@@ -2420,7 +2420,7 @@
     "scripts/late/tmpfiles-directories.py.tmpl": "84d8fe8eea9ed3d7dfff8f90de53169510ae7140172148181db1bca35139391c",
     "scripts/late/tor-browser.sh": "04d96dbab70e36f5f8b4962cfe4906d393a056293a7854b8646ca50d0df0758f",
     "scripts/late/volatile-storage.sh": "822875baa18fd4f1d024efa903f1cb7a5f919d17b80d74a26a37efd92959727f",
-    "scripts/late/whisper.sh": "7eacc29263b69ec15aa52a4e40538b63e8fee7c97ff248098a5d28264d0e8861",
+    "scripts/late/whisper.sh": "07eb3d083318184f98da69cbceb5617558b6394dabd229a72c639825afda0cc3",
     "scripts/late/zram-swap.sh": "be88a7487cad315b88ede245a47270901a60b4ee8fd1e85711cdec5bd8bf0126",
     "scripts/partman/detect-disk.sh": "eac0e669b4a76304caee8805e8f130be80582ae532f08a6bb40b2bcbbed96380",
     "scripts/partman/dispatch.sh": "669e3f9e5fb6b50dd055b28464f3034ad688d3d2be271549a70a4e4f1732d5ac",

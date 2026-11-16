@@ -758,13 +758,21 @@ whisper_target_download_and_install_release() {
   unset archive_bytes archive_path archive_sha256 extract_dir release_record release_record_staged
 }
 
+whisper_target_cli_entrypoint() {
+  case "${whisper_install_family:-}" in
+    desktop) printf '%s\n' __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/whisper-cli-default-model ;;
+    server) printf '%s\n' "${WHISPER_BINARY_DIR}/whisper-cli" ;;
+    *) whisper_target_fatal 'Whisper CLI publication requires a validated desktop or server family' ;;
+  esac
+}
+
 whisper_target_install_entrypoints() {
-  cli_wrapper="${DIR_USR_LOCAL_LIBEXEC}/whisper-cli-default-model"
+  cli_wrapper=$(whisper_target_cli_entrypoint)
   stable_cli=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/whisper-cli
   stable_server=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/whisper-server
 
   [ -f "$cli_wrapper" ] && [ ! -L "$cli_wrapper" ] && [ -x "$cli_wrapper" ] ||
-    whisper_target_fatal "managed default-model Whisper CLI wrapper is unavailable"
+    whisper_target_fatal "managed Whisper CLI entrypoint is unavailable"
   install -d -m 0755 __INSTALLER_PATH_DIR_USR_LOCAL_BIN__
 
   if [ -e "$stable_cli" ] && [ ! -L "$stable_cli" ]; then
@@ -807,7 +815,7 @@ whisper_target_verify_metadata() {
 whisper_target_verify_runtime() {
   runtime_config=__INSTALLER_PATH_DIR_ETC_WHISPER__/whisper.conf
   release_record="${WHISPER_ROOT}/.installer-release"
-  cli_wrapper="${DIR_USR_LOCAL_LIBEXEC}/whisper-cli-default-model"
+  cli_wrapper=$(whisper_target_cli_entrypoint)
   stable_cli=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/whisper-cli
   stable_server=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/whisper-server
   model_path="${WHISPER_MODEL_DIR}/${model_filename}"
@@ -874,6 +882,13 @@ whisper_target_verify_runtime() {
 whisper_target_install() {
   # This mode runs only after whisper.sh and its archive helper have been staged
   # into the target. No source checkout or compilation is performed.
+  # The installer supplies the role as argv, independently of its environment.
+  # Headless roles publish the native CLI; only desktop roles stage its UI-side
+  # default-model wrapper and WhisperMode Perl dependencies.
+  case "${2:-}" in
+    desktop|server) whisper_install_family=$2 ;;
+    *) whisper_target_fatal 'target installation requires the explicit desktop or server family' ;;
+  esac
   PATH=__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__:__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__
   export PATH
   umask 077
@@ -1111,7 +1126,7 @@ chmod 0600 "$target_profile_host"
 chown 0:0 "$target_profile_host"
 
 run_whisper_install_in_target "download and install selected whisper.cpp runtime" \
-  "$target_helper" --target-install "$target_profile"
+  "$target_helper" --target-install "$target_profile" "$INSTALLER_HOST_VARIANT"
 
 whisper_runtime_conf_dir_host="${target_root}__INSTALLER_PATH_DIR_ETC__/whisper"
 whisper_runtime_conf_host="${whisper_runtime_conf_dir_host}/whisper.conf"
