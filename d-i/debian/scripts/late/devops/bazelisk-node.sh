@@ -13,6 +13,8 @@ bazelisk_fatal() {
   exit 1
 }
 
+[ "$#" -eq 5 ] || bazelisk_fatal "Bazelisk argument contract requires 5 values (received $#)"
+
 bazelisk_validate_positive_integer() {
   label=$1
   value=$2
@@ -138,6 +140,8 @@ node_fatal() {
   printf "fatal: %s\n" "$*" >&2
   exit 1
 }
+
+[ "$#" -eq 27 ] || node_fatal "Node runtime argument contract requires 27 values (received $#)"
 
 node_require_command() {
   command -v "$1" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
@@ -335,9 +339,10 @@ for required_command in awk chown curl find install ln mktemp mv rmdir sha256sum
 done
 unset required_command
 
-download_timeout=${31}
-max_archive_members=${32}
-max_extracted_bytes=${33}
+# Three runtimes have eight fields each; their shared policy follows at 25–27.
+download_timeout=${25}
+max_archive_members=${26}
+max_extracted_bytes=${27}
 node_validate_positive_integer "Node download timeout" "$download_timeout"
 node_validate_positive_integer "Node archive member ceiling" "$max_archive_members"
 node_validate_positive_integer "Node expanded-byte ceiling" "$max_extracted_bytes"

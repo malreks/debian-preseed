@@ -547,7 +547,102 @@ def _literal_shell_word(source: str, start: int) -> tuple[str, int]:
     return ''.join(parts), position
 
 
-def _late_target_shells(source: str, depth: int = 0) -> list[tuple[int, str, str]]:
+def _shell_invocation_arguments(source: str, start: int) -> list[str] | None:
+    """Read a fixed child argv as data; None means its width is dynamic/unknown.
+
+    Accept literal words and quoted scalar expansions only. Never expand a
+    variable, run a substitution, or guess the width of forwarded "$@", globs,
+    unquoted expansions, redirections or compound shell syntax. The first word
+    after the script supplies $0, rather than the child's first parameter.
+    """
+    # Consume one physical command, joining only explicit backslash-newline
+    # continuations. This is linear in the source size and avoids a repeated
+    # whitespace regex over long generated shell calls.
+    lines = []
+    position = start
+    while position <= len(source):
+        newline = source.find('\n', position)
+        if newline < 0:
+            lines.append(source[position:])
+            break
+        line = source[position:newline]
+        if line.endswith('\\'):
+            lines.append(line[:-1])
+            position = newline + 1
+            continue
+        lines.append(line)
+        break
+    logical = ' '.join(lines)
+
+    # Reject shell syntax and unquoted expansion before shlex normalization.
+    # Quoted scalar variables are fixed-width values; positional forwarding,
+    # command substitution and globbing are deliberately unknown-width.
+    quote = ''
+    escaped = False
+    index = 0
+    while index < len(logical):
+        character = logical[index]
+        if escaped:
+            escaped = False
+            index += 1
+            continue
+        if character == '\\' and quote != "'":
+            escaped = True
+            index += 1
+            continue
+        if quote:
+            if character == quote:
+                quote = ''
+            elif quote == '"' and character in '`':
+                return None
+            elif quote == '"' and character == '$':
+                if logical[index + 1:index + 2] in ('@', '*', '('):
+                    return None
+                if logical[index + 1:index + 3] == '${' and logical[index + 3:index + 4] in ('@', '*'):
+                    return None
+            index += 1
+            continue
+        if character in "'\"":
+            quote = character
+        elif character in '$`*?[~;&|<>':
+            return None
+        index += 1
+    if quote or escaped:
+        return None
+    try:
+        words = shlex.split(logical)
+    except ValueError:
+        return None
+    return words[1:]
+
+
+def _shell_positional_issues(body: str, arguments: list[str] | None) -> list[str]:
+    """Check fixed, entry-scope bindings and explicit arity guards as data.
+
+    Function parameters belong to their callers, not to the outer sh -c argv.
+    Stop at argv replacement/shift: later parameter positions have a different
+    contract. This deliberately does not claim full shell control-flow analysis.
+    """
+    if arguments is None:
+        return []
+    scope = re.sub(r'(?ms)^([ \t]*)[A-Za-z_][A-Za-z0-9_]*\(\) \{\n.*?^\1\}[ \t]*$',
+                   '', body)
+    scope = re.split(r'(?m)^[ \t]*(?:shift\b|set[ \t]+--(?:[ \t]|$))', scope, maxsplit=1)[0]
+    issues = []
+    for guard in re.finditer(r'\[ "\$#" -eq ([0-9]+) \]', scope):
+        if int(guard[1]) != len(arguments):
+            issues.append(f'argument guard requires {guard[1]} values, '
+                          f'but invocation supplies {len(arguments)} (excluding $0)')
+    for binding in re.finditer(r'(?m)^[ \t]*([A-Za-z_][A-Za-z0-9_]*)=["\x27]?'
+                               r'\$(?:([1-9])|\{([1-9][0-9]*)\})', scope):
+        index = int(binding[2] or binding[3])
+        if index > len(arguments):
+            issues.append(f'positional binding {binding[1]} requires ${index}, '
+                          f'but invocation supplies {len(arguments)} arguments (excluding $0)')
+    return issues
+
+
+def _late_target_shells(source: str, depth: int = 0) -> list[tuple[int, str, str, list[str] | None]]:
     """Read child shell programs as data, including their nested -c scopes."""
     if depth > 8:
         raise ValueError('embedded shell quoting exceeds the supported nesting depth')
@@ -572,16 +667,17 @@ def _late_target_shells(source: str, depth: int = 0) -> list[tuple[int, str, str
             command_start = previous_start
         body, consumed_until = _literal_shell_word(source, start)
         source_line = source.count('\n', 0, start) + 1
-        scripts.append((source_line, body, source[command_start:command.start()]))
-        scripts.extend((source_line + nested_line - 1, nested_body, invocation)
-                       for nested_line, nested_body, invocation
+        arguments = _shell_invocation_arguments(source, consumed_until)
+        scripts.append((source_line, body, source[command_start:command.start()], arguments))
+        scripts.extend((source_line + nested_line - 1, nested_body, invocation, nested_arguments)
+                       for nested_line, nested_body, invocation, nested_arguments
                        in _late_target_shells(body, depth + 1))
     for heredoc in re.finditer(r"<<'([A-Z][A-Z0-9_]*_SH)'\n", source):
         end = re.search(r'^' + re.escape(heredoc[1]) + r'$', source[heredoc.end():], re.M)
         if end is None:
             raise ValueError('unterminated embedded shell heredoc')
         scripts.append((source.count('\n', 0, heredoc.end()) + 1,
-                        source[heredoc.end():heredoc.end() + end.start()], ''))
+                        source[heredoc.end():heredoc.end() + end.start()], '', None))
     return scripts
 
 
@@ -686,6 +782,7 @@ def check_late_target_shells(paths: list[Path], errors: list[str],
         errors.append('DevOps account wrapper no longer has an explicit env -i argv contract')
         return
     checked = 0
+    positional_checked = 0
     managed_checked = 0
     target_modes = target_functions = target_fields = 0
     for owner in owners:
@@ -693,7 +790,10 @@ def check_late_target_shells(paths: list[Path], errors: list[str],
             source = _render_installer_path_placeholders(_read_text(owner))
             if re.search(r'__INSTALLER_PATH_[A-Z0-9_]+__', source):
                 raise ValueError('installer script has unresolved runtime path placeholders')
-            for source_line, body, invocation in _late_target_shells(source):
+            for source_line, body, invocation, arguments in _late_target_shells(source):
+                for issue in _shell_positional_issues(body, arguments):
+                    errors.append(f'{owner.relative_to(ROOT)}:{source_line}: {issue}')
+                positional_checked += arguments is not None
                 declared = _target_shell_policy_fields(body)
                 if re.match(r'\s*devops_run_as_account(?:_from_payload)?\b', invocation):
                     declared.update(wrapper_names)
@@ -760,6 +860,7 @@ def check_late_target_shells(paths: list[Path], errors: list[str],
             errors.append(f'{owner.relative_to(ROOT)}: embedded target shell: {error}')
     counts['installer_child_shell_owners'] = len(owners)
     counts['installer_child_shells'] = checked
+    counts['installer_child_fixed_argv'] = positional_checked
     counts['managed_software_target_shells'] = managed_checked
     counts['late_target_install_scopes'] = target_modes
     counts['late_target_install_functions'] = target_functions

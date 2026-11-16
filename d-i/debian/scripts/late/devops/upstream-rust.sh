@@ -232,6 +232,8 @@ rustup_fatal() {
   exit 1
 }
 
+[ "$#" -eq 7 ] || rustup_fatal "Rustup argument contract requires 7 values (received $#)"
+
 rustup_require_command() {
   command -v "$1" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
     rustup_fatal "required command is unavailable: $1"

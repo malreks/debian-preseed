@@ -153,7 +153,8 @@ sub download {
         defined $effective && length($effective) <= 2048 or die "$args{label} effective URL is invalid\n";
         $validate->($effective);
         $content_type //= q{};
-        $content_type = lc((split /;/, $content_type, 2)[0]);
+        # split returns no fields for an empty string, even with a limit.
+        $content_type = lc((split /;/, $content_type, 2)[0] // q{});
         if ($args{content_policy} eq 'artifact') {
             $content_type !~ /\A(?:text\/(?:html|plain|xml)|application\/(?:json|xml))\z/
                 or die "$args{label} download returned a non-artifact content type\n";

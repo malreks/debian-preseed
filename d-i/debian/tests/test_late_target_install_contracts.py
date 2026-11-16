@@ -92,14 +92,14 @@ class TargetInstallContracts(unittest.TestCase):
         rendered = CHECKER._render_installer_path_placeholders(source)
         children = CHECKER._late_target_shells(rendered)
         self.assertEqual(len(children), 2)
-        nested = [body for _line, body, _invocation in children if 'for link_path; do' in body]
+        nested = [body for _line, body, _invocation, _arguments in children if 'for link_path; do' in body]
         self.assertEqual(len(nested), 2)  # Outer body contains the quoted nested body too.
         broken = source.replace('resolved_path=$(', 'missing="$DIR_USR_LOCAL_LIBEXEC"\nresolved_path=$(', 1)
         self.assertNotEqual(broken, source)
         children = CHECKER._late_target_shells(CHECKER._render_installer_path_placeholders(broken))
         self.assertTrue(any(message['code'] == 2154
                             and 'DIR_USR_LOCAL_LIBEXEC' in message['message']
-                            for _line, body, _invocation in children
+                            for _line, body, _invocation, _arguments in children
                             for message in self.unbound(body)))
 
     def test_only_explicitly_sourced_policy_fields_belong_to_a_child(self):
@@ -108,6 +108,65 @@ class TargetInstallContracts(unittest.TestCase):
         self.assertIn('LABWC_DESKTOP_QT_ICON_THEME', CHECKER._target_shell_policy_fields(rendered))
         self.assertEqual(CHECKER._target_shell_policy_fields('printf "%s\\n" "$LABWC_DESKTOP_QT_ICON_THEME"'), set())
         self.assertNotIn('DIR_USR_LOCAL_LIBEXEC', CHECKER._target_shell_policy_fields(rendered))
+
+
+class ChildShellArgumentContracts(unittest.TestCase):
+    """Inspect argv and mutate source data; never execute a child program."""
+
+    def child(self, body, suffix):
+        source = "/bin/sh -eu -c '" + body.replace("'", "'\\''") + "'" + suffix
+        children = CHECKER._late_target_shells(source)
+        self.assertEqual(len(children), 1)
+        _line, parsed_body, _invocation, arguments = children[0]
+        return parsed_body, arguments
+
+    def test_reported_node_policy_positions_match_all_three_runtime_records(self):
+        source = (ROOT / 'd-i/debian/scripts/late/devops/bazelisk-node.sh').read_text()
+        children = CHECKER._late_target_shells(CHECKER._render_installer_path_placeholders(source))
+        nodes = [(body, arguments) for _line, body, _invocation, arguments in children
+                 if 'node_install() {' in body]
+        self.assertEqual(len(nodes), 1)
+        body, arguments = nodes[0]
+        expected = ['$DEVOPS_NODE_' + str(major) + '_' + field
+                    for major in (22, 24, 26)
+                    for field in ('MAJOR', 'VERSION', 'URL', 'SHA256', 'ARCHIVE_FILENAME',
+                                  'ARCHIVE_ROOT', 'INSTALL_ROOT', 'BINARY_PATH')]
+        expected += ['$DEVOPS_UPSTREAM_DOWNLOAD_TIMEOUT_SECONDS',
+                     '$DEVOPS_UPSTREAM_MAX_ARCHIVE_MEMBERS', '$DEVOPS_UPSTREAM_MAX_EXTRACTED_BYTES']
+        self.assertEqual(arguments, expected)
+        self.assertEqual(CHECKER._shell_positional_issues(body, arguments), [])
+        for name, index in (('download_timeout', 25), ('max_archive_members', 26),
+                            ('max_extracted_bytes', 27)):
+            self.assertIn(name + '=${' + str(index) + '}', body)
+            broken = body.replace(name + '=${' + str(index) + '}', name + '=${' + str(index + 6) + '}')
+            issues = CHECKER._shell_positional_issues(broken, arguments)
+            self.assertTrue(any(name in issue and '27 arguments' in issue for issue in issues), issues)
+
+    def test_zero_is_not_the_first_argument_and_quoted_spaces_keep_one_value(self):
+        body, arguments = self.child('first=$1\nsecond=${2}\n', ' sh "first value" ""')
+        self.assertEqual(arguments, ['first value', ''])
+        self.assertEqual(CHECKER._shell_positional_issues(body, arguments), [])
+        self.assertTrue(CHECKER._shell_positional_issues(body, arguments[:-1]))
+
+    def test_exact_arity_guard_rejects_missing_and_surplus_values(self):
+        body, arguments = self.child('[ "$#" -eq 2 ] || exit 1\n', ' sh one two')
+        self.assertEqual(CHECKER._shell_positional_issues(body, arguments), [])
+        for invalid in (arguments[:-1], arguments + ['extra']):
+            with self.subTest(arguments=invalid):
+                self.assertTrue(CHECKER._shell_positional_issues(body, invalid))
+
+    def test_function_parameters_have_a_separate_scope(self):
+        body, arguments = self.child('helper() {\n  local_value=${31}\n}\nvalue=$1\n', ' sh value')
+        self.assertEqual(CHECKER._shell_positional_issues(body, arguments), [])
+
+    def test_forwarded_or_replaced_argv_is_not_guessed(self):
+        for suffix in (' sh "$@"', ' sh $values', ' sh *.xz', ' sh "$(command)"'):
+            with self.subTest(suffix=suffix):
+                _body, arguments = self.child('value=${31}\n', suffix)
+                self.assertIsNone(arguments)
+        for command in ('shift 1', 'set -- replacement'):
+            with self.subTest(command=command):
+                self.assertEqual(CHECKER._shell_positional_issues(command + '\nvalue=${31}\n', []), [])
 
 
 class DevopsAccountPublicationContracts(unittest.TestCase):

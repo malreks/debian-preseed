@@ -23,7 +23,7 @@ use strict; use warnings;
 use APTRepoLocal::Servicing::HTTP;
 use Managed::Process;
 use JSON::PP;
-my ($destination, $redirect) = @ARGV;
+my ($destination, $redirect, $policy, $content_type) = @ARGV;
 my @calls;
 {
     no warnings 'redefine';
@@ -46,17 +46,21 @@ my @calls;
         print {$fh} 'fixture-artifact'; close $fh;
         return {status => 0, stdout => "302\n$url\ntext/html\n$redirect"}
             if @calls == 1 || $redirect eq 'https://api.example/loop';
-        return {status => 0, stdout => "200\n$url\napplication/octet-stream\n"};
+        my $response = "200\n$url";
+        $response .= "\n$content_type\n" if defined $content_type;
+        return {status => 0, stdout => $response};
     };
 }
+local $SIG{__WARN__} = sub { die @_ };
+my %metadata;
 my $ok = eval {
     APTRepoLocal::Servicing::HTTP->new->download(
         label => 'fixture', url => 'https://api.example/start', destination => $destination,
         allowed_hosts => ['api.example', 'cdn.example'],
-        content_policy => 'artifact');
+        content_policy => $policy, response_metadata => \%metadata);
     1;
 };
-print encode_json({ok => $ok ? 1 : 0, error => $@, calls => \@calls});
+print encode_json({ok => $ok ? 1 : 0, error => $@, calls => \@calls, metadata => \%metadata});
 '''
 
 
@@ -72,12 +76,16 @@ class VendorHTTPTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.destination = Path(temporary.name) / 'artifact'
 
-    def request(self, redirect):
+    def request(self, redirect, *, policy='artifact', content_type='application/octet-stream'):
+        arguments = [str(self.destination), redirect, policy]
+        if content_type is not None:
+            arguments.append(content_type)
         result = subprocess.run(installed_argv([
             '/usr/bin/perl', '-I' + str(LIB / 'apt-repo-local'), '-I' + str(LIB / 'runtime'),
-            '-e', DRIVER, '--', str(self.destination), redirect]),
+            '-e', DRIVER, '--', *arguments]),
                                 env=ENV, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
         return json.loads(result.stdout)
 
     def test_approved_redirect_contacts_only_validated_hosts_then_publishes(self):
@@ -105,6 +113,43 @@ class VendorHTTPTests(unittest.TestCase):
         self.assertEqual(len(result['calls']), 9)
         self.assertFalse(self.destination.exists())
         self.assertFalse(Path(str(self.destination) + '.part').exists())
+
+    def test_missing_and_empty_content_types_are_accepted_without_warnings(self):
+        for policy in ('artifact', 'metadata'):
+            for content_type in (None, ''):
+                with self.subTest(policy=policy, content_type=content_type):
+                    result = self.request('https://cdn.example/artifact', policy=policy,
+                                          content_type=content_type)
+                    self.assertEqual(result['ok'], 1, result['error'])
+                    self.assertEqual(result['metadata']['content_type'], '')
+                    self.assertEqual(self.destination.read_bytes(), b'fixture-artifact')
+                    self.assertFalse(Path(str(self.destination) + '.part').exists())
+
+    def test_content_type_case_and_parameters_are_normalized(self):
+        for policy, content_type, expected in (
+                ('artifact', 'Application/Octet-Stream; charset=binary', 'application/octet-stream'),
+                ('metadata', 'Application/JSON; charset=UTF-8', 'application/json'),
+                ('signature', 'Application/PGP-Signature; charset=us-ascii', 'application/pgp-signature')):
+            with self.subTest(policy=policy, content_type=content_type):
+                result = self.request('https://cdn.example/artifact', policy=policy,
+                                      content_type=content_type)
+                self.assertEqual(result['ok'], 1, result['error'])
+                self.assertEqual(result['metadata']['content_type'], expected)
+
+    def test_content_type_policy_rejections_remove_partial_downloads(self):
+        for policy, content_type, reason in (
+                ('artifact', 'Text/HTML; charset=UTF-8', 'non-artifact content type'),
+                ('metadata', 'Text/HTML; charset=UTF-8', 'unsupported metadata content type'),
+                ('signature', None, 'unsupported signature content type'),
+                ('signature', '', 'unsupported signature content type')):
+            with self.subTest(policy=policy, content_type=content_type):
+                result = self.request('https://cdn.example/artifact', policy=policy,
+                                      content_type=content_type)
+                self.assertEqual(result['ok'], 0)
+                self.assertIn(reason, result['error'])
+                self.assertEqual(result['metadata'], {})
+                self.assertFalse(self.destination.exists())
+                self.assertFalse(Path(str(self.destination) + '.part').exists())
 
     def test_transport_diagnostics_preserve_status_without_exposing_response_urls(self):
         driver = r'''
