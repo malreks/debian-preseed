@@ -57,27 +57,9 @@ installer_fetch_host_env "$SEED_BASE" "$HOST_PROFILE" "$PREPKGSEL_HOST_ENV" 0600
 # shellcheck disable=SC1090,SC1091
 installer_load_data_env "$PREPKGSEL_HOST_ENV"
 
-render_pre_pkgsel_asset() {
-  prepkgsel_asset=$1
-  if LC_ALL=C grep -q '__INSTALLER_PATH_' "$prepkgsel_asset"; then
-    # fetch_hook_file installs pre-pkgsel helpers with this fixed mode.  The
-    # d-i BusyBox image deliberately has no `stat` applet, so preserve the
-    # contract directly instead of probing metadata with an unavailable tool.
-    prepkgsel_mode=755
-    prepkgsel_rendered="${prepkgsel_asset}.path-rendered"
-    installer_apply_scalar_placeholders "$prepkgsel_asset" "$prepkgsel_rendered" || return 1
-    installer_assert_no_unresolved_path_placeholders "$prepkgsel_rendered" "$prepkgsel_asset" || return 1
-    chmod "$prepkgsel_mode" "$prepkgsel_rendered" || return 1
-    mv -f -- "$prepkgsel_rendered" "$prepkgsel_asset" || return 1
-  else
-    prepkgsel_probe_status=$?
-    [ "$prepkgsel_probe_status" = 1 ] || return 1
-  fi
-}
-
 fetch_hook() {
+  # The first base hook rendered these authenticated helpers as one batch.
   fetch_hook_file "$1" "$2"
-  render_pre_pkgsel_asset "$2"
 }
 
 fetch_hook "$(installer_repo_file_value FILE_LATE_CORE)" "$TMP_ENV_DIR/late-core.sh"

@@ -22,7 +22,7 @@ fi
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib "${1:-}"
 [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || \
-  installer_fatal 'target payload must be prepared by finish-install before late_command'
+  installer_fatal 'target payload must be prepared by the first base-stage hook before late_command'
 installer_init_log_file "$(installer_runtime_log_file)" "" "late dispatch" late-dispatch late_command
 installer_operation_context_repo FILE_LATE_DISPATCH 25 late_dispatch
 trap 'installer_finalize_log "$?"' EXIT
@@ -193,7 +193,7 @@ fi
 # any stage failure; successful cleanup runs under the same phase ownership.
 installer_run_bounded 180 chroot "$TARGET_ROOT" "${DIR_USR_BIN}/env" -i \
   HOME="$DIR_ROOT_HOME" PATH="${DIR_USR_BIN}:${DIR_BIN}" LC_ALL=C.UTF-8 \
-  "${DIR_USR_BIN}/python3" -I -B "${DIR_INSTALLER_TARGET_STAGE}/render.py" \
+  "${DIR_USR_BIN}/perl" -f "${DIR_INSTALLER_TARGET_STAGE}/render.pl" \
   "$DIR_INSTALLER_TARGET_STAGE" --cleanup
 rm -f -- "$FILE_INSTALLER_TARGET_RENDER_READY"
 BOOTSTRAP_PREPARED_SOURCE_ROOT=

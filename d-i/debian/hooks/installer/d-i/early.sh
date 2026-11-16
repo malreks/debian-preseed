@@ -121,6 +121,8 @@ family_d_i_early_main() {
   fetch_hook_file "$(installer_repo_file_value FILE_INST_APT_98_CUDA_LEGACY_SOURCE)" "${DIR_INSTALLER_APT_SETUP_GENERATORS}/98-cuda-legacy-source"
   chmod 0755 ${DIR_INSTALLER_APT_SETUP_GENERATORS}/98-cuda-legacy-source
   chmod 0755 ${DIR_INSTALLER_APT_SETUP_GENERATORS}/99-apt-preferences
+  fetch_hook_file "$(installer_repo_file_value FILE_INST_BASE_RENDER_TARGET)" "${DIR_INSTALLER_BASE_INSTALLER_D}/00rendertarget"
+  chmod 0755 "${DIR_INSTALLER_BASE_INSTALLER_D}/00rendertarget"
   fetch_hook_file "$(installer_repo_file_value FILE_INST_BASE_10_APT_INSTALL_POLICY)" "${DIR_INSTALLER_BASE_INSTALLER_D}/10-apt-install-policy"
   fetch_hook_file "$(installer_repo_file_value FILE_INST_BASE_20_FSTAB_GUARD)" "${DIR_INSTALLER_BASE_INSTALLER_D}/20-fstab-guard"
   chmod 0755 ${DIR_INSTALLER_BASE_INSTALLER_D}/10-apt-install-policy
@@ -132,7 +134,6 @@ family_d_i_early_main() {
   fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_95_NORMALIZE_APT)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt"
   chmod 0755 ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt
   fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_00_INSTALLER_GUARD)" ${DIR_INSTALLER_FINISH_INSTALL_D}/00-installer-guard
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_RENDER_TARGET)" "${DIR_INSTALLER_FINISH_INSTALL_D}/06-render-target"
   fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_94ZZ_99_VALIDATE_TARGET)" ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-99-validate-target
   # Interpose on the first base-installer APT update, not on the later
   # apt-setup generator. The adapter rejects unknown d-i waypoint layouts.
@@ -147,7 +148,12 @@ family_d_i_early_main() {
     installer_guard_hook "/var/lib/dpkg/info/$component.postinst" component ||
       installer_fatal "cannot supervise mandatory d-i component: $component"
   done
-  # base-installer itself treats post-base hook failures as warnings.
+  # Both base hook runners treat child failures as warnings. Supervision must
+  # hold on preparation failure before any later hook or kernel transaction.
+  for base_hook in "${DIR_INSTALLER_BASE_INSTALLER_D}"/*; do
+    [ -x "$base_hook" ] || continue
+    installer_guard_hook "$base_hook" base || installer_fatal 'cannot supervise base hook'
+  done
   for base_hook in ${DIR_INSTALLER_POST_BASE_INSTALLER_D}/*; do
     [ -x "$base_hook" ] || continue
     installer_guard_hook "$base_hook" post-base || installer_fatal 'cannot supervise post-base hook'

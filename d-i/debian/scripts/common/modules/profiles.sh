@@ -318,7 +318,7 @@ installer_prepare_late_account_env() (
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] &&
       [ "$late_account_seed" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
-    # The finish hook resolves protected credentials and identity once, before
+    # The preparation stage resolves protected credentials and identity once, before
     # rendering. Every late provider must consume that same private snapshot.
     late_account_snapshot=${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/account.env
     if cmp -s "$late_account_snapshot" "$late_account_destination"; then exit 0; fi

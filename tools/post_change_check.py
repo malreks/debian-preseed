@@ -4208,38 +4208,64 @@ def check_apparmor(paths: list[Path], errors: list[str], counts: dict[str, int])
 
 def check_target_render_contract(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
     """Check the pre-late producer/consumer interface without running hooks."""
-    hook = DEBIAN_ROOT / 'hooks/installer/finish-install.d/06-render-target'
-    renderer = DEBIAN_ROOT / 'scripts/common/render.py'
+    hook = DEBIAN_ROOT / 'hooks/installer/base-stage.d/00rendertarget'
+    renderer = DEBIAN_ROOT / 'scripts/common/render.pl'
     dispatch = DEBIAN_ROOT / 'scripts/late/dispatch.sh'
     early = DEBIAN_ROOT / 'hooks/installer/d-i/early.sh'
-    owners = {hook, renderer, dispatch, early, DEBIAN_ROOT / 'repo.env',
+    stage_table = DEBIAN_ROOT / 'hooks/installer/class-dispatch.tsv'
+    prepkg = DEBIAN_ROOT / 'hooks/installer/pre-pkgsel.d/50-class-plan.sh'
+    dkms = DEBIAN_ROOT / 'hooks/installer/pre-pkgsel.d/90secure-boot-dkms.sh'
+    software = DEBIAN_ROOT / 'scripts/late/software.sh.tmpl'
+    owners = {hook, renderer, dispatch, early, stage_table, prepkg, dkms, software, DEBIAN_ROOT / 'repo.env',
               DEBIAN_ROOT / 'hooks/installer/di.env',
               DEBIAN_ROOT / 'scripts/common/bootstrap.sh', Path(__file__).resolve()}
     if not owners.intersection(paths):
         return
     preparation, consumer, startup = map(_read_text, (hook, dispatch, early))
-    tree = ast.parse(_read_text(renderer))
-    options = {node.args[0].value for node in ast.walk(tree)
-               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-               and node.func.attr == 'add_argument' and node.args
-               and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)}
-    # Source-selector options are declared by the renderer's bounded loop.
-    selectors = {'--scripts', '--target', '--late', '--desktop', '--firstboot',
-                 '--appearance-python', '--appearance-registry'}
-    requested = set(re.findall(r'--[a-z][a-z-]+', preparation))
-    if requested - options - selectors:
+    renderer_text = _read_text(renderer)
+    option_pattern = re.search(r'--\((scripts\|[^)]+)\)', renderer_text)
+    options = {'--' + key for key in option_pattern[1].split('|')} if option_pattern else set()
+    options.add('--cleanup')
+    call = re.search(r'"\$\{DIR_USR_BIN\}/perl" -f(.*?)--sha256 "\$\{DIR_USR_BIN\}/sha256sum"', preparation, re.S)
+    requested = set(re.findall(r'--[a-z][a-z0-9-]+', call[0])) if call else set()
+    if not call or requested != options - {'--cleanup'}:
         errors.append('pre-late hook passes an unsupported target renderer option')
     if not re.search(r'bootstrap_source_common_support_libs[^\n]*\sfetch\s+target(?:\s|$)', preparation):
         errors.append('pre-late hook must load fetch and target libraries before theme preparation')
-    if ('FILE_INST_FINISH_RENDER_TARGET' not in startup or '/06-render-target"' not in startup
-            or '07preseed' not in preparation):
-        errors.append('target rendering is not wired before the Debian preseed late hook')
+    if (startup.count('installer_repo_file_value FILE_INST_BASE_RENDER_TARGET') != 1
+            or '"${DIR_INSTALLER_BASE_INSTALLER_D}/00rendertarget"' not in startup
+            or 'installer_guard_hook "$base_hook" base' not in startup
+            or re.search(r'RENDER_TARGET|installer\.target-render', _read_text(stage_table))
+            or 'FILE_INST_FINISH_RENDER_TARGET' in startup
+            or 'FILE_INST_PREPKG_RENDER_TARGET' in startup):
+        errors.append('target preparation must be the one supervised first base-installer hook')
+    if ('/hook-component-bootstrap-base.postinst.running' not in preparation
+            or 'postinst.done' in preparation or 'apt-install ' in preparation):
+        errors.append('first base hook must run inside bootstrap-base without waiting for itself or installing packages')
+    if ('installer_exec_logged "$prepare_output"' not in preparation
+            or 'installer_run_bounded "$prepare_limit" installer_exec_logged' not in preparation
+            or 'python3' in preparation):
+        errors.append('target preparation lost its bounded Perl logger or tty4 diagnostic stream')
     if ('BOOTSTRAP_PREPARED_SOURCE_ROOT:-' not in consumer
-            or '--cleanup' not in consumer or '--cleanup' not in options):
+            or '/perl" -f' not in consumer or '--cleanup' not in consumer):
         errors.append('late dispatch must require and retire its prepared source workspace')
-    if ('/env" -i' not in preparation or '/python3" -I -B' not in preparation
+    software_text = _read_text(software)
+    if ('BOOTSTRAP_PREPARED_SOURCE_ROOT:-' not in software_text
+            or 'managed software requires the completed base-stage target payload' not in software_text):
+        errors.append('managed software must require completed base-stage rendering before downloads')
+    prepkg_text = _read_text(prepkg)
+    if ('BOOTSTRAP_PREPARED_SOURCE_ROOT:-' not in prepkg_text
+            or 'installer_apply_scalar_placeholders' in prepkg_text
+            or 'render_pre_pkgsel_asset' in _read_text(dkms)
+            or 'installer_apply_scalar_placeholders' in _read_text(dkms)
+            or "qw(scripts target installer)" not in renderer_text):
+        errors.append('pre-pkgsel must consume batch-rendered installer/DKMS helpers without rendering again')
+    if ('/env" -i' not in preparation or '/perl" -f' not in preparation
             or '--family "$INSTALLER_HOST_VARIANT"' not in preparation):
         errors.append('target renderer lost its isolated interpreter or selected-family arguments')
+    imports = re.findall(r'^use ([A-Za-z][A-Za-z0-9_:]*)\b', renderer_text, re.M)
+    if set(imports) - {'strict', 'warnings', 'bytes', 'constant', 'Fcntl', 'File::Temp', 'IPC::Open2', 'Cwd'}:
+        errors.append('early renderer requires a module outside the reviewed perl-base support set')
     target_contract = _read_text(DEBIAN_ROOT / 'hosts/installer/runtime.env')
     if re.search(r'^DIR_INSTALLER_TARGET_STAGE=', target_contract, re.M):
         errors.append('installer staging state must not enter the installed runtime contract')

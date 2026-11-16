@@ -157,14 +157,6 @@ installer_apt_install_target_policy() (
     fi
     chmod 0644 "$apt_policy_work/new/$apt_policy_leaf" || exit "$?"
   done <"$apt_policy_work/catalog"
-  if [ "$apt_policy_phase" = bootstrap ]; then
-    # d-i in-target selects the Passthrough frontend on its fixed FD 3.
-    # APT closes unnamed extra descriptors before package preconfiguration;
-    # retain this protocol FD through bootstrap/pkgsel, as debconf requires.
-    # The normal install/final publication replaces this bootstrap-only file.
-    printf '\n// Debian Installer debconf protocol descriptor.\nAPT::Keep-Fds:: "3";\n' \
-      >>"$apt_policy_work/new/25no-pdiffs" || exit "$?"
-  fi
   apt_policy_required_files='25no-pdiffs 99noinstall-recommends'
   if [ "$apt_policy_phase" != bootstrap ]; then
     apt_policy_required_files="00CDMountPoint 00installer-policy 00trustcdrom 01autoremove 20auto-upgrades 52unattended-upgrades $apt_policy_required_files"

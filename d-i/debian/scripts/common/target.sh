@@ -415,18 +415,17 @@ target_copy_diagnostic_output() {
   [ "$target_relay_capture_ok" = true ]
 }
 
-# Ordinary target commands stream diagnostics while retaining their exact
-# status. Capture/quiet/interactive entrypoints keep their existing interfaces.
+# Installer and target commands share one diagnostic stream and exact status.
 # Explicit status records avoid the POSIX pipeline-status loss without Bash
 # pipefail, a detached follower, or a long-lived FIFO reader.
-target_exec_logged() (
+installer_exec_logged() (
   target_stream_output=$1
   shift
   target_stream_work=$(mktemp -d "${target_stream_output}.stream.XXXXXX") || exit 125
   trap 'rm -f "$target_stream_work/status" "$target_stream_work/copied"; rmdir "$target_stream_work"' 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   (
-    if target_exec_diagnostic "$@" </dev/null 2>&1; then target_stream_status=0; else target_stream_status=$?; fi
+    if "$@" </dev/null 2>&1; then target_stream_status=0; else target_stream_status=$?; fi
     printf '%s\n' "$target_stream_status" >"$target_stream_work/status" || exit 125
   ) | (
     umask 077
@@ -450,6 +449,12 @@ target_exec_logged() (
   # A failed command remains the primary failure, even if output capture fails.
   [ "$target_stream_status" -eq 0 ] || exit "$target_stream_status"
   [ -f "$target_stream_work/copied" ] || exit 125
+)
+
+target_exec_logged() (
+  target_logged_output=$1
+  shift
+  installer_exec_logged "$target_logged_output" target_exec_diagnostic "$@"
 )
 
 run_in_target() {

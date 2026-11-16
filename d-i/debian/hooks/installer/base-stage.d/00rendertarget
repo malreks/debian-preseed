@@ -1,14 +1,19 @@
 #!/bin/sh
-# Debian preseed's 07preseed executes late_command. Prepare its complete source
-# tree here, after pkgsel has installed the target's packaged Python runtime.
+# First base-installer.d hook: debootstrap has supplied perl-base, while target
+# APT setup, kernel installation, DKMS and package selection have not started.
 set -eu
 umask 077
 runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
 . "$runtime/bootstrap/bootstrap.sh"
 bootstrap_source_common_lib ""
-installer_init_log_file "$(installer_runtime_log_file)" "" 'prepare target payload' target-render target_customization
-installer_operation_context_repo FILE_INST_FINISH_RENDER_TARGET 10 prepare_target_payload
+installer_init_log_file "$(installer_runtime_log_file)" "" 'prepare target payload before all other base hooks' target-render base_install_start
+installer_operation_context_repo FILE_INST_BASE_RENDER_TARGET 10 prepare_target_payload
 trap 'installer_finalize_log "$?"' 0
+# This runs inside bootstrap-base, immediately after debootstrap. Waiting for
+# that component's completion here would deadlock its own running postinst.
+base_running=${DIR_INSTALLER_RUNTIME_STATE}/hook-component-bootstrap-base.postinst.running
+[ -d "$base_running" ] && [ ! -L "$base_running" ] ||
+  installer_fatal 'target preparation requires the supervised base-installer phase'
 seed_base=$(installer_seed_base "")
 installer_ensure_context_loaded "$seed_base"
 installer_assert_class_plan
@@ -27,7 +32,7 @@ install -d -m 0700 "${stage%/*}"
 work=$(mktemp -d "${stage}.XXXXXX")
 # Retain a failed candidate for diagnosis. Only a completed, fully rendered
 # candidate may receive the ready marker; late dispatch requires that marker.
-installer_info "preparing private target payload workspace=${work#"$TARGET_ROOT"}"
+installer_info "copying authenticated payload into target workspace=${work#"$TARGET_ROOT"}"
 install -d -m 0700 "$work/source" "$work/inputs"
 source_root=$(source_cache_root "$seed_base")
 cp -a "$source_root/." "$work/source/"
@@ -39,7 +44,7 @@ for snapshot in host account; do
 done
 cp "$runtime/bootstrap/payload.ready" "$work/identity"
 cp "$runtime/bootstrap/payload.manifest" "$work/inputs/payload.manifest"
-cp "$source_root/$(installer_repo_file_value FILE_COMMON_RENDER)" "$work/render.py"
+cp "$source_root/$(installer_repo_file_value FILE_COMMON_RENDER)" "$work/render.pl"
 installer_runtime_path_placeholder_map >"$work/inputs/paths.map"
 installer_load_logging_helpers "$seed_base"
 installer_validate_logging_data "$seed_base" \
@@ -54,21 +59,39 @@ printf 'ACCOUNT_USERNAME=%s\nSOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES=%s\n' \
 snapshots=false
 if installer_snapshots_enabled; then snapshots=true; fi
 target_work=${work#"$TARGET_ROOT"}
-# chroot enters only the installation target; Python reads explicit private
-# inputs and writes this candidate. It needs no /run, D-Bus or service manager.
-installer_run_bounded 180 chroot "$TARGET_ROOT" "${DIR_USR_BIN}/env" -i \
+prepare_run_logged() {
+  prepare_label=$1; prepare_output=$2; prepare_limit=$3
+  shift 3
+  installer_info "$prepare_label"
+  if installer_run_bounded "$prepare_limit" installer_exec_logged "$prepare_output" "$@"; then
+    cat "$prepare_output"
+  else
+    prepare_status=$?
+    [ ! -r "$prepare_output" ] || cat "$prepare_output" >&2
+    installer_fatal_status "$prepare_status" "$prepare_label failed; private candidate retained"
+  fi
+}
+# perl-base is part of Debian's base system. Target APT is deliberately
+# unavailable here; no additional interpreter package transaction is needed.
+[ -x "${TARGET_ROOT}${DIR_USR_BIN}/perl" ] || installer_fatal 'base installation did not provide its Perl interpreter'
+# The shared target logger streams redacted stdout/stderr to tty4 and captures
+# exact child status without relying on pipeline status or an optional tee.
+# Rendering uses plain chroot: it needs no debconf frontend or in-target bridge.
+prepare_run_logged 'payload copied; rendering target assets with base-system Perl' \
+  "$work/inputs/render.log" 180 chroot "$TARGET_ROOT" "${DIR_USR_BIN}/env" -i \
   HOME="$DIR_ROOT_HOME" PATH="${DIR_USR_BIN}:${DIR_BIN}" LC_ALL=C.UTF-8 \
-  "${DIR_USR_BIN}/python3" -I -B \
-  "$target_work/render.py" "$target_work" \
-  --scripts "$DIR_REPO_SCRIPTS" --target "$DIR_HOOKS_TARGET" \
+  "${DIR_USR_BIN}/perl" -f \
+  "$target_work/render.pl" "$target_work" \
+  --scripts "$DIR_REPO_SCRIPTS" --target "$DIR_HOOKS_TARGET" --installer "$DIR_HOOKS_INSTALLER" \
   --late "$DIR_SCRIPTS_LATE" --desktop "$DIR_SCRIPTS_DESKTOP" \
   --firstboot "$DIR_SCRIPTS_FIRSTBOOT" --appearance-python "$DIR_TARGET_PY/labwc_appearance" \
   --appearance-registry "$(installer_repo_file_value FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL)" \
   --perl-assets "$(installer_repo_file_value FILE_SHARED_PERL_ASSETS)" \
-  --perl-root "$DIR_PERL5_SITE_PERL" --family "$INSTALLER_HOST_VARIANT" --snapshots "$snapshots"
+  --perl-root "$DIR_PERL5_SITE_PERL" --family "$INSTALLER_HOST_VARIANT" --snapshots "$snapshots" \
+  --sha256 "${DIR_USR_BIN}/sha256sum"
 [ -s "$work/receipt.json" ] && [ ! -L "$work/receipt.json" ] || installer_fatal 'target renderer did not produce a receipt'
 mv -T -- "$work" "$stage"
 cp "$stage/identity" "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"
 chmod 0600 "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"
 mv -T -- "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp" "$FILE_INSTALLER_TARGET_RENDER_READY"
-installer_info 'target payload copied and rendered before preseed/late_command'
+installer_info 'target payload and installer helpers rendered before remaining base hooks, kernel/DKMS, pkgsel and late_command'

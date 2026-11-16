@@ -1,3 +1,8 @@
+This is a historical validation record for the earlier finish-install/Python
+implementation. Its hook placement, interpreter dependency and bootstrap
+`APT::Keep-Fds` change are superseded by
+[the first-base-hook Perl validation](installer-base-perl-20261116.md).
+
 The installation failure, prepared-payload handoff, AppArmor denials, and host
 scratch rule were reviewed on 2026-11-16. The starting checkout was clean at
 `512aa17c7a19ec79b62dd3620594352db05120f4`. The generated release identity is

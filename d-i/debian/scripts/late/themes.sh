@@ -8,7 +8,7 @@ installer_load_themes() {
   INSTALLER_THEME_DIR="${TMP_ENV_DIR}/themes"
   install -d -m 0700 "$INSTALLER_THEME_DIR" || return $?
   if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
-    # The finish hook validated these exact immutable inputs once. Only load
+    # The preparation stage validated these exact immutable inputs once. Only load
     # their literal values here; do not fetch and parse the schema per stage.
     theme_source_dir=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$DIR_HOSTS_THEMES
     INSTALLER_THEME_MAP=${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/themes.map

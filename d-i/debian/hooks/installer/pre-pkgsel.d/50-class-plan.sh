@@ -12,9 +12,11 @@ trap 'installer_finalize_log "$?"' EXIT
 seed_base=$(installer_seed_base "")
 installer_ensure_context_loaded "$seed_base"
 installer_assert_class_plan
+[ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] ||
+  installer_fatal 'pre-pkgsel requires the target payload prepared by the first base-stage hook'
 # This dispatcher runs in a new shell after apt-setup. Context carries the
 # selected profile, not its target paths; load the authenticated policy before
-# rendering any helper through the shared path-placeholder publisher.
+# using the already rendered installer/DKMS helpers.
 class_plan_host_env="${DIR_INSTALLER_ENV}/host.env"
 [ -r "$class_plan_host_env" ] || installer_fatal 'pre-pkgsel host policy is unavailable'
 if installer_load_data_env "$class_plan_host_env"; then
@@ -36,15 +38,6 @@ while IFS='|' read -r stage_id stage_phase stage_selector || [ -n "$stage_id" ];
     destination=$(installer_pre_pkgsel_stage_path "$stage_id") ||
       installer_fatal 'invalid pre-pkgsel stage destination'
     installer_fetch_file "$seed_base" "$(installer_repo_file_value "$stage_selector")" "$destination" 0755
-    if installer_apply_scalar_placeholders "$destination" "${destination}.rendered"; then
-      :
-    else
-      stage_status=$?
-      installer_fatal_status "$stage_status" "cannot render pre-pkgsel stage ${stage_id} (${stage_selector})"
-    fi
-    installer_assert_no_unresolved_path_placeholders "${destination}.rendered" "$stage_selector"
-    chmod 0755 "${destination}.rendered"
-    mv "${destination}.rendered" "$destination"
     if installer_run_supervised "$destination" </dev/null; then
       :
     else

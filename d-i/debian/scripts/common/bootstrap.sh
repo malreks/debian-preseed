@@ -286,8 +286,8 @@ bootstrap_ensure_repo_env() {
   BOOTSTRAP_REPO_ENV_READY=1
 }
 
-# A single private, root-owned candidate is prepared by finish-install before
-# 07preseed. Bind it once per shell to the authenticated payload identity;
+# A single private, root-owned candidate is prepared by the first base hook
+# before kernel installation. Bind it once per shell to the authenticated payload identity;
 # consumers then copy files/directories without rerendering or revalidating
 # the same source ancestry for every member. This is installer state only.
 bootstrap_load_prepared_source() {
@@ -298,6 +298,10 @@ bootstrap_load_prepared_source() {
   if [ ! -e "$FILE_INSTALLER_TARGET_RENDER_READY" ] && [ ! -L "$FILE_INSTALLER_TARGET_RENDER_READY" ]; then
     return 0
   fi
+  # Fresh phase runners can reach this before common-lib.sh loads lifecycle.
+  # Fetch helpers run in subshells; load the cached transport (which embeds
+  # lifecycle) here so its ancestry and metadata helpers exist in this shell.
+  bootstrap_load_source_library "$1" || return "$?"
   bootstrap_prepared_stage=${TARGET_ROOT}${DIR_INSTALLER_TARGET_STAGE}
   installer_lifecycle_parent_safe "$bootstrap_prepared_stage" || bootstrap_fatal 'unsafe prepared target payload ancestry'
   for bootstrap_prepared_file in "$FILE_INSTALLER_TARGET_RENDER_READY" \
