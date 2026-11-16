@@ -54,6 +54,9 @@ desktop_stage_role_asset() {
   mode=$3
   desktop_role_owns_target "$target_path" || return 0
   source_path=$(installer_repo_asset_path DIR_HOOKS_TARGET "$role_relpath")
+  if bootstrap_prepared_asset_published "$source_path" "$target_path" "$mode"; then
+    return 0
+  fi
 
   desktop_normalize_system_perl_module_parents "$target_path"
   stage_target_asset "$source_path" "$target_path" "$mode"
@@ -222,6 +225,10 @@ desktop_role_target_source_dir() {
     *) repo_relpath=$(installer_repo_join_var DIR_HOOKS_TARGET "$role_relpath") || return $? ;;
   esac
 
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
+    printf '%s\n' "${BOOTSTRAP_PREPARED_SOURCE_ROOT}/${repo_relpath}"
+    return 0
+  fi
   if [ -n "${INSTALLER_SOURCE_ROOT:-}" ]; then
     printf '%s\n' "${INSTALLER_SOURCE_ROOT%/}/${repo_relpath}"
     return 0

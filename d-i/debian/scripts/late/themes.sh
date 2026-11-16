@@ -7,6 +7,13 @@ installer_load_themes() {
   : "${TMP_ENV_DIR:?installer theme staging directory is not initialized}"
   INSTALLER_THEME_DIR="${TMP_ENV_DIR}/themes"
   install -d -m 0700 "$INSTALLER_THEME_DIR" || return $?
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
+    # The finish hook validated these exact immutable inputs once. Only load
+    # their literal values here; do not fetch and parse the schema per stage.
+    theme_source_dir=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$DIR_HOSTS_THEMES
+    INSTALLER_THEME_MAP=${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/themes.map
+    INSTALLER_THEME_RENDER_AWK=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$(installer_repo_file_value FILE_LATE_THEME_RENDER)
+  else
   fetch_hook_file "$(installer_repo_file_value FILE_LATE_THEME_VALIDATE)" "$INSTALLER_THEME_DIR/validate.awk" || return $?
   fetch_hook_file "$(installer_repo_file_value FILE_LATE_THEME_RENDER)" "$INSTALLER_THEME_DIR/render.awk" || return $?
   fetch_hook_file "$(installer_repo_file_value FILE_HOST_THEME_THEME_SCHEMA)" "$INSTALLER_THEME_DIR/schema.tsv" || return $?
@@ -20,13 +27,16 @@ installer_load_themes() {
     installer_fatal 'theme inputs failed validation; no theme assets were published'
     return 1
   fi
+  theme_source_dir=$INSTALLER_THEME_DIR
+  INSTALLER_THEME_MAP=$INSTALLER_THEME_DIR/values.map
+  INSTALLER_THEME_RENDER_AWK=$INSTALLER_THEME_DIR/render.awk
+  fi
   # Schema allowlist plus literal grammar make sourcing safe: no expansion,
   # commands, quotes, backslashes or variable names outside the theme catalog.
   for theme_group in base apps office; do
     # shellcheck disable=SC1090,SC1091
-    . "$INSTALLER_THEME_DIR/${theme_group}.env" || return $?
+    . "$theme_source_dir/${theme_group}.env" || return $?
   done
-  INSTALLER_THEME_MAP="$INSTALLER_THEME_DIR/values.map"
   LABWC_WALLPAPER_PATH="/${LABWC_WALLPAPER_DESKTOP_SWAYBG#"${DIR_HOOKS_TARGET}"/}"
   LABWC_LOCK_BACKGROUND_PATH="/${LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK#"${DIR_HOOKS_TARGET}"/}"
   LABWC_GREETER_BACKGROUND_PATH="/${LABWC_WALLPAPER_LOGIN_GTKGREET#"${DIR_HOOKS_TARGET}"/}"
@@ -68,7 +78,7 @@ installer_theme_render_file() (
   trap 'exit 143' TERM
   cp -p "$theme_path" "$theme_work/rendered" || exit $?
   if LC_ALL=C awk -v render_scope="$theme_render_scope" \
-      -f "$INSTALLER_THEME_DIR/render.awk" "$INSTALLER_THEME_MAP" "$theme_path" > "$theme_work/rendered"; then
+      -f "$INSTALLER_THEME_RENDER_AWK" "$INSTALLER_THEME_MAP" "$theme_path" > "$theme_work/rendered"; then
     :
   else
     theme_render_status=$?

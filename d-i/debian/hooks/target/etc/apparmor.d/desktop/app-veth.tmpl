@@ -49,6 +49,10 @@ profile app-veth __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/app-veth flags=(attach_di
   /net:\[[0-9]*\] r,
   /user:\[[0-9]*\] r,
   owner __INSTALLER_PATH_DIR_TMP__/{,**} rw,
+  # CPython's legacy default-directory probe creates one eight-character
+  # regular file. Audit names that operation mknod; it needs file write
+  # permission, not a device-creation capability or a recursive /var/tmp rule.
+  owner __INSTALLER_PATH_DIR_VAR__/tmp/[a-z0-9_][a-z0-9_][a-z0-9_][a-z0-9_][a-z0-9_][a-z0-9_][a-z0-9_][a-z0-9_] rw,
   signal (send, receive) peer=app-veth,
   signal (receive) set=(term,kill,int) peer=unconfined,
 }

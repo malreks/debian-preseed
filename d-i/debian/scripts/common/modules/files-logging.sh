@@ -878,6 +878,20 @@ installer_apply_scalar_placeholders() {
   shift 2
 
   [ $(( $# % 2 )) -eq 0 ] || installer_fatal "placeholder replacement arguments must be name/value pairs"
+  # The pre-late batch has already resolved canonical paths. Most published
+  # assets now need only a copy; template adapters supply their own few scalar
+  # fields without rebuilding the complete runtime map for each file.
+  installer_placeholder_needs_paths=false
+  if installer_contains_unresolved_path_placeholders "$installer_placeholder_src"; then
+    installer_placeholder_needs_paths=true
+  else
+    installer_placeholder_probe=$?
+    [ "$installer_placeholder_probe" -eq 1 ] || return "$installer_placeholder_probe"
+  fi
+  if [ "$#" -eq 0 ] && [ "$installer_placeholder_needs_paths" = false ]; then
+    cat "$installer_placeholder_src" >"$installer_placeholder_dest"
+    return "$?"
+  fi
   : >"$installer_placeholder_script" || {
     rm -f "$installer_placeholder_script"
     return 1
@@ -886,6 +900,12 @@ installer_apply_scalar_placeholders() {
     installer_placeholder_name=$1
     installer_placeholder_value=$2
     shift 2
+    case "$installer_placeholder_name" in
+      ''|*[!A-Z0-9_]*) installer_fatal 'invalid scalar placeholder name' ;;
+    esac
+    case "$installer_placeholder_value" in
+      *__INSTALLER_PATH_*|*__INSTALLER_APPARMOR_PROFILE_*) installer_placeholder_needs_paths=true ;;
+    esac
     installer_escaped_placeholder_value=$(installer_escape_sed_replacement "$installer_placeholder_value")
     printf 's|__INSTALLER_%s__|%s|g\n' \
       "$installer_placeholder_name" \
@@ -894,7 +914,11 @@ installer_apply_scalar_placeholders() {
         return 1
       }
   done
-  if ! installer_runtime_path_placeholder_map >"$installer_path_placeholder_map"; then
+  if [ "$installer_placeholder_needs_paths" = false ]; then
+    : >"$installer_path_placeholder_map"
+  elif [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
+    cp "${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/paths.map" "$installer_path_placeholder_map" || return "$?"
+  elif ! installer_runtime_path_placeholder_map >"$installer_path_placeholder_map"; then
     rm -f "$installer_placeholder_script" "$installer_path_placeholder_map"
     return 1
   fi

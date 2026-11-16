@@ -671,6 +671,13 @@ installer_fetch_seed_path() (
     installer_error 'repository asset source and destination must be nonempty' || :
     exit 64
   fi
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] &&
+     [ "$repository_fetch_seed_base" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
+    installer_repo_assert_asset_family "$repository_fetch_source"
+    bootstrap_copy_prepared_file "$repository_fetch_seed_base" "$repository_fetch_source" \
+      "$repository_fetch_destination" "$repository_fetch_mode"
+    exit "$?"
+  fi
   repository_fetch_step=load_source
   installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 676 load_asset_source
   installer_load_source_library "$repository_fetch_seed_base" || exit "$?"

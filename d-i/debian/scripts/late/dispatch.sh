@@ -21,6 +21,8 @@ fi
 # shellcheck disable=SC1090,SC1091
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib "${1:-}"
+[ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || \
+  installer_fatal 'target payload must be prepared by finish-install before late_command'
 installer_init_log_file "$(installer_runtime_log_file)" "" "late dispatch" late-dispatch late_command
 installer_operation_context_repo FILE_LATE_DISPATCH 25 late_dispatch
 trap 'installer_finalize_log "$?"' EXIT
@@ -30,9 +32,11 @@ installer_ensure_context_loaded "$seed_base"
 host_profile=$(installer_resolve_host_profile "")
 hook_family=${INSTALLER_HOOK_FAMILY:-${INSTALLER_HOST_FAMILY}}
 shared_hook_path=$(installer_repo_file_value FILE_INST_LATE_COMMAND)
-shared_hook_dest="${RUNTIME_DIR}/bootstrap/shared-late.sh"
-helper_dir="${RUNTIME_DIR}/bootstrap/late-helpers"
-shared_module_dir="${RUNTIME_DIR}/bootstrap/late-modules"
+shared_hook_dest="${BOOTSTRAP_PREPARED_SOURCE_ROOT}/${shared_hook_path}"
+shared_module_dir="${BOOTSTRAP_PREPARED_SOURCE_ROOT}/${DIR_SCRIPTS_LATE}"
+SHARED_LATE_COMMAND=$shared_hook_dest
+INSTALLER_LATE_MODULE_DIR=$shared_module_dir
+export SHARED_LATE_COMMAND INSTALLER_LATE_MODULE_DIR
 shared_modules="core target-assets iocost volatile-storage storage-maintenance mullvad templates network network-sharing grub security dbus-broker podman zram-swap btrfs-family f2fs-family account"
 if installer_class_selected optional/cuda-legacy 2>/dev/null; then
   shared_modules="${shared_modules} cuda-legacy"
@@ -47,23 +51,6 @@ dispatch_host_env="${RUNTIME_DIR}/bootstrap/dispatch-host.env"
 installer_fetch_host_env "$seed_base" "$host_profile" "$dispatch_host_env" 0600
 # shellcheck disable=SC1090,SC1091
 installer_load_data_env "$dispatch_host_env"
-
-render_dispatch_asset() {
-  dispatch_asset=$1
-  dispatch_asset_mode=$2
-  if LC_ALL=C grep -q '__INSTALLER_PATH_' "$dispatch_asset"; then
-    # The caller supplies the fixed mode used by installer_fetch_file.  Do
-    # not probe metadata with the unavailable d-i `stat` applet.
-    dispatch_asset_rendered="${dispatch_asset}.path-rendered"
-    installer_apply_scalar_placeholders "$dispatch_asset" "$dispatch_asset_rendered" || return 1
-    installer_assert_no_unresolved_path_placeholders "$dispatch_asset_rendered" "$dispatch_asset" || return 1
-    chmod "$dispatch_asset_mode" "$dispatch_asset_rendered" || return 1
-    mv -f -- "$dispatch_asset_rendered" "$dispatch_asset" || return 1
-  else
-    dispatch_asset_probe_status=$?
-    [ "$dispatch_asset_probe_status" = 1 ] || return 1
-  fi
-}
 
 late_dispatch_module_source() {
   case "$1" in
@@ -90,8 +77,7 @@ late_dispatch_module_source() {
   installer_repo_file_value "$late_dispatch_selector"
 }
 
-installer_fetch_file "$seed_base" "$shared_hook_path" "$shared_hook_dest" 0644
-install -d -m 0700 "$shared_module_dir"
+[ -f "$shared_hook_dest" ] && [ ! -L "$shared_hook_dest" ] || installer_fatal 'prepared late entrypoint is missing'
 for shared_module in $shared_modules; do
   installer_operation_context_repo FILE_LATE_DISPATCH 96 "fetch_shared_module:${shared_module}"
   shared_module_source=$(late_dispatch_module_source "$shared_module") || {
@@ -99,14 +85,10 @@ for shared_module in $shared_modules; do
     installer_fatal_status "$late_dispatch_status" \
       "late-dispatch shared module selector resolution failed: module=${shared_module}"
   }
-  installer_fetch_file \
-    "$seed_base" \
-    "$shared_module_source" \
-    "${shared_module_dir}/${shared_module}.sh" \
-    0644
-  render_dispatch_asset "${shared_module_dir}/${shared_module}.sh" 0644
+  [ "${BOOTSTRAP_PREPARED_SOURCE_ROOT}/${shared_module_source}" = "${shared_module_dir}/${shared_module}.sh" ] &&
+    [ -f "${shared_module_dir}/${shared_module}.sh" ] && [ ! -L "${shared_module_dir}/${shared_module}.sh" ] ||
+    installer_fatal "prepared late module is missing or has an unexpected source: ${shared_module}"
 done
-install -d -m 0700 "$helper_dir"
 dispatch_storage_foundation() {
 case "$hook_family" in
   btrfs|vm)
@@ -147,13 +129,12 @@ esac
 
 run_helper_script() {
   helper_path=$1
-  helper_dest=$2
-  shift 2
+  shift
 
-  installer_fetch_file "$seed_base" "$helper_path" "$helper_dest" 0755
-  render_dispatch_asset "$helper_dest" 0755
+  helper_dest=${BOOTSTRAP_PREPARED_SOURCE_ROOT}/${helper_path}
+  [ -f "$helper_dest" ] && [ ! -L "$helper_dest" ] || installer_fatal 'prepared late stage is missing'
   installer_operation_context_repo FILE_LATE_DISPATCH 155 "late_helper:${helper_path}"
-  "$helper_dest" "$@" </dev/null
+  /bin/sh -eu "$helper_dest" "$@" </dev/null
 }
 
 # Every late provider is selected, ordered and deduplicated by the frozen plan.
@@ -187,14 +168,13 @@ while IFS='|' read -r stage_id stage_phase stage_selector || [ -n "$stage_id" ];
     desktop.storage:desktop) dispatch_storage_foundation ;;
     *)
       stage_source=$(installer_repo_file_value "$stage_selector")
-      stage_destination="${helper_dir}/${stage_id}.sh"
+      stage_destination="${BOOTSTRAP_PREPARED_SOURCE_ROOT}/${stage_source}"
       case "$stage_id" in
         desktop.session)
-          installer_fetch_file "$seed_base" "$stage_source" "$stage_destination" 0755
-          render_dispatch_asset "$stage_destination" 0755
-          INSTALLER_LATE_MODULE_DIR=$shared_module_dir "$stage_destination" "$seed_base" "$host_profile"
+          [ -f "$stage_destination" ] && [ ! -L "$stage_destination" ] || installer_fatal 'prepared desktop stage is missing'
+          INSTALLER_LATE_MODULE_DIR=$shared_module_dir /bin/sh -eu "$stage_destination" "$seed_base" "$host_profile"
           ;;
-        *) run_helper_script "$stage_source" "$stage_destination" "$TARGET_ROOT" ;;
+        *) run_helper_script "$stage_source" "$TARGET_ROOT" ;;
       esac
       ;;
   esac
@@ -209,3 +189,12 @@ if [ -d "${TARGET_ROOT}${DIR_INSTALLER_TARGET_DEFAULTS}" ]; then
   installer_run_target_setup FILE_COMMON_PRIMARY_DEFAULTS 'remove private primary-account payload staging' \
     cleanup "$DIR_INSTALLER_TARGET_DEFAULTS"
 fi
+# The late phase owns all consumers of this private workspace. Preserve it on
+# any stage failure; successful cleanup runs under the same phase ownership.
+installer_run_bounded 180 chroot "$TARGET_ROOT" "${DIR_USR_BIN}/env" -i \
+  HOME="$DIR_ROOT_HOME" PATH="${DIR_USR_BIN}:${DIR_BIN}" LC_ALL=C.UTF-8 \
+  "${DIR_USR_BIN}/python3" -I -B "${DIR_INSTALLER_TARGET_STAGE}/render.py" \
+  "$DIR_INSTALLER_TARGET_STAGE" --cleanup
+rm -f -- "$FILE_INSTALLER_TARGET_RENDER_READY"
+BOOTSTRAP_PREPARED_SOURCE_ROOT=
+BOOTSTRAP_PREPARED_SEED_BASE=

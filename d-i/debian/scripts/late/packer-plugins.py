@@ -67,14 +67,16 @@ def directory(path: Path, *, private: bool = False) -> None:
         raise Error(f'Packer plugin directory must be account-owned and private: {path}')
 
 
-def fetch(url: str, destination: Path, env: dict[str, str]) -> None:
+def fetch(url: str, destination: Path, env: dict[str, str], maximum_bytes: int) -> None:
+    if not 0 < maximum_bytes <= 805306368:
+        raise Error('invalid Packer local verification byte limit')
     subprocess.run(['__INSTALLER_PATH_DIR_USR_BIN__/curl', '--disable', '--fail', '--silent', '--show-error',
                     '--location', '--proto', '=https', '--proto-redir', '=https',
                     '--max-redirs', '4', '--connect-timeout', '15', '--max-time', '180',
                     '--retry', '2', '--retry-max-time', '240',
                     '--output', str(destination), '--url', url],
                    env=env, stdin=subprocess.DEVNULL, check=True, timeout=270)
-    regular(destination)
+    regular(destination, maximum_bytes)
 
 
 def archive_checksum(text: str, name: str, version: str, arch: str) -> tuple[str, str]:
@@ -252,7 +254,7 @@ def install(template: Path, packer: Path, root: Path) -> None:
         home.mkdir(mode=0o700)
         gpg = ['__INSTALLER_PATH_DIR_USR_BIN__/gpg', '--no-options', '--no-autostart', '--batch', '--no-tty', '--homedir', str(home)]
         key = work / 'release-key.asc'
-        fetch(key_url, key, env)
+        fetch(key_url, key, env, 1024 * 1024)
         import_release_key(gpg, key, env, fingerprint)
         for name, pin in plugins.items():
             print(f'Installing authenticated Packer plugin {name} {pin}', flush=True)
@@ -266,12 +268,12 @@ def install(template: Path, packer: Path, root: Path) -> None:
                 base = f'{origin}/packer-plugin-{name}/{pin}/'
                 sums_name = f'packer-plugin-{name}_{pin}_SHA256SUMS'
                 sums, signature = work / sums_name, work / (sums_name + '.sig')
-                fetch(base + sums_name, sums, env)
-                fetch(base + sums_name + '.sig', signature, env)
+                fetch(base + sums_name, sums, env, 1024 * 1024)
+                fetch(base + sums_name + '.sig', signature, env, 65536)
                 verify_checksums(gpg, signature, sums, env, fingerprint)
                 filename, expected = archive_checksum(sums.read_text(encoding='ascii'), name, pin, arch)
             archive = work / filename
-            fetch(base + filename, archive, env)
+            fetch(base + filename, archive, env, limits['extracted'])
             with archive.open('rb') as source:
                 actual_hash = hashlib.file_digest(source, 'sha256').hexdigest()
             if actual_hash != expected:

@@ -37,7 +37,7 @@ software_download_tor_browser_asset() {
     return 0
   fi
 
-  software_info "${tor_asset_label} primary URL failed; retrying the official Tor package archive"
+  software_info "${tor_asset_label} primary URL failed; retrying the configured official Tor fallback"
   if software_download \
     "$tor_asset_label" \
     "$tor_archive_url" \

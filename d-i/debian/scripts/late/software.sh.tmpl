@@ -538,6 +538,9 @@ software_stage_seed_asset() {
   repo_path=$1
   target_path=$2
   mode=$3
+  if bootstrap_prepared_asset_published "$repo_path" "$target_path" "$mode"; then
+    return 0
+  fi
   tmp_asset="${tmp_env_dir}/$(basename "$target_path").$$"
   target_host_path="${target_root}${target_path}"
 
@@ -2156,7 +2159,7 @@ software_run_selected_app() {
   selected_worker=$3
   selected_result=$4
   installer_class_selected_any $selected_classes || return 0
-  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2165 "install_managed_application:${selected_worker}"
+  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2168 "install_managed_application:${selected_worker}"
   software_info "starting ${selected_label}"
   # A required worker runs outside a conditional context so Dash keeps errexit.
   (
@@ -2753,18 +2756,28 @@ software_refresh_managed_deb_repository
 software_binary_packages=$(
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local adopt-vendors
 ) || software_fatal "verified binary package adoption failed"
+set --
 for software_binary_package in $software_binary_packages; do
   case "$software_binary_package" in
     __INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE_REPO_POOL__/*.deb) ;;
     *) software_fatal "invalid adopted binary package path" ;;
   esac
+  case "$software_binary_package" in
+    *[!A-Za-z0-9_./+:%~-]*) software_fatal 'unsafe adopted binary package filename' ;;
+  esac
+  set -- "$@" "$software_binary_package"
+done
+if [ "$#" -gt 0 ]; then
+  # These are already-installed vendor distributions. Adopt all of their
+  # verified packages in one transaction instead of repeating APT/dpkg setup,
+  # dependency resolution and trigger processing for each binary distribution.
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/env -i \
     DEBIAN_FRONTEND=noninteractive \
     NEEDRESTART_SUSPEND=1 HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ LC_ALL=C.UTF-8 \
     PATH=__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__:__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__ \
     __INSTALLER_PATH_DIR_USR_BIN__/apt-get -y -o DPkg::Lock::Timeout=60 -o DPkg::Use-Pty=0 --no-install-recommends \
-    install "$software_binary_package" || software_fatal "adopted binary package installation failed"
-done
+    install "$@" || software_fatal "adopted binary package installation failed"
+fi
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local seed-defaults ||
   software_fatal "managed local APT update policy initialization failed"
 software_refresh_managed_deb_repository

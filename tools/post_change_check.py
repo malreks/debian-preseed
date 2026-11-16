@@ -4206,6 +4206,46 @@ def check_apparmor(paths: list[Path], errors: list[str], counts: dict[str, int])
     counts['apparmor_files'] = len(files)
 
 
+def check_target_render_contract(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Check the pre-late producer/consumer interface without running hooks."""
+    hook = DEBIAN_ROOT / 'hooks/installer/finish-install.d/06-render-target'
+    renderer = DEBIAN_ROOT / 'scripts/common/render.py'
+    dispatch = DEBIAN_ROOT / 'scripts/late/dispatch.sh'
+    early = DEBIAN_ROOT / 'hooks/installer/d-i/early.sh'
+    owners = {hook, renderer, dispatch, early, DEBIAN_ROOT / 'repo.env',
+              DEBIAN_ROOT / 'hooks/installer/di.env',
+              DEBIAN_ROOT / 'scripts/common/bootstrap.sh', Path(__file__).resolve()}
+    if not owners.intersection(paths):
+        return
+    preparation, consumer, startup = map(_read_text, (hook, dispatch, early))
+    tree = ast.parse(_read_text(renderer))
+    options = {node.args[0].value for node in ast.walk(tree)
+               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+               and node.func.attr == 'add_argument' and node.args
+               and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)}
+    # Source-selector options are declared by the renderer's bounded loop.
+    selectors = {'--scripts', '--target', '--late', '--desktop', '--firstboot',
+                 '--appearance-python', '--appearance-registry'}
+    requested = set(re.findall(r'--[a-z][a-z-]+', preparation))
+    if requested - options - selectors:
+        errors.append('pre-late hook passes an unsupported target renderer option')
+    if not re.search(r'bootstrap_source_common_support_libs[^\n]*\sfetch\s+target(?:\s|$)', preparation):
+        errors.append('pre-late hook must load fetch and target libraries before theme preparation')
+    if ('FILE_INST_FINISH_RENDER_TARGET' not in startup or '/06-render-target"' not in startup
+            or '07preseed' not in preparation):
+        errors.append('target rendering is not wired before the Debian preseed late hook')
+    if ('BOOTSTRAP_PREPARED_SOURCE_ROOT:-' not in consumer
+            or '--cleanup' not in consumer or '--cleanup' not in options):
+        errors.append('late dispatch must require and retire its prepared source workspace')
+    if ('/env" -i' not in preparation or '/python3" -I -B' not in preparation
+            or '--family "$INSTALLER_HOST_VARIANT"' not in preparation):
+        errors.append('target renderer lost its isolated interpreter or selected-family arguments')
+    target_contract = _read_text(DEBIAN_ROOT / 'hosts/installer/runtime.env')
+    if re.search(r'^DIR_INSTALLER_TARGET_STAGE=', target_contract, re.M):
+        errors.append('installer staging state must not enter the installed runtime contract')
+    counts['pre_late_render_contracts'] = 1
+
+
 def check_download_contract(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
     """Inspect transfer interfaces as data; never execute an acquisition helper."""
     owners = (DEBIAN_ROOT / 'scripts', TARGET_ROOT, DEBIAN_ROOT / 'hosts/profiles')
@@ -4531,6 +4571,7 @@ def main() -> int:
         check_server_ai_profile_ownership(paths, errors, counts)
         check_build_capture(paths, errors, counts)
         check_release_equality(paths, errors, counts)
+        check_target_render_contract(paths, errors, counts)
         check_download_contract(paths, errors, counts)
         check_chatgpt_bootstrap_contract(paths, errors, counts)
         check_runtime_path_publication(paths, errors, counts)

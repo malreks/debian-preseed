@@ -75,6 +75,8 @@ def fixture_configuration(apps):
 broker = types.ModuleType("tested_veth_broker")
 broker.__file__ = str(TARGET / "usr/local/sbin/app-veth")
 exec(compile(Path(broker.__file__).read_text(encoding="utf-8"), broker.__file__, "exec"), broker.__dict__)
+# Only the prepared image's private fixture directory backs command captures.
+broker.COMMAND_TEMP_DIRECTORY = os.environ['TMPDIR']
 # Read canonical fixture bytes, never the image/host installed ruleset.
 broker.read_ruleset_template = lambda: network_identity_text(
     (TARGET / "etc/app-veth.nft.tmpl").read_text(encoding="ascii"))
@@ -3401,6 +3403,27 @@ answer_value() {
 
 
 class InstallationTests(unittest.TestCase):
+    def test_command_capture_never_probes_default_temporary_directories(self):
+        def result(argv, **options):
+            options['stdout'].write(b'[]')
+            return types.SimpleNamespace(returncode=0)
+        with mock.patch.object(broker.tempfile, 'gettempdir', side_effect=AssertionError('default temp probe')), \
+                mock.patch.object(broker.subprocess, 'run', side_effect=result):
+            self.assertEqual(broker.run(['/usr/sbin/ip', '-j', 'link', 'show']), '[]')
+
+    def test_captured_editor_and_python_probe_permissions_are_scoped(self):
+        import fnmatch
+        editor = read_text(TARGET / 'etc/apparmor.d/desktop-utilities')
+        editor = editor.split('profile desktop-editors ', 1)[1].split('\nprofile desktop-media ', 1)[0]
+        self.assertIn('owner @{HOME}/.wget-hsts r,', editor)
+        policy = read_text(TARGET / 'etc/apparmor.d/app-veth')
+        pattern = '[a-z0-9_]' * 8
+        self.assertIn('owner __INSTALLER_PATH_DIR_VAR__/tmp/' + pattern + ' rw,', policy)
+        for leaf in ('mlysnpq4', '8jtl2_1o', '_3zdtyo_'):
+            self.assertTrue(fnmatch.fnmatchcase(leaf, pattern))
+        for leaf in ('outside/path', 'too-long-probe', '.hidden'):
+            self.assertFalse(fnmatch.fnmatchcase(leaf, pattern))
+
     def test_descriptor_limit_covers_full_future_pool_with_peer_and_rpc_reservations(self):
         service = read_text(TARGET / 'etc/systemd/system/app-veth.service')
         limit = int(re.search(r'(?m)^LimitNOFILE=([0-9]+)$', service).group(1))

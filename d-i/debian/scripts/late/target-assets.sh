@@ -181,6 +181,10 @@ publish_target_asset() (
   fi
   case "$asset_mode" in [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
     *) installer_fatal "invalid target asset mode"; exit 1 ;; esac
+  if [ "$asset_kind" = plain ] &&
+      bootstrap_prepared_asset_published "$asset_source" "$asset_target" "$asset_mode"; then
+    exit 0
+  fi
   target_publish_step=prepare_destination
   installer_operation_context_repo FILE_LATE_TARGET_ASSETS 186 prepare_target_asset_destination
   asset_destination=$(target_asset_host_path "$asset_target") || exit "$?"

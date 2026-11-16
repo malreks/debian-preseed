@@ -132,6 +132,7 @@ family_d_i_early_main() {
   fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_95_NORMALIZE_APT)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt"
   chmod 0755 ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt
   fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_00_INSTALLER_GUARD)" ${DIR_INSTALLER_FINISH_INSTALL_D}/00-installer-guard
+  fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_RENDER_TARGET)" "${DIR_INSTALLER_FINISH_INSTALL_D}/06-render-target"
   fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_94ZZ_99_VALIDATE_TARGET)" ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-99-validate-target
   # Interpose on the first base-installer APT update, not on the later
   # apt-setup generator. The adapter rejects unknown d-i waypoint layouts.

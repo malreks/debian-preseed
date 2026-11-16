@@ -59,6 +59,9 @@ class ReleaseTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.target = self.root / 'output'
         self.target.mkdir()
+        policy = mock.patch.dict(os.environ, {'DEVOPS_PACKER_ARCHIVE_MAXIMUM_EXTRACTED_BYTES': '1048576'})
+        policy.start()
+        self.addCleanup(policy.stop)
 
     def archive(self, entries):
         path = self.root / 'archive.zip'
@@ -103,7 +106,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_valid_plugin_extracts_only_expected_elf(self):
         path = self.archive([(BINARY, elf(), stat.S_IFREG | 0o755), ('LICENSE.txt', b'license', stat.S_IFREG | 0o644)])
-        result = packer.unpack(path, self.target, 'ansible', '1.1.6', 'amd64')
+        result = packer.unpack(path, self.target, 'ansible', '1.1.6', 'amd64', 1048576, 32)
         self.assertEqual(result.read_bytes(), elf())
         self.assertEqual(stat.S_IMODE(result.stat().st_mode), 0o700)
         self.assertFalse((self.target / 'LICENSE.txt').exists())
@@ -114,18 +117,17 @@ class ReleaseTests(unittest.TestCase):
                            ('sub/' + BINARY, stat.S_IFREG | 0o755)):
             path = self.archive([(name, elf(), mode)])
             with self.subTest(name=name, mode=mode), self.assertRaises(packer.Error):
-                packer.unpack(path, self.target, 'ansible', '1.1.6', 'amd64')
+                packer.unpack(path, self.target, 'ansible', '1.1.6', 'amd64', 1048576, 32)
 
     def test_wrong_architecture_rejected(self):
         path = self.archive([(BINARY, elf(183), stat.S_IFREG | 0o755)])
         with self.assertRaises(packer.Error):
-            packer.unpack(path, self.target, 'ansible', '1.1.6', 'amd64')
+            packer.unpack(path, self.target, 'ansible', '1.1.6', 'amd64', 1048576, 32)
 
     def test_proxmox_is_an_explicit_digest_pinned_exception(self):
-        self.assertEqual(packer.COMMUNITY_RELEASES[('proxmox', '1.2.4', 'amd64')],
-                         '84a50e8204180756708671809df0f4ec7bcdde9d702c74c7c4e005d3ce9d89e5')
-        self.assertNotIn(('proxmox', '1.2.5', 'amd64'), packer.COMMUNITY_RELEASES)
         source = (FORKY / 'scripts/late/packer-plugins.py').read_text()
+        self.assertIn("os.environ['DEVOPS_PACKER_PROXMOX_AMD64_SHA256']", source)
+        self.assertIn("community_releases.get((name, pin, arch))", source)
         self.assertIn("if name == 'proxmox':", source)
         self.assertIn("'plugins', 'install', '--path'", source)
         self.assertIn("env['TMPDIR'] = str(work)", source)
@@ -163,16 +165,28 @@ class ReleaseTests(unittest.TestCase):
                 packer.verify_local_plugins(Path('/usr/bin/packer'), template, root,
                                             {'ansible': '1.1.6'}, 'amd64', {})
 
-    def test_fetch_enforces_https_without_a_byte_ceiling(self):
+    def test_fetch_enforces_https_and_checks_the_callers_local_file_limit(self):
         destination = self.root / 'download'
         destination.write_bytes(b'fixture')
         with mock.patch.object(subprocess, 'run') as run:
-            packer.fetch('https://releases.hashicorp.com/example', destination, {})
+            packer.fetch('https://releases.hashicorp.com/example', destination, {}, 32)
         command = run.call_args.args[0]
         self.assertEqual(command[command.index('--proto') + 1], '=https')
         self.assertEqual(command[command.index('--proto-redir') + 1], '=https')
-        self.assertNotIn('--max-filesize', command)
         self.assertNotIn('--insecure', command)
+
+    def test_fetch_checks_the_downloaded_file_against_the_same_limit(self):
+        destination = self.root / 'download'
+        destination.write_bytes(b'oversized fixture')
+        with mock.patch.object(subprocess, 'run'), self.assertRaises(packer.Error):
+            packer.fetch('https://releases.hashicorp.com/example', destination, {}, 4)
+
+    def test_fetch_rejects_invalid_limit_before_starting_curl(self):
+        with mock.patch.object(subprocess, 'run') as run:
+            for maximum in (0, -1, 805306369):
+                with self.subTest(maximum=maximum), self.assertRaises(packer.Error):
+                    packer.fetch('https://releases.hashicorp.com/example', self.root / 'download', {}, maximum)
+            run.assert_not_called()
 
     def test_installer_refuses_root_plugin_execution(self):
         with mock.patch.object(os, 'geteuid', return_value=0), self.assertRaises(packer.Error):

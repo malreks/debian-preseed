@@ -1,0 +1,74 @@
+#!/bin/sh
+# Debian preseed's 07preseed executes late_command. Prepare its complete source
+# tree here, after pkgsel has installed the target's packaged Python runtime.
+set -eu
+umask 077
+runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+. "$runtime/bootstrap/bootstrap.sh"
+bootstrap_source_common_lib ""
+installer_init_log_file "$(installer_runtime_log_file)" "" 'prepare target payload' target-render target_customization
+installer_operation_context_repo FILE_INST_FINISH_RENDER_TARGET 10 prepare_target_payload
+trap 'installer_finalize_log "$?"' 0
+seed_base=$(installer_seed_base "")
+installer_ensure_context_loaded "$seed_base"
+installer_assert_class_plan
+TMP_ENV_DIR=$DIR_INSTALLER_LATE_ENV
+install -d -m 0700 "$TMP_ENV_DIR"
+host_env=$TMP_ENV_DIR/host.env
+installer_fetch_host_env "$seed_base" "$(installer_resolve_host_profile "")" "$host_env" 0600
+installer_load_data_env "$host_env"
+installer_prepare_late_account_env "$seed_base" "$TMP_ENV_DIR/account.env"
+installer_load_data_env "$TMP_ENV_DIR/account.env"
+bootstrap_source_common_support_libs "$seed_base" "$TMP_ENV_DIR/render-support" fetch target
+stage=${TARGET_ROOT}${DIR_INSTALLER_TARGET_STAGE}
+installer_apt_safe_path "$stage" || installer_fatal 'unsafe target rendering workspace ancestry'
+[ ! -e "$stage" ] && [ ! -L "$stage" ] || installer_fatal 'target rendering workspace already exists; retain it for diagnosis'
+install -d -m 0700 "${stage%/*}"
+work=$(mktemp -d "${stage}.XXXXXX")
+# Retain a failed candidate for diagnosis. Only a completed, fully rendered
+# candidate may receive the ready marker; late dispatch requires that marker.
+installer_info "preparing private target payload workspace=${work#"$TARGET_ROOT"}"
+install -d -m 0700 "$work/source" "$work/inputs"
+source_root=$(source_cache_root "$seed_base")
+cp -a "$source_root/." "$work/source/"
+cp "$host_env" "$work/inputs/host.env"
+cp "$TMP_ENV_DIR/account.env" "$work/inputs/account.env"
+data_parser=$(bootstrap_parser_asset_path "$(installer_repo_file_value FILE_COMMON_CREDENTIAL_DATA)")
+for snapshot in host account; do
+  LC_ALL=C awk -v mode=snapshot -f "$data_parser" "$work/inputs/$snapshot.env" >"$work/inputs/$snapshot.records"
+done
+cp "$runtime/bootstrap/payload.ready" "$work/identity"
+cp "$runtime/bootstrap/payload.manifest" "$work/inputs/payload.manifest"
+cp "$source_root/$(installer_repo_file_value FILE_COMMON_RENDER)" "$work/render.py"
+installer_runtime_path_placeholder_map >"$work/inputs/paths.map"
+installer_load_logging_helpers "$seed_base"
+installer_validate_logging_data "$seed_base" \
+  "$source_root/$(installer_repo_file_value FILE_HOST_LOG_OBSERVABILITY)" "$work/inputs"
+mv "$work/inputs/values.map" "$work/inputs/logging.map"
+fetch_hook_file "$(installer_repo_file_value FILE_LATE_THEMES)" "$TMP_ENV_DIR/themes.sh"
+. "$TMP_ENV_DIR/themes.sh"
+installer_load_themes
+cp "$INSTALLER_THEME_MAP" "$work/inputs/themes.map"
+printf 'ACCOUNT_USERNAME=%s\nSOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES=%s\n' \
+  "$ACCOUNT_USERNAME" "$SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES" >"$work/inputs/perl.map"
+snapshots=false
+if installer_snapshots_enabled; then snapshots=true; fi
+target_work=${work#"$TARGET_ROOT"}
+# chroot enters only the installation target; Python reads explicit private
+# inputs and writes this candidate. It needs no /run, D-Bus or service manager.
+installer_run_bounded 180 chroot "$TARGET_ROOT" "${DIR_USR_BIN}/env" -i \
+  HOME="$DIR_ROOT_HOME" PATH="${DIR_USR_BIN}:${DIR_BIN}" LC_ALL=C.UTF-8 \
+  "${DIR_USR_BIN}/python3" -I -B \
+  "$target_work/render.py" "$target_work" \
+  --scripts "$DIR_REPO_SCRIPTS" --target "$DIR_HOOKS_TARGET" \
+  --late "$DIR_SCRIPTS_LATE" --desktop "$DIR_SCRIPTS_DESKTOP" \
+  --firstboot "$DIR_SCRIPTS_FIRSTBOOT" --appearance-python "$DIR_TARGET_PY/labwc_appearance" \
+  --appearance-registry "$(installer_repo_file_value FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL)" \
+  --perl-assets "$(installer_repo_file_value FILE_SHARED_PERL_ASSETS)" \
+  --perl-root "$DIR_PERL5_SITE_PERL" --family "$INSTALLER_HOST_VARIANT" --snapshots "$snapshots"
+[ -s "$work/receipt.json" ] && [ ! -L "$work/receipt.json" ] || installer_fatal 'target renderer did not produce a receipt'
+mv -T -- "$work" "$stage"
+cp "$stage/identity" "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"
+chmod 0600 "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"
+mv -T -- "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp" "$FILE_INSTALLER_TARGET_RENDER_READY"
+installer_info 'target payload copied and rendered before preseed/late_command'

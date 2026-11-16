@@ -34,6 +34,7 @@ ZRAM_LOCK_FILE="${ZRAM_RUNTIME_DIR}/zram-writeback.lock"
 : "${ZRAM_BACKING_RESERVE_MIB:=128}"
 ZRAM_POLICY_CONFIG=$FILE_ZRAM_CONFIG
 
+if [ -z "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
 perl_assets=$(installer_class_metadata_read_path FILE_SHARED_PERL_ASSETS)
 while IFS="$(printf '\t')" read -r source_path relative_path source_family || [ -n "$source_path" ]; do
   [ -n "$source_path" ] || continue
@@ -41,6 +42,7 @@ while IFS="$(printf '\t')" read -r source_path relative_path source_family || [ 
   case "$relative_path" in timeshift/*) installer_snapshots_enabled || continue ;; esac
   installer_stage_profile_asset "$source_path" "${DIR_PERL5_SITE_PERL}/${relative_path}" 0644
 done <"$perl_assets"
+fi
 install -d -m 0755 "${TARGET_ROOT}${DIR_PYTHON3_SITE_PACKAGES}"
 # Debian's unversioned system dist-packages interface loads this data-only
 # path entry even with -I. Managed modules do not depend on a minor ABI path.

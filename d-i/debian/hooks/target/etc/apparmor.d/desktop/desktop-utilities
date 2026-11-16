@@ -56,6 +56,8 @@ profile desktop-btop __INSTALLER_PATH_DIR_USR__/bin/btop flags=(attach_disconnec
 }
 
 profile desktop-editors __INSTALLER_PATH_DIR_USR__/bin/{l3afpad,qimgv,kdiff3,gnumeric,xournalpp,gnote,qalculate-qt} flags=(attach_disconnected, mediate_deleted) {
+  # Editor download workers consult the current user's persisted HSTS data.
+  owner @{HOME}/.wget-hsts r,
   # September 20 audit: Qt atomic saves require both the published file and
   # the temporary inode, with mediate_deleted on this profile (not a home wildcard).
   owner @{HOME}/.{profile,bash_profile,bashrc,bash_aliases,zshenv,zprofile,zshrc,zlogout,zsh_aliases,dircolors,vimrc,sudo_as_admin_successful} r,

@@ -60,6 +60,9 @@ installer_stage_profile_asset() (
   installer_repo_assert_asset_family "$source_path"
   case "$target_path" in /*) ;; *) installer_fatal 'target path must be absolute' ;; esac
   case "$asset_mode" in 0[0-7][0-7][0-7]) ;; *) installer_fatal 'invalid target asset mode' ;; esac
+  if bootstrap_prepared_asset_published "$source_path" "$target_path" "$asset_mode"; then
+    exit 0
+  fi
   installer_apt_safe_path "${TARGET_ROOT}${target_path}" || installer_fatal 'untrusted target asset ancestry'
   # Skeletons are private defaults for privileged account provisioning. Target
   # users consume their own published files, never the root-owned defaults.

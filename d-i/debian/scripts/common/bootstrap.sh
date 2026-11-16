@@ -144,7 +144,9 @@ DIR_INSTALLER_USR_LOCAL_BIN
 DIR_INSTALLER_USR_LOCAL_SBIN
 DIR_INSTALLER_USR_LOCAL_LIBEXEC
 DIR_INSTALLER_STATE
+DIR_INSTALLER_TARGET_STAGE
 FILE_INSTALLER_LOG
+FILE_INSTALLER_TARGET_RENDER_READY
 FILE_INSTALLER_SELECTED_DISK_IDENTITY
 FILE_INSTALLER_APT_NORMALIZE_SOURCES
 FILE_INSTALLER_DPKG_DIVERT
@@ -280,8 +282,95 @@ bootstrap_ensure_repo_env() {
   . "$bootstrap_repo_env_file" || return $?
   bootstrap_validate_repo_env || return $?
   bootstrap_ensure_di_env "$bootstrap_repo_seed_base" || return $?
+  bootstrap_load_prepared_source "$bootstrap_repo_seed_base" || return $?
   BOOTSTRAP_REPO_ENV_READY=1
 }
+
+# A single private, root-owned candidate is prepared by finish-install before
+# 07preseed. Bind it once per shell to the authenticated payload identity;
+# consumers then copy files/directories without rerendering or revalidating
+# the same source ancestry for every member. This is installer state only.
+bootstrap_load_prepared_source() {
+  BOOTSTRAP_PREPARED_SOURCE_ROOT=
+  BOOTSTRAP_PREPARED_SEED_BASE=
+  BOOTSTRAP_PREPARED_PUBLISHED_ASSETS=
+  [ -n "${FILE_INSTALLER_TARGET_RENDER_READY:-}" ] || return 0
+  if [ ! -e "$FILE_INSTALLER_TARGET_RENDER_READY" ] && [ ! -L "$FILE_INSTALLER_TARGET_RENDER_READY" ]; then
+    return 0
+  fi
+  bootstrap_prepared_stage=${TARGET_ROOT}${DIR_INSTALLER_TARGET_STAGE}
+  installer_lifecycle_parent_safe "$bootstrap_prepared_stage" || bootstrap_fatal 'unsafe prepared target payload ancestry'
+  for bootstrap_prepared_file in "$FILE_INSTALLER_TARGET_RENDER_READY" \
+      "$bootstrap_prepared_stage/identity" "$bootstrap_prepared_stage/receipt.json" \
+      "$bootstrap_prepared_stage/inputs/published-assets.tsv"; do
+    [ -f "$bootstrap_prepared_file" ] && [ ! -L "$bootstrap_prepared_file" ] ||
+      bootstrap_fatal 'prepared target payload is incomplete or indirect'
+    [ "$(installer_metadata_value "$bootstrap_prepared_file" uid_gid_mode_links)" = 0:0:600:1 ] ||
+      bootstrap_fatal 'unsafe prepared target payload metadata'
+  done
+  [ "$(installer_metadata_value "$bootstrap_prepared_stage" uid_gid_mode)" = 0:0:700 ] ||
+    bootstrap_fatal 'prepared target payload must remain private'
+  cmp -s "$FILE_INSTALLER_TARGET_RENDER_READY" "$bootstrap_prepared_stage/identity" &&
+    cmp -s "$FILE_INSTALLER_TARGET_RENDER_READY" "${DIR_INSTALLER_RUNTIME}/bootstrap/payload.ready" ||
+    bootstrap_fatal 'prepared target payload belongs to a different authenticated source'
+  BOOTSTRAP_PREPARED_SOURCE_ROOT=$bootstrap_prepared_stage/source
+  BOOTSTRAP_PREPARED_SEED_BASE=$1
+  BOOTSTRAP_PREPARED_PUBLISHED_ASSETS=$(cat "$bootstrap_prepared_stage/inputs/published-assets.tsv") || return "$?"
+}
+
+# Complete namespaces were published before late_command. The private receipt
+# binds source, destination and mode, so later owners can adopt them without
+# repeating directory walks, copying and rendering each module. A removed file
+# takes the normal publication path; do not claim an absent delegate is ready.
+bootstrap_prepared_asset_published() {
+  [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || return 1
+  [ -f "${TARGET_ROOT}$2" ] && [ ! -L "${TARGET_ROOT}$2" ] || return 1
+  case "$3" in 644|0644) ;; *) return 1 ;; esac
+  bootstrap_published_row=$(printf '%s\t%s\t0644' "$1" "$2")
+  case "
+$BOOTSTRAP_PREPARED_PUBLISHED_ASSETS
+" in
+    *"
+$bootstrap_published_row
+"*) return 0 ;;
+  esac
+  return 1
+}
+
+bootstrap_copy_prepared_file() (
+  set -eu
+  umask 077
+  [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] &&
+    [ "$1" = "$BOOTSTRAP_PREPARED_SEED_BASE" ] || exit 125
+  prepared_relative=$2; prepared_destination=$3; prepared_mode=${4:-0600}
+  source_validate_relative "$prepared_relative" || exit 1
+  case "$prepared_mode" in [0-7][0-7][0-7]|0[0-7][0-7][0-7]) ;; *) exit 1 ;; esac
+  prepared_source=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$prepared_relative
+  case "$prepared_relative" in
+    *.tmpl) ;;
+    *)
+      if [ -e "$prepared_source.tmpl" ] || [ -L "$prepared_source.tmpl" ]; then
+        [ ! -e "$prepared_source" ] && [ ! -L "$prepared_source" ] || exit 1
+        prepared_source=$prepared_source.tmpl
+      fi ;;
+  esac
+  [ -f "$prepared_source" ] && [ ! -L "$prepared_source" ] || {
+    bootstrap_log "fatal: file absent from prepared target payload: $prepared_relative"; exit 1;
+  }
+  case "$prepared_destination" in
+    "$BOOTSTRAP_PREPARED_SOURCE_ROOT"|"$BOOTSTRAP_PREPARED_SOURCE_ROOT/"*)
+      bootstrap_log 'fatal: prepared target source is immutable'; exit 1 ;;
+  esac
+  prepared_parent=${prepared_destination%/*}
+  [ "$prepared_parent" != "$prepared_destination" ] || prepared_parent=.
+  mkdir -p "$prepared_parent"
+  prepared_temporary=$(mktemp "$prepared_parent/.prepared-asset.XXXXXX")
+  trap 'rm -f -- "$prepared_temporary"' 0
+  trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  cat "$prepared_source" >"$prepared_temporary"
+  chmod "$prepared_mode" "$prepared_temporary"
+  mv -fT -- "$prepared_temporary" "$prepared_destination"
+)
 
 bootstrap_repo_dir_value() {
   bootstrap_repo_dir_name=$1
@@ -654,6 +743,13 @@ bootstrap_require_seed_url_base() {
 
 bootstrap_fetch_seed_file() (
   bootstrap_load_source_library "$1" || exit "$?"
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] && [ "$1" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
+    if command -v installer_repo_assert_asset_family >/dev/null 2>&1; then
+      installer_repo_assert_asset_family "$2" || exit "$?"
+    fi
+    bootstrap_copy_prepared_file "$@"
+    exit "$?"
+  fi
   # repository-apt is loaded before context-target during common bootstrap.
   # Delegate only when its source-library dependency exists. The initialized
   # publisher already owns the private fetch/render transaction.
@@ -758,6 +854,12 @@ bootstrap_module_path() (
   source_validate_relative "$1" || exit 1
   module_relative=$1
   module_seed=$(bootstrap_require_seed_base "") || exit 1
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] && [ "$module_seed" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
+    module_prepared=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$module_relative
+    [ -f "$module_prepared" ] && [ ! -L "$module_prepared" ] || exit 1
+    printf '%s\n' "$module_prepared"
+    exit 0
+  fi
   # Remote code always requires the preseed-pinned payload. Explicit local
   # source trees remain usable by the existing developer/test bootstrap path.
   case "$module_seed" in
@@ -819,6 +921,12 @@ bootstrap_parser_asset_path() (
   bootstrap_load_source_library "${INSTALLER_SOURCE_ROOT:-}" || exit 1
   source_validate_relative "$parser_relative" || exit 1
   parser_seed=$(bootstrap_require_seed_base "") || exit 1
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] && [ "$parser_seed" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
+    parser_prepared=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$parser_relative
+    [ -f "$parser_prepared" ] && [ ! -L "$parser_prepared" ] || exit 1
+    printf '%s\n' "$parser_prepared"
+    exit 0
+  fi
   [ -f "${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}/bootstrap/payload.ready" ] || {
     bootstrap_log 'fatal: parser asset loading requires the authenticated payload'; exit 1;
   }
@@ -906,7 +1014,11 @@ bootstrap_source_common_lib() {
   bootstrap_ensure_repo_env "$seed_base" || return $?
 
   common_lib_source=$(bootstrap_repo_file_value FILE_COMMON_LIB) || return $?
-  bootstrap_fetch_seed_file "$seed_base" "$common_lib_source" "$common_lib_path" 0600 "common library" || return $?
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] && [ "$seed_base" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
+    common_lib_path=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$common_lib_source
+  else
+    bootstrap_fetch_seed_file "$seed_base" "$common_lib_source" "$common_lib_path" 0600 "common library" || return $?
+  fi
   # shellcheck disable=SC1090,SC1091
   . "$common_lib_path" || return $?
 }
@@ -943,7 +1055,11 @@ bootstrap_source_common_support_libs() {
         bootstrap_fatal "unsupported installer support library: ${lib_name}"
         ;;
     esac
-    bootstrap_fetch_seed_file "$seed_base" "$src" "$dest" 0600 "shared helper" || return $?
+    if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] && [ "$seed_base" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
+      dest=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$src
+    else
+      bootstrap_fetch_seed_file "$seed_base" "$src" "$dest" 0600 "shared helper" || return $?
+    fi
     # shellcheck disable=SC1090,SC1091
     . "$dest" || return $?
   done

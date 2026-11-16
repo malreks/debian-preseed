@@ -27,6 +27,7 @@ from app_veth_policy import read_configuration
 
 SOCKET_PATH = "__INSTALLER_PATH_DIR_RUN__/app-veth/control.sock"
 CONFIG = "__INSTALLER_PATH_DIR_ETC__/app-veth.json"
+COMMAND_TEMP_DIRECTORY = "__INSTALLER_PATH_DIR_TMP__"
 ENV = {"PATH": "__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin", "LC_ALL": "C"}
 # Up to 128 precreated pairs produce more than 64 KiB of detailed ip JSON.
 MAX_COMMAND_OUTPUT_BYTES = 524288
@@ -109,7 +110,11 @@ def run(argv: list[str], *, data: str | None = None, fds: tuple[int, ...] = (),
     # Fixed administrative executables and validated scalar arguments only.
     # Never mix stderr warnings into iproute2's JSON on stdout. In particular,
     # an interrupted netlink dump can still exit zero during boot/link churn.
-    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+    # Use the canonical target temporary directory already covered by the
+    # service's PrivateTmp and AppArmor policy. Do not probe inherited TMPDIR
+    # or other fallback directories on every fresh service process.
+    with tempfile.TemporaryFile(dir=COMMAND_TEMP_DIRECTORY) as output, \
+            tempfile.TemporaryFile(dir=COMMAND_TEMP_DIRECTORY) as errors:
         result = subprocess.run(argv, input=data.encode("ascii") if data is not None else None,
                                 stdin=subprocess.DEVNULL if data is None else None,
                                 # Deletion prints every retired flow on stdout;

@@ -1,5 +1,22 @@
 # Static inspection plus controlled isolated native validation
 
+## Host scratch storage prohibition
+
+This restriction applies to the machine running development commands only.
+The Debian Installer, installed target, and approved isolated guests may use
+their own `/tmp`, tmpfs, and other configured memory-backed filesystems.
+
+Never use the real host's `/tmp`, `/var/tmp`, `/dev/shm`, or any tmpfs or
+RAM-backed host directory for task work, downloads, staging, caches, temporary
+files, parser support, build scratch space, or validation artifacts. Never
+create or mount a host tmpfs. Use a private, owned directory on the checkout's
+verified disk-backed filesystem, under `.build/validation/`, and explicitly set
+`TMPDIR`, `TMP`, and `TEMP` for commands and their subprocesses. A helper that
+ignores these settings must be corrected or stopped; no host temporary-directory
+fallback is permitted. This also applies to delegated work. Private guest
+filesystems inside an approved disposable VM remain within that guest boundary;
+their host images, captures, scratch files, and outputs must stay on disk.
+
 Static inspection and deterministic generation remain the default repository
 workflow. Controlled QEMU/VM, rootless-container and private-chroot validation
 is permitted when it is required to validate an installer, deployment, target

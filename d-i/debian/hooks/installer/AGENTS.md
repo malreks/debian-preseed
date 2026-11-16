@@ -1,5 +1,21 @@
 # Installer hook instructions
 
+## Host scratch storage prohibition
+
+This restriction applies to the development host only. The Debian Installer,
+installed target, and approved isolated guests may use their own `/tmp`, tmpfs,
+and other configured memory-backed filesystems.
+
+Never use the real host's `/tmp`, `/var/tmp`, `/dev/shm`, or any tmpfs or
+RAM-backed host directory for work, downloads, staging, caches, temporary files,
+build scratch space, parser support, or validation artifacts. Never create or
+mount a host tmpfs. Use private, owned storage under `.build/validation/` on the
+checkout's verified disk-backed filesystem, and set `TMPDIR`, `TMP`, and `TEMP`
+explicitly for commands and subprocesses. Stop or correct helpers that ignore
+these settings; do not fall back to host temporary directories. Delegated work
+follows the same rule. Approved VM guest filesystems are separate; all host
+images, captures, scratch files, and outputs remain on disk.
+
 The repository-root `AGENTS.md` and `d-i/debian/AGENTS.md` remain authoritative.
 This directory owns installer-phase hooks and the installer-only environment
 contract.

@@ -142,21 +142,37 @@ installer_load_data_env() {
   [ -f "$installer_data_path" ] && [ ! -L "$installer_data_path" ] || return 1
   installer_data_size=$(wc -c <"$installer_data_path") || return 1
   [ "$installer_data_size" -le 1048576 ] || return 1
-  if installer_data_parser=$(bootstrap_parser_asset_path "$(bootstrap_repo_file_value FILE_COMMON_CREDENTIAL_DATA)"); then
-    :
-  else
-    installer_data_parser_status=$?
-    installer_error "compiled data parser asset could not be resolved from the authenticated payload (status=${installer_data_parser_status})"
-    return "$installer_data_parser_status"
-  fi
   # Validate the entire bounded snapshot before changing any caller variable.
   # No source/eval, process environment expansion or shell expression parsing.
-  if installer_data_records=$(LC_ALL=C awk -v mode=snapshot -f "$installer_data_parser" "$installer_data_path"); then
-    :
+  installer_data_snapshot=
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
+    for installer_data_candidate in host account; do
+      installer_data_prepared=${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/$installer_data_candidate
+      if cmp -s "$installer_data_path" "$installer_data_prepared.env"; then
+        installer_data_snapshot=$installer_data_prepared.records
+        break
+      fi
+    done
+  fi
+  if [ -n "$installer_data_snapshot" ]; then
+    # Reload values on every request; an earlier caller may have changed them.
+    # Exact byte equality binds this input to the once-validated private map.
+    installer_data_records=$(cat "$installer_data_snapshot") || return "$?"
   else
-    installer_data_parser_status=$?
-    installer_error "compiled data snapshot was rejected by the restricted data parser (status=${installer_data_parser_status}; path=${installer_data_path})"
-    return "$installer_data_parser_status"
+    if installer_data_parser=$(bootstrap_parser_asset_path "$(bootstrap_repo_file_value FILE_COMMON_CREDENTIAL_DATA)"); then
+      :
+    else
+      installer_data_parser_status=$?
+      installer_error "compiled data parser asset could not be resolved from the authenticated payload (status=${installer_data_parser_status})"
+      return "$installer_data_parser_status"
+    fi
+    if installer_data_records=$(LC_ALL=C awk -v mode=snapshot -f "$installer_data_parser" "$installer_data_path"); then
+      :
+    else
+      installer_data_parser_status=$?
+      installer_error "compiled data snapshot was rejected by the restricted data parser (status=${installer_data_parser_status}; path=${installer_data_path})"
+      return "$installer_data_parser_status"
+    fi
   fi
   installer_data_complete=false
   while IFS= read -r installer_data_key; do
@@ -219,7 +235,7 @@ installer_fetch_host_env() {
   installer_fetch_seed_path "$host_seed_base" "$host_source" "$host_dest_path" "$host_mode" || return "$?"
   # Validation occurs in a subshell so a probe cannot change caller policy,
   # while preserving the parser's status for the phase supervisor.
-  if (installer_load_data_env "$host_dest_path"); then
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || (installer_load_data_env "$host_dest_path"); then
     :
   else
     host_data_status=$?
@@ -253,7 +269,7 @@ installer_fetch_account_env() {
   account_source=$(installer_repo_asset_path DIR_CATALOG_COMPILED \
     "$INSTALLER_SUITE/profiles/$account_family/$account_profile.account.env") || return "$?"
   installer_fetch_seed_path "$account_seed_base" "$account_source" "$account_dest_path" "$account_mode" || return "$?"
-  if (installer_load_data_env "$account_dest_path"); then
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || (installer_load_data_env "$account_dest_path"); then
     :
   else
     account_data_status=$?
@@ -300,6 +316,18 @@ installer_prepare_late_account_env() (
   }
   trap late_account_cleanup 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] &&
+      [ "$late_account_seed" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
+    # The finish hook resolves protected credentials and identity once, before
+    # rendering. Every late provider must consume that same private snapshot.
+    late_account_snapshot=${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/account.env
+    if cmp -s "$late_account_snapshot" "$late_account_destination"; then exit 0; fi
+    late_account_work=$(mktemp -d "${late_account_parent}/.account-env.XXXXXX") || exit "$?"
+    cp "$late_account_snapshot" "$late_account_work/account.env" || exit "$?"
+    chmod 0600 "$late_account_work/account.env" || exit "$?"
+    mv -fT -- "$late_account_work/account.env" "$late_account_destination" || exit "$?"
+    exit 0
+  fi
   late_account_work=$(mktemp -d "${late_account_parent}/.account-env.XXXXXX") || exit "$?"
   # Standalone pre-pkgsel/late callers need not have loaded the target roots.
   # Resolve them from this exact compiled profile, never an inherited DIR_HOME.

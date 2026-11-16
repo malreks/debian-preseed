@@ -79,6 +79,9 @@ late_command_load_themes() {
 
 fetch_hook() {
   fetch_hook_file "$1" "$2" || return $?
+  # Paths, logging and eligible theme defaults were rendered together before
+  # late_command. Registry mapping tokens intentionally remain literal.
+  [ -z "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || return 0
   # Every fetched late/desktop/firstboot asset uses the same canonical
   # runtime path namespace.  Render it before the caller sources or executes
   # the fetched file; leaving a path token in an installer-side helper would
