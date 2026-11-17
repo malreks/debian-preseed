@@ -912,11 +912,8 @@ remove_target_managed_network_handoff() {
   remove_target_asset "${FILE_MANAGED_NETWORK_INTERFACES:-__INSTALLER_PATH_DIR_ETC__/network/interfaces.d/50-network}"
   remove_target_asset "${FILE_MANAGED_NETWORK_DEFAULT:-__INSTALLER_PATH_DIR_ETC__/network/host.conf}"
   remove_target_asset "${FILE_MANAGED_NETWORK_HELPER:-__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/network-run}"
-  managed_network_perl_modules |
-    while IFS= read -r managed_network_module; do
-      [ -n "$managed_network_module" ] || continue
-      remove_target_asset "${DIR_PERL5_SITE_PERL}/network/${managed_network_module}"
-    done
+  # Shared Perl modules were published by base-stage. This handoff owns the
+  # configuration and entrypoint; disabling or refreshing it keeps the library.
   remove_target_asset "${FILE_MANAGED_NETWORK_SERVICE:-__INSTALLER_PATH_DIR_ETC__/systemd/system/network.service}"
   remove_target_asset "${FILE_NETWORKMANAGER_MANAGED_UNMANAGED_CONF:-__INSTALLER_PATH_DIR_ETC__/NetworkManager/conf.d/90-network-external.conf}"
   remove_target_asset __INSTALLER_PATH_DIR_ETC__/network/if-up.d/90-managed-wifi-preference

@@ -398,9 +398,9 @@ $prepared_member
   printf '%s\n' "$prepared_source"
 )
 
-# Complete namespaces were published before late_command. The receipt binds
-# source, destination and mode; a declared member cannot silently fall
-# back to another acquisition/publication path when its identity changes.
+# Complete namespaces were published before late_command. A later owner may
+# remove a final file while replacing configuration. A missing file needs the
+# normal atomic staging path, which still reads the same prepared source.
 bootstrap_prepared_asset_published() {
   [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || return 1
   case "$3" in 644|0644) ;; *) return 1 ;; esac
@@ -410,10 +410,13 @@ $BOOTSTRAP_PREPARED_PUBLISHED_ASSETS
 " in *"
 $bootstrap_published_row
 "*) ;; *) return 1 ;; esac
+  if [ ! -e "${TARGET_ROOT}$2" ] && [ ! -L "${TARGET_ROOT}$2" ]; then
+    return 1
+  fi
   [ -f "${TARGET_ROOT}$2" ] && [ ! -L "${TARGET_ROOT}$2" ] ||
-    bootstrap_fatal 'published prepared Perl member is missing or indirect'
+    bootstrap_fatal "published prepared Perl member is not a regular direct file: source=$1 target=$2"
   [ "$(installer_metadata_value "${TARGET_ROOT}$2" uid_gid_mode_links)" = 0:0:644:1 ] ||
-    bootstrap_fatal 'published prepared Perl member metadata changed'
+    bootstrap_fatal "published prepared Perl member metadata changed: source=$1 target=$2"
   return 0
 }
 

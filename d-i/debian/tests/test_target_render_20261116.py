@@ -16,6 +16,7 @@ import resource
 import shlex
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 
@@ -199,6 +200,187 @@ class PreparedBootstrapTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertNotIn(b'UNEXPECTED_FETCH', result.stderr)
                 self.assertEqual(destination.read_bytes(), b'previous\n')
+
+
+class PreparedPerlReuseTests(unittest.TestCase):
+    """Keep base-stage libraries across late cleanup, restoration and reruns.
+
+    Only fixture file bytes are copied. The real bootstrap and network cleanup
+    functions run in the guarded image; no Perl module or network helper runs.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.catalogs = {}
+        for suite in ('forky', 'trixie'):
+            with tarfile.open(RENDERER.parents[3] / suite / 'payload.tar.gz', 'r:gz') as archive:
+                member = archive.getmember('catalog/compiled/shared-perl-assets.tsv')
+                if not member.isfile() or member.size > 1024 * 1024:
+                    raise ValueError('invalid fixture Perl catalog')
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise ValueError('missing fixture Perl catalog')
+                with stream:
+                    cls.catalogs[suite] = [line.split('\t') for line in
+                                           stream.read(1024 * 1024 + 1).decode('ascii').splitlines()]
+
+    def fixture(self, root, suite):
+        target = root / 'target'
+        prepared = root / 'prepared'
+        inputs = prepared / 'inputs'
+        inputs.mkdir(parents=True)
+        target.mkdir()
+        rows = []
+        for source, relative, family in self.catalogs[suite]:
+            self.assertIn(family, ('common', 'desktop', 'server'))
+            self.assertNotIn('..', Path(source).parts)
+            self.assertNotIn('..', Path(relative).parts)
+            self.assertFalse(Path(source).is_absolute())
+            self.assertFalse(Path(relative).is_absolute())
+            path = prepared / 'source' / source
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(('prepared fixture: ' + source + '\n').encode('ascii'))
+            path.chmod(0o644)
+            rows.append(f'{source}\t/modules/{relative}\t0644\n')
+        (inputs / 'published-assets.tsv').write_text(''.join(rows), encoding='ascii')
+        (inputs / 'prepared-members').write_text(''.join(
+            source + '\n' for source, _relative, _family in self.catalogs[suite]), encoding='ascii')
+        env = {'PATH': '/usr/bin:/bin', 'HOME': str(root), 'LC_ALL': 'C',
+               'TMPDIR': str(root), 'TMP': str(root), 'TEMP': str(root),
+               'TARGET_ROOT': str(target), 'FIXTURE_INPUTS': str(inputs),
+               'BOOTSTRAP_PREPARED_SOURCE_ROOT': str(prepared / 'source'),
+               'BOOTSTRAP_PREPARED_SEED_BASE': '/fixture-seed',
+               'SOURCE_LIBRARY': str(RENDERER.parent / 'source.sh'),
+               'BOOTSTRAP_LIBRARY': str(RENDERER.parent / 'bootstrap.sh')}
+        return target, env
+
+    def shell(self, shell, code, env):
+        setup = '\n'.join((
+            '. "$SOURCE_LIBRARY"', '. "$BOOTSTRAP_LIBRARY"',
+            'bootstrap_fatal() { printf "%s\\n" "$*" >&2; exit 93; }',
+            'source_fetch() { printf "UNEXPECTED_FETCH\\n" >&2; return 97; }',
+            'sha256sum() { printf "UNEXPECTED_HASH\\n" >&2; return 96; }',
+            'BOOTSTRAP_PREPARED_MEMBER_INDEX=$(cat "$FIXTURE_INPUTS/prepared-members")',
+            'BOOTSTRAP_PREPARED_PUBLISHED_ASSETS=$(cat "$FIXTURE_INPUTS/published-assets.tsv")'))
+        return subprocess.run([*shell, '-eu', '-c', setup + '\n' + code],
+                              env=env, capture_output=True, timeout=90, check=False)
+
+    def test_every_catalog_member_can_be_reused_and_restored_without_fetching(self):
+        shells = [['/bin/dash']]
+        if shutil.which('busybox'):
+            shells.append([shutil.which('busybox'), 'sh'])
+        for suite in self.catalogs:
+            for shell in shells:
+                with self.subTest(suite=suite, shell=shell), tempfile.TemporaryDirectory(
+                        prefix='prepared-perl-reuse-') as temporary:
+                    root = Path(temporary)
+                    target, env = self.fixture(root, suite)
+                    code = '\n'.join((
+                        'while IFS="$(printf "\\t")" read -r source target mode; do',
+                        '  if bootstrap_prepared_asset_published "$source" "$target" "$mode"; then',
+                        '    [ "$EXPECT_PRESENT" = true ] || exit 94',
+                        '  else',
+                        '    [ "$EXPECT_PRESENT" = false ] || exit 95',
+                        '    bootstrap_fetch_seed_file /fixture-seed "$source" "$TARGET_ROOT$target" "$mode"',
+                        '    bootstrap_prepared_asset_published "$source" "$target" "$mode"',
+                        '  fi',
+                        'done <"$FIXTURE_INPUTS/published-assets.tsv"'))
+                    identities = {}
+                    for present in ('false', 'true'):
+                        result = self.shell(shell, code, {**env, 'EXPECT_PRESENT': present})
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertNotIn(b'UNEXPECTED_', result.stderr)
+                        for source, relative, _family in self.catalogs[suite]:
+                            path = target / 'modules' / relative
+                            self.assertEqual(path.read_bytes(),
+                                             ('prepared fixture: ' + source + '\n').encode('ascii'))
+                            self.assertEqual(path.stat().st_mode & 0o7777, 0o644)
+                            if present == 'false':
+                                identities[relative] = path.stat().st_ino
+                            else:
+                                self.assertEqual(path.stat().st_ino, identities[relative])
+
+    def test_unsafe_published_members_fail_without_touching_previous_bytes(self):
+        for mutation in ('symlink', 'dangling-symlink', 'hardlink', 'directory', 'mode'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(
+                    prefix='prepared-perl-unsafe-') as temporary:
+                root = Path(temporary)
+                target, env = self.fixture(root, 'forky')
+                source, relative, _family = next(row for row in self.catalogs['forky']
+                                                 if row[1] == 'network/ManagedNetwork/CLI.pm')
+                destination = target / 'modules' / relative
+                destination.parent.mkdir(parents=True)
+                protected = root / 'protected'
+                protected.write_bytes(b'previous\n')
+                protected.chmod(0o644)
+                if mutation in ('symlink', 'dangling-symlink'):
+                    destination.symlink_to(protected if mutation == 'symlink' else root / 'absent')
+                elif mutation == 'hardlink':
+                    os.link(protected, destination)
+                elif mutation == 'directory':
+                    destination.mkdir()
+                else:
+                    destination.write_bytes(b'previous\n')
+                    destination.chmod(0o600)
+                before = destination.lstat()
+                code = 'bootstrap_prepared_asset_published ' + ' '.join(map(shlex.quote, (
+                    source, '/modules/' + relative, '0644')))
+                result = self.shell(['/bin/dash'], code, env)
+                self.assertEqual(result.returncode, 93, result.stdout + result.stderr)
+                self.assertIn(b'published prepared Perl member', result.stderr)
+                self.assertNotIn(b'UNEXPECTED_', result.stderr)
+                self.assertEqual(destination.lstat().st_ino, before.st_ino)
+                self.assertEqual(destination.lstat().st_mode, before.st_mode)
+                self.assertEqual(protected.read_bytes(), b'previous\n')
+                if mutation == 'mode':
+                    self.assertEqual(destination.read_bytes(), b'previous\n')
+
+    def test_restoration_requires_the_prepared_member_without_remote_fallback(self):
+        for mutation in ('missing', 'symlink', 'hardlink'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(
+                    prefix='prepared-perl-source-') as temporary:
+                root = Path(temporary)
+                target, env = self.fixture(root, 'forky')
+                source, relative, _family = next(row for row in self.catalogs['forky']
+                                                 if row[1] == 'network/ManagedNetwork/CLI.pm')
+                prepared = Path(env['BOOTSTRAP_PREPARED_SOURCE_ROOT']) / source
+                prepared.unlink()
+                protected = root / 'protected'
+                protected.write_bytes(b'previous\n')
+                protected.chmod(0o644)
+                if mutation == 'symlink':
+                    prepared.symlink_to(protected)
+                elif mutation == 'hardlink':
+                    os.link(protected, prepared)
+                args = ' '.join(map(shlex.quote, (source, '/modules/' + relative, '0644')))
+                code = '\n'.join((
+                    'if bootstrap_prepared_asset_published ' + args + '; then exit 94; fi',
+                    'bootstrap_fetch_seed_file /fixture-seed ' + ' '.join(map(shlex.quote, (
+                        source, str(target / 'modules' / relative), '0644')))))
+                result = self.shell(['/bin/dash'], code, env)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn(b'UNEXPECTED_', result.stderr)
+                self.assertFalse((target / 'modules' / relative).exists())
+                self.assertEqual(protected.read_bytes(), b'previous\n')
+
+    def test_network_cleanup_preserves_base_stage_perl_libraries(self):
+        with tempfile.TemporaryDirectory(prefix='prepared-network-cleanup-') as temporary:
+            root = Path(temporary)
+            _target, env = self.fixture(root, 'forky')
+            removals = root / 'removals'
+            code = '\n'.join((
+                '. "$NETWORK_LIBRARY"',
+                'remove_target_asset() { printf "%s\\n" "$1" >>"$REMOVALS"; }',
+                'remove_target_managed_network_handoff',
+                'remove_target_managed_network_handoff'))
+            result = self.shell(['/bin/dash'], code, {
+                **env, 'NETWORK_LIBRARY': str(RENDERER.parents[1] / 'late/network.sh'),
+                'REMOVALS': str(removals), 'DIR_PERL5_SITE_PERL': '/modules',
+                'FILE_MANAGED_NETWORK_DEFAULT': '/config/host.conf'})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            removed = removals.read_text(encoding='ascii').splitlines()
+            self.assertEqual(removed.count('/config/host.conf'), 2)
+            self.assertFalse(any(path.startswith('/modules/') for path in removed), removed)
 
 
 class BatchRenderTests(unittest.TestCase):

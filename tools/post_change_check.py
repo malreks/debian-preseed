@@ -2306,7 +2306,73 @@ def _check_payload_class_queries(archive_path: Path, errors: list[str], counts: 
                 _check_class_queries(f'{archive_path.name}:{member.name}', sources[member.name],
                                      registries, errors, counts)
         _check_payload_late_contracts(archive, sources, selectors, errors, counts)
+        _check_payload_perl_catalog(archive, selectors, errors, counts)
         counts['payload_class_registries'] = counts.get('payload_class_registries', 0) + 1
+
+
+def _check_payload_perl_catalog(archive: tarfile.TarFile, selectors: dict[str, str],
+                                errors: list[str], counts: dict[str, int]) -> None:
+    """Compare the prepared Perl work list with source/package owners as data.
+
+    This extends the existing changed-payload audit, never the installer path.
+    It imports no target modules and executes no Perl or installer helpers.
+    """
+    members = {member.name: member for member in archive.getmembers()}
+
+    def read(name: str) -> str:
+        member = members[name]
+        if not member.isfile() or member.size > 1024 * 1024:
+            raise ValueError('invalid shared Perl catalog member: ' + name)
+        stream = archive.extractfile(member)
+        if stream is None:
+            raise ValueError('unreadable shared Perl catalog member: ' + name)
+        with stream:
+            return stream.read(1024 * 1024 + 1).decode('utf-8')
+
+    # The family segment and Perl include layout are the source partition
+    # interface, also used by the serializer's shared-Perl catalog producer.
+    prefix = selectors['DIR_TARGET_LIB'] + '/'
+    expected = {}
+    for name in members:
+        if not name.startswith(prefix):
+            continue
+        match = re.fullmatch(r'(common|desktop|server)/perl5/site_perl/(.+\.pm(?:\.tmpl)?)',
+                             name.removeprefix(prefix))
+        if match:
+            family, relative = match.groups()
+            expected[name] = (relative.removesuffix('.tmpl'), family)
+    rows = {}
+    for line in read(selectors['FILE_SHARED_PERL_ASSETS']).splitlines():
+        fields = line.split('\t')
+        if len(fields) != 3 or fields[0] in rows:
+            raise ValueError('malformed or duplicate prepared Perl catalog row')
+        rows[fields[0]] = tuple(fields[1:])
+    if not expected or rows != expected:
+        raise ValueError('prepared Perl catalog differs from physical source members')
+    packages = {}
+    for name, (relative, _family) in rows.items():
+        namespace, separator, leaf = relative.partition('/')
+        if (not separator or not re.fullmatch(r'[a-z][a-z0-9-]*', namespace)
+                or not re.fullmatch(r'[A-Za-z_]\w*(?:/[A-Za-z_]\w*)*\.pm', leaf)):
+            raise ValueError('invalid prepared Perl namespace member: ' + name)
+        package = leaf.removesuffix('.pm').replace('/', '::')
+        declarations = re.findall(r'^\s*package\s+([A-Za-z_]\w*(?:::\w+)*)\b', read(name), re.M)
+        if declarations != [package]:
+            errors.append(f'{name}: Perl package does not match catalog destination: {package}')
+        packages[name] = package
+    for family in ('desktop', 'server'):
+        for snapshots in (False, True):
+            selected = [(name, relative) for name, (relative, owner) in rows.items()
+                        if owner in {'common', family}
+                        and (snapshots or not relative.startswith('timeshift/'))]
+            targets, owners = set(), set()
+            for name, relative in selected:
+                if relative in targets or packages[name] in owners:
+                    errors.append(f'{family}: ambiguous prepared Perl member: {name}')
+                targets.add(relative)
+                owners.add(packages[name])
+            counts['prepared_perl_selection_contexts'] = counts.get('prepared_perl_selection_contexts', 0) + 1
+    counts['prepared_perl_catalog_members'] = counts.get('prepared_perl_catalog_members', 0) + len(rows)
 
 
 def _check_payload_late_contracts(archive: tarfile.TarFile, sources: dict[str, str],
