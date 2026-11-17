@@ -97,3 +97,28 @@ runtime_secure_boot_state_uses_luks() {
   [ "$(runtime_secure_boot_state_mode)" = "luks" ]
 }
 
+# Partman init.d interface shared by both storage families.
+runtime_install_crypto_skip_erase_hook() {
+  skip_hook=${DIR_INSTALLER_LIB_PARTMAN}/init.d/51crypto-skip-erase
+
+  cat >"$skip_hook" <<'EOF'
+#!/bin/sh
+set -eu
+
+runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+[ -r "$runtime/bootstrap/di.env" ] || exit 1
+# shellcheck disable=SC1090
+. "$runtime/bootstrap/di.env"
+
+[ -d "${DIR_INSTALLER_VAR_LIB_PARTMAN}/devices" ] || exit 0
+
+find "${DIR_INSTALLER_VAR_LIB_PARTMAN}/devices" -mindepth 2 -maxdepth 2 -type d | while IFS= read -r part_dir; do
+  [ -r "$part_dir/method" ] || continue
+  method=$(cat "$part_dir/method" 2>/dev/null || true)
+  [ "$method" = crypto ] || continue
+  : >"$part_dir/skip_erase"
+done
+EOF
+  chmod 0755 "$skip_hook"
+  installer_info "installed partman crypto skip-erase hook"
+}

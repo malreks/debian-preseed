@@ -24,6 +24,11 @@ installer_fetch_host_env "$seed_base" "$(installer_resolve_host_profile "")" "$h
 installer_load_data_env "$host_env"
 installer_prepare_late_account_env "$seed_base" "$TMP_ENV_DIR/account.env"
 installer_load_data_env "$TMP_ENV_DIR/account.env"
+# Partman has already frozen device identities and generated names. Reuse that
+# private data here so zram, system policy and boot templates need no late pass.
+layout_env="$(installer_runtime_state_dir)/runtime.env"
+if [ -f "${DIR_INSTALLER_ENV}/runtime.env" ]; then layout_env="${DIR_INSTALLER_ENV}/runtime.env"; fi
+installer_load_data_env "$layout_env" || installer_fatal 'frozen partman layout is unavailable at base-stage'
 installer_target_context_init
 bootstrap_source_common_support_libs "$seed_base" "$TMP_ENV_DIR/render-support" fetch target
 stage=${TARGET_ROOT}${DIR_INSTALLER_TARGET_STAGE}
@@ -39,8 +44,9 @@ source_root=$(source_cache_root "$seed_base")
 cp -a "$source_root/." "$work/source/"
 cp "$host_env" "$work/inputs/host.env"
 cp "$TMP_ENV_DIR/account.env" "$work/inputs/account.env"
+cp "$layout_env" "$work/inputs/layout.env"
 data_parser=$(bootstrap_parser_asset_path "$(installer_repo_file_value FILE_COMMON_CREDENTIAL_DATA)")
-for snapshot in host account; do
+for snapshot in host account layout; do
   LC_ALL=C awk -v mode=snapshot -f "$data_parser" "$work/inputs/$snapshot.env" >"$work/inputs/$snapshot.records"
 done
 cp "$runtime/bootstrap/payload.ready" "$work/identity"
@@ -56,6 +62,30 @@ install -m 0600 "$placeholder_registry_source" "$runtime/bootstrap/placeholder-r
 install -m 0600 "$source_root/$(installer_repo_file_value FILE_COMMON_TARGET_OWNED_SCAN)" \
   "$runtime/bootstrap/target-owned-scan.awk"
 installer_runtime_path_placeholder_map >"$work/inputs/paths.map"
+# These files contain definitions and map producers only. Perl consumes their
+# data once for the complete target source tree; no shell template substitution
+# runs here. Runtime configuration/environment references are left intact.
+for render_selector in FILE_LATE_CORE FILE_LATE_TEMPLATES; do
+  render_support="$TMP_ENV_DIR/$render_selector.sh"
+  fetch_hook_file "$(installer_repo_file_value "$render_selector")" "$render_support"
+  . "$render_support" || installer_fatal 'cannot load base-stage render map producer'
+done
+late_command_set_grub_arch_policy
+render_target_template_placeholder_map >"$work/inputs/templates.map" ||
+  installer_fatal 'cannot prepare system-template values'
+systemd_resource_placeholder_map >"$work/inputs/resources.map" ||
+  installer_fatal 'cannot prepare systemd resource values'
+printf 'SYSTEMD_IOWEIGHT_ENABLE=%s\nSYSTEMD_CPUWEIGHT_ENABLE=%s\n' \
+  "$SYSTEMD_IOWEIGHT_ENABLE" "$SYSTEMD_CPUWEIGHT_ENABLE" >>"$work/inputs/resources.map"
+{
+  # Hardware-derived lists are normally absent here. Absence defers the exact
+  # block to the late Perl consumer; an explicitly produced empty list is data.
+  for render_module_name in INITRAMFS_PLATFORM_MODULES GRAPHICS_INITRAMFS_MODULES VFIO_INITRAMFS_MODULES VIRT_HOST_INITRAMFS_MODULES; do
+    render_module_present=; render_module_value=
+    eval "render_module_present=\${$render_module_name+x}; render_module_value=\${$render_module_name-}"
+    [ "$render_module_present" != x ] || printf '%s=%s\n' "$render_module_name" "$render_module_value"
+  done
+} >"$work/inputs/modules.map"
 installer_load_logging_helpers "$seed_base"
 installer_validate_logging_data "$seed_base" \
   "$source_root/$(installer_repo_file_value FILE_HOST_LOG_OBSERVABILITY)" "$work/inputs"
@@ -97,6 +127,7 @@ prepare_run_logged 'payload copied; rendering target assets with base-system Per
   --firstboot "$DIR_SCRIPTS_FIRSTBOOT" --appearance-python "$DIR_TARGET_PY/labwc_appearance" \
   --appearance-registry "$(installer_repo_file_value FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL)" \
   --perl-assets "$(installer_repo_file_value FILE_SHARED_PERL_ASSETS)" \
+  --profile-assets "$(installer_repo_file_value FILE_SHARED_PROFILE_ASSETS)" \
   --perl-root "$DIR_PERL5_SITE_PERL" --family "$INSTALLER_HOST_VARIANT" --snapshots "$snapshots" \
   --sha256 "${DIR_USR_BIN}/sha256sum"
 [ -s "$work/receipt.json" ] && [ ! -L "$work/receipt.json" ] || installer_fatal 'target renderer did not produce a receipt'

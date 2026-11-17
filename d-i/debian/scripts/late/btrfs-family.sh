@@ -488,35 +488,13 @@ configure_target_btrfsmaintenance() {
   unstage_target_systemd_unit_enabled btrfs-trim.timer system
 }
 
-prepare_target_deferred_tmpfs_roots() {
-  journal_mount="${TARGET_ROOT}${DIR_VAR_LOG_JOURNAL}"
-
-  if tmpfs_policy_enabled TMPFS_VAR_LOG &&
-    target_mount_source "$journal_mount" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
-    info "unmounting ${journal_mount} so the installed system remounts the persistent journal cleanly on reboot"
-    umount "$journal_mount" || {
-      fatal "failed to unmount ${journal_mount} while preparing deferred tmpfs roots"
-    }
-  fi
-
-  rmdir "$journal_mount" 2>__INSTALLER_PATH_DIR_DEV__/null || true
-}
-
 write_target_kernel_tunables() {
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/78-snd-hda-intel.conf")" "${FILE_MODPROBE_SND_HDA_INTEL:-}" "${DIR_MODPROBE_D}/78-snd-hda-intel.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/76-iwlwifi.conf")" "${FILE_MODPROBE_IWLWIFI:-}" "${DIR_MODPROBE_D}/76-iwlwifi.conf" 0644
   stage_target_hardware_spec
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/77-e1000e.conf")" "${FILE_MODPROBE_E1000E:-}" "${DIR_MODPROBE_D}/77-e1000e.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/70-vfio-pci.conf")" "${FILE_MODPROBE_VFIO:-}" "${DIR_MODPROBE_D}/70-vfio-pci.conf" 0644
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu intel-uhd etc/modprobe.d/80-i915.conf)" "${FILE_MODPROBE_I915:-}" "${DIR_MODPROBE_D}/80-i915.conf" 0644
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu amd-radeon etc/modprobe.d/81-amdgpu.conf)" "${FILE_MODPROBE_AMDGPU:-}" "${DIR_MODPROBE_D}/81-amdgpu.conf" 0644
-  if [ "$target_enable_nvidia" = true ]; then
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODPROBE_D_50_NOUVEAU_BLACKLIST)" "${DIR_MODPROBE_D}/50-nouveau-blacklist.conf" 0644
-    stage_target_asset "$(installer_hardware_asset_path gpu nvidia etc/modprobe.d/82-nvidia.conf)" "${FILE_MODPROBE_NVIDIA}" 0644
-  else
-    remove_target_asset "${DIR_MODPROBE_D}/50-nouveau-blacklist.conf"
-    remove_target_asset "${DIR_MODPROBE_D}/82-nvidia.conf"
-  fi
+  stage_target_graphics_kernel_tunables "$target_enable_nvidia"
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/71-thunderbolt.conf")" "${FILE_MODPROBE_THUNDERBOLT:-}" "${DIR_MODPROBE_D}/71-thunderbolt.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modprobe.d/74-usbcore.conf")" "${FILE_MODPROBE_USBCORE:-}" "${DIR_MODPROBE_D}/74-usbcore.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/75-cfg80211.conf")" "${FILE_MODPROBE_CFG80211:-}" "${DIR_MODPROBE_D}/75-cfg80211.conf" 0644
@@ -552,109 +530,93 @@ write_target_kernel_tunables() {
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/default/grub.d/74-intel-mei-blacklist.cfg")" "${FILE_GRUB_MEI_BLACKLIST_DROPIN:-}" "${DIR_GRUB_DEFAULT}/74-intel-mei-blacklist.cfg" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/default/grub.d/75-intel-vfio.cfg")" "${FILE_GRUB_VFIO_DROPIN:-}" "${DIR_GRUB_DEFAULT}/75-intel-vfio.cfg" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/default/grub.d/80-cpu-profile-flags.cfg")" "${FILE_GRUB_CPU_PROFILE_DROPIN:-}" "${DIR_GRUB_DEFAULT}/80-cpu-profile-flags.cfg" 0644
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu intel-uhd etc/default/grub.d/85-gpu-intel.cfg)" "${FILE_GRUB_GPU_INTEL_DROPIN:-}" "${DIR_GRUB_DEFAULT}/85-gpu-intel.cfg" 0644
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu amd-radeon etc/default/grub.d/86-gpu-amd.cfg)" "${FILE_GRUB_GPU_AMD_DROPIN:-}" "${DIR_GRUB_DEFAULT}/86-gpu-amd.cfg" 0644
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu nvidia etc/default/grub.d/87-gpu-nvidia.cfg)" "${FILE_GRUB_GPU_NVIDIA_DROPIN:-}" "${DIR_GRUB_DEFAULT}/87-gpu-nvidia.cfg" 0644
-
-  configure_target_nvidia_power_management "$target_enable_nvidia"
-
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_SWAP_FALLBACK_SETUP_TMPL)" "${FILE_SWAP_FALLBACK_HELPER}" 0755
-  render_target_template "$TMP_ENV_DIR/swap-fallback.service.tmpl" "${TARGET_ROOT}${FILE_SWAP_FALLBACK_SERVICE}" 0644
-
-  stage_target_common_storage_maintenance_assets
+  stage_target_common_boot_policy "$target_enable_nvidia"
 }
 
-
-
-
-
-
-
-
-btrfs_late_command_mark 575 write_target_fstab
+btrfs_late_command_mark 537 write_target_fstab
 write_target_fstab
-btrfs_late_command_mark 577 ensure_target_boot_mounts
+btrfs_late_command_mark 539 ensure_target_boot_mounts
 ensure_target_boot_mounts
-btrfs_late_command_mark 579 ensure_target_volatile_backing_mounts
+btrfs_late_command_mark 541 ensure_target_volatile_backing_mounts
 ensure_target_volatile_backing_mounts
-btrfs_late_command_mark 581 ensure_target_managed_runtime_storage_roots
+btrfs_late_command_mark 543 ensure_target_managed_runtime_storage_roots
 ensure_target_managed_runtime_storage_roots
-btrfs_late_command_mark 583 provision_target_identity
+btrfs_late_command_mark 545 provision_target_identity
 provision_target_identity
-btrfs_late_command_mark 585 stage_target_docs_index
+btrfs_late_command_mark 547 stage_target_docs_index
 stage_target_docs_index
-btrfs_late_command_mark 587 stage_target_account_shell_assets
+btrfs_late_command_mark 549 stage_target_account_shell_assets
 stage_target_account_shell_assets
-btrfs_late_command_mark 589 ensure_target_account_home_ownership
+btrfs_late_command_mark 551 ensure_target_account_home_ownership
 ensure_target_account_home_ownership
-btrfs_late_command_mark 591 install_target_account_shell_assets
+btrfs_late_command_mark 553 install_target_account_shell_assets
 install_target_account_shell_assets
-btrfs_late_command_mark 593 install_target_account_sudoers
+btrfs_late_command_mark 555 install_target_account_sudoers
 install_target_account_sudoers
-btrfs_late_command_mark 595 configure_target_shared_account_access
+btrfs_late_command_mark 557 configure_target_shared_account_access
 configure_target_shared_account_access
-btrfs_late_command_mark 597 repair_target_pkgsel_include_packages
+btrfs_late_command_mark 559 repair_target_pkgsel_include_packages
 repair_target_pkgsel_include_packages
-btrfs_late_command_mark 599 install_target_mullvad_vpn_if_selected
+btrfs_late_command_mark 561 install_target_mullvad_vpn_if_selected
 install_target_mullvad_vpn_if_selected
-btrfs_late_command_mark 601 stage_target_secure_boot_runtime_assets
+btrfs_late_command_mark 563 stage_target_secure_boot_runtime_assets
 stage_target_secure_boot_runtime_assets
-btrfs_late_command_mark 603 stage_target_xssh_helpers
+btrfs_late_command_mark 565 stage_target_xssh_helpers
 stage_target_xssh_helpers
-btrfs_late_command_mark 605 provision_target_ssh_client
+btrfs_late_command_mark 567 provision_target_ssh_client
 provision_target_ssh_client
-btrfs_late_command_mark 607 provision_target_git_ssh_identity
+btrfs_late_command_mark 569 provision_target_git_ssh_identity
 provision_target_git_ssh_identity
-btrfs_late_command_mark 609 configure_target_rootless_podman_if_selected
+btrfs_late_command_mark 571 configure_target_rootless_podman_if_selected
 configure_target_rootless_podman_if_selected
-btrfs_late_command_mark 611 sanitize_target_xfs_scrub_systemd_units
+btrfs_late_command_mark 573 sanitize_target_xfs_scrub_systemd_units
 sanitize_target_xfs_scrub_systemd_units
-btrfs_late_command_mark 613 install_target_wpa_supplicant_runtime_policy
+btrfs_late_command_mark 575 install_target_wpa_supplicant_runtime_policy
 install_target_wpa_supplicant_runtime_policy
-btrfs_late_command_mark 615 configure_target_smartmontools_defaults
+btrfs_late_command_mark 577 configure_target_smartmontools_defaults
 configure_target_smartmontools_defaults
-btrfs_late_command_mark 617 ensure_target_secure_boot_packages
+btrfs_late_command_mark 579 ensure_target_secure_boot_packages
 ensure_target_secure_boot_packages
-btrfs_late_command_mark 619 configure_target_btrfsmaintenance
+btrfs_late_command_mark 581 configure_target_btrfsmaintenance
 configure_target_btrfsmaintenance
-btrfs_late_command_mark 621 provision_target_ssh_server
+btrfs_late_command_mark 583 provision_target_ssh_server
 provision_target_ssh_server
-btrfs_late_command_mark 623 install_target_managed_network_handoff
+btrfs_late_command_mark 585 install_target_managed_network_handoff
 install_target_managed_network_handoff
-btrfs_late_command_mark 625 configure_target_apparmor_auditd
+btrfs_late_command_mark 587 configure_target_apparmor_auditd
 configure_target_apparmor_auditd
-btrfs_late_command_mark 627 install_target_firstboot_logger
+btrfs_late_command_mark 589 install_target_firstboot_logger
 install_target_firstboot_logger
-btrfs_late_command_mark 629 write_target_grub_dropins
+btrfs_late_command_mark 591 write_target_grub_dropins
 write_target_grub_dropins
-btrfs_late_command_mark 631 set_target_grub_default_entry
+btrfs_late_command_mark 593 set_target_grub_default_entry
 set_target_grub_default_entry
-btrfs_late_command_mark 633 write_target_kernel_tunables
+btrfs_late_command_mark 595 write_target_kernel_tunables
 write_target_kernel_tunables
-btrfs_late_command_mark 635 prepare_target_secure_boot_runtime
+btrfs_late_command_mark 597 prepare_target_secure_boot_runtime
 prepare_target_secure_boot_runtime
-btrfs_late_command_mark 637 sign_target_installed_kernel_modules
+btrfs_late_command_mark 599 sign_target_installed_kernel_modules
 sign_target_installed_kernel_modules
-btrfs_late_command_mark 639 dedupe_target_tmpfiles_legacy_lock
+btrfs_late_command_mark 601 dedupe_target_tmpfiles_legacy_lock
 dedupe_target_tmpfiles_legacy_lock
-btrfs_late_command_mark 641 enable_target_storage_units
+btrfs_late_command_mark 603 enable_target_storage_units
 enable_target_storage_units
-btrfs_late_command_mark 643 set_target_default_unit
+btrfs_late_command_mark 605 set_target_default_unit
 set_target_default_unit
-btrfs_late_command_mark 645 disable_stock_kernel_menu
+btrfs_late_command_mark 607 disable_stock_kernel_menu
 disable_stock_kernel_menu
 
 if target_exec_available; then
   # Regenerate signed kernels/initrds BEFORE discovering boot menu entries.
-  btrfs_late_command_mark 650 repair_target_installed_kernels
+  btrfs_late_command_mark 612 repair_target_installed_kernels
   repair_target_installed_kernels
-  btrfs_late_command_mark 652 require_target_grub_installed
+  btrfs_late_command_mark 614 require_target_grub_installed
   require_target_grub_installed
-  btrfs_late_command_mark 654 install_target_grub_profiles
+  btrfs_late_command_mark 616 install_target_grub_profiles
   install_target_grub_profiles
-  btrfs_late_command_mark 656 require_target_dualboot_os_prober_package
+  btrfs_late_command_mark 618 require_target_dualboot_os_prober_package
   require_target_dualboot_os_prober_package
-  btrfs_late_command_mark 658 run_target_grub_config_update
+  btrfs_late_command_mark 620 run_target_grub_config_update
   run_target_grub_config_update
   # This is the unconditional d-i late reset point: GRUB, shim, MokManager,
   # kernel/initrd and grub.cfg are complete before mokutil is called. Reset
@@ -664,20 +626,20 @@ if target_exec_available; then
   else
     installer_warn "MOK reset/boot preparation failed after GRUB installation; continuing installation"
   fi
-  btrfs_late_command_mark 668 sync_target_secure_boot_bundle_to_installer_usb
+  btrfs_late_command_mark 630 sync_target_secure_boot_bundle_to_installer_usb
   sync_target_secure_boot_bundle_to_installer_usb
-  btrfs_late_command_mark 670 close_target_secure_boot_state
+  btrfs_late_command_mark 632 close_target_secure_boot_state
   close_target_secure_boot_state
 fi
 
-  btrfs_late_command_mark 674 configure_target_dbus_broker
+  btrfs_late_command_mark 636 configure_target_dbus_broker
 configure_target_dbus_broker
-  btrfs_late_command_mark 676 prepare_target_deferred_tmpfs_roots
+  btrfs_late_command_mark 638 prepare_target_deferred_tmpfs_roots
 prepare_target_deferred_tmpfs_roots
-  btrfs_late_command_mark 678 prepare_target_volatile_mountpoints_for_first_boot
+  btrfs_late_command_mark 640 prepare_target_volatile_mountpoints_for_first_boot
 prepare_target_volatile_mountpoints_for_first_boot
-  btrfs_late_command_mark 680 stage_target_logging_foundation
+  btrfs_late_command_mark 642 stage_target_logging_foundation
 stage_target_logging_foundation || return $?
-  btrfs_late_command_mark 682 installer_archive_logs_to_target
+  btrfs_late_command_mark 644 installer_archive_logs_to_target
 installer_archive_logs_to_target copy || true
 }

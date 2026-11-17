@@ -12,3 +12,6 @@ bootstrap_source_module "$(installer_repo_file_value FILE_RUNTIME_MOD_CRYPTO)" |
 bootstrap_source_module "$(installer_repo_file_value FILE_RUNTIME_MOD_DEVICES)" || return "$?"
 bootstrap_source_module "$(installer_repo_file_value FILE_RUNTIME_MOD_LAYOUT_POLICY)" || return "$?"
 bootstrap_source_module "$(installer_repo_file_value FILE_RUNTIME_MOD_RECIPES)" || return "$?"
+# Only a fully loaded dependency chain is reusable by a family or account
+# consumer. runtime_fatal is defined by the first module, before later loads.
+RUNTIME_COMMON_READY=1

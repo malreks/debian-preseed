@@ -22,6 +22,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from fixture_render import render_apparmor_modes
 
 FORKY = Path(__file__).resolve().parents[1]
 TARGET = FORKY / 'hooks/target'
@@ -165,42 +166,30 @@ class MasterModeInventoryTests(unittest.TestCase):
                       (FORKY / 'scripts/late/core.sh').read_text())
 
     def test_installer_renders_both_states_for_every_declared_profile(self):
-        security = FORKY / 'scripts/late/security.sh'
         template = TARGET / 'etc/apparmor/modes.conf.tmpl'
         for state in ('complain', 'enforce'):
             with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
                 config = Path(directory) / 'modes.conf'
                 shutil.copyfile(template, config)
-                result = subprocess.run(
-                    ['/bin/sh', '-eu', '-c',
-                     '. "$1"; installer_fatal() { echo "$*" >&2; return 1; }; '
-                     'installer_info() { :; }; apparmor_apply_desktop_state "$2"',
-                     'test-mode-render', str(security), str(config)],
-                    env={**os.environ, 'DESKTOP_APPARMOR_STATE': state},
-                    capture_output=True, text=True, timeout=15)
+                result = render_apparmor_modes(config, state)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 rows = [line.split() for line in config.read_text().splitlines()
                         if line.strip() and not line.lstrip().startswith('#')]
                 self.assertTrue(rows)
-                self.assertEqual({row[0] for row in rows if row[2] != 'hardware-tuning'}, {state})
+                fixed = {'hardware-tuning', 'incus-host', 'incus-desktop-ui', 'app-veth'}
+                self.assertEqual({row[0] for row in rows if row[2] not in fixed}, {state})
+                self.assertEqual({row[0] for row in rows if row[2] in fixed}, {'enforce'})
                 self.assertEqual([row for row in rows if row[2] == 'hardware-tuning'],
                                  [['enforce', 'optional', 'hardware-tuning', '-']])
 
     def test_installer_rejects_a_complain_hardware_policy(self):
-        security = FORKY / 'scripts/late/security.sh'
         template = TARGET / 'etc/apparmor/modes.conf.tmpl'
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'modes.conf'
             unsafe = template.read_text().replace('enforce optional hardware-tuning -',
                                                   '__DESKTOP_APPARMOR_STATE__ optional hardware-tuning -')
             config.write_text(unsafe)
-            result = subprocess.run(
-                ['/bin/sh', '-eu', '-c',
-                 '. "$1"; installer_fatal() { echo "$*" >&2; return 1; }; '
-                 'installer_info() { :; }; apparmor_apply_desktop_state "$2"',
-                 'test-mode-reject', str(security), str(config)],
-                env={**os.environ, 'DESKTOP_APPARMOR_STATE': 'complain'},
-                capture_output=True, text=True, timeout=15)
+            result = render_apparmor_modes(config, 'complain')
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(config.read_text(), unsafe)
 

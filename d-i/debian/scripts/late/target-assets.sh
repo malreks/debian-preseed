@@ -22,10 +22,7 @@ target_asset_canonical_path() {
         INSTALLER_PATH_DIR_*|INSTALLER_PATH_FILE_*) ;;
         *) installer_fatal "unsupported target path token: __${token_name}__"; return 1 ;;
       esac
-      token_value=$(installer_runtime_path_placeholder_map | awk -F= -v name="PATH_${token_name#INSTALLER_PATH_}" '
-        $1 == name { value = substr($0, index($0, "=") + 1); count++ }
-        END { if (count != 1) exit 1; print value }
-      ') || {
+      token_value=$(installer_runtime_path_placeholder_value "PATH_${token_name#INSTALLER_PATH_}") || {
         installer_fatal "target path token has no unique canonical value: __${token_name}__"
         return 1
       }
@@ -184,12 +181,6 @@ ensure_target_asset_parent() (
   [ -d "$target_parent" ] || (umask 022; install -d -m 0755 "$target_parent") || exit 1
 )
 
-target_asset_contains_installer_placeholders() {
-  asset_path=$1
-
-  installer_contains_unresolved_installer_placeholders "$asset_path"
-}
-
 target_asset_assert_no_unresolved_installer_placeholders() {
   asset_path=$1
   asset_label=${2:-$asset_path}
@@ -265,9 +256,13 @@ publish_target_asset() (
     plain|stdin|template-input|appearance-registry)
       # Canonical fields always use the shared map. Private renderer inputs
       # and appearance mapping grammar have explicit, separate consumers.
-      (installer_apply_scalar_placeholders \
-        "$asset_work/payload" "$asset_work/path-rendered") || exit "$?"
-      mv -f "$asset_work/path-rendered" "$asset_work/payload" || exit "$?"
+      if installer_contains_unresolved_path_placeholders "$asset_work/payload"; then
+        installer_apply_scalar_placeholders "$asset_work/payload" "$asset_work/path-rendered" || exit "$?"
+        mv -f "$asset_work/path-rendered" "$asset_work/payload" || exit "$?"
+      else
+        asset_path_probe=$?
+        [ "$asset_path_probe" -eq 1 ] || exit "$asset_path_probe"
+      fi
       case "$asset_kind" in
         template-input)
           installer_assert_no_unresolved_path_placeholders \
@@ -515,50 +510,22 @@ sysctl_profile_placeholder_map() {
   done
 }
 
-apply_placeholder_map_to_target() {
-  target_path=$1
-  map_func=$2
-  rendered_tmp="${target_path}.map.$$"
-  map_tmp="${TMP_ENV_DIR}/target-placeholder-map.$$.tmp"
-
-  set --
-  if ! "$map_func" >"$map_tmp"; then
-    rm -f "$map_tmp"
-    installer_fatal "failed to render placeholder map ${map_func} for ${target_path}"
-  fi
-  while IFS= read -r map_line || [ -n "$map_line" ]; do
-    case "$map_line" in *=*) ;; *) installer_fatal "malformed placeholder map ${map_func}"; return 1 ;; esac
-    map_name=${map_line%%=*}
-    map_value=${map_line#*=}
-    [ -n "$map_name" ] || { installer_fatal "empty placeholder map key in ${map_func}"; return 1; }
-    set -- "$@" "$map_name" "$map_value"
-  done <"$map_tmp"
-  rm -f "$map_tmp"
-  installer_apply_scalar_placeholders "$target_path" "$rendered_tmp" "$@" || {
-    rm -f "$map_tmp"
-    rm -f "$rendered_tmp"
-    installer_fatal "failed to apply placeholder map ${map_func} to ${target_path}"
-  }
-  mv "$rendered_tmp" "$target_path"
-}
+apply_placeholder_map_to_target() (
+  set -eu
+  target_path=$1; map_func=$2
+  map_tmp=$(mktemp "${TMP_ENV_DIR}/target-map.XXXXXX") || exit 1
+  trap 'rm -f -- "$map_tmp"' 0
+  "$map_func" >"$map_tmp" || exit "$?"
+  installer_target_perl_render "$target_path" "$target_path" "$map_tmp"
+)
 
 replace_placeholder_line_block() {
-  target_path=$1
-  placeholder=$2
-  replacement=$3
-  rendered_tmp="${target_path}.line.$$"
-  placeholder_count=$(LC_ALL=C grep -Fxc -- "$placeholder" "$target_path" || true)
-  if [ "$placeholder_count" = 0 ] && [ "${4:-optional}" = optional ]; then return 0; fi
-  [ "$placeholder_count" = 1 ] || { installer_fatal 'declared line block must occur exactly once'; return 1; }
-
-  while IFS= read -r line || [ -n "$line" ]; do
-    if [ "$line" = "$placeholder" ]; then
-      [ -n "$replacement" ] && printf '%s\n' "$replacement"
-      continue
-    fi
-    printf '%s\n' "$line"
-  done <"$target_path" >"$rendered_tmp"
-  mv "$rendered_tmp" "$target_path"
+  case "${4:-optional}" in
+    required) line_kind=line ;;
+    optional) line_kind=line-optional ;;
+    *) installer_fatal 'invalid line-block requirement'; return 1 ;;
+  esac
+  installer_replace_placeholder_in_file "$1" "$2" "$3" "$line_kind"
 }
 
 apply_sysctl_profile_placeholders() {
@@ -575,39 +542,8 @@ write_target_fstab_records() (
   cat >"$fstab_work/records" || exit 1
   [ -s "$fstab_work/records" ] || { installer_fatal "empty filesystem table"; exit 1; }
   fetch_hook "$(installer_repo_file_value FILE_TARGET_FSTAB_TMPL)" "$fstab_work/template" || exit 1
-  awk '
-    FILENAME == ARGV[1] {
-      if (NF == 0) next
-      count++
-      if ($0 ~ /^[[:space:]]*#/) {
-        comments[count] = $0
-        section++
-        next
-      }
-      if (NF != 6) { invalid = 1; exit 1 }
-      records++
-      sections[count] = section
-      for (field = 1; field <= 6; field++) {
-        cells[count, field] = $field
-        if (length($field) > widths[section, field]) widths[section, field] = length($field)
-      }
-      next
-    }
-    $0 == "__INSTALLER_FSTAB_RECORDS__" {
-      for (row = 1; row <= count; row++) {
-        if (row in comments) { print comments[row]; continue }
-        section = sections[row]
-        # BusyBox awk does not support * widths; use the computed integer.
-        # Align within comment-delimited sections, with no empty spacer rows.
-        for (field = 1; field < 6; field++)
-          printf "%-" widths[section, field] "s  ", cells[row, field]
-        print cells[row, 6]
-      }
-      next
-    }
-    NF { print }
-    END { if (invalid || records == 0) exit 1 }
-  ' "$fstab_work/records" "$fstab_work/template" >"$fstab_work/rendered" || exit 1
+  installer_target_perl_render "$fstab_work/template" "$fstab_work/rendered" \
+    "$fstab_work/records" fstab || exit "$?"
   installer_assert_no_unresolved_installer_placeholders "$fstab_work/rendered" fstab || exit 1
   [ ! -L ${TARGET_ROOT}${DIR_ETC}/fstab ] || { installer_fatal "refusing a symlinked fstab"; exit 1; }
   chmod 0644 "$fstab_work/rendered" || exit 1
@@ -663,4 +599,20 @@ stage_target_logging_foundation() {
     "${DIR_USR_LOCAL_LIBEXEC}/rsyslog-size-rotate" 0755 || return $?
   stage_target_asset "$(installer_repo_file_value FILE_TARGET_RSYSLOG_TMPL)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.conf 0644 || return $?
+}
+
+# Shared GPU publication preserves the selected driver policy in either family.
+stage_target_graphics_kernel_tunables() {
+  case "${1:-}" in true|false) ;;
+    *) installer_fatal 'GPU publication requires an explicit NVIDIA selection'; return 1 ;;
+  esac
+  stage_target_asset_if_path "$(installer_hardware_asset_path gpu intel-uhd etc/modprobe.d/80-i915.conf)" "${FILE_MODPROBE_I915:-}" "${DIR_MODPROBE_D}/80-i915.conf" 0644
+  stage_target_asset_if_path "$(installer_hardware_asset_path gpu amd-radeon etc/modprobe.d/81-amdgpu.conf)" "${FILE_MODPROBE_AMDGPU:-}" "${DIR_MODPROBE_D}/81-amdgpu.conf" 0644
+  if [ "$1" = true ]; then
+    stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODPROBE_D_50_NOUVEAU_BLACKLIST)" "${DIR_MODPROBE_D}/50-nouveau-blacklist.conf" 0644
+    stage_target_asset "$(installer_hardware_asset_path gpu nvidia etc/modprobe.d/82-nvidia.conf)" "${FILE_MODPROBE_NVIDIA}" 0644
+  else
+    remove_target_asset "${DIR_MODPROBE_D}/50-nouveau-blacklist.conf"
+    remove_target_asset "${DIR_MODPROBE_D}/82-nvidia.conf"
+  fi
 }

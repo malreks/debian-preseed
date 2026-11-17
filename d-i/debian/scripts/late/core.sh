@@ -368,14 +368,7 @@ runtime_log_level_canonical() {
 }
 
 runtime_nftables_log_level_canonical() {
-  case "${1:-none}" in
-    debug|DEBUG) printf '%s\n' debug ;;
-    info|INFO) printf '%s\n' info ;;
-    warn|WARN|warning|WARNING) printf '%s\n' warning ;;
-    error|ERROR|fatal|FATAL) printf '%s\n' error ;;
-    none|NONE) printf '%s\n' none ;;
-    *) return 1 ;;
-  esac
+  runtime_log_level_canonical "${1:-none}"
 }
 
 validate_installed_log_levels() {
@@ -707,3 +700,20 @@ configure_target_nvidia_power_management() (
     systemctl --no-reload enable nvidia-suspend.service nvidia-suspend-then-hibernate.service nvidia-hibernate.service nvidia-resume.service
   '
 )
+
+# Shared end of the family boot-policy publication sequence.
+stage_target_common_boot_policy() {
+  case "${1:-}" in true|false) ;;
+    *) installer_fatal 'boot-policy publication requires an explicit NVIDIA selection'; return 1 ;;
+  esac
+  stage_target_asset_if_path "$(installer_hardware_asset_path gpu intel-uhd etc/default/grub.d/85-gpu-intel.cfg)" "${FILE_GRUB_GPU_INTEL_DROPIN:-}" "${DIR_GRUB_DEFAULT}/85-gpu-intel.cfg" 0644
+  stage_target_asset_if_path "$(installer_hardware_asset_path gpu amd-radeon etc/default/grub.d/86-gpu-amd.cfg)" "${FILE_GRUB_GPU_AMD_DROPIN:-}" "${DIR_GRUB_DEFAULT}/86-gpu-amd.cfg" 0644
+  stage_target_asset_if_path "$(installer_hardware_asset_path gpu nvidia etc/default/grub.d/87-gpu-nvidia.cfg)" "${FILE_GRUB_GPU_NVIDIA_DROPIN:-}" "${DIR_GRUB_DEFAULT}/87-gpu-nvidia.cfg" 0644
+
+  configure_target_nvidia_power_management "$1"
+
+  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_SWAP_FALLBACK_SETUP_TMPL)" "${FILE_SWAP_FALLBACK_HELPER}" 0755
+  render_target_template "$TMP_ENV_DIR/swap-fallback.service.tmpl" "${TARGET_ROOT}${FILE_SWAP_FALLBACK_SERVICE}" 0644
+
+  stage_target_common_storage_maintenance_assets
+}

@@ -73,7 +73,7 @@ class MokResetTests(unittest.TestCase):
         for relative, names in (
             ('scripts/common/target.sh', ('shell_single_quote', 'write_shell_config_var')),
             ('scripts/common/modules/files-logging.sh',
-             ('installer_escape_sed_replacement', 'installer_apply_scalar_placeholders')),
+             ('installer_apply_scalar_placeholders',)),
             ('scripts/late/target-assets.sh', ('apply_placeholder_map_to_target',)),
         ):
             source = (seed / relative).read_text()

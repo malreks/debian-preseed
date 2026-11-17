@@ -169,10 +169,14 @@ family_d_i_early_main() {
   installer_load_data_env "$TMP_ENV_DIR/host.env"
   RUNTIME_COMMON_LIB="$TMP_ENV_DIR/runtime-common.sh"
   export RUNTIME_COMMON_LIB
+  # Load the complete dependency chain before a family can define functions.
+  # A failed sourced common module must not be hidden by a later definition.
   # shellcheck disable=SC1090,SC1091
-  . "$TMP_ENV_DIR/runtime.sh"
+  . "$RUNTIME_COMMON_LIB" || installer_fatal_status "$?" 'cannot load shared storage runtime dependencies'
   # shellcheck disable=SC1090,SC1091
-  . "$TMP_ENV_DIR/account.sh"
+  . "$TMP_ENV_DIR/runtime.sh" || installer_fatal_status "$?" 'cannot load selected storage runtime'
+  # shellcheck disable=SC1090,SC1091
+  . "$TMP_ENV_DIR/account.sh" || installer_fatal_status "$?" 'cannot load account runtime'
   # shellcheck disable=SC1090,SC1091
   installer_load_data_env "$TMP_ENV_DIR/account.env"
 

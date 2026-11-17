@@ -107,7 +107,7 @@ def load_themes(seed: Path = SEED) -> dict[str, str]:
 
 
 def render_text(text: str, values: dict[str, str]) -> str:
-    """Literal fixture/checker rendering; production uses theme-render.awk."""
+    """Literal fixture/checker rendering; production uses common/render.pl."""
     def replace(match: re.Match[str]) -> str:
         key = match[1]
         target = key.startswith('TARGET_PATH_')
@@ -247,7 +247,7 @@ def check(seed: Path = SEED) -> dict[str, int]:
     files = 0
     for path, text in source_texts(seed):
         # These two engines contain the token grammar, not template inputs.
-        if path.name in ('themes.sh', 'theme-render.awk', 'core.sh') and path.parent.name == 'late':
+        if path.name in ('themes.sh', 'core.sh') and path.parent.name == 'late':
             continue
         if '__THEME_' in text:
             try:

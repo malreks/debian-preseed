@@ -616,3 +616,17 @@ write_rsyslog_spool_fstab() {
     fstab_entry tmpfs "$DIR_VAR_SPOOL_RSYSLOG" tmpfs "$MNT_VAR_SPOOL_RSYSLOG_TMPFS_OPTS" 0 0
   fi
 }
+
+prepare_target_deferred_tmpfs_roots() {
+  journal_mount="${TARGET_ROOT}${DIR_VAR_LOG_JOURNAL}"
+
+  if tmpfs_policy_enabled TMPFS_VAR_LOG &&
+    target_mount_source "$journal_mount" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
+    info "unmounting ${journal_mount} so the installed system remounts the persistent journal cleanly on reboot"
+    umount "$journal_mount" || {
+      fatal "failed to unmount ${journal_mount} while preparing deferred tmpfs roots"
+    }
+  fi
+
+  rmdir "$journal_mount" 2>__INSTALLER_PATH_DIR_DEV__/null || true
+}

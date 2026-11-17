@@ -261,3 +261,223 @@ runtime_write_layout_policy_env() {
   printf 'RUNTIME_PARTITION_INVENTORY_HASH=%s\n' "$(runtime_shell_quote "$RUNTIME_PARTITION_INVENTORY_HASH")"
   printf 'RUNTIME_PARTITION_IDENTITY_HASH=%s\n' "$(runtime_shell_quote "$RUNTIME_PARTITION_IDENTITY_HASH")"
 }
+
+# Identical Btrfs/F2FS device probes and layout primitives have one owner here.
+# Family entrypoints retain their sizing, recipes, crypto and filesystem policy.
+runtime_partition_slot_from_path() {
+  label=$1
+  path=$2
+  case "$path" in
+    "${DEV_PART_PREFIX}"[0-9]*)
+      slot=${path#"$DEV_PART_PREFIX"}
+      ;;
+    *)
+      runtime_fatal "${label} path ${path} does not use prefix ${DEV_PART_PREFIX}"
+      ;;
+  esac
+
+  case "$slot" in
+    ''|*[!0-9]*)
+      runtime_fatal "unable to parse a partition slot from ${label}=${path}"
+      ;;
+    0)
+      runtime_fatal "${label} must not resolve to slot 0"
+      ;;
+  esac
+
+  printf '%s\n' "$slot"
+}
+
+runtime_build_space_list() {
+  start=$1
+  end=$2
+  skip=${3:-}
+  result=
+  current=$start
+
+  while [ "$current" -le "$end" ]; do
+    if [ -n "$skip" ] && [ "$current" -eq "$skip" ]; then
+      current=$((current + 1))
+      continue
+    fi
+    result="${result:+$result }${current}"
+    current=$((current + 1))
+  done
+
+  printf '%s\n' "$result"
+}
+
+runtime_partition_size_var() {
+  slot=$1
+  runtime_require_positive_integer partition_slot "$slot"
+  printf 'RUNTIME_PARTITION_%s_SIZE_MB\n' "$slot"
+}
+
+runtime_set_partition_size_mb() {
+  slot=$1
+  size_mb=$2
+  runtime_require_positive_integer partition_slot "$slot"
+  runtime_require_positive_integer partition_size_mb "$size_mb"
+
+  var=$(runtime_partition_size_var "$slot")
+  eval "$var=\$size_mb"
+}
+
+runtime_get_partition_size_mb() {
+  slot=$1
+  runtime_require_positive_integer partition_slot "$slot"
+
+  var=$(runtime_partition_size_var "$slot")
+  eval "size_mb=\${$var:-}"
+  if [ -n "$size_mb" ]; then
+    printf '%s\n' "$size_mb"
+    return 0
+  fi
+
+  return 1
+}
+
+runtime_first_nonempty_line() {
+  sed -n 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d; p; q'
+}
+
+runtime_normalize_guid() {
+  printf '%s\n' "${1:-}" | tr 'A-F' 'a-f'
+}
+
+runtime_probe_lsblk_column() {
+  column=$1
+  dev=$2
+
+  command -v lsblk >/dev/null 2>&1 || return 1
+  value=$(lsblk -dn -o "$column" -- "$dev" 2>/dev/null | runtime_first_nonempty_line || true)
+  case "$value" in
+    ''|unknown|UNKNOWN) return 1 ;;
+  esac
+
+  printf '%s\n' "$value"
+}
+
+runtime_probe_blkid_tag() {
+  tag=$1
+  dev=$2
+
+  command -v blkid >/dev/null 2>&1 || return 1
+
+  value=$(blkid -s "$tag" -o value "$dev" 2>/dev/null | runtime_first_nonempty_line || true)
+  case "$value" in
+    ''|unknown|UNKNOWN) ;;
+    *)
+      printf '%s\n' "$value"
+      return 0
+      ;;
+  esac
+
+  value=$(blkid -p -s "$tag" -o value "$dev" 2>/dev/null | runtime_first_nonempty_line || true)
+  case "$value" in
+    ''|unknown|UNKNOWN) ;;
+    *)
+      printf '%s\n' "$value"
+      return 0
+      ;;
+  esac
+
+  value=$(blkid -p -o export "$dev" 2>/dev/null | sed -n "s/^${tag}=//p" | runtime_first_nonempty_line || true)
+  case "$value" in
+    ''|unknown|UNKNOWN) return 1 ;;
+  esac
+
+  printf '%s\n' "$value"
+}
+
+runtime_probe_udev_property() {
+  property=$1
+  dev=$2
+
+  command -v udevadm >/dev/null 2>&1 || return 1
+  value=$(udevadm info --query=property --name="$dev" 2>/dev/null | sed -n "s/^${property}=//p" | runtime_first_nonempty_line || true)
+  case "$value" in
+    ''|unknown|UNKNOWN) return 1 ;;
+  esac
+
+  printf '%s\n' "$value"
+}
+
+runtime_probe_filesystem_type() {
+  dev=$1
+
+  value=$(runtime_probe_blkid_tag TYPE "$dev" 2>/dev/null || true)
+  if [ -n "$value" ]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  value=$(runtime_probe_lsblk_column FSTYPE "$dev" 2>/dev/null || true)
+  if [ -n "$value" ]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  runtime_probe_udev_property ID_FS_TYPE "$dev"
+}
+
+runtime_probe_partition_table_type() {
+  dev=$1
+
+  value=$(runtime_probe_blkid_tag PTTYPE "$dev" 2>/dev/null || true)
+  if [ -n "$value" ]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  value=$(runtime_probe_lsblk_column PTTYPE "$dev" 2>/dev/null || true)
+  if [ -n "$value" ]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  runtime_probe_udev_property ID_PART_TABLE_TYPE "$dev"
+}
+
+runtime_gpt_esp_type_guid() {
+  printf '%s\n' c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+}
+
+runtime_probe_gpt_part_type() {
+  dev=$1
+
+  value=$(runtime_probe_lsblk_column PARTTYPE "$dev" 2>/dev/null || true)
+  if [ -n "$value" ]; then
+    runtime_normalize_guid "$value"
+    return 0
+  fi
+
+  value=$(runtime_probe_blkid_tag PART_ENTRY_TYPE "$dev" 2>/dev/null || true)
+  if [ -n "$value" ]; then
+    runtime_normalize_guid "$value"
+    return 0
+  fi
+
+  value=$(runtime_probe_udev_property ID_PART_ENTRY_TYPE "$dev" 2>/dev/null || true)
+  if [ -n "$value" ]; then
+    runtime_normalize_guid "$value"
+    return 0
+  fi
+
+  return 1
+}
+
+runtime_gpt_part_type_is_esp() {
+  part_type=$(runtime_normalize_guid "${1:-}")
+  [ "$part_type" = "$(runtime_gpt_esp_type_guid)" ]
+}
+
+runtime_capture_dualboot_partition_sizes() {
+  [ "${DUALBOOT_ENABLED:-false}" = true ] || return 0
+  measured_efi_mb=$(runtime_device_size_mb "$DEV_PART_EFI") || runtime_fatal 'cannot measure the preserved ESP'
+  runtime_set_partition_size_mb "$RUNTIME_EFI_SLOT" "$measured_efi_mb"
+}
+
+runtime_seed_identity_answers() {
+  runtime_seed_generated_answers runtime_write_identity_answers
+}

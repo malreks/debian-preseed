@@ -18,23 +18,20 @@ firstboot_log_level_canonical() {
 }
 
 firstboot_log_level_value() {
-  case "$(firstboot_log_level_canonical "$1")" in
-    debug) printf '%s\n' 10 ;;
-    info) printf '%s\n' 20 ;;
-    warning) printf '%s\n' 30 ;;
-    error) printf '%s\n' 40 ;;
-    none) printf '%s\n' 99 ;;
+  case "${1:-info}" in
+    debug|DEBUG) printf '%s\n' 10 ;;
+    warn|WARN|warning|WARNING) printf '%s\n' 30 ;;
+    error|ERROR|fatal|FATAL) printf '%s\n' 40 ;;
+    none|NONE) printf '%s\n' 99 ;;
+    *) printf '%s\n' 20 ;;
   esac
 }
 
 firstboot_log_should_emit() {
-  requested_level=$(firstboot_log_level_canonical "$1")
-  active_level=$(firstboot_log_level_canonical "${SYSTEMD_LOG_LEVEL:-error}")
-
-  [ "$requested_level" = error ] && return 0
-  [ "$active_level" != none ] || return 1
-  requested_value=$(firstboot_log_level_value "$requested_level")
-  active_value=$(firstboot_log_level_value "$active_level")
+  case "${1:-info}" in error|ERROR|fatal|FATAL) return 0 ;; esac
+  case "${SYSTEMD_LOG_LEVEL:-error}" in none|NONE) return 1 ;; esac
+  requested_value=$(firstboot_log_level_value "${1:-info}")
+  active_value=$(firstboot_log_level_value "${SYSTEMD_LOG_LEVEL:-error}")
   [ "$requested_value" -ge "$active_value" ]
 }
 
@@ -47,4 +44,23 @@ log_line() {
   firstboot_log_should_emit "$level" || return 0
   printf '%s stage=%s level=%s component=%s %s\n' \
     "$(timestamp)" "$stage" "$level" "$component" "$*" >>"$FIRSTBOOT_LOG_FILE"
+}
+
+timestamp() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ' 2>__INSTALLER_PATH_DIR_DEV__/null || printf '%s\n' unknown-time
+}
+
+capture() {
+  output_name=$1
+  shift
+  output_file="${FIRSTBOOT_DATA_DIR}/${output_name}"
+  {
+    printf '# command:'
+    for arg in "$@"; do
+      printf ' %s' "$arg"
+    done
+    printf '\n'
+    timeout --signal=TERM --kill-after=2s 20s "$@"
+  } >"$output_file" 2>&1 || printf 'status=%s\n' "$?" >>"$output_file"
+  chmod 0600 "$output_file" 2>__INSTALLER_PATH_DIR_DEV__/null || true
 }

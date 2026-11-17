@@ -47,7 +47,7 @@ class InstallerIntegrationTests(unittest.TestCase):
     def test_actual_pipewire_renderer_preserves_custom_greeter_in_all_four_units(self):
         lib = FORKY / 'scripts/common/lib.sh'
         helpers = '\n'.join(shell_function(lib, name) for name in (
-            'installer_escape_sed_replacement', 'installer_apply_scalar_placeholders'))
+            'installer_apply_scalar_placeholders',))
         for shell in (['/bin/sh'], [shutil.which('busybox'), 'sh'] if shutil.which('busybox') else []):
             if not shell:
                 continue

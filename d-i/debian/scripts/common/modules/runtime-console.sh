@@ -199,23 +199,22 @@ installer_log_level_is_valid() {
 }
 
 installer_log_level_value() {
-  case "$(installer_log_level_canonical "$1")" in
-    debug) printf '%s\n' 10 ;;
-    info) printf '%s\n' 20 ;;
-    warning) printf '%s\n' 30 ;;
-    error) printf '%s\n' 40 ;;
-    none) printf '%s\n' 99 ;;
+  case "${1:-info}" in
+    debug|DEBUG) printf '%s\n' 10 ;;
+    warn|WARN|warning|WARNING) printf '%s\n' 30 ;;
+    error|ERROR|fatal|FATAL) printf '%s\n' 40 ;;
+    none|NONE) printf '%s\n' 99 ;;
+    *) printf '%s\n' 20 ;;
   esac
 }
 
 installer_log_should_emit() {
-  requested_level=$(installer_log_level_canonical "$1")
   installer_logging_enabled || return 1
-  active_level=$(installer_log_level_canonical "${INSTALLER_LOG_LEVEL:-debug}")
-
-  [ "$active_level" != none ] || return 1
-  requested_value=$(installer_log_level_value "$requested_level")
-  active_value=$(installer_log_level_value "$active_level")
+  case "${INSTALLER_LOG_LEVEL:-debug}" in none|NONE) return 1 ;; esac
+  # Rank raw aliases directly: this gate runs for every installer log record.
+  # Canonicalizing and then ranking previously created six command substitutions.
+  requested_value=$(installer_log_level_value "${1:-info}")
+  active_value=$(installer_log_level_value "${INSTALLER_LOG_LEVEL:-debug}")
   [ "$requested_value" -ge "$active_value" ]
 }
 

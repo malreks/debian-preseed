@@ -2,27 +2,15 @@
 # Shared account debconf rendering for every installer storage family.
 # shellcheck disable=SC2034
 
-if ! command -v runtime_fatal >/dev/null 2>&1; then
+if [ "${RUNTIME_COMMON_READY:-0}" != 1 ]; then
   if [ -n "${RUNTIME_COMMON_LIB:-}" ] && [ -r "$RUNTIME_COMMON_LIB" ]; then
     # shellcheck disable=SC1090
-    . "$RUNTIME_COMMON_LIB"
+    . "$RUNTIME_COMMON_LIB" || return "$?"
   else
     printf 'fatal: runtime common helper is unavailable; set RUNTIME_COMMON_LIB before sourcing %s\n' "${0##*/}" >&2
     exit 1
   fi
 fi
-
-runtime_validate_printable_single_line() {
-  label=$1
-  value=$2
-
-  [ -n "$value" ] || runtime_fatal "${label} must not be empty"
-  case "$value" in
-    *[![:print:]]*|*[[:space:]]*)
-      runtime_fatal "${label} must be a single printable token without whitespace"
-      ;;
-  esac
-}
 
 runtime_validate_account_fullname() {
   value=$1

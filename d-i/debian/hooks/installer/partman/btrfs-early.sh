@@ -120,31 +120,6 @@ install_storage_layout_hook() {
   chmod 0755 "$LAYOUT_HOOK"
 }
 
-install_crypto_skip_erase_hook() {
-  skip_hook=${DIR_INSTALLER_LIB_PARTMAN}/init.d/51crypto-skip-erase
-
-  cat >"$skip_hook" <<'EOF'
-#!/bin/sh
-set -eu
-
-runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
-[ -r "$runtime/bootstrap/di.env" ] || exit 1
-# shellcheck disable=SC1090
-. "$runtime/bootstrap/di.env"
-
-[ -d "${DIR_INSTALLER_VAR_LIB_PARTMAN}/devices" ] || exit 0
-
-find "${DIR_INSTALLER_VAR_LIB_PARTMAN}/devices" -mindepth 2 -maxdepth 2 -type d | while IFS= read -r part_dir; do
-  [ -r "$part_dir/method" ] || continue
-  method=$(cat "$part_dir/method" 2>/dev/null || true)
-  [ "$method" = crypto ] || continue
-  : >"$part_dir/skip_erase"
-done
-EOF
-  chmod 0755 "$skip_hook"
-  installer_info "installed partman crypto skip-erase hook"
-}
-
 installer_fetch_host_env "$SEED_BASE" "$HOST_PROFILE" "$TMP_ENV_DIR/host.env" 0600
 installer_fetch_account_env "$SEED_BASE" "$TMP_ENV_DIR/account.env" 0600
   fetch_hook "$(installer_repo_file_value FILE_RUNTIME_COMMON)" "$TMP_ENV_DIR/runtime-common.sh"
@@ -198,7 +173,7 @@ fi
 partman_early_prepare_layout
 
 if runtime_any_crypto_enabled; then
-  install_crypto_skip_erase_hook
+  runtime_install_crypto_skip_erase_hook
 fi
 
 install_storage_layout_hook

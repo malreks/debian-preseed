@@ -236,12 +236,12 @@ class ThemeValidationTests(unittest.TestCase):
             stream.write('\n' + assignment + '\n')
         self.assertNotEqual(self.validate().returncode, 0)
 
-    def test_all_tokenized_sources_match_production_awk_rendering(self):
+    def test_all_tokenized_sources_match_the_legacy_reference(self):
         mapping = self.root / 'values.map'
         mapping.write_text(self.validate().stdout)
-        renderer = SEED / 'scripts/late/theme-render.awk'
+        renderer = SEED / 'tests/fixtures/theme-render-reference.awk'
         for path, text in CHECKER['source_texts'](SEED):
-            if '__THEME_' not in text or path.name in ('theme-render.awk', 'themes.sh', 'core.sh'):
+            if '__THEME_' not in text or path.name in ('themes.sh', 'core.sh'):
                 continue
             with self.subTest(path=str(path.relative_to(SEED))):
                 actual = subprocess.run(payload_installed_argv(['awk', '-f', str(renderer), str(mapping), str(path)]),

@@ -75,7 +75,7 @@ APPEARANCE_FIELDS = target_source('usr/local/lib/python3/dist-packages/labwc_app
 APPEARANCE_NATIVE = target_source('usr/local/lib/python3/dist-packages/labwc_appearance/native.py')
 THEME_FETCH_CORE = DEBIAN_ROOT / 'scripts/late/core.sh'
 THEME_RENDER_SUPPORT = DEBIAN_ROOT / 'scripts/late/themes.sh'
-THEME_RENDER_AWK = DEBIAN_ROOT / 'scripts/late/theme-render.awk'
+THEME_RENDER_AWK = DEBIAN_ROOT / 'tests/fixtures/theme-render-reference.awk'
 THEME_VALIDATE_AWK = DEBIAN_ROOT / 'scripts/late/theme-validate.awk'
 APPEARANCE_STAGE = DEBIAN_ROOT / 'scripts/desktop/components/appearance.sh'
 DESKTOP_INSTALLER = DEBIAN_ROOT / 'scripts/desktop/labwc.sh'
@@ -249,6 +249,28 @@ def _read_text(path: Path) -> str:
     return data.decode('utf-8')
 
 
+def _runtime_path_schema_rows(text: str | None = None) -> list[tuple[str, str]]:
+    """Read the shared canonical map schema without sourcing its shell adapter."""
+    if text is None:
+        text = _read_text(DEBIAN_ROOT / 'catalog/runtime-paths.tsv')
+    result: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for line in text.splitlines():
+        if not line or line.startswith('#'):
+            continue
+        fields = line.split('\t')
+        if len(fields) != 2:
+            raise ValueError('malformed canonical path schema')
+        key, variable = fields
+        if (not re.fullmatch(r'(?:DIR_|FILE_|APPARMOR_PROFILE_)[A-Z0-9_]+|GITBUILD_DISTRIBUTION', variable)
+                or key != ('PATH_' + variable if variable.startswith(('DIR_', 'FILE_')) else variable)
+                or key in seen):
+            raise ValueError('invalid or duplicate canonical path owner: ' + key)
+        seen.add(key)
+        result.append((key, variable))
+    return result
+
+
 def _installer_path_token_values() -> list[tuple[str, str]]:
     """Read the authored runtime path contract as data for static checks."""
     runtime = DEBIAN_ROOT / 'hosts/installer/runtime.env'
@@ -356,6 +378,20 @@ def check_text_files(paths: list[Path], errors: list[str], counts: dict[str, int
     counts['text_files'] = checked
 
 
+def _shellcheck_findings(output: str, *, unbound: bool) -> list[dict]:
+    """Select required errors/SC2154 from one warning-inclusive analysis."""
+    messages = json.loads(output)
+    if not isinstance(messages, list) or any(
+        not isinstance(message, dict)
+        or message.get('level') not in {'error', 'warning', 'info', 'style'}
+        or not isinstance(message.get('code'), int)
+        for message in messages
+    ):
+        raise ValueError('malformed ShellCheck diagnostic records')
+    return [message for message in messages
+            if message['level'] == 'error' or unbound and message['code'] == 2154]
+
+
 def _shellcheck_batch(errors: list[str], executable: str, kind: str,
                       paths: list[Path], *, unbound: bool) -> None:
     if not paths:
@@ -418,19 +454,9 @@ def _shellcheck_batch(errors: list[str], executable: str, kind: str,
             '--norc',
             '--shell=' + kind,
             '--format=json',
-            '--severity=error',
+            '--severity=warning' if unbound else '--severity=error',
             shellcheck_path,
         ]]
-        if unbound:
-            commands.append([
-                executable,
-                '--norc',
-                '--shell=' + kind,
-                '--format=json',
-                '--severity=warning',
-                '--include=SC2154',
-                shellcheck_path,
-            ])
         inputs = catalog_inputs if catalog_inputs is not None else [input_text]
         return path, [_run(command, timeout=30, input_text=source)
                       for source in inputs for command in commands]
@@ -449,8 +475,8 @@ def _shellcheck_batch(errors: list[str], executable: str, kind: str,
             if not result.stdout.strip():
                 continue
             try:
-                messages = json.loads(result.stdout)
-            except json.JSONDecodeError as error:
+                messages = _shellcheck_findings(result.stdout, unbound=unbound)
+            except (ValueError, TypeError) as error:
                 errors.append(
                     f'ShellCheck {kind} {path.relative_to(ROOT)} returned malformed JSON: {error}'
                 )
@@ -494,7 +520,7 @@ def check_shell(paths: list[Path], errors: list[str], counts: dict[str, int]) ->
         _shellcheck_batch(
             errors, shellcheck, kind,
             [path for path, source_kind in sources if source_kind == kind],
-            # The per-file warning pass above retains SC2154 and all errors.
+            # One warning-inclusive pass retains SC2154 and all errors.
             unbound=True,
         )
 
@@ -811,16 +837,14 @@ def check_late_target_shells(paths: list[Path], errors: list[str],
                 # this new shell. Include uppercase names: DIR_* variables are
                 # not an implicit target environment API.
                 checked_body = '\n'.join(name + '=' for name in sorted(declared)) + '\n' + body
-                for options in (['--severity=error'],
-                                ['--severity=warning', '--include=SC2154',
-                                 '--enable=check-unassigned-uppercase']):
-                    result = _run([shellcheck, '--norc', '--shell=sh', '--format=json',
-                                   *options, '-'], timeout=15, input_text=checked_body)
-                    if result.returncode not in (0, 1):
-                        _report_command(errors, f'{owner.relative_to(ROOT)}:{source_line}: '
-                                        'embedded target shell', result)
-                        continue
-                    for message in json.loads(result.stdout):
+                result = _run([shellcheck, '--norc', '--shell=sh', '--format=json',
+                               '--severity=warning', '--enable=check-unassigned-uppercase', '-'],
+                              timeout=15, input_text=checked_body)
+                if result.returncode not in (0, 1):
+                    _report_command(errors, f'{owner.relative_to(ROOT)}:{source_line}: '
+                                    'embedded target shell', result)
+                else:
+                    for message in _shellcheck_findings(result.stdout, unbound=True):
                         errors.append(f'{owner.relative_to(ROOT)}:{source_line}: '
                                       f"target shell line {message.get('line', 0) - len(declared) - 1}: "
                                       f"ShellCheck SC{message.get('code', '?')}: "
@@ -840,15 +864,13 @@ def check_late_target_shells(paths: list[Path], errors: list[str],
                     result = _run(command, timeout=15, input_text=body)
                     if result.returncode:
                         _report_command(errors, f'{owner.relative_to(ROOT)}: target-install syntax', result)
-                for options in (['--severity=error'],
-                                ['--severity=warning', '--include=SC2154',
-                                 '--enable=check-unassigned-uppercase']):
-                    result = _run([shellcheck, '--norc', '--shell=sh', '--format=json',
-                                   *options, '-'], timeout=15, input_text=body)
-                    if result.returncode not in (0, 1):
-                        _report_command(errors, f'{owner.relative_to(ROOT)}: target-install scope', result)
-                        continue
-                    for message in json.loads(result.stdout):
+                result = _run([shellcheck, '--norc', '--shell=sh', '--format=json',
+                               '--severity=warning', '--enable=check-unassigned-uppercase', '-'],
+                              timeout=15, input_text=body)
+                if result.returncode not in (0, 1):
+                    _report_command(errors, f'{owner.relative_to(ROOT)}: target-install scope', result)
+                else:
+                    for message in _shellcheck_findings(result.stdout, unbound=True):
                         line = origins.get(message.get('line', 0), 1)
                         errors.append(f'{owner.relative_to(ROOT)}:{line}: target-install '
                                       f"ShellCheck SC{message.get('code', '?')}: "
@@ -1245,9 +1267,10 @@ def check_account_creation(paths: list[Path], errors: list[str], counts: dict[st
         return
     for issue in _account_creation_issues(*map(_read_text, (creator, publication, rendering, dispatcher))):
         errors.append('account defaults: ' + issue)
-    runtime_source, renderer_source = _read_text(runtime), _read_text(renderer)
+    runtime_source = _read_text(runtime)
+    runtime_fields = dict(_runtime_path_schema_rows())
     for name in ('FILE_ACCOUNT_CREATE', 'DIR_ACCOUNT_PROVISIONING', 'DIR_ETC_SKEL_BASE'):
-        if not re.search(r'^' + name + r'="', runtime_source, re.M) or 'PATH_' + name not in renderer_source:
+        if not re.search(r'^' + name + r'="', runtime_source, re.M) or runtime_fields.get('PATH_' + name) != name:
             errors.append('new account path lacks its canonical runtime owner/shared renderer: ' + name)
     for leaf in ('.profile', '.bash_profile', '.bashrc', '.bash_logout'):
         source = _read_text(base / leaf)
@@ -1861,7 +1884,8 @@ def check_appearance_render_preservation(paths: list[Path], errors: list[str],
         if ((re.search(r'\*/usr/local/share/labwc-appearance/fields\.json\.tmpl\)\s*'
                        r'theme_render_scope=appearance-defaults\s*;;', support) is None
                  and selectors['FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL'] not in support)
-                or 'awk -v render_scope="$theme_render_scope"' not in support):
+                or 'installer_target_perl_render' not in support
+                or 'appearance-defaults) theme_render_kind=appearance' not in support):
             raise ValueError('registry must select and pass defaults-only rendering before publication')
         stage = _render_installer_path_placeholders(
             _resolve_repository_source_contract(_read_text(APPEARANCE_STAGE)))
@@ -1883,25 +1907,42 @@ def check_appearance_render_preservation(paths: list[Path], errors: list[str],
         if re.search(r'^  desktop_stage_appearance\s*$', target_assets, re.MULTILINE) is None:
             raise ValueError('target asset staging must include the appearance registry')
 
-        # Only pure AWK data validation/substitution runs here. No installer
-        # shell or managed Python module is sourced, imported, or executed.
-        validated = _run(['awk', '-f', str(THEME_VALIDATE_AWK), str(SCHEMA),
-                          *(str(path) for path in theme_paths)])
-        if validated.returncode:
-            raise ValueError('theme data validation failed: ' + validated.stderr[:300])
-        theme_values = dict(line.split('=', 1) for line in validated.stdout.splitlines())
-        rendered = _run(['awk', '-v', 'render_scope=appearance-defaults',
-                         '-f', str(THEME_RENDER_AWK), '-', str(APPEARANCE_REGISTRY)],
-                        input_text=validated.stdout)
-        if rendered.returncode:
-            raise ValueError('registry default rendering failed: ' + rendered.stderr[:300])
+        # Inspect literal theme data and materialize only default fields here.
+        # Never execute the repository AWK validator/renderer on the host.
+        # Native consumer grammar remains owned by installer theme validation.
+        schema_groups = {}
+        for line in _read_text(SCHEMA).splitlines():
+            if not line or line.startswith('#'):
+                continue
+            group, key, _grammar = line.split('\t')
+            if key in schema_groups:
+                raise ValueError('duplicate theme schema field ' + key)
+            schema_groups[key] = group
+        theme_values = {}
+        for path in theme_paths:
+            for line in _read_text(path).splitlines():
+                if not line.strip() or line.lstrip().startswith('#'):
+                    continue
+                match = re.fullmatch(r'([A-Z][A-Z0-9_]*)="([^"\r\n]*)"', line)
+                if (match is None or match[1] in theme_values
+                        or schema_groups.get(match[1]) != path.stem
+                        or len(match[2]) > 4096
+                        or re.search(r"[\x00-\x1f\x7f'\\$`]", match[2]) or '__' in match[2]):
+                    raise ValueError('invalid literal theme assignment in ' + path.name)
+                theme_values[match[1]] = match[2]
+        if set(theme_values) != set(schema_groups):
+            raise ValueError('theme literal/schema coverage differs')
+        rendered = re.sub(
+            r'("default": )"__THEME_([A-Z0-9_]+)__"',
+            lambda match: match[1] + json.dumps(theme_values[match[2]], ensure_ascii=False),
+            _read_text(APPEARANCE_REGISTRY))
         expected = json.loads(_read_text(APPEARANCE_REGISTRY))
         for field in expected['fields']:
             key = field['key']
             if field.get('default') != '__THEME_' + key + '__':
                 raise ValueError('default template does not match appearance field ' + key)
             field['default'] = theme_values[key]
-        actual = json.loads(rendered.stdout)
+        actual = json.loads(rendered)
         if actual != expected:
             raise ValueError('rendering must replace every default and preserve all mapping metadata')
         counts['appearance_rendered_defaults'] = len(actual['fields'])
@@ -2767,7 +2808,7 @@ def check_server_configuration(paths: list[Path], errors: list[str], counts: dic
     if len(calls(functions['main'], 'dns_configuration_ready')) != 2:
         raise ValueError('DNS start and configured status require a complete configuration receipt')
     key = 'FILE_SERVER_DNS_CONFIGURATION_TRANSACTION'
-    if (key not in _read_text(runtime) or 'PATH_' + key not in _read_text(renderer)
+    if (key not in _read_text(runtime) or dict(_runtime_path_schema_rows()).get('PATH_' + key) != key
             or '__INSTALLER_PATH_' + key + '__' not in source):
         raise ValueError('DNS configuration journal path is not wired through its owning renderer')
     counts['server_configuration_policy_files'] = len(candidates) + 1
@@ -3276,8 +3317,8 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
         raise ValueError('payload membership differs from its complete manifest')
     # Simulated rendering must not invent fields that the real shared renderer
     # never emits. Read the actual serializer's fixed map as source data.
-    renderer = members['scripts/common/modules/files-logging.sh'].decode()
-    runtime_map = set(re.findall(r"printf '((?:PATH_)[A-Z0-9_]+)=", renderer))
+    runtime_map = {key for key, _ in _runtime_path_schema_rows(members['catalog/runtime-paths.tsv'].decode())
+                   if key.startswith('PATH_')}
     used_runtime_fields = set()
     for name, data in members.items():
         used_runtime_fields.update(token.decode() for token in re.findall(rb'__INSTALLER_(PATH_[A-Z][A-Z0-9_]*)__', data))
@@ -4228,8 +4269,7 @@ def check_target_render_contract(paths: list[Path], errors: list[str], counts: d
     preparation, consumer, startup = map(_read_text, (hook, dispatch, early))
     renderer_text = _read_text(renderer)
     map_text = _read_text(runtime_map)
-    emitter = map_text.split('installer_runtime_path_placeholder_map() {', 1)[1].split('\n}\n', 1)[0]
-    canonical_fields = set(re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", emitter))
+    canonical_fields = {key for key, _ in _runtime_path_schema_rows()}
     matcher = re.search(r'sub path_bytes \{.*?\$data =~ s\{(.*?)\}\{mapped\(', renderer_text, re.S)
     probe = re.search(r"installer_contains_unresolved_path_placeholders\(\) \{.*?grep -Eq '([^']+)'", map_text, re.S)
     for label, pattern in (('batch renderer', matcher[1] if matcher else ''),
@@ -4498,9 +4538,11 @@ def check_runtime_path_publication(paths: list[Path], errors: list[str], counts:
     if not (owners | {Path(__file__).resolve()}).intersection(paths):
         return
     values = dict(_installer_path_token_values())
-    renderer_source = _read_text(DEBIAN_ROOT / 'scripts/common/modules/files-logging.sh')
     published_paths = {}
-    for key, variable in re.findall(r"printf 'PATH_([A-Z0-9_]+)=%s\\n' \"\$([A-Z0-9_]+)\"", renderer_source):
+    for key, variable in _runtime_path_schema_rows():
+        if not key.startswith('PATH_'):
+            continue
+        key = key.removeprefix('PATH_')
         if key != variable:
             errors.append('shared renderer publishes a different runtime path for ' + key)
         published_paths['__INSTALLER_PATH_' + key + '__'] = variable

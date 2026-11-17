@@ -256,113 +256,25 @@ EOF
 # Module lists are blocks, not scalar NAME=value records. Passing newline
 # lists through the scalar map used to keep only the first module silently.
 render_target_module_placeholders() (
+  set -eu
   module_file=$1
-  module_tmp="${module_file}.modules.$$"
-  INITRAMFS_PLATFORM_MODULES=${INITRAMFS_PLATFORM_MODULES:-}
-  GRAPHICS_INITRAMFS_MODULES=${GRAPHICS_INITRAMFS_MODULES:-}
-  VFIO_INITRAMFS_MODULES=${VFIO_INITRAMFS_MODULES:-}
-  VIRT_HOST_INITRAMFS_MODULES=${VIRT_HOST_INITRAMFS_MODULES:-}
-  export INITRAMFS_PLATFORM_MODULES GRAPHICS_INITRAMFS_MODULES
-  export VFIO_INITRAMFS_MODULES VIRT_HOST_INITRAMFS_MODULES
-  if ! LC_ALL=C awk '
-    BEGIN {
-      split("INITRAMFS_PLATFORM_MODULES GRAPHICS_INITRAMFS_MODULES VFIO_INITRAMFS_MODULES VIRT_HOST_INITRAMFS_MODULES", names, " ")
-      for (i in names) {
-        name = names[i]
-        blocks[name] = ""
-        count = split(ENVIRON[name], modules, /[[:space:]]+/)
-        for (j = 1; j <= count; j++) {
-          module = modules[j]
-          if (module == "") continue
-          if (module !~ /^[A-Za-z0-9_][A-Za-z0-9_-]*$/) {
-            print "fatal: invalid module name in " name > "__INSTALLER_PATH_DIR_DEV__/stderr"
-            exit 1
-          }
-          if (!seen[name SUBSEP module]++)
-            blocks[name] = blocks[name] module "\n"
-        }
-      }
-    }
-    {
-      token = $0
-      sub(/^[[:space:]]*/, "", token)
-      sub(/[[:space:]]*$/, "", token)
-      for (name in blocks) {
-        if (token == "__INSTALLER_" name "__" || token == "__" name "__") {
-          printf "%s", blocks[name]
-          next
-        }
-      }
-      print
-    }
-  ' "$module_file" >"$module_tmp"; then
-    rm -f "$module_tmp"
-    return 1
+  if LC_ALL=C grep -Eq '__(INSTALLER_)?(INITRAMFS_PLATFORM_MODULES|GRAPHICS_INITRAMFS_MODULES|VFIO_INITRAMFS_MODULES|VIRT_HOST_INITRAMFS_MODULES)__' "$module_file"; then
+    :
+  else
+    module_status=$?
+    [ "$module_status" -eq 1 ] && exit 0
+    exit "$module_status"
   fi
-  mv "$module_tmp" "$module_file"
+  module_map=$(mktemp "${TMP_ENV_DIR}/module-map.XXXXXX") || exit 1
+  trap 'rm -f -- "$module_map"' 0
+  printf 'INITRAMFS_PLATFORM_MODULES=%s\nGRAPHICS_INITRAMFS_MODULES=%s\nVFIO_INITRAMFS_MODULES=%s\nVIRT_HOST_INITRAMFS_MODULES=%s\n' \
+    "${INITRAMFS_PLATFORM_MODULES:-}" "${GRAPHICS_INITRAMFS_MODULES:-}" \
+    "${VFIO_INITRAMFS_MODULES:-}" "${VIRT_HOST_INITRAMFS_MODULES:-}" >"$module_map"
+  installer_target_perl_render "$module_file" "$module_file" "$module_map" modules
 )
 
-# A single literal-substitution pass avoids hundreds of sed processes per asset.
-# Values are never evaluated as shell, regular expressions, or awk replacements.
 render_target_scalar_placeholders() (
-  scalar_file=$1
-  scalar_map=$2
-  scalar_tmp="${scalar_file}.scalars.$$"
-  if ! LC_ALL=C awk -v map_path="$scalar_map" '
-    BEGIN {
-      while ((status = getline record < map_path) > 0) {
-        separator = index(record, "=")
-        if (!separator) {
-          print "fatal: malformed scalar placeholder record" > "__INSTALLER_PATH_DIR_DEV__/stderr"
-          exit 1
-        }
-        name = substr(record, 1, separator - 1)
-        if (name !~ /^[A-Z][A-Z0-9_]*$/ || name in seen) {
-          print "fatal: invalid scalar placeholder name" > "__INSTALLER_PATH_DIR_DEV__/stderr"
-          exit 1
-        }
-        seen[name] = 1
-        value = substr(record, separator + 1)
-        values["__INSTALLER_" name "__"] = value
-        values["__" name "__"] = value
-      }
-      if (status < 0) exit 1
-      close(map_path)
-    }
-    {
-      # Parse one exact token at a time.  The first closing __ terminates the
-      # name, so adjacent tokens cannot be merged and no longest-prefix guess
-      # can turn an unknown marker into a different known marker.
-      rest = $0
-      output = ""
-      while (length(rest) > 0) {
-        start = index(rest, "__")
-        if (!start) { output = output rest; rest = ""; break }
-        output = output substr(rest, 1, start - 1)
-        rest = substr(rest, start)
-        if (substr(rest, 1, 12) == "__INSTALLER_") {
-          suffix = substr(rest, 13)
-          close = index(suffix, "__")
-          if (close) {
-            name = substr(suffix, 1, close - 1)
-            token = "__INSTALLER_" name "__"
-            if (name ~ /^[A-Z][A-Z0-9_]*$/ && token in values) {
-              output = output values[token]
-              rest = substr(rest, length(token) + 1)
-              continue
-            }
-          }
-        }
-        output = output "__"
-        rest = substr(rest, 3)
-      }
-      print output
-    }
-  ' "$scalar_file" >"$scalar_tmp"; then
-    rm -f "$scalar_tmp"
-    return 1
-  fi
-  mv "$scalar_tmp" "$scalar_file"
+  installer_target_perl_render "$1" "$1" "$2"
 )
 
 _render_target_template_in_place() {
@@ -373,6 +285,16 @@ _render_target_template_in_place() {
   map_tmp="${TMP_ENV_DIR}/template-placeholder-map.$$.tmp"
   [ -d "$dest_parent" ] || install -d -m 0755 "$dest_parent"
   cp "$src" "$dest" || return 1
+  # The base-stage pass resolved static system/profile templates. Copy those
+  # bytes directly; only explicitly deferred markers reach a late consumer.
+  if LC_ALL=C grep -Eq '__[A-Z][A-Z0-9]*(_[A-Z0-9]+)*__' "$dest"; then
+    :
+  else
+    template_probe=$?
+    [ "$template_probe" -eq 1 ] || return "$template_probe"
+    chmod "$mode" "$dest"
+    return
+  fi
   render_target_module_placeholders "$dest" || return 1
   if ! render_target_template_placeholder_map >"$map_tmp"; then
     rm -f "$map_tmp"
@@ -605,57 +527,32 @@ systemd_resource_placeholder_map() (
 
 apply_systemd_resource_placeholders() (
   set -eu
-  resource_file=$1
-  # Even literal resource assets obey the weight switch. This helper remains
-  # opt-in: original zram/Podman assets never pass through this renderer.
+  [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || {
+    installer_fatal 'resource publication requires base-stage rendering'; exit 1;
+  }
+  # The batch has already replaced resource fields. Most assets now need no
+  # interpreter or rewrite; only deferred fields or disabled weight directives
+  # require the typed Perl operation. Keep controller policy explicit.
+  resource_pending='__INSTALLER_|__[A-Z][A-Z0-9]*(_[A-Z0-9]+)*__'
   case "${SYSTEMD_IOWEIGHT_ENABLE-}" in
-    true|false) ;;
-    *) installer_fatal "SYSTEMD_IOWEIGHT_ENABLE must be true or false"; exit 1 ;;
+    true) ;;
+    false) resource_pending="$resource_pending|^[[:space:]]*(Startup)?IOWeight[[:space:]]*=" ;;
+    *) installer_fatal 'resource publication requires SYSTEMD_IOWEIGHT_ENABLE=true or false'; exit 1 ;;
   esac
   case "${SYSTEMD_CPUWEIGHT_ENABLE-}" in
-    true|false) ;;
-    *) installer_fatal "SYSTEMD_CPUWEIGHT_ENABLE must be true or false"; exit 1 ;;
+    true) ;;
+    false) resource_pending="$resource_pending|^[[:space:]]*(Startup)?CPUWeight[[:space:]]*=" ;;
+    *) installer_fatal 'resource publication requires SYSTEMD_CPUWEIGHT_ENABLE=true or false'; exit 1 ;;
   esac
-  case "${SYSTEMD_DEFAULT_IOACCOUNTING_ENABLE-}" in
-    true|false) ;;
-    *) installer_fatal "SYSTEMD_DEFAULT_IOACCOUNTING_ENABLE must be true or false"; exit 1 ;;
-  esac
-  resource_has_tokens=false
-  if grep -Eq '__(INSTALLER_)?SYSTEMD_[A-Z0-9_]+__' "$resource_file"; then
-    resource_has_tokens=true
-  elif { [ "$SYSTEMD_IOWEIGHT_ENABLE" = true ] ||
-         ! grep -Eq '^[[:space:]]*(Startup)?IOWeight[[:space:]]*=' "$resource_file"; } &&
-       { [ "$SYSTEMD_CPUWEIGHT_ENABLE" = true ] ||
-         ! grep -Eq '^[[:space:]]*(Startup)?CPUWeight[[:space:]]*=' "$resource_file"; }; then
-    # Class-only/security files need no map or rewrite after switch validation.
-    exit 0
+  [ -f "$1" ] && [ ! -L "$1" ] &&
+    [ "$(installer_metadata_value "$1" links)" = 1 ] || exit 1
+  if LC_ALL=C grep -Eq "$resource_pending" "$1"; then
+    :
+  else
+    resource_probe=$?
+    [ "$resource_probe" -eq 1 ] && exit 0
+    exit "$resource_probe"
   fi
-  resource_map=$(mktemp "${TMP_ENV_DIR}/systemd-resource-map.XXXXXX") || exit 1
-  trap 'rm -f -- "$resource_map" "${resource_map}.filtered"' EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  if [ "$resource_has_tokens" = true ]; then
-    systemd_resource_placeholder_map >"$resource_map" || exit 1
-    render_target_scalar_placeholders "$resource_file" "$resource_map" || exit 1
-  fi
-  if grep -Eq '__(INSTALLER_)?SYSTEMD_[A-Z0-9_]+__' "$resource_file"; then
-    installer_fatal "unresolved systemd resource placeholder in $resource_file"; exit 1
-  fi
-  for controller in IO CPU; do
-    case "$controller" in
-      IO) weight_enabled=$SYSTEMD_IOWEIGHT_ENABLE ;;
-      CPU) weight_enabled=$SYSTEMD_CPUWEIGHT_ENABLE ;;
-    esac
-    [ "$weight_enabled" = false ] || continue
-    # Omit complete directives. Never emit an empty assignment or weight zero.
-    LC_ALL=C awk -v controller="$controller" '
-      $0 !~ ("^[[:space:]]*(Startup)?" controller "Weight[[:space:]]*=")
-    ' "$resource_file" >"${resource_map}.filtered" || exit 1
-    cat "${resource_map}.filtered" >"$resource_file" || exit 1
-    rm -f -- "${resource_map}.filtered"
-    if grep -Eq "^[[:space:]]*(Startup)?${controller}Weight[[:space:]]*=" "$resource_file"; then
-      installer_fatal "disabled $controller weight policy left a directive in $resource_file"; exit 1
-    fi
-  done
+  installer_target_perl_render "$1" "$1" \
+    "${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/resources.map" resources
 )

@@ -12,38 +12,15 @@ FIRSTBOOT_LOG_FILE=${FIRSTBOOT_LOG_FILE:-${FIRSTBOOT_LOG_DIR}/20-firstboot.log}
 mkdir -p "$FIRSTBOOT_LOG_DIR" "$FIRSTBOOT_DATA_DIR" 2>__INSTALLER_PATH_DIR_DEV__/null || exit 1
 : >>"$FIRSTBOOT_LOG_FILE" 2>__INSTALLER_PATH_DIR_DEV__/null || exit 1
 
-timestamp() {
-  date -u '+%Y-%m-%dT%H:%M:%SZ' 2>__INSTALLER_PATH_DIR_DEV__/null || printf '%s\n' unknown-time
+# The published shared library owns logging and bounded capture in every stage.
+firstboot_logging="${FIRSTBOOT_SCRIPT_DIR:-__INSTALLER_PATH_DIR_FIRSTBOOT_LIB__}/logging.sh"
+[ -f "$firstboot_logging" ] && [ ! -L "$firstboot_logging" ] || {
+  printf '%s\n' 'fatal: shared firstboot logging library is unavailable' >&2
+  exit 1
 }
-
-log_line() {
-  stage=$1
-  level=$2
-  component=$3
-  shift 3
-  printf '%s stage=%s level=%s component=%s %s\n' \
-    "$(timestamp)" "$stage" "$level" "$component" "$*" >>"$FIRSTBOOT_LOG_FILE"
-}
-
-if [ -r __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__/logging.sh ]; then
-  # shellcheck disable=SC1091
-  . __INSTALLER_PATH_DIR_FIRSTBOOT_LIB__/logging.sh
-fi
-
-capture() {
-  output_name=$1
-  shift
-  output_file="${FIRSTBOOT_DATA_DIR}/${output_name}"
-  {
-    printf '# command:'
-    for arg in "$@"; do
-      printf ' %s' "$arg"
-    done
-    printf '\n'
-    timeout --signal=TERM --kill-after=2s 20s "$@"
-  } >"$output_file" 2>&1 || printf 'status=%s\n' "$?" >>"$output_file"
-  chmod 0600 "$output_file" 2>__INSTALLER_PATH_DIR_DEV__/null || true
-}
+# shellcheck disable=SC1090
+. "$firstboot_logging" || exit 1
+unset firstboot_logging
 
 capture_file() {
   output_name=$1

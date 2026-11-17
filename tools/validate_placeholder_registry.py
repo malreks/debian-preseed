@@ -127,7 +127,7 @@ LITERAL_CONSUMERS = {
 }
 BLOCK_CONSUMERS = {
     "INSTALLER_FSTAB_RECORDS": (
-        "scripts/late/target-assets.sh", "write_target_fstab_records"),
+        "scripts/common/render.pl", "fstab_bytes"),
     "INSTALLER_SYSTEM_NAMESERVERS_UPSTREAMS": (
         "scripts/late/stubby-config.py", "render"),
     "INSTALLER_LABWC_WORKSPACE_NAME_LINES": (
@@ -272,6 +272,14 @@ def build_registry() -> dict:
             raise ValueError("new scalar requires an explicit producer/consumer declaration: " + token)
         if ns == "SCALAR" and token in declared:
             allowed_members = set(declared[token]["consumer"]["source_members"])
+            if name == "INSTALLER_DATA_END":
+                # The same private snapshot terminator is consumed by the
+                # base-stage Perl reader, never by an installed target file.
+                allowed_members.add("scripts/common/render.pl")
+            if name == "DESKTOP_APPARMOR_STATE":
+                # The typed Perl policy consumer now owns this exact marker;
+                # the late shell adapter supplies only the validated state map.
+                allowed_members.add("scripts/common/render.pl")
             if name in BLOCK_CONSUMERS:
                 allowed_members.add(BLOCK_CONSUMERS[name][0])
             if set(members) - allowed_members:
@@ -308,8 +316,8 @@ def build_registry() -> dict:
             producer = "declared language/package consumer"
         elif name == "DESKTOP_APPARMOR_STATE":
             syntax = "enforce-or-complain"
-            owner = {"module": "scripts/late/security.sh",
-                     "function": "apparmor_apply_desktop_state", "phase": "late-command"}
+            owner = {"module": "scripts/common/render.pl",
+                     "function": "apparmor_modes_bytes", "phase": "late-command"}
             producer = "apparmor_requested_desktop_state"
         elif name in BLOCK_CONSUMERS:
             module, function = BLOCK_CONSUMERS[name]
@@ -352,10 +360,20 @@ def build_registry() -> dict:
 
 
 def map_keys() -> set[str]:
-    path = SEED / "scripts/common/modules/files-logging.sh"
-    text = path.read_text(encoding="utf-8")
-    section = text.split("installer_runtime_path_placeholder_map() {", 1)[1].split("\n}", 1)[0]
-    return set(re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", section))
+    keys: set[str] = set()
+    for line in (SEED / "catalog/runtime-paths.tsv").read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) != 2:
+            raise ValueError("malformed canonical path schema row")
+        key, variable = fields
+        if (not re.fullmatch(r"(?:DIR_|FILE_|APPARMOR_PROFILE_)[A-Z0-9_]+|GITBUILD_DISTRIBUTION", variable)
+                or key != ("PATH_" + variable if variable.startswith(("DIR_", "FILE_")) else variable)
+                or key in keys):
+            raise ValueError("invalid or duplicate canonical path schema owner: " + key)
+        keys.add(key)
+    return keys
 
 
 def tsv_variable(entry: dict) -> str:
@@ -375,7 +393,7 @@ def write_tsv(registry: dict) -> None:
     # Keep every TSV record at one field count so the repository-wide data
     # checker cannot mistake the format marker for a malformed row.
     rows = [
-        "format\t2" + "\t" * (len(TSV_COLUMNS) - 2) + "\n",
+        "\t".join(("format", "2", *("-" for _ in TSV_COLUMNS[2:]))) + "\n",
         "\t".join(TSV_COLUMNS) + "\n",
     ]
     for entry in registry["entries"]:
@@ -404,14 +422,16 @@ def write_tsv(registry: dict) -> None:
         )
         if any("\t" in field or "\r" in field or "\n" in field for field in fields):
             raise ValueError("placeholder registry TSV field contains a control separator")
-        rows.append("\t".join(fields) + "\n")
+        # A visible empty-field sentinel avoids trailing TAB whitespace while
+        # retaining the fixed field count. It grants no literal allowance.
+        rows.append("\t".join(field if field else "-" for field in fields) + "\n")
     REGISTRY_TSV.write_text("".join(rows), encoding="utf-8")
 
 
 def validate_tsv(registry: dict) -> None:
     data = REGISTRY_TSV.read_text(encoding="utf-8").splitlines()
     expected_header = [
-        "format\t2" + "\t" * (len(TSV_COLUMNS) - 2),
+        "\t".join(("format", "2", *("-" for _ in TSV_COLUMNS[2:]))),
         "\t".join(TSV_COLUMNS),
     ]
     if data[:2] != expected_header:
@@ -450,7 +470,7 @@ def validate_tsv(registry: dict) -> None:
             or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*", fields[1])
         ):
             raise ValueError("malformed placeholder registry TSV row")
-        actual.add(tuple(fields))
+        actual.add(tuple(field if field != "-" else "" for field in fields))
     if len(actual) != len(data[2:]) or actual != expected:
         raise ValueError("placeholder registry TSV does not match JSON registry")
 

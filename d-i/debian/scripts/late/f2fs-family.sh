@@ -188,34 +188,12 @@ write_target_fstab() {
   cp ${TARGET_ROOT}${DIR_ETC}/fstab ${TARGET_ROOT}${DIR_ETC}/fstab.orig 2>__INSTALLER_PATH_DIR_DEV__/null || true
 }
 
-prepare_target_deferred_tmpfs_roots() {
-  journal_mount="${TARGET_ROOT}${DIR_VAR_LOG_JOURNAL}"
-
-  if tmpfs_policy_enabled TMPFS_VAR_LOG &&
-    target_mount_source "$journal_mount" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
-    info "unmounting ${journal_mount} so the installed system remounts the persistent journal cleanly on reboot"
-    umount "$journal_mount" || {
-      fatal "failed to unmount ${journal_mount} while preparing deferred tmpfs roots"
-    }
-  fi
-
-  rmdir "$journal_mount" 2>__INSTALLER_PATH_DIR_DEV__/null || true
-}
-
 write_target_kernel_tunables() {
   stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODPROBE_D_60_SES_BLACKLIST)" "${FILE_MODPROBE_SES_BLACKLIST}" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modprobe.d/72-nvme-blacklist.conf")" "${FILE_MODPROBE_NVME_BLACKLIST:-}" "${DIR_MODPROBE_D}/72-nvme-blacklist.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/05-mei-blacklist.conf")" "${FILE_MODPROBE_MEI_BLACKLIST:-}" "${DIR_MODPROBE_D}/05-mei-blacklist.conf" 0644
   stage_target_hardware_spec
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu intel-uhd etc/modprobe.d/80-i915.conf)" "${FILE_MODPROBE_I915:-}" "${DIR_MODPROBE_D}/80-i915.conf" 0644
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu amd-radeon etc/modprobe.d/81-amdgpu.conf)" "${FILE_MODPROBE_AMDGPU:-}" "${DIR_MODPROBE_D}/81-amdgpu.conf" 0644
-  if [ "$target_enable_nvidia" = true ]; then
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODPROBE_D_50_NOUVEAU_BLACKLIST)" "${DIR_MODPROBE_D}/50-nouveau-blacklist.conf" 0644
-    stage_target_asset "$(installer_hardware_asset_path gpu nvidia etc/modprobe.d/82-nvidia.conf)" "${FILE_MODPROBE_NVIDIA}" 0644
-  else
-    remove_target_asset "${DIR_MODPROBE_D}/50-nouveau-blacklist.conf"
-    remove_target_asset "${DIR_MODPROBE_D}/82-nvidia.conf"
-  fi
+  stage_target_graphics_kernel_tunables "$target_enable_nvidia"
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modprobe.d/74-usbcore.conf")" "${FILE_MODPROBE_USBCORE:-}" "${DIR_MODPROBE_D}/74-usbcore.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/75-cfg80211.conf")" "${FILE_MODPROBE_CFG80211:-}" "${DIR_MODPROBE_D}/75-cfg80211.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modules-load.d/20-emmc-storage.conf")" "${FILE_MODULES_LOAD_EMMC_STORAGE:-}" "${DIR_MODULES_LOAD}/20-emmc-storage.conf" 0644
@@ -232,99 +210,85 @@ write_target_kernel_tunables() {
   stage_target_asset "$(installer_repo_file_value FILE_TARGET_INITRAMFS_CONF_D_RESUME)" "${FILE_INITRAMFS_RESUME}" 0644
   render_target_asset "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/initramfs-tools/modules.tmpl")" "${FILE_INITRAMFS_MODULES}" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/default/grub.d/80-cpu-profile-flags.cfg")" "${FILE_GRUB_CPU_PROFILE_DROPIN:-}" "${DIR_GRUB_DEFAULT}/80-cpu-profile-flags.cfg" 0644
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu intel-uhd etc/default/grub.d/85-gpu-intel.cfg)" "${FILE_GRUB_GPU_INTEL_DROPIN:-}" "${DIR_GRUB_DEFAULT}/85-gpu-intel.cfg" 0644
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu amd-radeon etc/default/grub.d/86-gpu-amd.cfg)" "${FILE_GRUB_GPU_AMD_DROPIN:-}" "${DIR_GRUB_DEFAULT}/86-gpu-amd.cfg" 0644
-  stage_target_asset_if_path "$(installer_hardware_asset_path gpu nvidia etc/default/grub.d/87-gpu-nvidia.cfg)" "${FILE_GRUB_GPU_NVIDIA_DROPIN:-}" "${DIR_GRUB_DEFAULT}/87-gpu-nvidia.cfg" 0644
-
-  configure_target_nvidia_power_management "$target_enable_nvidia"
-
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_SWAP_FALLBACK_SETUP_TMPL)" "${FILE_SWAP_FALLBACK_HELPER}" 0755
-  render_target_template "$TMP_ENV_DIR/swap-fallback.service.tmpl" "${TARGET_ROOT}${FILE_SWAP_FALLBACK_SERVICE}" 0644
-
-  stage_target_common_storage_maintenance_assets
+  stage_target_common_boot_policy "$target_enable_nvidia"
 }
 
-
-
-
-
-
-f2fs_late_command_mark 253 write_target_fstab
+f2fs_late_command_mark 217 write_target_fstab
 write_target_fstab
-f2fs_late_command_mark 255 ensure_target_managed_runtime_storage_roots
+f2fs_late_command_mark 219 ensure_target_managed_runtime_storage_roots
 ensure_target_managed_runtime_storage_roots
-f2fs_late_command_mark 257 provision_target_identity
+f2fs_late_command_mark 221 provision_target_identity
 provision_target_identity
-f2fs_late_command_mark 259 stage_target_docs_index
+f2fs_late_command_mark 223 stage_target_docs_index
 stage_target_docs_index
-f2fs_late_command_mark 261 stage_target_account_shell_assets
+f2fs_late_command_mark 225 stage_target_account_shell_assets
 stage_target_account_shell_assets
-f2fs_late_command_mark 263 ensure_target_account_home_ownership
+f2fs_late_command_mark 227 ensure_target_account_home_ownership
 ensure_target_account_home_ownership
-f2fs_late_command_mark 265 install_target_account_shell_assets
+f2fs_late_command_mark 229 install_target_account_shell_assets
 install_target_account_shell_assets
-f2fs_late_command_mark 267 install_target_account_sudoers
+f2fs_late_command_mark 231 install_target_account_sudoers
 install_target_account_sudoers
-f2fs_late_command_mark 269 configure_target_shared_account_access
+f2fs_late_command_mark 233 configure_target_shared_account_access
 configure_target_shared_account_access
-f2fs_late_command_mark 271 write_target_grub_dropins
+f2fs_late_command_mark 235 write_target_grub_dropins
 write_target_grub_dropins
-f2fs_late_command_mark 273 set_target_grub_default_entry
+f2fs_late_command_mark 237 set_target_grub_default_entry
 set_target_grub_default_entry
-f2fs_late_command_mark 275 repair_target_pkgsel_include_packages
+f2fs_late_command_mark 239 repair_target_pkgsel_include_packages
 repair_target_pkgsel_include_packages
-f2fs_late_command_mark 277 install_target_mullvad_vpn_if_selected
+f2fs_late_command_mark 241 install_target_mullvad_vpn_if_selected
 install_target_mullvad_vpn_if_selected
-f2fs_late_command_mark 279 stage_target_secure_boot_runtime_assets
+f2fs_late_command_mark 243 stage_target_secure_boot_runtime_assets
 stage_target_secure_boot_runtime_assets
-f2fs_late_command_mark 281 stage_target_xssh_helpers
+f2fs_late_command_mark 245 stage_target_xssh_helpers
 stage_target_xssh_helpers
-f2fs_late_command_mark 283 provision_target_ssh_client
+f2fs_late_command_mark 247 provision_target_ssh_client
 provision_target_ssh_client
-f2fs_late_command_mark 285 provision_target_git_ssh_identity
+f2fs_late_command_mark 249 provision_target_git_ssh_identity
 provision_target_git_ssh_identity
-f2fs_late_command_mark 287 configure_target_rootless_podman_if_selected
+f2fs_late_command_mark 251 configure_target_rootless_podman_if_selected
 configure_target_rootless_podman_if_selected
-f2fs_late_command_mark 289 sanitize_target_xfs_scrub_systemd_units
+f2fs_late_command_mark 253 sanitize_target_xfs_scrub_systemd_units
 sanitize_target_xfs_scrub_systemd_units
-f2fs_late_command_mark 291 install_target_wpa_supplicant_runtime_policy
+f2fs_late_command_mark 255 install_target_wpa_supplicant_runtime_policy
 install_target_wpa_supplicant_runtime_policy
-f2fs_late_command_mark 293 write_target_kernel_tunables
+f2fs_late_command_mark 257 write_target_kernel_tunables
 write_target_kernel_tunables
-f2fs_late_command_mark 295 ensure_target_secure_boot_packages
+f2fs_late_command_mark 259 ensure_target_secure_boot_packages
 ensure_target_secure_boot_packages
-f2fs_late_command_mark 297 provision_target_ssh_server
+f2fs_late_command_mark 261 provision_target_ssh_server
 provision_target_ssh_server
-f2fs_late_command_mark 299 install_target_managed_network_handoff
+f2fs_late_command_mark 263 install_target_managed_network_handoff
 install_target_managed_network_handoff
-f2fs_late_command_mark 301 configure_target_apparmor_auditd
+f2fs_late_command_mark 265 configure_target_apparmor_auditd
 configure_target_apparmor_auditd
-f2fs_late_command_mark 303 dedupe_target_tmpfiles_legacy_lock
+f2fs_late_command_mark 267 dedupe_target_tmpfiles_legacy_lock
 dedupe_target_tmpfiles_legacy_lock
-f2fs_late_command_mark 305 prepare_target_secure_boot_runtime
+f2fs_late_command_mark 269 prepare_target_secure_boot_runtime
 prepare_target_secure_boot_runtime
-f2fs_late_command_mark 307 install_target_firstboot_logger
+f2fs_late_command_mark 271 install_target_firstboot_logger
 install_target_firstboot_logger
-f2fs_late_command_mark 309 enable_target_storage_units
+f2fs_late_command_mark 273 enable_target_storage_units
 enable_target_storage_units
-f2fs_late_command_mark 311 set_target_default_unit
+f2fs_late_command_mark 275 set_target_default_unit
 set_target_default_unit
-f2fs_late_command_mark 313 disable_stock_kernel_menu
+f2fs_late_command_mark 277 disable_stock_kernel_menu
 disable_stock_kernel_menu
 
 if target_exec_available; then
-  f2fs_late_command_mark 317 sign_target_installed_kernel_modules
+  f2fs_late_command_mark 281 sign_target_installed_kernel_modules
   sign_target_installed_kernel_modules
   # Regenerate signed kernels/initrds BEFORE discovering boot menu entries.
-  f2fs_late_command_mark 320 repair_target_installed_kernels
+  f2fs_late_command_mark 284 repair_target_installed_kernels
   repair_target_installed_kernels
-  f2fs_late_command_mark 322 require_target_grub_installed
+  f2fs_late_command_mark 286 require_target_grub_installed
   require_target_grub_installed
-  f2fs_late_command_mark 324 install_target_grub_profiles
+  f2fs_late_command_mark 288 install_target_grub_profiles
   install_target_grub_profiles
-  f2fs_late_command_mark 326 require_target_dualboot_os_prober_package
+  f2fs_late_command_mark 290 require_target_dualboot_os_prober_package
   require_target_dualboot_os_prober_package
-  f2fs_late_command_mark 328 run_target_grub_config_update
+  f2fs_late_command_mark 292 run_target_grub_config_update
   run_target_grub_config_update
   # This is the unconditional d-i late reset point: GRUB, shim, MokManager,
   # kernel/initrd and grub.cfg are complete before mokutil is called. Reset
@@ -334,20 +298,20 @@ if target_exec_available; then
   else
     installer_warn "MOK reset/boot preparation failed after GRUB installation; continuing installation"
   fi
-  f2fs_late_command_mark 338 sync_target_secure_boot_bundle_to_installer_usb
+  f2fs_late_command_mark 302 sync_target_secure_boot_bundle_to_installer_usb
   sync_target_secure_boot_bundle_to_installer_usb
-  f2fs_late_command_mark 340 close_target_secure_boot_state
+  f2fs_late_command_mark 304 close_target_secure_boot_state
   close_target_secure_boot_state
 fi
 
-f2fs_late_command_mark 344 configure_target_dbus_broker
+f2fs_late_command_mark 308 configure_target_dbus_broker
 configure_target_dbus_broker
-f2fs_late_command_mark 346 prepare_target_deferred_tmpfs_roots
+f2fs_late_command_mark 310 prepare_target_deferred_tmpfs_roots
 prepare_target_deferred_tmpfs_roots
-f2fs_late_command_mark 348 prepare_target_volatile_mountpoints_for_first_boot
+f2fs_late_command_mark 312 prepare_target_volatile_mountpoints_for_first_boot
 prepare_target_volatile_mountpoints_for_first_boot
-f2fs_late_command_mark 350 stage_target_logging_foundation
+f2fs_late_command_mark 314 stage_target_logging_foundation
 stage_target_logging_foundation || return $?
-f2fs_late_command_mark 352 installer_archive_logs_to_target
+f2fs_late_command_mark 316 installer_archive_logs_to_target
 installer_archive_logs_to_target copy || true
 }

@@ -628,7 +628,6 @@ whisper_target_write_runtime_config() {
   runtime_conf="${runtime_conf_dir}/whisper.conf"
   runtime_conf_tmp="${runtime_conf}.tmp.$$"
   runtime_conf_template=__INSTALLER_PATH_DIR_TMP__/whisper.conf.tmpl
-  runtime_model="${WHISPER_MODEL_DIR}/${model_filename}"
 
   [ ! -L "$runtime_conf_dir" ] ||
     whisper_target_fatal "runtime configuration directory must not be a symbolic link"
@@ -642,17 +641,11 @@ whisper_target_write_runtime_config() {
   [ "$(find -P "$runtime_conf_template" -maxdepth 0 -printf '%m')" = 600 ] ||
     whisper_target_fatal "runtime configuration template must have mode 0600"
   whisper_target_require_command grep
-  whisper_target_require_command sed
   install -d -o 0 -g 0 -m 0755 "$runtime_conf_dir"
   rm -f -- "$runtime_conf_tmp"
-  sed \
-    -e "s|__WHISPER_CLI__|${WHISPER_BINARY_DIR}/whisper-cli|g" \
-    -e "s|__WHISPER_SERVER__|${WHISPER_BINARY_DIR}/whisper-server|g" \
-    -e "s|__WHISPER_SERVER_PORT__|${WHISPER_SERVER_PORT}|g" \
-    -e "s|__WHISPER_MODEL__|${runtime_model}|g" \
-    -e "s|__WHISPER_RUNTIME_THREADS__|${WHISPER_RUNTIME_THREADS}|g" \
-    -e "s|__WHISPER_PERSISTENT_MEM__|${WHISPER_PERSISTENT_MEM}|g" \
-    "$runtime_conf_template" >"$runtime_conf_tmp"
+  # Configuration was rendered by the installer's shared Perl adapter before
+  # this target-only helper ran. No target-side shell substitution remains.
+  cat "$runtime_conf_template" >"$runtime_conf_tmp"
   if grep -q '__WHISPER_' "$runtime_conf_tmp"; then
     rm -f -- "$runtime_conf_tmp"
     whisper_target_fatal "runtime configuration template contains unresolved placeholders"
@@ -964,81 +957,6 @@ bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook targ
 }
 installer_ensure_context_loaded "$seed_base"
 
-whisper_stream_target_output() {
-  stream_output_file=$1
-  stream_emit=$2
-
-  : >"$stream_output_file" || return 1
-  while :; do
-    stream_line=
-    if IFS= read -r stream_line; then
-      :
-    elif [ -z "$stream_line" ]; then
-      break
-    fi
-    printf '%s\n' "$stream_line" >&3 || return 1
-    if [ "$stream_emit" = 1 ]; then
-      printf '%s\n' "$stream_line" || return 1
-    fi
-  done 3>"$stream_output_file"
-}
-
-run_whisper_install_in_target() {
-  label=$1
-  shift
-  output=$(installer_runtime_temp_log_path install-in-target.log)
-  status_file=$(installer_runtime_temp_log_path install-in-target.status)
-  stream_emit=0
-
-  rm -f "$status_file"
-  target_log_should_emit info && stream_emit=1
-  installer_info "in-target: ${label}"
-  target_log_command_start "$label"
-
-  if (
-    set +e
-    target_exec_diagnostic "$@" <__INSTALLER_PATH_DIR_DEV__/null
-    target_status=$?
-    printf '%s\n' "$target_status" >"$status_file" || exit 125
-    exit 0
-  ) 2>&1 | whisper_stream_target_output "$output" "$stream_emit"
-  then
-    stream_status=0
-  else
-    stream_status=$?
-  fi
-
-  if [ "$stream_status" -ne 0 ]; then
-    code=125
-    installer_error "failed to capture streamed output during ${label} (status ${stream_status})"
-  elif [ ! -s "$status_file" ]; then
-    code=125
-    installer_error "target command status is unavailable after ${label}"
-  else
-    code=$(cat "$status_file")
-    case "$code" in
-      ''|*[!0-9]*) code=125 ;;
-      *) [ "$code" -le 255 ] || code=125 ;;
-    esac
-  fi
-
-  rm -f "$status_file"
-  if [ "$code" -eq 0 ]; then
-    target_log_command_complete "$label" "$output"
-    rm -f "$output"
-    return 0
-  fi
-
-  installer_error "in-target failed during ${label} (status ${code}):"
-  if target_log_should_emit error; then
-    print_command "$@" >&2
-    [ "$stream_emit" = 1 ] || cat "$output" >&2
-  fi
-  target_log_command_failure "$label" "$code" error "$output"
-  rm -f "$output"
-  exit "$code"
-}
-
 installer_any_role_class_selected 2>__INSTALLER_PATH_DIR_DEV__/null || exit 0
 case "${INSTALLER_HOST_VARIANT:-}" in
   desktop|server) ;;
@@ -1083,6 +1001,12 @@ target_runtime_template_host="${target_root}${target_runtime_template}"
 whisper_stage_target_asset "$(installer_repo_file_value FILE_LATE_WHISPER)" "$target_helper" 0700
 whisper_stage_target_asset "$(installer_repo_file_value FILE_LATE_AI_RUNTIME_ARCHIVE)" "$target_archive_helper" 0700
 whisper_stage_target_asset "$(installer_repo_file_value FILE_TARGET_WHISPER_WHISPER_TMPL)" "$target_runtime_template" 0600
+installer_apply_scalar_placeholders "$target_runtime_template_host" "$target_runtime_template_host" \
+  WHISPER_CLI "${WHISPER_BINARY_DIR}/whisper-cli" WHISPER_SERVER "${WHISPER_BINARY_DIR}/whisper-server" \
+  WHISPER_SERVER_PORT "$WHISPER_SERVER_PORT" WHISPER_MODEL "${WHISPER_MODEL_DIR}/${model_filename}" \
+  WHISPER_RUNTIME_THREADS "$WHISPER_RUNTIME_THREADS" WHISPER_PERSISTENT_MEM "$WHISPER_PERSISTENT_MEM" ||
+  whisper_fatal 'cannot render Whisper runtime configuration with prepared Perl'
+installer_assert_no_unresolved_installer_placeholders "$target_runtime_template_host" 'Whisper runtime configuration' || exit 1
 if [ "$INSTALLER_HOST_VARIANT" = desktop ]; then
   whisper_stage_mode_perl_modules
   whisper_stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_WHISPER_RECORD_TOGGLE)" "${DIR_USR_LOCAL_LIBEXEC}/whisper-record-toggle" 0755
@@ -1125,7 +1049,7 @@ umask 077
 chmod 0600 "$target_profile_host"
 chown 0:0 "$target_profile_host"
 
-run_whisper_install_in_target "download and install selected whisper.cpp runtime" \
+run_in_target "download and install selected whisper.cpp runtime" \
   "$target_helper" --target-install "$target_profile" "$INSTALLER_HOST_VARIANT"
 
 whisper_runtime_conf_dir_host="${target_root}__INSTALLER_PATH_DIR_ETC__/whisper"

@@ -156,7 +156,7 @@ class IconContractTests(unittest.TestCase):
                     self.assertTrue(consumers, name)
                     mapping = work / 'map'; mapping.write_text(result.stdout)
                     for path, text in consumers:
-                        output = subprocess.run(payload_installed_argv(['awk', '-f', str(SEED / 'scripts/late/theme-render.awk'),
+                        output = subprocess.run(payload_installed_argv(['awk', '-f', str(SEED / 'tests/fixtures/theme-render-reference.awk'),
                             str(mapping), str(path)]), capture_output=True, text=True, timeout=10)
                         self.assertEqual(output.returncode, 0, output.stderr)
                         self.assertEqual(output.stdout, RENDER(text.replace(token, '#123abc'), VALUES))

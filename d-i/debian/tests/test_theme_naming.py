@@ -163,7 +163,7 @@ class ThemePaletteMutationTests(unittest.TestCase):
     def render(self, path: Path, mapping: str) -> str:
         map_path = self.root / 'values.map'
         map_path.write_text(mapping)
-        result = subprocess.run(payload_installed_argv(['awk', '-f', str(SEED / 'scripts/late/theme-render.awk'),
+        result = subprocess.run(payload_installed_argv(['awk', '-f', str(SEED / 'tests/fixtures/theme-render-reference.awk'),
                                  str(map_path), str(path)]), text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout

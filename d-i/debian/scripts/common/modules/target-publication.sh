@@ -201,19 +201,32 @@ installer_stage_profile_asset() (
   installer_fetch_file "$(installer_seed_base "")" "$source_path" "$input" 0600
   # An identifier segment cannot consume the closing delimiter and an adjacent
   # token. Greedy underscore matching turns two required fields into one name.
-  names=$(LC_ALL=C grep -oE '__INSTALLER_[A-Z][A-Z0-9]*(_[A-Z0-9]+)*__' "$input" | sort -u || true)
+  case "$source_path" in
+    *.tmpl) profile_token_pattern='__(INSTALLER_)?[A-Z][A-Z0-9]*(_[A-Z0-9]+)*__' ;;
+    *) profile_token_pattern='__INSTALLER_[A-Z][A-Z0-9]*(_[A-Z0-9]+)*__' ;;
+  esac
+  names=$(LC_ALL=C grep -oE "$profile_token_pattern" "$input" | sort -u || true)
   set --
   for token in $names; do
-    name=${token#__INSTALLER_}; name=${name%__}
-    case "$name" in PATH_*) continue ;; *[!A-Z0-9_]*|'') installer_fatal 'invalid placeholder name' ;; esac
+    name=${token#__}; name=${name%__}; name=${name#INSTALLER_}
+    # Perl's package pseudo-constant is language syntax, not template data.
+    case "$name" in PATH_*|PACKAGE) continue ;; *[!A-Z0-9_]*|'') installer_fatal 'invalid placeholder name' ;; esac
     # Only a validated identifier enters indirection. Profile bytes are data.
     present=; value=
     eval "present=\${$name+x}; value=\${$name-}"
     [ "$present" = x ] || installer_fatal "profile asset lacks required field: $name (asset=$source_path)"
     set -- "$@" "$name" "$value"
   done
-  installer_apply_scalar_placeholders "$input" "$output" "$@"
-  if LC_ALL=C grep -qE '__INSTALLER_[A-Z0-9_]+__' "$output"; then installer_fatal 'unresolved target asset placeholder'; fi
+  if [ "$#" -eq 0 ] && [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
+    cat "$input" >"$output"
+  else
+    installer_apply_scalar_placeholders "$input" "$output" "$@"
+  fi
+  installer_assert_no_unresolved_installer_placeholders "$output" "$source_path"
+  remaining=$(LC_ALL=C grep -oE "$profile_token_pattern" "$output" | sort -u || true)
+  for token in $remaining; do
+    case "$token" in __PACKAGE__) ;; *) installer_fatal "unresolved target asset field: $token (asset=$source_path)" ;; esac
+  done
   installer_capture_primary_default "$output" "$target_path" "$asset_mode"
   installer_apt_safe_path "${TARGET_ROOT}${target_path}" || installer_fatal 'target identity changed before publication'
   chmod "$asset_mode" "$output"

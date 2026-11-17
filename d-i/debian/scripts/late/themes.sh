@@ -12,10 +12,8 @@ installer_load_themes() {
     # their literal values here; do not fetch and parse the schema per stage.
     theme_source_dir=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$DIR_HOSTS_THEMES
     INSTALLER_THEME_MAP=${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/themes.map
-    INSTALLER_THEME_RENDER_AWK=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$(installer_repo_file_value FILE_LATE_THEME_RENDER)
   else
   fetch_hook_file "$(installer_repo_file_value FILE_LATE_THEME_VALIDATE)" "$INSTALLER_THEME_DIR/validate.awk" || return $?
-  fetch_hook_file "$(installer_repo_file_value FILE_LATE_THEME_RENDER)" "$INSTALLER_THEME_DIR/render.awk" || return $?
   fetch_hook_file "$(installer_repo_file_value FILE_HOST_THEME_THEME_SCHEMA)" "$INSTALLER_THEME_DIR/schema.tsv" || return $?
   for theme_group in base apps office; do
     fetch_hook_file "$(installer_repo_asset_path DIR_HOSTS_THEMES "${theme_group}.env")" "$INSTALLER_THEME_DIR/${theme_group}.env" || return $?
@@ -29,7 +27,6 @@ installer_load_themes() {
   fi
   theme_source_dir=$INSTALLER_THEME_DIR
   INSTALLER_THEME_MAP=$INSTALLER_THEME_DIR/values.map
-  INSTALLER_THEME_RENDER_AWK=$INSTALLER_THEME_DIR/render.awk
   fi
   # Schema allowlist plus literal grammar make sourcing safe: no expansion,
   # commands, quotes, backslashes or variable names outside the theme catalog.
@@ -69,27 +66,22 @@ installer_theme_render_file() (
     exit 1
   fi
   installer_load_themes || exit $?
-  theme_parent=${theme_path%/*}
-  [ "$theme_parent" != "$theme_path" ] || theme_parent=.
-  theme_work=$(mktemp -d "${theme_parent}/.theme-render.XXXXXX") || exit $?
-  trap 'rm -rf "$theme_work"' EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  cp -p "$theme_path" "$theme_work/rendered" || exit $?
-  if LC_ALL=C awk -v render_scope="$theme_render_scope" \
-      -f "$INSTALLER_THEME_RENDER_AWK" "$INSTALLER_THEME_MAP" "$theme_path" > "$theme_work/rendered"; then
-    :
-  else
-    theme_render_status=$?
-    installer_fatal "theme rendering failed for asset: ${2:-$theme_path}"
-    exit "$theme_render_status"
-  fi
-  mv -f "$theme_work/rendered" "$theme_path" || exit $?
+  [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || {
+    installer_fatal 'theme publication requires base-stage rendering'; exit 1;
+  }
+  case "$theme_render_scope" in
+    appearance-defaults) theme_render_kind=appearance ;;
+    *) theme_render_kind=theme ;;
+  esac
+  installer_target_perl_render "$theme_path" "$theme_path" "$INSTALLER_THEME_MAP" "$theme_render_kind"
+  exit "$?"
 )
 
 installer_theme_render_tree() (
   theme_tree=$1
+  # Every source-tree member was already rendered in the manifest-driven
+  # base-stage pass. Copying that tree does not need another recursive pass.
+  [ -z "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || exit 0
   installer_load_themes || exit $?
   theme_list=$(mktemp "${INSTALLER_THEME_DIR}/tree.XXXXXX") || exit $?
   trap 'rm -f "$theme_list"' EXIT

@@ -972,13 +972,17 @@ def compile_classes(sources: dict[str, bytes]) -> tuple[dict[str, bytes], dict[s
     # Every source selector and phase provider must name the captured source or
     # an explicitly generated member. This is generation-time data validation;
     # it imports and executes no installer or target implementation.
+    outputs['catalog/compiled/profile-assets.tsv'] = b''
     members = set(sources) | set(outputs) | {'catalog/compiled/release.tsv'}
     selected_source_members = set()
     required_file_selectors, required_directory_selectors = set(), set()
+    profile_asset_selectors: set[str] = set()
+    profile_asset_members: set[str] = set()
     for name, data in sources.items():
         if not name.startswith(('scripts/', 'hooks/installer/')):
             continue
         text = data.decode()
+        profile_asset_selectors.update(re.findall(r'\binstaller_stage_profile_file\s+(FILE_[A-Z0-9_]+)', text))
         required_file_selectors.update(re.findall(
             r'(?:installer_repo_file_value|bootstrap_repo_file_value|installer_stage_profile_file|desktop_stage_role_asset|desktop_render_role_target_template|installer_operation_context_repo)\s+["\']?(FILE_[A-Z0-9_]+)', text))
         required_directory_selectors.update(re.findall(
@@ -986,6 +990,7 @@ def compile_classes(sources: dict[str, bytes]) -> tuple[dict[str, bytes], dict[s
     for suite, classes in suite_classes.items():
         selectors, provenance = {'INSTALLER_SUITE': suite}, {}
         assignment_data(sources['repo.env'].decode(), selectors, provenance, 'repo.env')
+        profile_asset_members.update(selectors[key] for key in profile_asset_selectors if key in selectors)
         missing = (required_file_selectors | required_directory_selectors) - set(selectors)
         if missing:
             raise ValueError('installer caller lacks a source selector: ' + ', '.join(sorted(missing)))
@@ -1001,4 +1006,6 @@ def compile_classes(sources: dict[str, bytes]) -> tuple[dict[str, bytes], dict[s
     missing_members = set(sources) - selected_source_members
     if missing_members:
         raise ValueError('published source lacks a FILE selector: ' + ', '.join(sorted(missing_members)))
+    outputs['catalog/compiled/profile-assets.tsv'] = ''.join(
+        member + '\tprofile\n' for member in sorted(profile_asset_members)).encode()
     return outputs, {}, {'format': 1, 'tuples': matrix}

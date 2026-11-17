@@ -65,27 +65,15 @@ trap 'interrupted 129' HUP
 trap 'interrupted 130' INT
 trap 'interrupted 143' TERM
 
-timestamp() {
-  date -u '+%Y-%m-%dT%H:%M:%SZ' 2>__INSTALLER_PATH_DIR_DEV__/null || printf '%s\n' unknown-time
+# The published shared library owns logging and bounded capture in every stage.
+firstboot_logging="${FIRSTBOOT_SCRIPT_DIR:-__INSTALLER_PATH_DIR_FIRSTBOOT_LIB__}/logging.sh"
+[ -f "$firstboot_logging" ] && [ ! -L "$firstboot_logging" ] || {
+  printf '%s\n' 'fatal: shared firstboot logging library is unavailable' >&2
+  exit 1
 }
-
-log_line() {
-  stage=$1
-  level=$2
-  component=$3
-  shift 3
-  printf '%s stage=%s level=%s component=%s %s\n' \
-    "$(timestamp)" \
-    "$stage" \
-    "$level" \
-    "$component" \
-    "$*" >>"$FIRSTBOOT_LOG_FILE"
-}
-
-if [ -r "${FIRSTBOOT_SCRIPT_DIR}/logging.sh" ]; then
-  # shellcheck disable=SC1090
-  . "${FIRSTBOOT_SCRIPT_DIR}/logging.sh"
-fi
+# shellcheck disable=SC1090
+. "$firstboot_logging" || exit 1
+unset firstboot_logging
 
 write_status() {
   status_value=$1

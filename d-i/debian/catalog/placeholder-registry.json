@@ -66,7 +66,7 @@
         "module": "hooks/target/etc/apparmor/desktop/modes.conf.tmpl",
         "source_members": [
           "hooks/target/etc/apparmor/desktop/modes.conf.tmpl",
-          "scripts/late/security.sh"
+          "scripts/common/render.pl"
         ]
       },
       "default_policy": "fail-closed",
@@ -77,15 +77,15 @@
       "name": "DESKTOP_APPARMOR_STATE",
       "namespace": "SCALAR",
       "owner": {
-        "function": "apparmor_apply_desktop_state",
-        "module": "scripts/late/security.sh",
+        "function": "apparmor_modes_bytes",
+        "module": "scripts/common/render.pl",
         "phase": "late-command"
       },
       "producer_map": "apparmor_requested_desktop_state",
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
+        "shared-bootstrap",
         "target-asset"
       ],
       "syntax": "enforce-or-complain",
@@ -1843,7 +1843,8 @@
         "module": "scripts/common/credential-data.awk",
         "source_members": [
           "scripts/common/credential-data.awk",
-          "scripts/common/modules/profiles.sh"
+          "scripts/common/modules/profiles.sh",
+          "scripts/common/render.pl"
         ]
       },
       "default_policy": "fail-closed",
@@ -6574,7 +6575,7 @@
         "module": "hooks/target/etc/fstab.tmpl",
         "source_members": [
           "hooks/target/etc/fstab.tmpl",
-          "scripts/late/target-assets.sh"
+          "scripts/common/render.pl"
         ]
       },
       "default_policy": "fail-closed",
@@ -6585,15 +6586,15 @@
       "name": "INSTALLER_FSTAB_RECORDS",
       "namespace": "SCALAR",
       "owner": {
-        "function": "write_target_fstab_records",
-        "module": "scripts/late/target-assets.sh",
-        "phase": "late-command"
+        "function": "fstab_bytes",
+        "module": "scripts/common/render.pl",
+        "phase": "shared-bootstrap"
       },
-      "producer_map": "write_target_fstab_records",
+      "producer_map": "fstab_bytes",
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
+        "shared-bootstrap",
         "target-asset"
       ],
       "syntax": "exactly-one-whole-line-block; consumer validates generated records",
@@ -24090,6 +24091,7 @@
           "scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup",
           "scripts/firstboot/assets/var/lib/firstboot/bin/tailscale-up",
           "scripts/firstboot/firstboot.sh",
+          "scripts/firstboot/logging.sh",
           "scripts/late/account.sh",
           "scripts/late/assets/etc/skel-desktop/.bashrc.installer-base",
           "scripts/late/assets/etc/skel-desktop/.profile.installer-base",
@@ -24124,7 +24126,6 @@
           "scripts/late/target-assets.sh",
           "scripts/late/templates.sh",
           "scripts/late/templates/network/performance.tmpl",
-          "scripts/late/theme-render.awk",
           "scripts/late/volatile-storage.sh",
           "scripts/late/whisper.sh",
           "scripts/late/zram-swap.sh",
@@ -33752,7 +33753,6 @@
           "scripts/late/software.sh.tmpl",
           "scripts/late/ssh/ssh-install.py",
           "scripts/late/tailscale.sh",
-          "scripts/late/theme-render.awk",
           "scripts/late/tor-browser.sh"
         ]
       },
@@ -44928,8 +44928,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -44948,7 +44947,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -44958,8 +44956,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -44978,7 +44975,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -44988,8 +44984,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -45008,7 +45003,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -45018,8 +45012,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -45038,7 +45031,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -45048,8 +45040,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -45068,7 +45059,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -45078,8 +45068,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -45098,7 +45087,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -45108,8 +45096,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -45128,7 +45115,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -45138,8 +45124,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -45158,7 +45143,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -45168,8 +45152,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -45188,7 +45171,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -45198,8 +45180,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -45218,7 +45199,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -45228,8 +45208,7 @@
       "consumer": {
         "module": "hooks/target/etc/llama/llama.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/llama/llama.conf.tmpl",
-          "scripts/late/llama.sh"
+          "hooks/target/etc/llama/llama.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -45248,7 +45227,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -45631,7 +45609,8 @@
           "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Command/Reset.pm",
           "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Command/Status.pm",
           "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Command/Writeback.pm",
-          "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Config/Parser.pm"
+          "hooks/target/usr/local/lib/common/perl5/site_perl/zram-writeback/Zram/Config/Parser.pm",
+          "scripts/common/modules/target-publication.sh"
         ]
       },
       "default_policy": "fail-closed",
@@ -45650,6 +45629,7 @@
       "publication_kind": "plain",
       "required": true,
       "source_family": [
+        "shared-bootstrap",
         "target-asset"
       ],
       "syntax": "Perl package pseudo-constant",
@@ -105203,8 +105183,7 @@
       "consumer": {
         "module": "hooks/target/etc/whisper/whisper.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/whisper/whisper.conf.tmpl",
-          "scripts/late/whisper.sh"
+          "hooks/target/etc/whisper/whisper.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -105223,7 +105202,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -105233,8 +105211,7 @@
       "consumer": {
         "module": "hooks/target/etc/whisper/whisper.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/whisper/whisper.conf.tmpl",
-          "scripts/late/whisper.sh"
+          "hooks/target/etc/whisper/whisper.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -105253,7 +105230,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -105263,8 +105239,7 @@
       "consumer": {
         "module": "hooks/target/etc/whisper/whisper.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/whisper/whisper.conf.tmpl",
-          "scripts/late/whisper.sh"
+          "hooks/target/etc/whisper/whisper.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -105283,7 +105258,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -105293,8 +105267,7 @@
       "consumer": {
         "module": "hooks/target/etc/whisper/whisper.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/whisper/whisper.conf.tmpl",
-          "scripts/late/whisper.sh"
+          "hooks/target/etc/whisper/whisper.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -105313,7 +105286,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -105323,8 +105295,7 @@
       "consumer": {
         "module": "hooks/target/etc/whisper/whisper.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/whisper/whisper.conf.tmpl",
-          "scripts/late/whisper.sh"
+          "hooks/target/etc/whisper/whisper.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -105343,7 +105314,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -105353,8 +105323,7 @@
       "consumer": {
         "module": "hooks/target/etc/whisper/whisper.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/whisper/whisper.conf.tmpl",
-          "scripts/late/whisper.sh"
+          "hooks/target/etc/whisper/whisper.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -105373,7 +105342,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -109640,7 +109608,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "e07a624ed24bbd37811441b930ffa3fa53c3aa2f08b80c024c347b9742b09074",
+  "source_fingerprint": "ec29a734cb80d39a13097b35933c27eeb1c220444bb17eca245eecf2dade1642",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

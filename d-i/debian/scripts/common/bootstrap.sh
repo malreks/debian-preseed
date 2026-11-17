@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Caches belong to this bootstrap shell, never to an inherited environment.
+unset BOOTSTRAP_PREPARED_BOUND_READY BOOTSTRAP_SOURCED_MODULES
+
 bootstrap_log() {
   printf '[bootstrap] %s\n' "$*" >&2
 }
@@ -294,6 +297,14 @@ bootstrap_ensure_repo_env() {
 # consumers then copy files/directories without rerendering or revalidating
 # the same source ancestry for every member. This is installer state only.
 bootstrap_load_prepared_source() {
+  if [ "${BOOTSTRAP_PREPARED_BOUND_READY:-0}" = 1 ]; then
+    bootstrap_bound_identity=$(source_normalize_base "$1") || return "$?"
+    [ "$bootstrap_bound_identity" = "$BOOTSTRAP_PREPARED_SEED_BASE" ] &&
+      [ -f "$FILE_INSTALLER_TARGET_RENDER_READY" ] && [ ! -L "$FILE_INSTALLER_TARGET_RENDER_READY" ] &&
+      cmp -s "$FILE_INSTALLER_TARGET_RENDER_READY" "${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/identity" ||
+      bootstrap_fatal 'bound prepared source identity changed'
+    return 0
+  fi
   BOOTSTRAP_PREPARED_SOURCE_ROOT=
   BOOTSTRAP_PREPARED_SEED_BASE=
   BOOTSTRAP_PREPARED_ARCHIVE_SHA256=
@@ -386,13 +397,42 @@ bootstrap_load_prepared_source() {
       }
       END { exit bad || completed != 1 || members != expected }
     ' || bootstrap_fatal 'prepared source inventory or member metadata differs from its receipt'
-  (cd "$BOOTSTRAP_PREPARED_SOURCE_ROOT" && sha256sum -c \
-    "$bootstrap_prepared_stage/inputs/rendered.checksums" >/dev/null 2>&1) ||
-    bootstrap_fatal 'prepared source member digest differs from the rendered receipt'
+  # The base hook already authenticated/rendered the entire snapshot. Retain
+  # its verified index and validate only members that cross an execution or
+  # publication boundary, instead of rehashing thousands of unrelated files
+  # every time a phase starts or loads another support library.
+  BOOTSTRAP_PREPARED_MEMBER_INDEX=$(cat "$bootstrap_prepared_stage/inputs/rendered.checksums") || return "$?"
+  BOOTSTRAP_PREPARED_PATH_VALUES=$(cat "$bootstrap_prepared_stage/inputs/paths.map") || return "$?"
   BOOTSTRAP_PREPARED_SEED_BASE=$bootstrap_requested_identity
   BOOTSTRAP_PREPARED_ARCHIVE_SHA256=$bootstrap_identity_archive
   BOOTSTRAP_PREPARED_PUBLISHED_ASSETS=$(cat "$bootstrap_prepared_stage/inputs/published-assets.tsv") || return "$?"
+  BOOTSTRAP_PREPARED_BOUND_READY=1
 }
+
+bootstrap_prepared_member_digest() {
+  printf '%s\n' "$BOOTSTRAP_PREPARED_MEMBER_INDEX" | LC_ALL=C awk -v member="$1" '
+    substr($0,67) == member { digest=substr($0,1,64); count++ }
+    END { if (count != 1 || length(digest) != 64 || digest !~ /^[a-f0-9]+$/) exit 1; print digest }
+  '
+}
+
+bootstrap_prepared_member_path() (
+  set -eu
+  prepared_member=$1
+  source_validate_relative "$prepared_member" || exit 1
+  prepared_source=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$prepared_member
+  installer_lifecycle_parent_safe "${prepared_source%/*}" || exit 1
+  [ -f "$prepared_source" ] && [ ! -L "$prepared_source" ] &&
+    [ "$(installer_metadata_value "$prepared_source" uid_gid_mode_links)" = 0:0:644:1 ] || {
+      bootstrap_log 'fatal: prepared executable/parser member has unsafe metadata'; exit 1;
+    }
+  prepared_expected=$(bootstrap_prepared_member_digest "$prepared_member") || exit 1
+  prepared_actual=$(sha256sum "$prepared_source") || exit 1
+  [ "${prepared_actual%% *}" = "$prepared_expected" ] || {
+    bootstrap_log 'fatal: prepared executable/parser member differs from its receipt'; exit 1;
+  }
+  printf '%s\n' "$prepared_source"
+)
 
 # Complete namespaces were published before late_command. The receipt binds
 # source, destination, mode and digest; a declared member cannot silently fall
@@ -449,10 +489,7 @@ bootstrap_copy_prepared_file() (
     bootstrap_log 'fatal: prepared target member is hardlinked'; exit 1;
   }
   prepared_member=${prepared_source#"$BOOTSTRAP_PREPARED_SOURCE_ROOT/"}
-  prepared_digest=$(awk -v member="$prepared_member" '
-    substr($0,67) == member { digest=substr($0,1,64); count++ }
-    END { if (count != 1 || length(digest) != 64 || digest !~ /^[a-f0-9]+$/) exit 1; print digest }
-  ' "${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/rendered.checksums") || {
+  prepared_digest=$(bootstrap_prepared_member_digest "$prepared_member") || {
     bootstrap_log 'fatal: prepared target member has no unique rendered digest'; exit 1;
   }
   case "$prepared_destination" in
@@ -957,9 +994,7 @@ bootstrap_module_path() (
   module_relative=$1
   module_seed=$(bootstrap_require_seed_base "") || exit 1
   if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] && [ "$module_seed" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
-    module_prepared=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$module_relative
-    [ -f "$module_prepared" ] && [ ! -L "$module_prepared" ] || exit 1
-    printf '%s\n' "$module_prepared"
+    bootstrap_prepared_member_path "$module_relative"
     exit 0
   fi
   # Remote code always requires the preseed-pinned payload. Explicit local
@@ -1024,9 +1059,7 @@ bootstrap_parser_asset_path() (
   source_validate_relative "$parser_relative" || exit 1
   parser_seed=$(bootstrap_require_seed_base "") || exit 1
   if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] && [ "$parser_seed" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
-    parser_prepared=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$parser_relative
-    [ -f "$parser_prepared" ] && [ ! -L "$parser_prepared" ] || exit 1
-    printf '%s\n' "$parser_prepared"
+    bootstrap_prepared_member_path "$parser_relative"
     exit 0
   fi
   [ -f "${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}/bootstrap/payload.ready" ] || {
@@ -1095,12 +1128,14 @@ bootstrap_source_module() {
   # Function positional parameters are local to this call in dash and ash.
   # Modules define functions/constants only. Phase actions run in the explicit
   # entrypoint, after every dependency has loaded successfully.
+  case " ${BOOTSTRAP_SOURCED_MODULES:-} " in *" $1 "*) return 0 ;; esac
   bootstrap_module_source_path=$(bootstrap_module_path "$1") || return "$?"
-  set -- "$bootstrap_module_source_path"
+  set -- "$1" "$bootstrap_module_source_path"
   unset bootstrap_module_source_path
-  [ -n "$1" ] || return 1
+  [ -n "$2" ] || return 1
   # shellcheck disable=SC1090
-  . "$1"
+  . "$2" || return "$?"
+  BOOTSTRAP_SOURCED_MODULES="${BOOTSTRAP_SOURCED_MODULES:+$BOOTSTRAP_SOURCED_MODULES }$1"
 }
 
 bootstrap_source_common_lib() {
@@ -1117,7 +1152,7 @@ bootstrap_source_common_lib() {
 
   common_lib_source=$(bootstrap_repo_file_value FILE_COMMON_LIB) || return $?
   if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] && [ "$seed_base" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
-    common_lib_path=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$common_lib_source
+    common_lib_path=$(bootstrap_prepared_member_path "$common_lib_source") || return "$?"
   else
     bootstrap_fetch_seed_file "$seed_base" "$common_lib_source" "$common_lib_path" 0600 "common library" || return $?
   fi

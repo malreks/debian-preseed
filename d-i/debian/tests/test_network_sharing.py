@@ -36,6 +36,7 @@ import sys
 import tempfile
 import types
 import unittest
+from fixture_render import render_apparmor_modes
 from unittest import mock
 from theme_fixture import render_theme_defaults, theme_values
 from fuzzel_fixture import geometry_environment, wrapper_script
@@ -2109,13 +2110,7 @@ class HelperConfinementTests(unittest.TestCase):
             with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
                 config = Path(directory)/'modes.conf'
                 config.write_text((TARGET/'etc/apparmor/modes.conf.tmpl').read_text())
-                result = subprocess.run(
-                    ['/bin/sh', '-eu', '-c',
-                     '. "$1"; installer_fatal() { echo "$*" >&2; return 1; }; '
-                     'installer_info() { :; }; apparmor_apply_desktop_state "$2"',
-                     'test-network-mode', str(SEED/'scripts/late/security.sh'), str(config)],
-                    env={**os.environ, 'DESKTOP_APPARMOR_STATE': state},
-                    capture_output=True, text=True, timeout=15)
+                result = render_apparmor_modes(config, state)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 policy = config.read_text()
                 self.assertIn(state + ' required network-sharing -\n', policy)

@@ -472,7 +472,6 @@ llama_target_prepare_model() {
 }
 
 llama_target_write_runtime_config() {
-  llama_model="${LLAMA_MODEL_DIR}/${LLAMA_DEFAULT_MODEL}"
   runtime_conf_dir=__INSTALLER_PATH_DIR_ETC__/llama
   runtime_conf="${runtime_conf_dir}/llama.conf"
   runtime_conf_template=/tmp/llama.conf.tmpl
@@ -495,19 +494,9 @@ llama_target_write_runtime_config() {
 
   install -d -o 0 -g 0 -m 0755 "$runtime_conf_dir"
   rm -f -- "$runtime_conf_tmp"
-  sed \
-    -e "s|__LLAMA_MODEL__|${llama_model}|g" \
-    -e "s|__LLAMA_RUNTIME_CONTEXT__|${LLAMA_RUNTIME_CONTEXT}|g" \
-    -e "s|__LLAMA_RUNTIME_BATCH__|${LLAMA_RUNTIME_BATCH}|g" \
-    -e "s|__LLAMA_RUNTIME_UBATCH__|${LLAMA_RUNTIME_UBATCH}|g" \
-    -e "s|__LLAMA_RUNTIME_THREADS__|${LLAMA_RUNTIME_THREADS}|g" \
-    -e "s|__LLAMA_RUNTIME_THREADS_BATCH__|${LLAMA_RUNTIME_THREADS_BATCH}|g" \
-    -e "s|__LLAMA_RUNTIME_GPU_LAYERS__|${LLAMA_RUNTIME_GPU_LAYERS}|g" \
-    -e "s|__LLAMA_RUNTIME_KV_OFFLOAD__|${LLAMA_RUNTIME_KV_OFFLOAD}|g" \
-    -e "s|__LLAMA_RUNTIME_PARALLEL__|${LLAMA_RUNTIME_PARALLEL}|g" \
-    -e "s|__LLAMA_SERVER_HOST__|${LLAMA_SERVER_HOST}|g" \
-    -e "s|__LLAMA_SERVER_PORT__|${LLAMA_SERVER_PORT}|g" \
-    "$runtime_conf_template" >"$runtime_conf_tmp"
+  # The installer supplied complete configuration through the shared Perl
+  # renderer. The target helper only stages those validated bytes.
+  cat "$runtime_conf_template" >"$runtime_conf_tmp"
   if grep -q '__LLAMA_' "$runtime_conf_tmp"; then
     rm -f -- "$runtime_conf_tmp"
     llama_fatal "runtime configuration template contains unresolved placeholders"
@@ -520,7 +509,6 @@ llama_target_write_runtime_config() {
   chmod 0644 "$runtime_conf"
 
   unset \
-    llama_model \
     runtime_conf \
     runtime_conf_dir \
     runtime_conf_template \
@@ -870,81 +858,6 @@ bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook targ
   llama_fatal "failed to source installer target support libraries"
 installer_ensure_context_loaded "$seed_base"
 
-llama_stream_target_output() {
-  stream_output_file=$1
-  stream_emit=$2
-
-  : >"$stream_output_file" || return 1
-  while :; do
-    stream_line=
-    if IFS= read -r stream_line; then
-      :
-    elif [ -z "$stream_line" ]; then
-      break
-    fi
-    printf '%s\n' "$stream_line" >&3 || return 1
-    if [ "$stream_emit" = 1 ]; then
-      printf '%s\n' "$stream_line" || return 1
-    fi
-  done 3>"$stream_output_file"
-}
-
-run_llama_install_in_target() {
-  label=$1
-  shift
-  output=$(installer_runtime_temp_log_path install-in-target.log)
-  status_file=$(installer_runtime_temp_log_path install-in-target.status)
-  stream_emit=0
-
-  rm -f "$status_file"
-  target_log_should_emit info && stream_emit=1
-  installer_info "in-target: ${label}"
-  target_log_command_start "$label"
-
-  if (
-    set +e
-    target_exec_diagnostic "$@" <__INSTALLER_PATH_DIR_DEV__/null
-    target_status=$?
-    printf '%s\n' "$target_status" >"$status_file" || exit 125
-    exit 0
-  ) 2>&1 | llama_stream_target_output "$output" "$stream_emit"
-  then
-    stream_status=0
-  else
-    stream_status=$?
-  fi
-
-  if [ "$stream_status" -ne 0 ]; then
-    code=125
-    installer_error "failed to capture streamed output during ${label} (status ${stream_status})"
-  elif [ ! -s "$status_file" ]; then
-    code=125
-    installer_error "target command status is unavailable after ${label}"
-  else
-    code=$(cat "$status_file")
-    case "$code" in
-      ''|*[!0-9]*) code=125 ;;
-      *) [ "$code" -le 255 ] || code=125 ;;
-    esac
-  fi
-
-  rm -f "$status_file"
-  if [ "$code" -eq 0 ]; then
-    target_log_command_complete "$label" "$output"
-    rm -f "$output"
-    return 0
-  fi
-
-  installer_error "in-target failed during ${label} (status ${code}):"
-  if target_log_should_emit error; then
-    print_command "$@" >&2
-    [ "$stream_emit" = 1 ] || cat "$output" >&2
-  fi
-  target_log_command_failure "$label" "$code" error "$output"
-  rm -f "$output"
-  exit "$code"
-}
-
 installer_any_role_class_selected 2>__INSTALLER_PATH_DIR_DEV__/null || exit 0
 case "${INSTALLER_HOST_VARIANT:-}" in
   desktop|server) ;;
@@ -986,6 +899,15 @@ install -m 0700 "$archive_helper_tmp" "$target_archive_helper_host"
 chown 0:0 "$target_archive_helper_host"
 rm -f -- "$archive_helper_tmp"
 bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value FILE_TARGET_LLAMA_LLAMA_TMPL)" "$runtime_template_tmp" 0600 "llama.cpp runtime configuration template"
+installer_apply_scalar_placeholders "$runtime_template_tmp" "$runtime_template_tmp" \
+  LLAMA_MODEL "${LLAMA_MODEL_DIR}/${LLAMA_DEFAULT_MODEL}" \
+  LLAMA_RUNTIME_CONTEXT "$LLAMA_RUNTIME_CONTEXT" LLAMA_RUNTIME_BATCH "$LLAMA_RUNTIME_BATCH" \
+  LLAMA_RUNTIME_UBATCH "$LLAMA_RUNTIME_UBATCH" LLAMA_RUNTIME_THREADS "$LLAMA_RUNTIME_THREADS" \
+  LLAMA_RUNTIME_THREADS_BATCH "$LLAMA_RUNTIME_THREADS_BATCH" LLAMA_RUNTIME_GPU_LAYERS "$LLAMA_RUNTIME_GPU_LAYERS" \
+  LLAMA_RUNTIME_KV_OFFLOAD "$LLAMA_RUNTIME_KV_OFFLOAD" LLAMA_RUNTIME_PARALLEL "$LLAMA_RUNTIME_PARALLEL" \
+  LLAMA_SERVER_HOST "$LLAMA_SERVER_HOST" LLAMA_SERVER_PORT "$LLAMA_SERVER_PORT" ||
+  llama_fatal 'cannot render Llama runtime configuration with prepared Perl'
+installer_assert_no_unresolved_installer_placeholders "$runtime_template_tmp" 'Llama runtime configuration' || exit 1
 install -m 0600 "$runtime_template_tmp" "$target_runtime_template_host"
 chown 0:0 "$target_runtime_template_host"
 rm -f -- "$runtime_template_tmp"
@@ -1040,7 +962,7 @@ umask 077
 chmod 0600 "$target_profile_host"
 chown 0:0 "$target_profile_host"
 
-run_llama_install_in_target "download and install selected llama.cpp runtime" \
+run_in_target "download and install selected llama.cpp runtime" \
   "$target_helper" --target-install "$target_profile"
 
 # The target helper verifies every installed artifact before returning.

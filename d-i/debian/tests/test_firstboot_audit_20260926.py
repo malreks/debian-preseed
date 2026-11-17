@@ -247,6 +247,8 @@ capture() { record "capture=$1"; }
         cleanup.write_text((FIRSTBOOT / '05-cleanup.sh').read_text().replace(
             '/var/lib/firstboot/lib/logging.sh', str(scripts / 'logging.sh')))
         cleanup.chmod(0o700)
+        # Each real stage now loads the same required logging/capture library.
+        (scripts / 'logging.sh').write_text((FIRSTBOOT / 'logging.sh').read_text())
         wrapper = self.root / 'firstboot.sh'
         wrapper.write_text((FIRSTBOOT / 'firstboot.sh').read_text())
         environment = {

@@ -399,7 +399,7 @@ class InstallerContracts(unittest.TestCase):
                 (bootstrap, 'bootstrap_fetch_seed_file', ')'),
                 (repository, 'installer_fetch_seed_path', ')'),
                 *[(logging, name, '}') for name in (
-                    'installer_escape_sed_replacement', 'installer_contains_unresolved_path_placeholders',
+                    'installer_contains_unresolved_path_placeholders',
                     'installer_assert_no_unresolved_path_placeholders',
                     'installer_runtime_path_placeholder_map', 'installer_apply_scalar_placeholders')]]:
             found = re.search(r'^' + name + r'\(\) [({]\n.*?^' + re.escape(closing), source, re.M | re.S)

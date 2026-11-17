@@ -171,7 +171,7 @@ bootstrap_processes_exited
         # are fixtures, so no package manager, daemon or service is contacted.
         logging = (FORKY / 'scripts/common/modules/files-logging.sh').read_text()
         bootstrap = '\n'.join(source_function(name, logging) for name in
-                              ('installer_escape_sed_replacement', 'installer_apply_scalar_placeholders'))
+                              ('installer_apply_scalar_placeholders',))
         bootstrap += r'''
 installer_fatal() { printf 'fixture-fatal: %s\n' "$*" >&2; exit 90; }
 bootstrap_source_common_lib() { :; }

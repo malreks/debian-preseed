@@ -121,7 +121,7 @@ sub value_map {
     my ($path) = @_;
     my %values;
     for my $line (split /\n/, read_regular($path, 1024 * 1024)) {
-        $line =~ /\A([A-Z][A-Z0-9_]*)=([^\0\r]*)\z/ or fail('malformed render-map row');
+        $line =~ /\A([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)=([^\0\r]*)\z/ or fail('malformed render-map row');
         my ($key, $value) = ($1, $2);
         !exists($values{$key}) or fail('duplicate render-map key');
         if ($key =~ /\APATH_(?:DIR_|FILE_)/) {
@@ -155,6 +155,201 @@ sub scalar_bytes {
     $data =~ s{__INSTALLER_([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)__}{mapped($values, $1)}eg;
     return $data;
 }
+sub scalar_token_map {
+    my ($values) = @_;
+    my %tokens;
+    for my $name (keys %$values) {
+        for my $token ('__' . $name . '__', '__INSTALLER_' . $name . '__') {
+            !exists($tokens{$token}) or fail('duplicate exact scalar token owner: ' . $token);
+            $tokens{$token} = $values->{$name};
+        }
+    }
+    return \%tokens;
+}
+sub snapshot_values {
+    my ($path) = @_;
+    my @lines = split /\n/, read_regular($path, 1024 * 1024), -1;
+    pop @lines if @lines && $lines[-1] eq '';
+    @lines && pop(@lines) eq '__INSTALLER_DATA_END__' && @lines % 2 == 0
+        or fail('invalid prepared profile snapshot records');
+    my (%values, %seen);
+    while (@lines) {
+        my ($key, $value) = splice(@lines, 0, 2);
+        $key =~ /\A[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*\z/ && !$seen{$key}++
+            or fail('invalid or duplicate prepared profile field');
+        # Secrets and installer/repository authority never become generic
+        # target configuration. Their explicit typed consumers retain ownership.
+        next if $key =~ /(?:PASSWORD|PASSPHRASE|SECRET|TOKEN|PSK)/
+            || $key =~ /\A(?:(?:DIR|FILE)_INSTALLER_|TARGET_ROOT\z|(?:DIR|FILE)_REPO_)/;
+        $values{$key} = $value;
+    }
+    return \%values;
+}
+sub known_scalar_bytes {
+    my ($data, $tokens) = @_;
+    # Construct exact aliases once, including legacy fields whose own names
+    # start INSTALLER_. Never infer a token name by stripping a prefix.
+    $data =~ s{__[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*__}{
+        exists($tokens->{$&}) ? $tokens->{$&} : $&
+    }eg;
+    return $data;
+}
+sub module_bytes {
+    my ($data, $values) = @_;
+    for my $name (qw(INITRAMFS_PLATFORM_MODULES GRAPHICS_INITRAMFS_MODULES VFIO_INITRAMFS_MODULES VIRT_HOST_INITRAMFS_MODULES)) {
+        next unless exists($values->{$name});
+        my (%seen, @modules);
+        for my $module (split /\s+/, $values->{$name} // '') {
+            next unless length($module);
+            $module =~ /\A[A-Za-z0-9_][A-Za-z0-9_-]*\z/ or fail('invalid module name in ' . $name);
+            push @modules, $module unless $seen{$module}++;
+        }
+        my $block = join('', map { "$_\n" } @modules);
+        $data =~ s{^[\t ]*__(?:INSTALLER_)?\Q$name\E__[\t ]*(?:\n|\z)}{$block}mg;
+    }
+    return $data;
+}
+sub module_map {
+    my ($path) = @_;
+    my (%values, $active);
+    for my $line (split /\n/, read_regular($path, 65536)) {
+        if ($line =~ /\A([A-Z][A-Z0-9_]*)=(.*)\z/) {
+            my ($name, $value) = ($1, $2);
+            $name =~ /\A(?:INITRAMFS_PLATFORM|GRAPHICS_INITRAMFS|VFIO_INITRAMFS|VIRT_HOST_INITRAMFS)_MODULES\z/
+                && !exists($values{$name}) or fail('unknown or duplicate module block');
+            $active = $name;
+            $values{$name} = $value;
+        } else {
+            defined($active) && $line =~ /\A[A-Za-z0-9_\t -]*\z/
+                or fail('malformed module block continuation');
+            $values{$active} .= "\n" . $line;
+        }
+    }
+    return \%values;
+}
+sub fstab_bytes {
+    my ($data, $records) = @_;
+    my (@rows, %widths);
+    my ($section, $count) = (0, 0);
+    for my $line (split /\n/, $records) {
+        next if $line =~ /\A\s*\z/;
+        @rows < 4096 && length($line) <= 16384 && index($line, "\0") < 0
+            or fail('excessive or invalid filesystem record');
+        if ($line =~ /\A\s*#/) {
+            push @rows, [$line];
+            ++$section;
+            next;
+        }
+        my @fields = split ' ', $line;
+        @fields == 6 && $fields[4] =~ /\A[01]\z/ && $fields[5] =~ /\A[012]\z/
+            or fail('filesystem records require six valid fields');
+        for my $index (0 .. 4) {
+            $widths{$section}[$index] = length($fields[$index])
+                if length($fields[$index]) > ($widths{$section}[$index] // 0);
+        }
+        push @rows, [$section, \@fields];
+        ++$count;
+    }
+    $count or fail('empty filesystem table');
+    my $block = '';
+    for my $row (@rows) {
+        if (@$row == 1) { $block .= $row->[0] . "\n"; next; }
+        my ($group, $fields) = @$row;
+        $block .= sprintf('%-' . $widths{$group}[$_] . 's  ', $fields->[$_]) for 0 .. 4;
+        $block .= $fields->[5] . "\n";
+    }
+    my $replacements = ($data =~ s{^__INSTALLER_FSTAB_RECORDS__(?:\n|\z)}{$block}mg);
+    $replacements == 1 or fail('fstab requires exactly one declared record block');
+    return $data;
+}
+sub apparmor_modes_bytes {
+    my ($data, $values) = @_;
+    keys(%$values) == 1 or fail('AppArmor mode policy requires one state owner');
+    my $selected = mapped($values, 'DESKTOP_APPARMOR_STATE');
+    $selected =~ /\A(?:enforce|complain)\z/ or fail('invalid desktop AppArmor state');
+    my (%seen, $rows, $hardware, $incus, $veth, $result);
+    ($rows, $hardware, $incus, $veth, $result) = (0, 0, 0, 0, '');
+    for my $line (split /(?<=\n)/, $data) {
+        if ($line =~ /\A\s*(?:#|\z)/) {
+            $line =~ s/__DESKTOP_APPARMOR_STATE__/$selected/g;
+            $result .= $line;
+            next;
+        }
+        my @fields = split ' ', $line;
+        @fields == 4 or fail('AppArmor mode policy requires four fields');
+        my ($state, $requirement, $profile, $executable) = @fields;
+        $requirement =~ /\A(?:required|optional|if-executable)\z/
+            && $profile =~ /\A[A-Za-z0-9._+-]+\z/
+            && ($requirement eq 'if-executable' ? $executable =~ m{\A/} : $executable eq '-')
+            && !$seen{$profile}++ or fail('invalid or duplicate AppArmor mode record');
+        if ($profile eq 'hardware-tuning' || $profile eq 'incus-host' || $profile eq 'incus-desktop-ui') {
+            $state eq 'enforce' && $requirement eq 'optional' && $executable eq '-'
+                or fail('fixed AppArmor profile must remain enforced');
+            $profile eq 'hardware-tuning' ? ++$hardware : ++$incus;
+        } elsif ($profile eq 'app-veth') {
+            $state eq 'enforce' && $requirement eq 'required' && $executable eq '-'
+                or fail('app-veth AppArmor profile must remain enforced');
+            ++$veth;
+        } else {
+            $state eq '__DESKTOP_APPARMOR_STATE__' or fail('unowned desktop AppArmor state');
+            $fields[0] = $selected;
+        }
+        $result .= join(' ', @fields) . "\n";
+        ++$rows;
+    }
+    $rows && $hardware == 1 && $incus == 2 && $veth == 1
+        or fail('AppArmor mode policy lacks its fixed profile records');
+    return $result;
+}
+sub render_file {
+    my ($root, $kind) = @_;
+    directory($root, 0, 1);
+    my $data = read_regular("$root/input");
+    my $result;
+    if ($kind eq 'literal' || $kind eq 'line' || $kind eq 'line-optional') {
+        my $token = read_regular("$root/map", 4096);
+        $token =~ /\A__[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*__\z/
+            or fail('invalid literal render token');
+        my $value = read_regular("$root/value");
+        if ($kind eq 'line' || $kind eq 'line-optional') {
+            my $block = length($value) ? $value . ($value =~ /\n\z/ ? '' : "\n") : '';
+            my $count = ($data =~ s{^\Q$token\E(?:\n|\z)}{$block}mg);
+            $count || index($data, $token) < 0 or fail('declared block token must occupy its own line');
+            ($count == 1 || $kind eq 'line-optional' && $count == 0)
+                or fail('declared line block must occur exactly once');
+            $result = $data;
+        } else {
+            $result = join($value, split(/\Q$token\E/, $data, -1));
+        }
+    } elsif ($kind eq 'apparmor-modes') {
+        $result = apparmor_modes_bytes($data, value_map("$root/map"));
+    } elsif ($kind eq 'fstab') {
+        $result = fstab_bytes($data, read_regular("$root/map"));
+    } elsif ($kind eq 'theme' || $kind eq 'appearance') {
+        my $values = value_map("$root/map");
+        my $target = relative(read_regular("$root/target", 4096));
+        $result = theme_bytes($data, $values, $target, $kind eq 'appearance');
+    } elsif ($kind eq 'scalar' || $kind eq 'resources' || $kind eq 'modules') {
+        my $values = $kind eq 'modules' ? module_map("$root/map") : value_map("$root/map");
+        $result = $kind eq 'modules' ? module_bytes($data, $values)
+            : known_scalar_bytes($data, scalar_token_map($values));
+        if ($kind eq 'resources') {
+            for my $controller (qw(IO CPU)) {
+                my $enabled = mapped($values, 'SYSTEMD_' . $controller . 'WEIGHT_ENABLE');
+                $enabled =~ /\A(?:true|false)\z/ or fail('invalid resource controller switch');
+                $result =~ s{^[\t ]*(?:Startup)?\Q$controller\EWeight[\t ]*=[^\n]*(?:\n|\z)}{}mg
+                    if $enabled eq 'false';
+            }
+        }
+    } else {
+        fail('unsupported file render kind');
+    }
+    if ($result =~ /__INSTALLER_(?:PATH_|APPARMOR_PROFILE_|GITBUILD_DISTRIBUTION__)/) {
+        my $paths = value_map(parent_path($0) . '/inputs/paths.map');
+        $result = path_bytes($result, $paths);
+    }
+    write_file("$root/output", $result, 0, 0600);
+}
 sub theme_value {
     my ($key, $values, $target) = @_;
     if ($key =~ /\ATARGET_PATH_(.+)\z/) {
@@ -171,8 +366,12 @@ sub theme_bytes {
         for my $line (split /(?<=\n)/, $data) {
             $field = $1 if $line =~ /\A\s*"key": "([A-Z][A-Z0-9_]*)",\s*\z/;
             if ($line =~ /\A\s*"default"\s*:/) {
-                $line =~ /\A\s*"default": "__THEME_([A-Z0-9_]+)__",\s*\z/ && $1 eq $field
+                $line =~ /\A\s*"default": "([^"\r\n]*)",\s*\z/
                     or fail('invalid appearance default template');
+                my $current = $1;
+                my $expected = theme_value($field, $values, $target);
+                ($current eq '__THEME_' . $field . '__' || $current eq $expected)
+                    or fail('appearance default differs from its declared theme field');
                 $line =~ s{__THEME_([A-Z0-9]+(?:_[A-Z0-9]+)*)__}{theme_value($1, $values, $target)}eg;
                 ++$count <= 1024 or fail('excessive appearance default count');
             }
@@ -298,12 +497,15 @@ sub render_tree {
     my ($files) = tree_inventory($source, 0);
     @$files == keys(%$expected) or fail('copied payload has missing or extra members');
     my ($total, $checksums) = (0, '');
+    my (%input_metadata, %digests, @changed);
     for my $path (sort @$files) {
         my $member = relative(substr($path, length($source) + 1));
         my @info = lstat($path);
         exists($expected->{$member}) && $info[7] == $expected->{$member}[0]
             && ($total += $info[7]) <= BYTE_LIMIT or fail('copied payload differs from manifest');
         $checksums .= $expected->{$member}[1] . "  $member\n";
+        $input_metadata{$path} = \@info;
+        $digests{$path} = $expected->{$member}[1];
     }
     # One packaged coreutils process verifies the entire private copy, replacing
     # thousands of subprocesses or a dependency on non-base Digest::SHA.
@@ -316,6 +518,42 @@ sub render_tree {
     my $paths = value_map("$root/inputs/paths.map");
     my $logging = value_map("$root/inputs/logging.map");
     my $themes = value_map("$root/inputs/themes.map");
+    my $templates = value_map("$root/inputs/templates.map");
+    my $resources = value_map("$root/inputs/resources.map");
+    my $modules = module_map("$root/inputs/modules.map");
+    my (%profile_assets, %profile_values);
+    for my $line (split /\n/, read_regular("$source/$options->{'profile-assets'}", 1024 * 1024)) {
+        my @fields = split /\t/, $line, -1;
+        @fields == 2 && $fields[1] eq 'profile' && !exists($profile_assets{$fields[0]})
+            && exists($expected->{$fields[0]}) or fail('invalid prepared profile asset inventory');
+        $profile_assets{relative($fields[0])} = 1;
+    }
+    for my $snapshot (qw(host layout account)) {
+        my $values = snapshot_values("$root/inputs/$snapshot.records");
+        @profile_values{keys %$values} = values %$values;
+    }
+    for my $key (keys %$templates) {
+        if (exists($paths->{$key})) {
+            $templates->{$key} eq $paths->{$key} or fail('template map redefines canonical path');
+            delete $templates->{$key};
+        }
+    }
+    for my $key (keys %$resources) {
+        !exists($templates->{$key}) or fail('duplicate system-template/resource owner');
+        $templates->{$key} = $resources->{$key};
+    }
+    # Only declared profile publishers share raw profile scalar semantics.
+    # Other typed consumers may quote values or produce separate primary and
+    # future-account inputs. Preserve their grammar until that consumer runs.
+    my $resource_tokens = scalar_token_map($resources);
+    @profile_values{keys %$templates} = values %$templates;
+    # These values are produced after hardware/driver selection or GRUB's
+    # final root/initramfs calculation. Missing is deferred, never an empty
+    # module list or a frozen pre-selection boot flag.
+    delete $profile_values{$_} for grep {
+        /\A(?:GRUB_.*FLAGS|CPU_CRC32C_MODULE|(?:INITRAMFS_PLATFORM|GRAPHICS_INITRAMFS|VFIO_INITRAMFS|VIRT_HOST_INITRAMFS)_MODULES)\z/
+    } keys %profile_values;
+    my $profile_tokens = scalar_token_map(\%profile_values);
     # Hash the bytes as they pass through the one rendering walk. No second
     # recursive read of the rendered output is needed for its receipt.
     my $hash_pid = open2(my $hash_out, my $hash_in, $options->{'sha256'}, '--binary');
@@ -326,11 +564,20 @@ sub render_tree {
       for my $path (sort @$files) {
         my $member = substr($path, length($source) + 1);
         my $data = read_regular($path);
+        my @current = lstat($path);
+        same_metadata($input_metadata{$path}, \@current);
         my $result = $data;
         if (has_prefix($member, @{$options}{qw(scripts target installer)})
                 && $member !~ /\.(?:png|jpg|jpeg|webp|gif|ico|ttf|otf|woff|woff2|gz|xz|bz2|zip|deb)\z/
                 && index($data, "\0") < 0) {
-            $result = path_bytes($data, $paths);
+            if (has_prefix($member, $options->{target})
+                    && $member ne $options->{'appearance-registry'}
+                    && !has_prefix($member, $options->{'appearance-python'})) {
+                $result = module_bytes($result, $modules);
+                $result = known_scalar_bytes($result,
+                    $profile_assets{$member} ? $profile_tokens : $resource_tokens);
+            }
+            $result = path_bytes($result, $paths);
             if (has_prefix($member, @{$options}{qw(target late desktop firstboot)})) {
                 $result =~ s{__INSTALLER_(LOG_[A-Z0-9]+(?:_[A-Z0-9]+)*)__}{mapped($logging, $1)}eg;
             }
@@ -344,6 +591,7 @@ sub render_tree {
                 or fail('render output exceeds byte limit');
             if ($result ne $data) {
                 write_file($path, $result, 1);
+                push @changed, $path;
                 ++$rendered_count;
             }
         }
@@ -364,9 +612,13 @@ sub render_tree {
         or fail('render fingerprint command failed');
     $digest_line =~ /\A([a-f0-9]{64}) [ *]-\n\z/ or fail('invalid render fingerprint');
     my $rendered_digest = $1;
-    my $digests = file_hashes($files, $options->{'sha256'});
+    # Unchanged members already have authenticated digests. Only rewritten
+    # members need hashing again; metadata above binds each unchanged read to
+    # the verified input identity. Keep the same complete receipt index.
+    my $changed_digests = file_hashes(\@changed, $options->{'sha256'});
+    @digests{keys %$changed_digests} = values %$changed_digests;
     my $rendered_checksums = join '', map {
-        $digests->{$_} . '  ' . relative(substr($_, length($source) + 1)) . "\n"
+        $digests{$_} . '  ' . relative(substr($_, length($source) + 1)) . "\n"
     } sort @$files;
     my $index = "$root/inputs/rendered.checksums";
     write_file($index, $rendered_checksums, 0, 0600);
@@ -464,19 +716,25 @@ sub cleanup_workspace {
 }
 sub main {
     umask 0077;
+    if (@ARGV && $ARGV[0] eq '--file') {
+        shift @ARGV;
+        @ARGV == 2 or fail('file rendering requires a private workspace and kind');
+        render_file(absolute($ARGV[0]), $ARGV[1]);
+        return;
+    }
     my $root = absolute(shift(@ARGV));
     my %options;
     while (@ARGV) {
         my $key = shift @ARGV;
         if ($key eq '--cleanup') { !@ARGV && !%options or fail('invalid cleanup arguments'); cleanup_workspace($root); print "completed target rendering workspace removed\n"; return; }
-        $key =~ /\A--(scripts|target|installer|late|desktop|firstboot|appearance-python|appearance-registry|perl-assets|perl-root|family|snapshots|sha256)\z/
+        $key =~ /\A--(scripts|target|installer|late|desktop|firstboot|appearance-python|appearance-registry|perl-assets|profile-assets|perl-root|family|snapshots|sha256)\z/
             or fail('unsupported renderer option');
         my $name = $1;
         !exists($options{$name}) && @ARGV or fail('missing or duplicate renderer option');
         $options{$name} = shift @ARGV;
     }
-    keys(%options) == 13 or fail('all explicit renderer selectors are required');
-    relative($options{$_}) for qw(scripts target installer late desktop firstboot appearance-python appearance-registry perl-assets);
+    keys(%options) == 14 or fail('all explicit renderer selectors are required');
+    relative($options{$_}) for qw(scripts target installer late desktop firstboot appearance-python appearance-registry perl-assets profile-assets);
     absolute($options{$_}) for qw(perl-root sha256);
     $options{family} =~ /\A(?:desktop|server)\z/ && $options{snapshots} =~ /\A(?:true|false)\z/ or fail('invalid selected target policy');
     my %provenance;

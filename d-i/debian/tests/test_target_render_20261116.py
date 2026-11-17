@@ -22,11 +22,14 @@ import unittest
 
 RENDERER = Path(__file__).resolve().parents[1] / 'scripts/common/render.pl'
 PUBLICATION = RENDERER.parent / 'modules/files-logging.sh'
+RUNTIME_FIELDS = dict(line.split('\t') for line in
+                      (RENDERER.parents[2] / 'catalog/runtime-paths.tsv').read_text(encoding='utf-8').splitlines()
+                      if line and not line.startswith('#'))
 SELECTORS = {'scripts': 'scripts', 'target': 'assets', 'installer': 'hooks/installer',
              'late': 'scripts/late', 'desktop': 'scripts/desktop', 'firstboot': 'scripts/firstboot',
              'appearance-python': 'assets/python/labwc_appearance',
              'appearance-registry': 'assets/appearance/fields.json.tmpl',
-             'perl-assets': 'catalog/perl.tsv'}
+             'perl-assets': 'catalog/perl.tsv', 'profile-assets': 'catalog/profile.tsv'}
 
 
 class PreparedBootstrapTests(unittest.TestCase):
@@ -38,6 +41,8 @@ class PreparedBootstrapTests(unittest.TestCase):
         index = f'{hashlib.sha256(data).hexdigest()}  member\n'.encode('ascii')
         (stage / 'inputs/rendered.checksums').write_bytes(index)
         (stage / 'inputs/rendered.checksums').chmod(0o600)
+        (stage / 'inputs/paths.map').write_bytes(b'')
+        (stage / 'inputs/paths.map').chmod(0o600)
         published = b'fixture\n'
         (stage / 'inputs/published-assets.tsv').write_bytes(published)
         (stage / 'inputs/published-assets.tsv').chmod(0o600)
@@ -202,9 +207,10 @@ class BatchRenderTests(unittest.TestCase):
         self.env = {'PATH': '/usr/bin:/bin', 'HOME': str(self.root),
                     'TMPDIR': str(self.root), 'TMP': str(self.root), 'TEMP': str(self.root), 'LC_ALL': 'C'}
 
-    def candidate(self, assets, paths=None, logging=None, themes=None):
+    def candidate(self, assets, paths=None, logging=None, themes=None, templates=None, resources=None, modules=None):
         assets = dict(assets)
         assets['catalog/perl.tsv'] = b'assets/Fixture.pm\tfixture/Fixture.pm\tcommon\n'
+        assets.setdefault('catalog/profile.tsv', b'')
         assets['assets/Fixture.pm'] = b'package Fixture; 1;\n'
         rows = ['format=3\n']
         for name, data in assets.items():
@@ -213,9 +219,12 @@ class BatchRenderTests(unittest.TestCase):
             path.write_bytes(data)
             rows.append(f'{len(data)}\t{hashlib.sha256(data).hexdigest()}\t{name}\n')
         (self.root / 'inputs/payload.manifest').write_text(''.join(rows), encoding='ascii')
-        for name, values in (('paths', paths), ('logging', logging), ('themes', themes), ('perl', {})):
+        for name, values in (('paths', paths), ('logging', logging), ('themes', themes), ('perl', {}),
+                             ('templates', templates), ('resources', resources), ('modules', modules)):
             (self.root / ('inputs/' + name + '.map')).write_bytes(
                 b''.join(key + b'=' + value + b'\n' for key, value in (values or {}).items()))
+        for snapshot in ('host', 'layout', 'account'):
+            (self.root / f'inputs/{snapshot}.records').write_bytes(b'__INSTALLER_DATA_END__\n')
 
     def run_render(self, *, succeeds=True, filesize_limit=None):
         argv = ['/usr/bin/perl', '-f', str(RENDERER), str(self.root)]
@@ -251,10 +260,116 @@ class BatchRenderTests(unittest.TestCase):
         self.run_render()
         self.assertEqual((self.source / 'hooks/installer/pre-pkgsel.d/dkms.sh').read_bytes(), b'/etc/dkms\n')
 
+    def test_base_stage_consumes_legacy_and_installer_scalars_without_expanding_runtime_variables(self):
+        self.candidate({'catalog/profile.tsv': b'assets/policy.tmpl\tprofile\n',
+                        'assets/policy.tmpl': b'__ZRAM_PCT____INSTALLER_ACCOUNT_USERNAME__\n'
+                        b'empty=__ZRAM_ALGORITHM_PARAMS__\nconfig=$RUNTIME_CONFIG\n'
+                        b'__INSTALLER_LATE_ONLY__\n',
+                        'hosts/config.env': b'VALUE=__ZRAM_PCT__\n'},
+                       templates={b'ZRAM_PCT': b'60', b'ACCOUNT_USERNAME': b'alice',
+                                  b'ZRAM_ALGORITHM_PARAMS': b''})
+        self.run_render()
+        self.assertEqual((self.source / 'assets/policy.tmpl').read_bytes(),
+                         b'60alice\nempty=\nconfig=$RUNTIME_CONFIG\n__INSTALLER_LATE_ONLY__\n')
+        self.assertEqual((self.source / 'hosts/config.env').read_bytes(), b'VALUE=__ZRAM_PCT__\n')
+
+    def test_a_typed_account_template_keeps_its_primary_and_future_account_fields(self):
+        self.candidate({'assets/account.tmpl': b'__INSTALLER_ACCOUNT_USERNAME__ $HOME\n'},
+                       templates={b'ACCOUNT_USERNAME': b'primary-user'})
+        self.run_render()
+        self.assertEqual((self.source / 'assets/account.tmpl').read_bytes(),
+                         b'__INSTALLER_ACCOUNT_USERNAME__ $HOME\n')
+
+    def test_base_stage_emits_module_blocks_once_and_preserves_surrounding_lines(self):
+        self.candidate({'assets/modules.tmpl': b'before\n__INITRAMFS_PLATFORM_MODULES__\n'
+                        b'__INSTALLER_GRAPHICS_INITRAMFS_MODULES__\nafter\n'},
+                       modules={b'INITRAMFS_PLATFORM_MODULES': b'nvme nvme ext4',
+                                b'GRAPHICS_INITRAMFS_MODULES': b''})
+        self.run_render()
+        self.assertEqual((self.source / 'assets/modules.tmpl').read_bytes(),
+                         b'before\nnvme\next4\nafter\n')
+
+    def test_absent_hardware_module_values_are_deferred_rather_than_rendered_empty(self):
+        original = b'before\n__INSTALLER_GRAPHICS_INITRAMFS_MODULES__\nafter\n'
+        self.candidate({'assets/modules.tmpl': original})
+        self.run_render()
+        self.assertEqual((self.source / 'assets/modules.tmpl').read_bytes(), original)
+
+    def test_declared_profile_assets_use_snapshots_without_publishing_authority_or_secrets(self):
+        self.candidate({'catalog/profile.tsv': b'assets/config.tmpl\tprofile\n',
+                        'assets/config.tmpl': b'__INSTALLER_ACCOUNT_USERNAME__ __PROFILE_VALUE__ '
+                        b'__INSTALLER_TARGET_ROOT__ __ACCOUNT_PASSWORD__\n'})
+        (self.root / 'inputs/host.records').write_bytes(
+            b'PROFILE_VALUE\nvalidated\nTARGET_ROOT\n/forbidden\n__INSTALLER_DATA_END__\n')
+        (self.root / 'inputs/account.records').write_bytes(
+            b'ACCOUNT_USERNAME\nalice\nACCOUNT_PASSWORD\nprivate-fixture\n__INSTALLER_DATA_END__\n')
+        self.run_render()
+        self.assertEqual((self.source / 'assets/config.tmpl').read_bytes(),
+                         b'alice validated __INSTALLER_TARGET_ROOT__ __ACCOUNT_PASSWORD__\n')
+
+    def run_file_operation(self, payload, mapping, kind='scalar', *, value=None, succeeds=True):
+        """Execute the real Perl data operation in the guarded guest fixture."""
+        operation = self.root / 'operation'
+        operation.mkdir(mode=0o700)
+        (operation / 'input').write_bytes(payload)
+        (operation / 'map').write_bytes(mapping)
+        if value is not None:
+            (operation / 'value').write_bytes(value)
+        shutil.copyfile(RENDERER, self.root / 'render.pl')
+        result = subprocess.run(['/usr/bin/perl', '-f', str(self.root / 'render.pl'),
+                                 '--file', str(operation), kind], env=self.env,
+                                capture_output=True, timeout=10, check=False)
+        self.assertEqual(result.returncode == 0, succeeds, result.stderr.decode(errors='replace'))
+        if succeeds:
+            return (operation / 'output').read_bytes()
+        self.assertFalse((operation / 'output').exists())
+        self.assertEqual((operation / 'input').read_bytes(), payload)
+        return result.stderr
+
+    def test_deferred_perl_scalars_use_exact_aliases_and_keep_runtime_environment_references(self):
+        self.assertEqual(self.run_file_operation(
+            b'__VALUE____INSTALLER_VALUE__ __INSTALLER_DEBUG_LOGS__ $RUNTIME_CONFIG __EMPTY__\n',
+            b'VALUE=a&|b\nINSTALLER_DEBUG_LOGS=1\nEMPTY=\n'),
+            b'a&|ba&|b 1 $RUNTIME_CONFIG \n')
+
+    def test_deferred_perl_map_rejects_two_owners_for_the_same_exact_token(self):
+        error = self.run_file_operation(b'__INSTALLER_VALUE__\n',
+                                        b'VALUE=one\nINSTALLER_VALUE=two\n', succeeds=False)
+        self.assertIn(b'duplicate exact scalar token owner', error)
+
+    def test_deferred_perl_module_blocks_accept_real_multiline_hardware_lists(self):
+        self.assertEqual(self.run_file_operation(
+            b'__INSTALLER_GRAPHICS_INITRAMFS_MODULES__\n',
+            b'GRAPHICS_INITRAMFS_MODULES=i915\nnvidia\nnvidia_modeset\ni915\n', 'modules'),
+            b'i915\nnvidia\nnvidia_modeset\n')
+
+    def test_deferred_perl_line_block_rejects_duplicates_before_output_publication(self):
+        error = self.run_file_operation(b'__BLOCK__\n__BLOCK__\n', b'__BLOCK__',
+                                        'line', value=b'one\ntwo', succeeds=False)
+        self.assertIn(b'declared line block must occur exactly once', error)
+
+    def test_deferred_apparmor_policy_keeps_fixed_profiles_enforced(self):
+        fixed = (b'enforce optional hardware-tuning -\n'
+                 b'enforce optional incus-host -\nenforce optional incus-desktop-ui -\n'
+                 b'enforce required app-veth -\n')
+        result = self.run_file_operation(fixed + b'__DESKTOP_APPARMOR_STATE__ required desktop -\n',
+                                         b'DESKTOP_APPARMOR_STATE=complain\n', 'apparmor-modes')
+        self.assertEqual(result, fixed + b'complain required desktop -\n')
+
+    def test_deferred_apparmor_policy_rejects_relaxing_a_fixed_profile_before_publication(self):
+        error = self.run_file_operation(b'complain optional hardware-tuning -\n',
+                                        b'DESKTOP_APPARMOR_STATE=complain\n',
+                                        'apparmor-modes', succeeds=False)
+        self.assertIn(b'fixed AppArmor profile must remain enforced', error)
+
+    def test_resource_renderer_applies_controller_policy_without_changing_other_fields(self):
+        result = self.run_file_operation(
+            b'[Slice]\nMemoryHigh=__MEMORY__\nIOWeight=100\nStartupCPUWeight=200\n',
+            b'MEMORY=75%\nSYSTEMD_IOWEIGHT_ENABLE=false\nSYSTEMD_CPUWEIGHT_ENABLE=false\n', 'resources')
+        self.assertEqual(result, b'[Slice]\nMemoryHigh=75%\n')
+
     def test_every_canonical_runtime_map_field_is_rendered(self):
-        emitter = PUBLICATION.read_text(encoding='utf-8').split(
-            'installer_runtime_path_placeholder_map() {', 1)[1].split('\n}\n', 1)[0]
-        names = sorted(set(re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", emitter)))
+        names = sorted(RUNTIME_FIELDS)
         self.assertIn('GITBUILD_DISTRIBUTION', names)
         values = {
             name.encode(): (
@@ -271,11 +386,9 @@ class BatchRenderTests(unittest.TestCase):
         self.assertEqual((self.source / 'assets/all-runtime-fields').read_bytes(), b''.join(values.values()))
 
     def test_template_map_does_not_duplicate_canonical_keys(self):
-        canonical = PUBLICATION.read_text(encoding='utf-8').split(
-            'installer_runtime_path_placeholder_map() {', 1)[1].split('\n}', 1)[0]
         templates = (RENDERER.parents[1] / 'late/templates.sh').read_text(encoding='utf-8').split(
             'render_target_template_placeholder_map() {', 1)[1].split('\n}', 1)[0]
-        keys = re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", canonical)
+        keys = list(RUNTIME_FIELDS)
         keys += re.findall(r'^([A-Z][A-Z0-9_]*)=', templates, re.M)
         duplicates = [key for key, count in collections.Counter(keys).items() if count != 1]
         self.assertEqual(duplicates, [])
@@ -319,9 +432,7 @@ class BatchRenderTests(unittest.TestCase):
             words = shlex.split(raw)
             self.assertEqual(len(words), 1)
             selectors[name] = re.sub(r'\$\{([A-Z0-9_]+)\}', lambda match: selectors[match[1]], words[0])
-        emitter = PUBLICATION.read_text(encoding='utf-8').split(
-            'installer_runtime_path_placeholder_map() {', 1)[1].split('\n}\n', 1)[0]
-        canonical = set(re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", emitter))
+        canonical = set(RUNTIME_FIELDS)
         call = re.compile(r'^\s*(?:desktop_stage_role_asset\s+(FILE_[A-Z0-9_]+)|'
                           r'(?:stage_target_asset|devops_stage_target_asset)\s+"\$\('
                           r'installer_repo_file_value\s+(FILE_[A-Z0-9_]+)\))', re.M)
@@ -351,9 +462,7 @@ class BatchRenderTests(unittest.TestCase):
                 continue
             key, _, value = line.partition('=')
             selectors[key] = re.sub(r'\$\{([A-Z0-9_]+)\}', lambda match: selectors[match[1]], shlex.split(value)[0])
-        emitter = PUBLICATION.read_text(encoding='utf-8').split(
-            'installer_runtime_path_placeholder_map() {', 1)[1].split('\n}\n', 1)[0]
-        canonical = set(re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", emitter))
+        canonical = set(RUNTIME_FIELDS)
         aliases = {}
         for key, relative in selectors.items():
             if not key.startswith('FILE_') or not (seed / relative).is_file():
@@ -536,10 +645,7 @@ class TypedPublicationTests(unittest.TestCase):
             key, separator, raw = line.partition('=')
             self.assertTrue(separator)
             values[key] = shlex.split(raw)[0]
-        emitter = PUBLICATION.read_text(encoding='utf-8').split(
-            'installer_runtime_path_placeholder_map() {', 1)[1].split('\n}\n', 1)[0]
-        self.paths = {key: values[name] for key, name in re.findall(
-            r"printf '([A-Z][A-Z0-9_]*)=%s\\n' \"\$([A-Z0-9_]+)\"", emitter) if values.get(name)}
+        self.paths = {key: values[name] for key, name in RUNTIME_FIELDS.items() if values.get(name)}
         (self.prepared / 'inputs/paths.map').write_text(''.join(
             key + '=' + value + '\n' for key, value in self.paths.items()), encoding='utf-8')
         self.env = {'PATH': '/usr/bin:/bin', 'HOME': str(self.root), 'LC_ALL': 'C',
@@ -704,6 +810,93 @@ raise SystemExit(module['main']([str(paths[1]), str(paths[2]), sys.argv[5]]))
 class ScalarPublicationTests(unittest.TestCase):
     """The shared copy fast path must recognize canonical non-path fields too."""
 
+    def test_complete_resource_assets_avoid_an_interpreter_and_a_rewrite(self):
+        templates = RENDERER.parent.parent / 'late/templates.sh'
+        with tempfile.TemporaryDirectory(prefix='resource-copy-') as temporary:
+            root = Path(temporary)
+            source = root / 'asset'
+            env = {'PATH': '/usr/bin:/bin', 'HOME': str(root), 'TMPDIR': str(root),
+                   'TMP': str(root), 'TEMP': str(root), 'LC_ALL': 'C',
+                   'BOOTSTRAP_PREPARED_SOURCE_ROOT': str(root / 'source'),
+                   'SYSTEMD_IOWEIGHT_ENABLE': 'false', 'SYSTEMD_CPUWEIGHT_ENABLE': 'true'}
+            command = ('. "$1"; installer_fatal() { exit 93; }; '
+                       'installer_metadata_value() { printf 1; }; '
+                       'installer_target_perl_render() { return 23; }; '
+                       'apply_systemd_resource_placeholders "$2"')
+            # Only the adapter is exercised here; the separate resource test
+            # executes the actual Perl renderer inside the same guarded guest.
+            for data, expected in ((b'[Slice]\nMemoryHigh=75%\n', 0),
+                                   (b'[Slice]\nCPUWeight=100\n', 0),
+                                   (b'[Slice]\nIOWeight=100\n', 23),
+                                   (b'[Slice]\nMemoryHigh=__VALUE__\n', 23)):
+                source.write_bytes(data)
+                before = source.stat()
+                result = subprocess.run(['/bin/dash', '-eu', '-c', command,
+                                         'resource-copy', str(templates), str(source)], env=env,
+                                        capture_output=True, timeout=10, check=False)
+                self.assertEqual(result.returncode, expected, result.stderr.decode(errors='replace'))
+                self.assertEqual(source.read_bytes(), data)
+                self.assertEqual((source.stat().st_ino, source.stat().st_mtime_ns),
+                                 (before.st_ino, before.st_mtime_ns))
+
+    def test_logging_aliases_preserve_threshold_and_error_policy(self):
+        seed = RENDERER.parents[2]
+        levels = ['', 'debug', 'DEBUG', 'info', 'INFO', 'warn', 'WARN', 'warning',
+                  'WARNING', 'error', 'ERROR', 'fatal', 'FATAL', 'none', 'NONE', 'unexpected']
+        ranks = {'debug': 10, 'info': 20, 'warn': 30, 'warning': 30,
+                 'error': 40, 'fatal': 40, 'none': 99}
+        with tempfile.TemporaryDirectory(prefix='log-threshold-') as temporary:
+            env = {'PATH': '/usr/bin:/bin', 'HOME': temporary, 'TMPDIR': temporary,
+                   'TMP': temporary, 'TEMP': temporary, 'LC_ALL': 'C'}
+            for owner, prefix, variable, default in (
+                ('scripts/common/modules/runtime-console.sh', 'installer', 'INSTALLER_LOG_LEVEL', 'debug'),
+                ('scripts/firstboot/logging.sh', 'firstboot', 'SYSTEMD_LOG_LEVEL', 'error'),
+            ):
+                source = (seed / owner).read_text()
+                functions = '\n'.join(re.search(r'^' + prefix + '_' + name +
+                    r'\(\) \{\n.*?^\}', source, re.M | re.S).group()
+                    for name in ('log_level_value', 'log_should_emit'))
+                code = functions + '\ninstaller_logging_enabled() { return 0; };\n' + (
+                    'for requested in "$@"; do for active in "$@"; do\n'
+                    f'  {variable}=$active\n'
+                    f'  if {prefix}_log_should_emit "$requested"; then state=0; else state=$?; fi\n'
+                    '  printf "%s\\t%s\\t%s\\n" "$requested" "$active" "$state"\n'
+                    'done; done\n')
+                result = subprocess.run(['/bin/dash', '-eu', '-c', code, 'log-threshold', *levels],
+                                        env=env, capture_output=True, text=True, timeout=10, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                rows = [row.split('\t') for row in result.stdout.splitlines()]
+                self.assertEqual(len(rows), len(levels) ** 2)
+                for requested, active, status in rows:
+                    request_rank = ranks.get(requested.lower(), 20)
+                    active_name = (active or default).lower()
+                    expected = ((prefix == 'firstboot' and request_rank == 40)
+                                or active_name != 'none' and request_rank >= ranks.get(active_name, 20))
+                    self.assertEqual(status, '0' if expected else '1', (owner, requested, active))
+
+    def test_shared_gpu_helpers_reject_missing_policy_before_any_publication(self):
+        seed = RENDERER.parents[2]
+        with tempfile.TemporaryDirectory(prefix='gpu-policy-') as temporary:
+            marker = Path(temporary) / 'published'
+            env = {'PATH': '/usr/bin:/bin', 'HOME': temporary, 'TMPDIR': temporary,
+                   'TMP': temporary, 'TEMP': temporary, 'LC_ALL': 'C'}
+            for name, owner in (
+                ('stage_target_graphics_kernel_tunables', 'scripts/late/target-assets.sh'),
+                ('stage_target_common_boot_policy', 'scripts/late/core.sh'),
+            ):
+                function = re.search(r'^' + name + r'\(\) \{\n.*?^}',
+                                     (seed / owner).read_text(), re.M | re.S).group()
+                code = function + '\n' + (
+                    'installer_fatal() { return 1; }; '
+                    'stage_target_asset_if_path() { : >"$MARKER"; }; '
+                    f'{name} "${{1-}}"')
+                for value in ('', 'unknown'):
+                    result = subprocess.run(['/bin/dash', '-eu', '-c', code, 'gpu-policy', value],
+                                            env={**env, 'MARKER': str(marker)}, capture_output=True,
+                                            timeout=10, check=False)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(marker.exists())
+
     def test_failed_scalar_render_keeps_previous_bytes_mode_and_cleans_stage(self):
         with tempfile.TemporaryDirectory(prefix='scalar-atomic-') as temporary:
             root = Path(temporary)
@@ -819,19 +1012,19 @@ class ScalarPublicationTests(unittest.TestCase):
                 field + b'=/canonical/' + field.lower() + b'\n' for field in fields) +
                 b'GITBUILD_DISTRIBUTION=forky\n')
             output = root / 'profile'
+            operation = prepared / 'operation'
+            operation.mkdir(mode=0o700)
+            (operation / 'input').write_bytes(profile.read_bytes())
+            (operation / 'map').write_bytes(b'HARDWARE_CPU_SCHEDULER_SCX_WORKER_PERFORMANCE=scx_lavd\n')
+            shutil.copyfile(RENDERER, prepared / 'render.pl')
             env = {'PATH': '/usr/bin:/bin', 'HOME': str(root), 'TMPDIR': str(root),
                    'TMP': str(root), 'TEMP': str(root), 'LC_ALL': 'C',
                    'BOOTSTRAP_PREPARED_SOURCE_ROOT': str(prepared / 'source')}
-            code = '\n'.join((
-                '. "$1"',
-                'installer_fatal() { printf "%s\\n" "$*" >&2; exit 93; }',
-                'installer_apply_scalar_placeholders "$2" "$3" HARDWARE_CPU_SCHEDULER_SCX_WORKER_PERFORMANCE scx_lavd',
-                'installer_assert_no_unresolved_installer_placeholders "$3"'))
-            result = subprocess.run(['/bin/dash', '-eu', '-c', code, 'devops-profile-fixture',
-                                     str(PUBLICATION), str(profile), str(output)],
+            result = subprocess.run(['/usr/bin/perl', '-f', str(prepared / 'render.pl'),
+                                     '--file', str(operation), 'scalar'],
                                     env=env, capture_output=True, timeout=10, check=False)
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
-            data = output.read_bytes()
+            data = (operation / 'output').read_bytes()
             self.assertNotIn(b'__INSTALLER_', data)
             self.assertIn(b'DEVOPS_DE_SCX_WORKER_PERFORMANCE="scx_lavd"', data)
 

@@ -28,7 +28,7 @@ BEGIN {
         owner[token] = fields[5] ":" fields[6]
         sources[token] = fields[18]
         absent[token] = fields[16]
-        literal_sources[token] = fields[19]
+        literal_sources[token] = fields[19] == "-" ? "" : fields[19]
     }
     close(registry)
     if (status < 0 || format_seen != 1) {

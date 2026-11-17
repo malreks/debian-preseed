@@ -812,67 +812,22 @@ apparmor_requested_desktop_state() {
   esac
 }
 
-apparmor_apply_desktop_state() {
+apparmor_apply_desktop_state() (
+  set -eu
+  umask 077
   mode_config=$1
-
-  desktop_apparmor_state=$(apparmor_requested_desktop_state) || return 1
-  desktop_apparmor_tmp="${mode_config}.desktop-state.$$"
-
-  awk \
-    -v selected_state="$desktop_apparmor_state" '
-      /^[[:space:]]*(#|$)/ {
-        gsub(/__DESKTOP_APPARMOR_STATE__/, selected_state)
-        print
-        next
-      }
-      {
-        if (NF != 4) {
-          exit 40
-        }
-        if ($2 !~ /^(required|optional|if-executable)$/ ||
-            $3 !~ /^[A-Za-z0-9._+-]+$/ ||
-            ($2 == "if-executable" && $4 !~ /^\//) ||
-            ($2 != "if-executable" && $4 != "-")) {
-          exit 41
-        }
-        if ($3 == "hardware-tuning") {
-          if ($1 != "enforce" || $2 != "optional" || $4 != "-") exit 41
-          hardware_seen++
-        } else if ($3 == "incus-host" || $3 == "incus-desktop-ui") {
-          if ($1 != "enforce" || $2 != "optional" || $4 != "-") exit 41
-          incus_seen++
-        } else if ($3 == "app-veth") {
-          if ($1 != "enforce" || $2 != "required" || $4 != "-") exit 41
-          veth_seen++
-        } else if ($1 != "__DESKTOP_APPARMOR_STATE__") {
-          exit 41
-        }
-        if (++seen[$3] != 1) {
-          exit 42
-        }
-        rows++
-        if ($3 != "hardware-tuning" && $3 != "incus-host" && $3 != "incus-desktop-ui" && $3 != "app-veth") $1 = selected_state
-        print
-      }
-      END {
-        if (rows == 0 || hardware_seen != 1 || incus_seen != 2 || veth_seen != 1) {
-          exit 43
-        }
-      }
-    ' "$mode_config" >"$desktop_apparmor_tmp" || {
-      rm -f -- "$desktop_apparmor_tmp"
-      installer_fatal "failed to apply DESKTOP_APPARMOR_STATE=${desktop_apparmor_state} to every declared managed AppArmor profile"
-      return 1
+  desktop_apparmor_state=$(apparmor_requested_desktop_state) || exit 1
+  desktop_apparmor_work=$(mktemp -d "${mode_config%/*}/.apparmor-modes.XXXXXX") || exit 1
+  trap 'rm -rf -- "$desktop_apparmor_work"' 0
+  trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  printf 'DESKTOP_APPARMOR_STATE=%s\n' "$desktop_apparmor_state" >"$desktop_apparmor_work/map"
+  installer_target_perl_render "$mode_config" "$mode_config" \
+    "$desktop_apparmor_work/map" apparmor-modes || {
+      installer_fatal 'failed to apply the typed desktop AppArmor mode policy'; exit 1;
     }
-
-  install -m 0644 "$desktop_apparmor_tmp" "$mode_config" || {
-    rm -f -- "$desktop_apparmor_tmp"
-    installer_fatal "failed to publish desktop AppArmor mode policy: ${mode_config}"
-    return 1
-  }
-  rm -f -- "$desktop_apparmor_tmp"
+  chmod 0644 "$mode_config"
   installer_info "managed desktop AppArmor profile state: ${desktop_apparmor_state}; hardware tuning: enforce"
-}
+)
 
 security_nvidia_acceleration_enabled() {
   nvidia_class_selected=${NVIDIA_CLASS_SELECTED:-false}

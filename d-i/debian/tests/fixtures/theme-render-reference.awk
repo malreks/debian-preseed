@@ -1,6 +1,7 @@
-# Literal replacement, not gsub replacement-string processing or shell eval.
+# Test-only legacy reference; production rendering uses scripts/common/render.pl.
+# /dev/stderr is the immutable diagnostic interface inside the isolated fixture.
 function die(message) {
-    print "theme rendering: " FILENAME ":" FNR ": " message > "__INSTALLER_PATH_DIR_DEV__/stderr"
+    print "theme rendering: " FILENAME ":" FNR ": " message > "/dev/stderr"
     failed=1
     exit 1
 }
