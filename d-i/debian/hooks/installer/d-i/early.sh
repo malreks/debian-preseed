@@ -88,7 +88,12 @@ family_d_i_early_main() {
   installer_log_boot_context
   installer_log_network_context
 
+  # setupcon runs after preseeding and writes its three package-owned cache
+  # files here. Minimal initrds do not always include the parent directory.
+  [ ! -L "$DIR_INSTALLER_CONSOLE_SETUP" ] ||
+    installer_fatal 'installer console-setup cache directory is indirect'
   install -d -m 0755 \
+    "$DIR_INSTALLER_CONSOLE_SETUP" \
     ${DIR_INSTALLER_APT_SETUP_GENERATORS} \
     ${DIR_INSTALLER_BASE_INSTALLER_D} \
     ${DIR_INSTALLER_PRE_PKGSEL_D} \

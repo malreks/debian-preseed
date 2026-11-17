@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import urlsplit
 
 POLICY = Path('__INSTALLER_PATH_FILE_SNANDER_POLICY__')
@@ -23,16 +24,21 @@ LOCK = Path('__INSTALLER_PATH_FILE_SNANDER_LOCK__')
 PENDING = Path('__INSTALLER_PATH_FILE_SNANDER_PENDING__')
 ENTRY = Path('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/SNANDer')
 FETCH = '__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/installer-artifact-fetch'
+INSTALL_TIMEOUT_SECONDS = 1200
 
 
 class OutcomeUnknown(RuntimeError):
     pass
 
 
-def directory(path: Path, *, create: bool = False) -> None:
+def directory(path: Path, *, create: bool = False, mode: int = 0o755) -> None:
     for parent in reversed((path, *path.parents)):
         if create and not parent.exists():
-            parent.mkdir(mode=0o755)
+            wanted = mode if parent == path else 0o755
+            parent.mkdir(mode=wanted)
+            # Public release paths must not inherit the installer's private
+            # umask; the state leaf explicitly requests 0700 instead.
+            parent.chmod(wanted)
         info = parent.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
             raise ValueError('untrusted firmware installation ancestry')
@@ -52,9 +58,10 @@ def regular(path: Path, maximum: int) -> bytes:
         return data
 
 
-def archive_digest(path: Path) -> str:
-    """Hash the downloaded file in fixed chunks without a transfer-size ceiling."""
+def archive_digest(path: Path, destination: Path, deadline: float) -> str:
+    """Copy and authenticate the private archive in one bounded-memory pass."""
     directory(path.parent)
+    directory(destination.parent)
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     with os.fdopen(descriptor, 'rb') as source:
         before = os.fstat(source.fileno())
@@ -63,16 +70,24 @@ def archive_digest(path: Path) -> str:
             raise ValueError('untrusted firmware archive')
         digest = hashlib.sha256()
         total = 0
-        while block := source.read(65536):
-            if time.monotonic() >= DEADLINE:
-                raise ValueError('firmware archive verification deadline exceeded')
-            total += len(block)
-            digest.update(block)
+        output_fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+        with os.fdopen(output_fd, 'wb') as output:
+            while block := source.read(65536):
+                if time.monotonic() >= deadline:
+                    raise ValueError('firmware archive verification deadline exceeded')
+                total += len(block)
+                digest.update(block)
+                output.write(block)
+            os.fchmod(output.fileno(), 0o644)
+            output.flush()
+            os.fsync(output.fileno())
         after = os.fstat(source.fileno())
         named = path.lstat()
-        identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_mode, item.st_uid, item.st_gid,
+                                 item.st_nlink, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
         if total != before.st_size or identity(before) != identity(after) or identity(after) != identity(named):
             raise ValueError('firmware archive changed during verification')
+        sync(destination.parent)
         return digest.hexdigest()
 
 
@@ -260,7 +275,7 @@ def archive_members(path: Path, commit: str) -> dict[str, bytes]:
     return selected
 
 
-def install(value: dict, lock: int) -> None:
+def install(value: dict, lock: int, deadline: float) -> None:
     directory(RELEASES,create=True)
     release = RELEASES/value['version']
     binary = release/'bin/SNANDer'
@@ -279,20 +294,21 @@ def install(value: dict, lock: int) -> None:
         try:
             archive = workspace/'source.tar.gz'
             download(value,archive,lock)
-            if archive_digest(archive) != value['sha256']:
-                raise ValueError('firmware archive digest differs')
-            files = archive_members(archive,value['commit'])
-            binary_data = files['SNANDer-'+value['commit']+'/Linux/SNANDer']
-            if hashlib.sha256(binary_data).hexdigest() != value['binary_sha256']:
-                raise ValueError('firmware binary digest differs')
             staging = Path(tempfile.mkdtemp(prefix='.release-',dir=RELEASES))
             for name in ('bin','metadata','source'):
                 (staging/name).mkdir(mode=0o755)
+                (staging/name).chmod(0o755)
+            staged_archive = staging/'source'/('SNANDer-'+value['commit']+'.tar.gz')
+            if archive_digest(archive,staged_archive,deadline) != value['sha256']:
+                raise ValueError('firmware archive digest differs')
+            files = archive_members(staged_archive,value['commit'])
+            binary_data = files['SNANDer-'+value['commit']+'/Linux/SNANDer']
+            if hashlib.sha256(binary_data).hexdigest() != value['binary_sha256']:
+                raise ValueError('firmware binary digest differs')
             write(staging/'bin/SNANDer',binary_data,0o755)
             for member,destination in (('LICENSE','LICENSE'),('readme.txt','readme.txt'),('flash_support_list.txt','flash-support-list.txt')):
                 write(staging/'metadata'/destination,files['SNANDer-'+value['commit']+'/'+member],0o644)
             write(staging/'metadata/policy.json',expected,0o644)
-            write(staging/'source'/('SNANDer-'+value['commit']+'.tar.gz'),source,0o644)
             os.chmod(staging,0o755);sync(staging)
             os.rename(staging,release);sync(RELEASES)
         except OutcomeUnknown:
@@ -317,7 +333,8 @@ def install(value: dict, lock: int) -> None:
 def main(argv: list[str]) -> int:
     if os.geteuid() != 0 or argv not in ([],['--recover-after-reboot']):
         raise ValueError('root and a registered firmware installer operation are required')
-    directory(STATE,create=True)
+    deadline = time.monotonic() + INSTALL_TIMEOUT_SECONDS
+    directory(STATE,create=True,mode=0o700)
     os.chmod(STATE,0o700)
     fd = os.open(LOCK,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_CLOEXEC,0o600)
     try:
@@ -363,7 +380,7 @@ def main(argv: list[str]) -> int:
             return 0
         if argv:
             raise ValueError('no firmware recovery is pending')
-        install(policy(),fd)
+        install(policy(),fd,deadline)
         return 0
     finally:
         os.close(fd)
@@ -374,7 +391,7 @@ if __name__=='__main__':
         raise InterruptedError('firmware installation interrupted')
     for signum in (signal.SIGHUP,signal.SIGINT,signal.SIGTERM,signal.SIGALRM):
         signal.signal(signum,interrupted)
-    signal.alarm(1200)
+    signal.alarm(INSTALL_TIMEOUT_SECONDS)
     try:
         sys.exit(main(sys.argv[1:]))
     except OutcomeUnknown:

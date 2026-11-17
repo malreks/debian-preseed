@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import bisect
+import builtins
 from concurrent.futures import ThreadPoolExecutor
 import configparser
 import fnmatch
@@ -26,6 +27,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import symtable
 import tarfile
 import tomllib
 import xml.etree.ElementTree as ElementTree
@@ -353,12 +355,64 @@ def _resolve_repository_source_contract(value: str) -> str:
                   lambda match: values.get(match.group(0), match.group(0)), value)
 
 
+def _python_defined_globals(table: symtable.SymbolTable) -> set[str]:
+    defined = set()
+    pending = [table]
+    while pending:
+        scope = pending.pop()
+        for symbol in scope.get_symbols():
+            # A setup function may explicitly populate the module namespace.
+            # Ordinary local assignments must not satisfy another scope's use.
+            if ((scope is table or symbol.is_global())
+                    and (symbol.is_assigned() or symbol.is_imported() or symbol.is_namespace())):
+                defined.add(symbol.get_name())
+        pending.extend(scope.get_children())
+    return defined
+
+
+def _python_unbound_globals(source: str, label: str, extra_globals: set[str] | None = None
+                            ) -> list[tuple[str, int, str]]:
+    """Use Python's lexical symbol tables as data; never import the program."""
+    tree = ast.parse(source, filename=label)
+    table = symtable.symtable(source, label, 'exec')
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+             and isinstance(node.ctx, ast.Load)}
+    defined = (_python_defined_globals(table) | set(dir(builtins)) | (extra_globals or set())
+               | {'__name__', '__file__', '__package__', '__spec__', '__loader__',
+                  '__cached__', '__builtins__', '__doc__'})
+    pending, issues = [table], []
+    while pending:
+        scope = pending.pop()
+        for symbol in scope.get_symbols():
+            name = symbol.get_name()
+            # Compiler-synthesized annotation state has no source Name node.
+            # A declared installer token in code is checked by its registry.
+            if (symbol.is_referenced() and symbol.is_global() and name in names
+                    and name not in defined and REGISTRY_TOKEN.fullmatch(name) is None):
+                issues.append((scope.get_name(), scope.get_lineno(), name))
+        pending.extend(scope.get_children())
+    return sorted(issues)
+
+
 def check_python(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
     candidates = [path for path in paths if _logical_suffix(path) == '.py'
                   or re.match(r'^#!.*\bpython(?:[0-9]+(?:\.[0-9]+)*)?\b', _first_line(path))]
     for path in candidates:
         try:
-            ast.parse(_read_text(path), filename=str(path.relative_to(ROOT)))
+            label = str(path.relative_to(ROOT))
+            source = _read_text(path)
+            ast.parse(source, filename=label)
+            if path.is_relative_to(DEBIAN_ROOT) and not path.is_relative_to(DEBIAN_ROOT / 'tests'):
+                extra_globals = set()
+                if path == DEBIAN_ROOT / 'scripts/late/crypto-bootstrap.py.tmpl':
+                    # This installer explicitly captures the validated maintenance
+                    # helper into its namespace. Inspect that one producer as data.
+                    provider = DEBIAN_ROOT / _repository_selector_values()['FILE_TARGET_LIBEXEC_TPM2_POLICY_CHECK']
+                    extra_globals = _python_defined_globals(symtable.symtable(
+                        _read_text(provider), str(provider.relative_to(ROOT)), 'exec'))
+                for scope, line, name in _python_unbound_globals(source, label, extra_globals):
+                    errors.append(f'{label}:{line}: undefined Python global {name!r} in {scope}')
+                counts['python_global_scopes'] = counts.get('python_global_scopes', 0) + 1
         except (OSError, UnicodeError, SyntaxError) as error:
             errors.append(f'{path.relative_to(ROOT)}: Python syntax: {error}')
     counts['python_ast'] = len(candidates)

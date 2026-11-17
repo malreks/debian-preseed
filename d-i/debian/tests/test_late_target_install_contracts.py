@@ -27,6 +27,40 @@ CHECKER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECKER)
 
 
+class PythonGlobalContracts(unittest.TestCase):
+    def issues(self, source):
+        return CHECKER._python_unbound_globals(source, 'fixture.py')
+
+    def test_firmware_installer_has_no_unbound_global_names(self):
+        source = (ROOT / 'd-i/debian/scripts/common/snander-install.py.tmpl').read_text(encoding='utf-8')
+        self.assertEqual(self.issues(source), [])
+
+    def test_missing_import_and_deadline_are_detected_without_execution(self):
+        self.assertEqual({name for _scope, _line, name in self.issues(
+            'def verify():\n    return time.monotonic() >= DEADLINE\n')}, {'time', 'DEADLINE'})
+
+    def test_a_local_stream_does_not_define_an_archive_value_in_another_function(self):
+        source = ('def read(source):\n    return source.read()\n'
+                  'def publish():\n    return source\n')
+        self.assertEqual(self.issues(source), [('publish', 3, 'source')])
+
+    def test_imports_parameters_comprehensions_and_late_definitions_resolve(self):
+        source = ('import time\n'
+                  'def verify(source, deadline):\n'
+                  '    return [source for _ in range(1) if time.monotonic() < deadline], limit\n'
+                  'limit = 3\n')
+        self.assertEqual(self.issues(source), [])
+
+    def test_explicit_global_setup_is_a_producer_but_local_assignment_is_not(self):
+        source = ('def setup():\n'
+                  '    global limit\n'
+                  '    limit = 3\n'
+                  '    local_value = 4\n'
+                  'def consume():\n'
+                  '    return limit, local_value\n')
+        self.assertEqual(self.issues(source), [('consume', 5, 'local_value')])
+
+
 class TargetInstallContracts(unittest.TestCase):
     def source(self, component):
         return (ROOT / 'd-i/debian/scripts/late' / (component + '.sh')).read_text()

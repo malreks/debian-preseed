@@ -229,6 +229,29 @@ installer_apt_install_target_policy "$TARGET_ROOT" final
                     self.assertIn('apt-mok-prehook::InfoFD "3";', content)
                     self.assertIn('APT::Keep-Fds:: "3";', (parts / '70debconf').read_text())
 
+    def test_bootstrap_preserves_debconf_writer_before_base_package_installation(self) -> None:
+        for suite in ('forky', 'trixie'):
+            for family in ('desktop', 'server'):
+                with self.subTest(suite=suite, family=family), tempfile.TemporaryDirectory(
+                        prefix='apt-bootstrap-debconf-') as temporary:
+                    root = Path(temporary)
+                    environment = self.prepare(root, suite, family)
+                    environment['FIXTURE_PHASE'] = 'bootstrap'
+                    helper = root / 'target/usr/sbin/dpkg-preconfigure'
+                    helper.parent.mkdir(parents=True)
+                    helper.write_text('#!/bin/sh\nexit 0\n', encoding='ascii')
+                    helper.chmod(0o755)
+                    parts = root / 'target/etc/apt/apt.conf.d'
+                    previous = '// native default without APT descriptor preservation\n'
+                    (parts / '70debconf').write_text(previous, encoding='ascii')
+                    result = self.invoke(root, environment)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn('APT::Keep-Fds:: "3";', (parts / '70debconf').read_text())
+                    self.assertIn('dpkg-preconfigure --apt', (parts / '70debconf').read_text())
+                    self.assertEqual((parts.with_name('apt.conf.d.bak') / '70debconf').read_text(), previous)
+                    self.assertEqual((parts / '00trustcdrom').read_text(), 'ORIGINAL MEDIA POLICY\n')
+                    self.assertFalse((parts / '00installer-policy').exists())
+
     def test_commit_failure_restores_previous_or_retains_recovery(self) -> None:
         for recovery_failure in (False, True):
             with self.subTest(recovery_failure=recovery_failure), tempfile.TemporaryDirectory(prefix='apt-recover-') as temporary:

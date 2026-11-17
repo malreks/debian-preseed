@@ -2088,6 +2088,24 @@ def prepare_wrangler(
 
     root.mkdir(mode=0o755, parents=True)
     (workspace / "npm-home").mkdir(mode=0o700)
+    # npm 12 blocks unapproved dependency install hooks. These two native
+    # dependencies belong to Wrangler; keep their approval in its own project.
+    (root / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "wrangler-runtime",
+                "private": True,
+                "dependencies": {
+                    policy.wrangler_package_name: artifact_item.version
+                },
+                "allowScripts": {"esbuild": True, "workerd": True},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     run_checked(
         [
             str(policy.wrangler_node_root / "bin/npm"),
@@ -2105,6 +2123,7 @@ def prepare_wrangler(
         ],
         f"installing Wrangler {artifact_item.version} with npm",
         timeout=policy.npm_timeout_seconds,
+        cwd=root,
         environment=npm_environment(policy, workspace),
     )
     package_json = (
@@ -2117,21 +2136,6 @@ def prepare_wrangler(
     if installed_package.get("version") != artifact_item.version:
         fail("npm installed an unexpected Wrangler version")
     ensure_wrangler_command_executable(policy, root)
-    (root / "package.json").write_text(
-        json.dumps(
-            {
-                "name": "wrangler-runtime",
-                "private": True,
-                "dependencies": {
-                    policy.wrangler_package_name: artifact_item.version
-                },
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     write_release_record(
         root,
         artifact_item,
