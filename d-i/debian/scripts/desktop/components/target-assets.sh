@@ -842,7 +842,9 @@ __INSTALLER_PATH_DIR_USR_BIN__/update-mime-database __INSTALLER_PATH_DIR_USR_SHA
   desktop_stage_role_asset FILE_TARGET_SKEL_BASH_ALIASES __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bash_aliases 0644
   install -d -m 0755 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d
   if installer_tools_class_selected; then
-  desktop_stage_role_asset FILE_TARGET_SKEL_PROFILE_71_DEVOPS_DE __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile.d/71-devops-de.sh 0644
+  desktop_render_role_target_template \
+    FILE_TARGET_SKEL_PROFILE_71_DEVOPS_DE "${DIR_ETC_SKEL_DESKTOP}/.profile.d/71-devops-de.sh" 0644 \
+    HARDWARE_CPU_SCHEDULER_SCX_WORKER_PERFORMANCE "$HARDWARE_CPU_SCHEDULER_SCX_WORKER_PERFORMANCE"
   install -d -m 0755 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.config/cargo
   desktop_render_cargo_config
   install -d -m 0755 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.config/mise/conf.d

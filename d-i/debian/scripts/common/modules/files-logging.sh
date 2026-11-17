@@ -84,7 +84,8 @@ installer_contains_unresolved_path_placeholders() {
   installer_placeholder_path=$1
 
   [ -f "$installer_placeholder_path" ] && [ -r "$installer_placeholder_path" ] || return 2
-  LC_ALL=C grep -Eq '__INSTALLER_(PATH_[A-Z0-9_]+|APPARMOR_PROFILE_[A-Z0-9_]+)__' \
+  # Include every canonical runtime-map namespace, including suite policy.
+  LC_ALL=C grep -Eq '__INSTALLER_(PATH_[A-Z0-9_]+|APPARMOR_PROFILE_[A-Z0-9_]+|GITBUILD_DISTRIBUTION)__' \
     "$installer_placeholder_path"
 }
 
@@ -94,7 +95,7 @@ installer_assert_no_unresolved_path_placeholders() {
 
   if installer_contains_unresolved_path_placeholders "$installer_placeholder_path"; then
     installer_unresolved_tokens=$(
-      LC_ALL=C grep -oE '__INSTALLER_(PATH|APPARMOR_PROFILE)_[A-Z0-9_]+__' \
+      LC_ALL=C grep -oE '__INSTALLER_(PATH_[A-Z0-9_]+|APPARMOR_PROFILE_[A-Z0-9_]+|GITBUILD_DISTRIBUTION)__' \
         "$installer_placeholder_path" 2>/dev/null |
         sort -u |
         tr '\n' ' '
@@ -904,7 +905,9 @@ installer_apply_scalar_placeholders() {
       ''|*[!A-Z0-9_]*) installer_fatal 'invalid scalar placeholder name' ;;
     esac
     case "$installer_placeholder_value" in
-      *__INSTALLER_PATH_*|*__INSTALLER_APPARMOR_PROFILE_*) installer_placeholder_needs_paths=true ;;
+      # Keep prefix probes incomplete so the early batch cannot render the
+      # renderer's own token detector into a suite-specific string.
+      *__INSTALLER_PATH_*|*__INSTALLER_APPARMOR_PROFILE_*|*__INSTALLER_GITBUILD_DISTRIBUTION_*) installer_placeholder_needs_paths=true ;;
     esac
     installer_escaped_placeholder_value=$(installer_escape_sed_replacement "$installer_placeholder_value")
     printf 's|__INSTALLER_%s__|%s|g\n' \

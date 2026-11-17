@@ -95,7 +95,9 @@ sub mapped {
 }
 sub path_bytes {
     my ($data, $values) = @_;
-    $data =~ s{__INSTALLER_(PATH_[A-Z0-9]+(?:_[A-Z0-9]+)*|APPARMOR_PROFILE_[A-Z0-9]+(?:_[A-Z0-9]+)*)__}{mapped($values, $1)}eg;
+    # The canonical runtime map also owns suite policy. Resolve it in this
+    # same pass, including files whose only token is the GitBuild suite.
+    $data =~ s{__INSTALLER_(PATH_[A-Z0-9]+(?:_[A-Z0-9]+)*|APPARMOR_PROFILE_[A-Z0-9]+(?:_[A-Z0-9]+)*|GITBUILD_DISTRIBUTION)__}{mapped($values, $1)}eg;
     return $data;
 }
 sub scalar_bytes {

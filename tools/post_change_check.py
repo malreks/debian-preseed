@@ -4216,13 +4216,26 @@ def check_target_render_contract(paths: list[Path], errors: list[str], counts: d
     prepkg = DEBIAN_ROOT / 'hooks/installer/pre-pkgsel.d/50-class-plan.sh'
     dkms = DEBIAN_ROOT / 'hooks/installer/pre-pkgsel.d/90secure-boot-dkms.sh'
     software = DEBIAN_ROOT / 'scripts/late/software.sh.tmpl'
-    owners = {hook, renderer, dispatch, early, stage_table, prepkg, dkms, software, DEBIAN_ROOT / 'repo.env',
+    runtime_map = DEBIAN_ROOT / 'scripts/common/modules/files-logging.sh'
+    owners = {hook, renderer, runtime_map, dispatch, early, stage_table, prepkg, dkms, software, DEBIAN_ROOT / 'repo.env',
               DEBIAN_ROOT / 'hooks/installer/di.env',
               DEBIAN_ROOT / 'scripts/common/bootstrap.sh', Path(__file__).resolve()}
     if not owners.intersection(paths):
         return
     preparation, consumer, startup = map(_read_text, (hook, dispatch, early))
     renderer_text = _read_text(renderer)
+    map_text = _read_text(runtime_map)
+    emitter = map_text.split('installer_runtime_path_placeholder_map() {', 1)[1].split('\n}\n', 1)[0]
+    canonical_fields = set(re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", emitter))
+    matcher = re.search(r'sub path_bytes \{.*?\$data =~ s\{(.*?)\}\{mapped\(', renderer_text, re.S)
+    probe = re.search(r"installer_contains_unresolved_path_placeholders\(\) \{.*?grep -Eq '([^']+)'", map_text, re.S)
+    for label, pattern in (('batch renderer', matcher[1] if matcher else ''),
+                           ('publication fast path', probe[1] if probe else '')):
+        missed = sorted(name for name in canonical_fields
+                        if not re.fullmatch(pattern, '__INSTALLER_' + name + '__'))
+        if not pattern or missed:
+            errors.append(label + ' omits canonical runtime-map fields: ' + ', '.join(missed))
+    counts['canonical_render_fields'] = len(canonical_fields)
     option_pattern = re.search(r'--\((scripts\|[^)]+)\)', renderer_text)
     options = {'--' + key for key in option_pattern[1].split('|')} if option_pattern else set()
     options.add('--cleanup')

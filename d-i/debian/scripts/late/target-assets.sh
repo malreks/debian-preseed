@@ -205,13 +205,12 @@ publish_target_asset() (
   installer_operation_context_repo FILE_LATE_TARGET_ASSETS 202 render_target_asset
   case "$asset_kind" in
     plain|stdin)
-      # Plain target assets may still contain canonical path tokens.  Render
-      # those through the shared runtime map before publication; unknown or
-      # missing values remain unresolved and are rejected below.
+      # Resolve canonical runtime fields through the shared map. Any other
+      # named token needs its typed adapter before this publication boundary.
       (installer_apply_scalar_placeholders \
         "$asset_work/payload" "$asset_work/path-rendered") || exit "$?"
       mv -f "$asset_work/path-rendered" "$asset_work/payload" || exit "$?"
-      installer_assert_no_unresolved_path_placeholders \
+      installer_assert_no_unresolved_installer_placeholders \
         "$asset_work/payload" "target asset $asset_source" || exit "$?"
       ;;
     template)

@@ -103,7 +103,8 @@ configure_target_rootless_podman() (
   stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_55_PODMAN_DEVOPS)" __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/55-podman-devops.conf 0644
   stage_target_asset "$(installer_repo_file_value FILE_TARGET_SSH_SSHD_CONFIG_D_00_DEVOPS_NOLOGIN)" __INSTALLER_PATH_DIR_ETC__/ssh/sshd_config.d/00-devops-nologin.conf 0644
   stage_target_asset "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_90_PODMAN_ROOTLESS)" __INSTALLER_PATH_DIR_ETC__/sysctl.d/90-podman-rootless.conf 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SKEL_PROFILE_71_DEVOPS_DE)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile.d/71-devops-de.sh 0644
+  installer_stage_profile_file FILE_TARGET_SKEL_PROFILE_71_DEVOPS_DE \
+    "${DIR_ETC_SKEL_DESKTOP}/.profile.d/71-devops-de.sh" 0644
   stage_target_asset "$(installer_repo_file_value FILE_TARGET_BIN_LABWC_PODMAN_MENU)" __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-podman-menu 0755
   stage_target_helper_docs podman-devops.md podbin.md podbin-service-bridge.md
 
