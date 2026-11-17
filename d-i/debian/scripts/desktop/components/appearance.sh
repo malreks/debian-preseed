@@ -1,6 +1,21 @@
 #!/bin/sh
 # Native appearance assets; no source builds or session-policy changes.
 
+# Mapping templates describe already-rendered native lines. Their six shadow
+# markers remain literal grammar for value capture/editing, never runtime
+# configuration. Every other installer marker is an unresolved input.
+desktop_assert_appearance_registry_placeholders() {
+  if ! LC_ALL=C awk '
+    {
+      gsub(/__INSTALLER_LABWC_WAYBAR_((INTERNAL|EXTERNAL)_(ACTIVE|PANEL)|SHARED_MENU(_HOVER)?)_SHADOW__/, "")
+      if ($0 ~ /__INSTALLER_[[:alnum:]_]/) exit 1
+    }
+  ' "$1"; then
+    installer_fatal 'appearance registry has unresolved installer fields outside its literal mapping grammar'
+    return 1
+  fi
+}
+
 desktop_stage_appearance() (
   set -eu
   for directory in \
@@ -54,8 +69,10 @@ desktop_stage_appearance() (
   done
   # fetch_hook renders only field defaults before atomic publication. Keep
   # the mapping markers literal for the later native-defaults capture.
-  desktop_stage_role_asset FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL \
-    __INSTALLER_PATH_DIR_USR_LOCAL__/share/labwc-appearance/fields.json 0644
+  if desktop_role_owns_target "${DIR_USR_LOCAL_SHARE_LABWC_APPEARANCE}/fields.json"; then
+    publish_target_asset "$(installer_repo_file_value FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL)" \
+      "${DIR_USR_LOCAL_SHARE_LABWC_APPEARANCE}/fields.json" 0644 appearance-registry
+  fi
   desktop_stage_role_asset FILE_TARGET_USR_SHARE_POLKIT_1_ACTIONS_ORG_LABWC_DESKTOP_APPEARANCE_POLICY \
     __INSTALLER_PATH_DIR_USR_SHARE__/polkit-1/actions/org.labwc.desktop-appearance.policy 0644
 )

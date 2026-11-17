@@ -164,7 +164,9 @@ def render(template: str, values: dict[str, str], upstreams: list[dict]) -> byte
         '    tls_port: ' + str(upstream['tls_port']),
         '    tls_auth_name: ' + json.dumps(upstream['tls_auth_name']),
     )) for upstream in upstreams)
-    token = '  __INSTALLER_SYSTEM_NAMESERVERS_UPSTREAMS__'
+    # This is the renderer's input grammar, not a field in this program.
+    # Keep the prefix separate so publishing the program cannot consume it.
+    token = '  __INSTALLER_' + 'SYSTEM_NAMESERVERS_UPSTREAMS__'
     if template.count(token) != 1:
         raise ValueError('Stubby template requires one upstream block placeholder')
     template = template.replace(token, block)

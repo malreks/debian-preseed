@@ -34,8 +34,8 @@ install_profile_filen() (
     etc/systemd/system/filen-sync@.service.tmpl \
     etc/apparmor.d/filen-sync.tmpl
   do
-    stage_target_asset "$(installer_repo_asset_path DIR_HOOKS_TARGET "$filen_asset")" \
-      "${filen_stage}/assets/${filen_asset}" 0600
+    stage_target_template_input "$(installer_repo_asset_path DIR_HOOKS_TARGET "$filen_asset")" \
+      "$filen_stage" "assets/${filen_asset}"
   done
   for filen_account in priv offsec; do
     case "$filen_account" in

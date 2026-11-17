@@ -168,7 +168,6 @@ class BatchRenderTests(unittest.TestCase):
 
     def test_literal_plain_staging_calls_have_no_deferred_scalar_fields(self):
         seed = RENDERER.parents[2]
-        repository = seed.parents[1]
         selectors = {'INSTALLER_SUITE': 'forky'}
         for line in (seed / 'repo.env').read_text(encoding='utf-8').splitlines():
             if not line or line.startswith('#'):
@@ -189,10 +188,9 @@ class BatchRenderTests(unittest.TestCase):
             records = re.sub(r'\\\n[ \t]*', ' ', source.read_text(encoding='utf-8'))
             for match in call.finditer(records):
                 selector = match[1] or match[2]
-                asset = repository / selectors[selector]
+                asset = seed / selectors[selector]
                 count += 1
-                if not asset.is_file():
-                    continue  # Compiled members are checked by the payload fixture.
+                self.assertTrue(asset.is_file(), f'missing staging source: {selector} ({asset})')
                 data = asset.read_bytes()
                 if b'\0' in data:
                     continue
@@ -201,6 +199,87 @@ class BatchRenderTests(unittest.TestCase):
                 with self.subTest(caller=str(source.relative_to(seed)), selector=selector):
                     self.assertFalse({name for name in names - canonical if not name.startswith('LOG_')})
         self.assertGreater(count, 500)
+        print(f'PLAIN_STAGING_PASS checked_sources={count}')
+
+    def test_dynamic_plain_staging_lists_have_no_deferred_installer_fields(self):
+        seed = RENDERER.parents[2]
+        selectors = {'INSTALLER_SUITE': 'forky'}
+        for line in (seed / 'repo.env').read_text(encoding='utf-8').splitlines():
+            if not line or line.startswith('#'):
+                continue
+            key, _, value = line.partition('=')
+            selectors[key] = re.sub(r'\$\{([A-Z0-9_]+)\}', lambda match: selectors[match[1]], shlex.split(value)[0])
+        emitter = PUBLICATION.read_text(encoding='utf-8').split(
+            'installer_runtime_path_placeholder_map() {', 1)[1].split('\n}\n', 1)[0]
+        canonical = set(re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", emitter))
+        aliases = {}
+        for key, relative in selectors.items():
+            if not key.startswith('FILE_') or not (seed / relative).is_file():
+                continue
+            logical = relative
+            for group in ('DIR_TARGET_AA', 'DIR_TARGET_APPARMOR', 'DIR_TARGET_TMPFILES_D',
+                          'DIR_TARGET_SYSCTL_D', 'DIR_TARGET_BIN', 'DIR_TARGET_SBIN',
+                          'DIR_TARGET_LIBEXEC', 'DIR_TARGET_LIB', 'DIR_TARGET_SHARE'):
+                logical = re.sub(r'^' + re.escape(selectors[group]) + r'/(?:common|desktop|server)/',
+                                 selectors[group] + '/', logical)
+            logical = re.sub(r'/systemd/(?:common|desktop|server)/', '/systemd/', logical)
+            for name in (relative, logical):
+                aliases.setdefault(name, set()).add(seed / relative)
+                if name.endswith('.tmpl'):
+                    aliases.setdefault(name[:-5], set()).add(seed / relative)
+        checked = 0
+        callers = set()
+        for source in sorted((seed / 'scripts').rglob('*.sh*')):
+            records = re.sub(r'\\\n[ \t]*', ' ', source.read_text(encoding='utf-8'))
+            for loop in re.finditer(r'\bfor\s+([a-z_][a-z0-9_]*)\s+in\s+([^\n;]+)'
+                                    r'(?:;\s*|\n\s*)do\b(.*?)\n\s*done', records, re.S):
+                variable, words, body = loop.groups()
+                reference = r'\$(?:' + re.escape(variable) + r'\b|\{' + re.escape(variable) + r'\})'
+                assignment = re.search(r'^\s*' + re.escape(variable) + r'="(' + reference + r')([^"$\n]*)"', body, re.M)
+                assigned_suffix = assignment[2] if assignment else ''
+                calls = re.finditer(r'\b((?:devops_)?stage_target_asset|desktop_stage_role_asset|'
+                                    r'profile_hardware_stage_asset)\s+"('
+                                    r'\$\(installer_repo_asset_path\s+DIR_[A-Z0-9_]+\s+"[^"\n]+"\)'
+                                    r'|[^"\n]+)"', body)
+                for call in calls:
+                    expression = call[2]
+                    indirect = re.fullmatch(r'\$(?:([a-z_][a-z0-9_]*)|\{([a-z_][a-z0-9_]*)\})', expression)
+                    if indirect and (indirect[1] or indirect[2]) != variable:
+                        assigned = re.search(r'^\s*' + re.escape(indirect[1] or indirect[2]) +
+                                             r'="([^"\n]*)"', body[:call.start()], re.M)
+                        if assigned:
+                            expression = assigned[1]
+                    directory = re.fullmatch(r'\$\(installer_repo_asset_path\s+(DIR_[A-Z0-9_]+)\s+"([^"\n]+)"\)', expression)
+                    if directory:
+                        expression = directory[2]
+                        base = selectors[directory[1]] + '/'
+                    elif call[1] in ('desktop_stage_role_asset', 'profile_hardware_stage_asset'):
+                        base = selectors['DIR_HOOKS_TARGET'] + '/'
+                    else:
+                        continue
+                    if not re.search(reference, expression):
+                        continue
+                    prefix, suffix = re.split(reference, expression, maxsplit=1)
+                    for leaf in shlex.split(words):
+                        if '$' in leaf:
+                            continue  # Policy-selected branches are audited separately.
+                        wanted = base + prefix + leaf + assigned_suffix + suffix
+                        assets = aliases.get(wanted, set())
+                        self.assertTrue(assets, f'missing dynamic staging source: {source}: {wanted}')
+                        for asset in assets:
+                            data = asset.read_bytes()
+                            if b'\0' in data:
+                                continue
+                            names = {name.decode() for name in re.findall(
+                                rb'__INSTALLER_([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)__', data)}
+                            with self.subTest(caller=str(source.relative_to(seed)), asset=str(asset.relative_to(seed))):
+                                self.assertFalse({name for name in names - canonical if not name.startswith('LOG_')})
+                            callers.add(source.relative_to(seed).as_posix())
+                            checked += 1
+        self.assertGreater(checked, 100)
+        self.assertTrue({'scripts/common/hardware-tuning.sh', 'scripts/late/devops/gitbuild.sh',
+                         'scripts/late/podman.sh', 'scripts/late/security.sh'} <= callers)
+        print(f'DYNAMIC_STAGING_PASS checked_sources={checked}')
 
     def test_unknown_path_retains_candidate_without_receipt(self):
         self.candidate({'scripts/helper': b'__INSTALLER_PATH_UNKNOWN__'})
@@ -273,6 +352,175 @@ class BatchRenderTests(unittest.TestCase):
         self.assertFalse(self.root.exists())
         self.assertEqual(retained.read_bytes(), b'preserve')
         self.assertTrue((self.destination / 'fixture/Fixture.pm').is_file())
+
+
+class TypedPublicationTests(unittest.TestCase):
+    """Exercise publication and its typed consumers inside the private guest."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='typed-publication-')
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.target = self.root / 'target'
+        (self.target / 'tmp').mkdir(parents=True)
+        self.seed = RENDERER.parents[2]
+        self.prepared = self.root / 'prepared'
+        (self.prepared / 'inputs').mkdir(parents=True)
+        (self.prepared / 'source').mkdir()
+        values = {}
+        profile = self.seed / 'catalog/compiled/forky/profiles/desktop/btrfs-de-p15s.env'
+        for line in profile.read_text(encoding='utf-8').splitlines():
+            if not line or line.startswith('#'):
+                continue
+            key, separator, raw = line.partition('=')
+            self.assertTrue(separator)
+            values[key] = shlex.split(raw)[0]
+        emitter = PUBLICATION.read_text(encoding='utf-8').split(
+            'installer_runtime_path_placeholder_map() {', 1)[1].split('\n}\n', 1)[0]
+        self.paths = {key: values[name] for key, name in re.findall(
+            r"printf '([A-Z][A-Z0-9_]*)=%s\\n' \"\$([A-Z0-9_]+)\"", emitter) if values.get(name)}
+        (self.prepared / 'inputs/paths.map').write_text(''.join(
+            key + '=' + value + '\n' for key, value in self.paths.items()), encoding='utf-8')
+        self.env = {'PATH': '/usr/bin:/bin', 'HOME': str(self.root), 'LC_ALL': 'C',
+                    'TMPDIR': str(self.root), 'TMP': str(self.root), 'TEMP': str(self.root),
+                    'BOOTSTRAP_PREPARED_SOURCE_ROOT': str(self.prepared / 'source')}
+        self.modules = [self.prepare(name) for name in (
+            'scripts/common/modules/files-logging.sh', 'scripts/common/lifecycle.sh',
+            'scripts/late/target-assets.sh', 'scripts/desktop/components/appearance.sh',
+            'scripts/late/security.sh')]
+        self.base = '\n'.join((
+            '. "$1"', '. "$2"', '. "$3"', '. "$4"', '. "$5"',
+            'TARGET_ROOT=$6; SEED=$7; DIR_TMP=/tmp',
+            'installer_fatal() { printf "%s\\n" "$*" >&2; exit 93; }',
+            'installer_fatal_status() { exit "$1"; }',
+            'installer_operation_context_repo() { :; }',
+            'bootstrap_prepared_asset_published() { return 1; }',
+            'target_normalize_systemd_config_parent_modes() { :; }',
+            'installer_capture_primary_default() { :; }',
+            'fetch_hook() { cp "$SEED/$1" "$2"; }'))
+
+    def prepare(self, relative):
+        data = (self.seed / relative).read_text(encoding='utf-8')
+        data = re.sub(r'__INSTALLER_(PATH_[A-Z0-9]+(?:_[A-Z0-9]+)*|'
+                      r'APPARMOR_PROFILE_[A-Z0-9]+(?:_[A-Z0-9]+)*|GITBUILD_DISTRIBUTION)__',
+                      lambda match: self.paths[match[1]], data)
+        output = self.prepared / 'source' / relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(data, encoding='utf-8')
+        return output
+
+    def shell(self, code, *arguments, shell=None):
+        return subprocess.run([*(shell or ['/bin/dash']), '-eu', '-c', self.base + '\n' + code,
+                               'typed-publication', *map(str, self.modules), str(self.target),
+                               str(self.prepared / 'source'), *map(str, arguments)],
+                              env=self.env, capture_output=True, timeout=20, check=False)
+
+    def test_template_inputs_require_a_private_root_and_preserve_grammar_until_the_consumer(self):
+        relative = 'hooks/target/etc/stubby/stubby.yml.tmpl'
+        self.prepare(relative)
+        code = '\n'.join((
+            'stage=$(target_private_stage_dir stubby)',
+            'case "$8" in public) stage=/etc ;; shared) chmod 0755 "$TARGET_ROOT$stage" ;; esac',
+            'stage_target_template_input "$9" "$stage" "${10}"',
+            'cat "$TARGET_ROOT$stage/${10}"'))
+        shells = [['/bin/dash']]
+        if shutil.which('busybox'):
+            shells.append([shutil.which('busybox'), 'sh'])
+        for shell in shells:
+            for mode, leaf, succeeds in (('private', 'nested/stubby.yml.tmpl', True),
+                                         ('public', 'input', False), ('shared', 'input', False),
+                                         ('private', '../escape', False), ('private', '', False)):
+                with self.subTest(shell=shell, mode=mode, leaf=leaf):
+                    result = self.shell(code, mode, relative, leaf, shell=shell)
+                    self.assertEqual(result.returncode == 0, succeeds, result.stderr.decode(errors='replace'))
+                    if succeeds:
+                        self.assertIn(b'__INSTALLER_SYSTEM_NAMESERVERS_UPSTREAMS__', result.stdout)
+                        self.assertNotIn(b'__INSTALLER_PATH_', result.stdout)
+                    self.assertFalse((self.target / 'etc').exists())
+
+    def test_registry_retains_only_its_literal_mapping_grammar(self):
+        relative = 'hooks/target/usr/local/share/desktop/labwc-appearance/fields.json.tmpl'
+        source = self.prepare(relative)
+        original = source.read_text(encoding='utf-8')
+        output = self.target / 'fields.json'
+        for unknown in (False, True):
+            with self.subTest(unknown=unknown):
+                source.write_text(original + ('\n__INSTALLER_UNKNOWN_FIELD__\n' if unknown else ''), encoding='utf-8')
+                output.write_text('previous', encoding='ascii')
+                result = self.shell('publish_target_asset "$8" /fields.json 0644 appearance-registry', relative)
+                self.assertEqual(result.returncode == 0, not unknown, result.stderr.decode(errors='replace'))
+                if unknown:
+                    self.assertEqual(output.read_text(), 'previous')
+                else:
+                    registry = json.loads(output.read_text(encoding='utf-8'))
+                    self.assertGreater(len(registry['fields']), 500)
+                    self.assertIn('__INSTALLER_LABWC_WAYBAR_INTERNAL_ACTIVE_SHADOW__', output.read_text())
+                self.assertFalse(list(self.target.glob('.installer-asset.*')))
+
+    def test_actual_stubby_handoff_renders_before_publication_and_retains_previous_output_on_failure(self):
+        helper = 'scripts/late/stubby-config.py'
+        template = 'hooks/target/etc/stubby/stubby.yml.tmpl'
+        helper_path = self.prepare(helper)
+        helper_source = helper_path.read_text(encoding='utf-8')
+        input_path = self.prepare(template)
+        original = input_path.read_text(encoding='utf-8')
+        policy = self.root / 'policy.map'
+        policy.write_text('SYSTEM_DNS_UPSTREAM_TLS_CA_CUSTOM_ENABLE=false\n'
+                          'SYSTEM_DNS_UPSTREAM_TLS_CA_FILE=/etc/ssl/certs/ca-certificates.crt\n'
+                          'SYSTEM_NAMESERVERS_UPSTREAMS_JSON=[{"dns_index":1,"address_data":"192.0.2.53",'
+                          '"tls_port":853,"tls_auth_name":"dns.fixture.invalid"}]\n'
+                          'APP_VETH_TLS_HOST_ADDRESS=127.0.0.1\nAPP_VETH_TLS_HOST_PORT=53001\n', encoding='ascii')
+        runner = self.root / 'target-python.py'
+        runner.write_text('''from pathlib import Path
+import runpy
+import sys
+root = Path(sys.argv[1]).resolve(strict=True)
+paths = [root / value.lstrip('/') for value in sys.argv[2:5]]
+assert all(path.resolve(strict=True).is_relative_to(root) for path in paths)
+module = runpy.run_path(str(paths[0]), run_name='fixture_stubby')
+context = module['main'].__globals__
+context['OUTPUT'] = root / 'etc/stubby/stubby.yml'
+def verified(upstreams):
+    assert len(upstreams) == 1 and upstreams[0]['tls_auth_name'] == 'dns.fixture.invalid'
+    print('fixture_tls_authentication=mocked', flush=True)
+context['verify_public'] = verified
+raise SystemExit(module['main']([str(paths[1]), str(paths[2]), sys.argv[5]]))
+''', encoding='utf-8')
+        code = '\n'.join((
+            'require_in_target() { :; }',
+            'installer_repo_file_value() { case "$1" in',
+            ' FILE_LATE_STUBBY_CONFIG) printf "%s\\n" scripts/late/stubby-config.py ;;',
+            ' FILE_TARGET_STUBBY_STUBBY_TMPL) printf "%s\\n" hooks/target/etc/stubby/stubby.yml.tmpl ;;',
+            ' *) exit 94 ;; esac; }',
+            'policy=$8; runner=$9; fixture_python=${10}',
+            'app_veth_dns_placeholder_map() { cat "$policy"; }',
+            'run_in_target() { shift; [ "$1" = /usr/bin/python3 ]; shift 3;',
+            ' "$fixture_python" -I -B "$runner" "$TARGET_ROOT" "$@"; }',
+            'configure_target_stubby'))
+        output = self.target / 'etc/stubby/stubby.yml'
+        for variant in ('reported-failure', 'rendered', 'unknown-field'):
+            with self.subTest(variant=variant):
+                helper_path.write_text(helper_source.replace(
+                    "'  __INSTALLER_' + 'SYSTEM_NAMESERVERS_UPSTREAMS__'",
+                    "'  __INSTALLER_SYSTEM_NAMESERVERS_UPSTREAMS__'")
+                    if variant == 'reported-failure' else helper_source, encoding='utf-8')
+                input_path.write_text(original + ('\n__INSTALLER_UNKNOWN_FIELD__\n'
+                                                 if variant == 'unknown-field' else ''), encoding='utf-8')
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text('previous', encoding='ascii')
+                result = self.shell(code, policy, runner, sys.executable)
+                self.assertEqual(result.returncode == 0, variant == 'rendered', result.stderr.decode(errors='replace'))
+                if variant != 'rendered':
+                    self.assertEqual(output.read_text(), 'previous')
+                    self.assertNotIn(b'fixture_tls_authentication=mocked', result.stdout)
+                    if variant == 'reported-failure':
+                        self.assertIn(b'has unresolved installer placeholders', result.stderr)
+                else:
+                    data = output.read_text(encoding='utf-8')
+                    self.assertNotIn('__INSTALLER_', data)
+                    self.assertIn('  - address_data: "192.0.2.53"', data)
+                    self.assertIn(b'fixture_tls_authentication=mocked', result.stdout)
+                self.assertFalse(list((self.target / 'tmp').iterdir()))
 
 
 class ScalarPublicationTests(unittest.TestCase):

@@ -800,7 +800,7 @@ bootstrap_fetch_seed_file() (
   fi
   case "$2" in
     "${DIR_REPO_SCRIPTS:-}/"*|"${DIR_HOOKS_TARGET:-}/"*)
-      if LC_ALL=C grep -Eq '__INSTALLER_(PATH|APPARMOR_PROFILE)_[A-Z0-9_]+__' "$3"; then
+      if LC_ALL=C grep -Eq '__INSTALLER_((PATH|APPARMOR_PROFILE)_[A-Z0-9_]+|GITBUILD_DISTRIBUTION)__' "$3"; then
         # Direct helper fetches (including Python and target re-entry scripts)
         # share the publication renderer. Early common/bootstrap modules and
         # authenticated parser data contain no concrete path tokens, so they

@@ -86,7 +86,7 @@ fetch_hook() {
   # runtime path namespace.  Render it before the caller sources or executes
   # the fetched file; leaving a path token in an installer-side helper would
   # otherwise turn a valid target path into an empty or literal argument.
-  if LC_ALL=C grep -q '__INSTALLER_PATH_' "$2"; then
+  if installer_contains_unresolved_path_placeholders "$2"; then
     # fetch_hook_file always stages this private helper with mode 0755.  Keep
     # the renderer independent of the unavailable d-i `stat` applet.
     fetch_hook_path_mode=0755

@@ -1866,9 +1866,10 @@ def check_appearance_render_preservation(paths: list[Path], errors: list[str],
         stage = _render_installer_path_placeholders(
             _resolve_repository_source_contract(_read_text(APPEARANCE_STAGE)))
         registry_source = re.escape(selectors['FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL'])
-        if re.search(r'desktop_stage_role_asset ' + registry_source +
-                     r'\s*\\\s*/usr/local/share/labwc-appearance/fields\.json 0644', stage) is None:
-            raise ValueError('registry template must install as fields.json with mode 0644')
+        if re.search(r'publish_target_asset "\$\(installer_repo_file_value ' + registry_source +
+                     r'\)"\s*\\\s*"\$\{DIR_USR_LOCAL_SHARE_LABWC_APPEARANCE\}/fields\.json" '
+                     r'0644 appearance-registry', stage) is None:
+            raise ValueError('registry must publish as fields.json with mode 0644 and its literal-metadata contract')
         installer = _read_text(DESKTOP_INSTALLER)
         calls = re.findall(r'^  (desktop_[a-z_]+)\s*$', installer, re.MULTILINE)
         order = [calls.index(name) for name in (
@@ -4220,7 +4221,9 @@ def check_target_render_contract(paths: list[Path], errors: list[str], counts: d
     owners = {hook, renderer, runtime_map, dispatch, early, stage_table, prepkg, dkms, software, DEBIAN_ROOT / 'repo.env',
               DEBIAN_ROOT / 'hooks/installer/di.env',
               DEBIAN_ROOT / 'scripts/common/bootstrap.sh', Path(__file__).resolve()}
-    if not owners.intersection(paths):
+    if not owners.intersection(paths) and not any(
+            path.is_relative_to(DEBIAN_ROOT / 'scripts') or path.is_relative_to(TARGET_ROOT)
+            for path in paths):
         return
     preparation, consumer, startup = map(_read_text, (hook, dispatch, early))
     renderer_text = _read_text(renderer)
@@ -4236,6 +4239,32 @@ def check_target_render_contract(paths: list[Path], errors: list[str], counts: d
         if not pattern or missed:
             errors.append(label + ' omits canonical runtime-map fields: ' + ', '.join(missed))
     counts['canonical_render_fields'] = len(canonical_fields)
+    # Resolve payload-relative selectors against the shared seed, not ROOT.
+    # Silently skipping a missing source made the old fixture vacuous.
+    suite_catalogs = {suite: _repository_selector_values(suite) for suite in ('forky', 'trixie')}
+    plain_call = re.compile(r'^\s*(?:desktop_stage_role_asset\s+(FILE_[A-Z0-9_]+)|'
+                            r'(?:stage_target_asset|devops_stage_target_asset)\s+"\$\('
+                            r'installer_repo_file_value\s+(FILE_[A-Z0-9_]+)\))', re.M)
+    plain_calls = 0
+    for script in sorted((DEBIAN_ROOT / 'scripts').rglob('*.sh*')):
+        records = re.sub(r'\\\n[ \t]*', ' ', _read_text(script))
+        for match in plain_call.finditer(records):
+            selector = match[1] or match[2]
+            for suite, suite_selectors in suite_catalogs.items():
+                relative = suite_selectors.get(selector, '')
+                asset = DEBIAN_ROOT / relative
+                plain_calls += 1
+                if not relative or not asset.is_file() or asset.is_symlink():
+                    errors.append(f'{script.relative_to(ROOT)}: {suite}: missing plain staging source: {selector}')
+                    continue
+                if asset.suffix.lower() in BINARY_SUFFIXES:
+                    continue
+                names = set(re.findall(r'__INSTALLER_([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)__', _read_text(asset)))
+                deferred = sorted(name for name in names - canonical_fields if not name.startswith('LOG_'))
+                if deferred:
+                    errors.append(f'{script.relative_to(ROOT)}: {suite}: plain staging bypasses typed rendering: '
+                                  f'{selector}: {", ".join(deferred)}')
+    counts['plain_staging_sources'] = plain_calls
     option_pattern = re.search(r'--\((scripts\|[^)]+)\)', renderer_text)
     options = {'--' + key for key in option_pattern[1].split('|')} if option_pattern else set()
     options.add('--cleanup')

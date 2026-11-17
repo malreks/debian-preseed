@@ -38,8 +38,8 @@ configure_target_network_sharing() (
     usr/local/libexec/network-sharing-identity \
     usr/local/libexec/network-sharing-report
   do
-    stage_target_asset "$(installer_repo_asset_path DIR_HOOKS_TARGET "$nfs_asset")" \
-      "${nfs_stage}/assets/${nfs_asset}" 0600
+    stage_target_template_input "$(installer_repo_asset_path DIR_HOOKS_TARGET "$nfs_asset")" \
+      "$nfs_stage" "assets/${nfs_asset}"
   done
   run_in_target "validate and configure profile-controlled NFS sharing" \
     __INSTALLER_PATH_DIR_USR_BIN__/env \

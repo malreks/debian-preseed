@@ -1848,8 +1848,8 @@ configure_target_stubby() (
   trap 'exit 143' TERM
   stage_target_asset "$(installer_repo_file_value FILE_LATE_STUBBY_CONFIG)" \
     "$stubby_stage/configure.py" 0600
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_STUBBY_STUBBY_TMPL)" \
-    "$stubby_stage/stubby.yml.tmpl" 0600
+  stage_target_template_input "$(installer_repo_file_value FILE_TARGET_STUBBY_STUBBY_TMPL)" \
+    "$stubby_stage" stubby.yml.tmpl
   app_veth_dns_placeholder_map >"$stubby_stage_host/policy.map"
   stubby_ca_input=-
   if [ "${SYSTEM_DNS_UPSTREAM_TLS_CA_CUSTOM_ENABLE:-false}" = true ]; then

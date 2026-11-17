@@ -204,14 +204,25 @@ publish_target_asset() (
   target_publish_step=render
   installer_operation_context_repo FILE_LATE_TARGET_ASSETS 202 render_target_asset
   case "$asset_kind" in
-    plain|stdin)
-      # Resolve canonical runtime fields through the shared map. Any other
-      # named token needs its typed adapter before this publication boundary.
+    plain|stdin|template-input|appearance-registry)
+      # Canonical fields always use the shared map. Private renderer inputs
+      # and appearance mapping grammar have explicit, separate consumers.
       (installer_apply_scalar_placeholders \
         "$asset_work/payload" "$asset_work/path-rendered") || exit "$?"
       mv -f "$asset_work/path-rendered" "$asset_work/payload" || exit "$?"
-      installer_assert_no_unresolved_installer_placeholders \
-        "$asset_work/payload" "target asset $asset_source" || exit "$?"
+      case "$asset_kind" in
+        template-input)
+          installer_assert_no_unresolved_path_placeholders \
+            "$asset_work/payload" "template input $asset_source" || exit "$?"
+          ;;
+        appearance-registry)
+          desktop_assert_appearance_registry_placeholders "$asset_work/payload" || exit "$?"
+          ;;
+        *)
+          installer_assert_no_unresolved_installer_placeholders \
+            "$asset_work/payload" "target asset $asset_source" || exit "$?"
+          ;;
+      esac
       ;;
     template)
       (TMP_ENV_DIR=$asset_work; render_target_template "$asset_work/payload" "$asset_work/rendered" "$asset_mode") || exit "$?"
@@ -243,6 +254,32 @@ publish_target_asset() (
 stage_target_asset() {
   publish_target_asset "$1" "$2" "$3" plain
 }
+
+# A typed renderer may need its input grammar inside the target. This entry
+# point accepts only a private directory returned by target_private_stage_dir;
+# the consumer must reject unresolved fields before publishing final files.
+stage_target_template_input() (
+  set -eu
+  template_source=$1; template_stage=$2; template_leaf=$3
+  case "$template_stage" in
+    "${DIR_TMP}/installer-"*) template_stage_name=${template_stage#"${DIR_TMP}/"} ;;
+    *) installer_fatal 'template input requires a private target staging directory'; exit 1 ;;
+  esac
+  case "$template_stage_name" in
+    *[!A-Za-z0-9.-]*|'') installer_fatal 'invalid template input staging directory'; exit 1 ;;
+  esac
+  case "/$template_leaf/" in
+    *'/../'*|*'/./'*|*'//'*|*[!A-Za-z0-9_./@+-]*)
+      installer_fatal 'invalid template input relative path'; exit 1 ;;
+  esac
+  template_stage_host=$(target_asset_host_path "$template_stage") || exit "$?"
+  [ -d "$template_stage_host" ] && [ ! -L "$template_stage_host" ] &&
+    [ "$(installer_metadata_value "$template_stage_host" uid_gid_mode)" = '0:0:700' ] || {
+      installer_fatal 'template input staging directory must be private and root-owned'
+      exit 1
+    }
+  publish_target_asset "$template_source" "$template_stage/$template_leaf" 0600 template-input
+)
 
 # Generated late-command files use the same publication contract as assets.
 write_target_file() {
