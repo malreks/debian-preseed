@@ -22,6 +22,7 @@ profile:
 check:
 	$(PYTHON) -B tools/check_build.py
 	$(PYTHON) -B tools/check_shells.py
+	$(PYTHON) -B tools/validate_placeholder_registry.py --report .build/validation/placeholder-registry-coverage.json
 test:
 	$(PYTHON) -B -m unittest discover -s d-i/debian/tests -p "test_*.py"
 test-bootstrap:

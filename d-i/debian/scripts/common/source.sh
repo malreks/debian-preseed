@@ -105,6 +105,22 @@ installer_record_failure() (
   trap 'rm -f "$lc_tmp"' 0;
   { printf 'format=1\nstate=FATAL\nstatus=%s\n' "$lc_status";
     printf 'phase=%s\ncomponent=%s\nsource=%s\nline=%s\noperation=%s\n' "${INSTALLER_PHASE:-unknown}" "$lc_component" "$lc_source" "$lc_line" "$lc_operation";
+    # Publication fields contain only identifiers, digests and target paths.
+    # The owning boundary never puts seed URLs or input values in this context.
+    for lc_field in \
+      "suite=${INSTALLER_SUITE:-unknown}" \
+      "profile=${INSTALLER_HOST_PROFILE:-unknown}" \
+      "publication_kind=${INSTALLER_PUBLICATION_KIND:-unknown}" \
+      "member=${INSTALLER_PUBLICATION_MEMBER:-unknown}" \
+      "member_sha256=${INSTALLER_PUBLICATION_DIGEST:-unknown}" \
+      "acquisition=${INSTALLER_PUBLICATION_ACQUISITION:-unknown}" \
+      "source_identity=${INSTALLER_PUBLICATION_IDENTITY:-unknown}" \
+      "map_owner=${INSTALLER_PUBLICATION_MAP_OWNER:-unknown}" \
+      "target=${INSTALLER_PUBLICATION_TARGET:-unknown}"; do
+      case "$lc_field" in *[!A-Za-z0-9_./@+\ =:-]*) continue ;; esac;
+      [ "${#lc_field}" -le 1024 ] || continue;
+      printf '%s\n' "$lc_field";
+    done;
     printf 'timestamp=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')";
     printf 'detail=%s\n' "$lc_detail";
   } >"$lc_tmp" || exit 1;
@@ -778,7 +794,8 @@ source_cache_root() (
 source_prepare_payload() (
   set -eu
   umask 077
-  base=$1; expected_archive=$2; expected_manifest=$3
+  base=$(source_normalize_base "$1") || exit 1
+  expected_archive=$2; expected_manifest=$3
   case "$expected_archive$expected_manifest" in *[!a-f0-9]*) source_error 'invalid payload digest'; exit 1 ;; esac
   [ "${#expected_archive}" -eq 64 ] && [ "${#expected_manifest}" -eq 64 ] || exit 1
   runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}

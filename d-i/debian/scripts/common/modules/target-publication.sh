@@ -1,6 +1,117 @@
 #!/bin/sh
 # Role-independent target publication, using the one placeholder renderer.
 # The target must be offline, root-owned and private from account processes.
+unset INSTALLER_TARGET_CONTEXT_READY INSTALLER_TARGET_CONTEXT_ROOT \
+  INSTALLER_TARGET_CONTEXT_INODE INSTALLER_TARGET_CONTEXT_MOUNT
+installer_target_context_init() {
+  target_context_root=${TARGET_ROOT:-}
+  case "$target_context_root" in /*) ;; *) installer_fatal 'target context requires the authenticated di.env target root'; return 1 ;; esac
+  case "$target_context_root" in /|*//*|*/../*|*/..|*/./*|*/.|*/|*[!A-Za-z0-9_./@+-]*)
+    installer_fatal 'target context root is not normalized'; return 1 ;; esac
+  [ -z "${INSTALLER_TARGET_DIR:-}" ] || [ "$INSTALLER_TARGET_DIR" = "$target_context_root" ] || {
+    installer_fatal 'target context disagrees with the mounted target contract'; return 1;
+  }
+  for target_context_forbidden in "${INSTALLER_ROOT:-}" "${DIR_INSTALLER_ROOT:-}"; do
+    [ -z "$target_context_forbidden" ] || [ "$target_context_root" != "$target_context_forbidden" ] || {
+      installer_fatal 'target context aliases the installer root'; return 1;
+    }
+  done
+  [ -d "$target_context_root" ] && [ ! -L "$target_context_root" ] &&
+    [ "$(readlink -f -- "$target_context_root")" = "$target_context_root" ] || {
+      installer_fatal 'target context root is absent or a symlink alias'; return 1;
+    }
+  command -v installer_mounts_find_record >/dev/null 2>&1 &&
+    installer_mounts_find_record "$target_context_root" "${INSTALLER_MOUNTS_FILE:-/proc/mounts}" &&
+    [ "$INSTALLER_MOUNT_POINT" = "$target_context_root" ] || {
+      installer_fatal 'target context is not the mounted d-i target'; return 1;
+    }
+  target_context_listing=$(LC_ALL=C ls -id -- "$target_context_root") || return 1
+  IFS=' ' read -r target_context_inode target_context_ignored <<EOF
+$target_context_listing
+EOF
+  case "$target_context_inode" in ''|*[!0-9]*) return 1 ;; esac
+  target_context_mount="${INSTALLER_MOUNT_SOURCE:-}:${INSTALLER_MOUNT_FSTYPE:-}:${INSTALLER_MOUNT_OPTIONS:-}"
+  if [ "${INSTALLER_TARGET_CONTEXT_READY:-0}" = 1 ]; then
+    [ "$INSTALLER_TARGET_CONTEXT_ROOT" = "$target_context_root" ] &&
+      [ "$INSTALLER_TARGET_CONTEXT_INODE" = "$target_context_inode" ] &&
+      [ "$INSTALLER_TARGET_CONTEXT_MOUNT" = "$target_context_mount" ] || {
+        installer_fatal 'validated target context identity changed'; return 1;
+      }
+    return 0
+  fi
+  [ "$(installer_metadata_value "$target_context_root" uid)" = 0 ] || {
+    installer_fatal 'target context must be root-owned'; return 1;
+  }
+  case "$(installer_metadata_value "$target_context_root" mode)" in 700|750|755) ;;
+    *) installer_fatal 'target context has unsafe permissions'; return 1 ;;
+  esac
+  INSTALLER_TARGET_CONTEXT_ROOT=$target_context_root
+  INSTALLER_TARGET_CONTEXT_INODE=$target_context_inode
+  INSTALLER_TARGET_CONTEXT_MOUNT=$target_context_mount
+  INSTALLER_TARGET_CONTEXT_READY=1
+}
+
+installer_target_context_path() {
+  installer_target_context_init || return 1
+  printf '%s\n' "$INSTALLER_TARGET_CONTEXT_ROOT"
+}
+
+# Publication records remain in the installer. They identify only project-owned
+# final files; the final validator must never recursively scan package trees.
+installer_target_ownership_record() (
+  set -eu
+  umask 077
+  ownership_source=$1; ownership_target=$2; ownership_kind=$3; ownership_mode=$4
+  case "$ownership_target" in
+    "${DIR_TMP:-}/installer-"*|"${DIR_TMP:-}/install-"*/*)
+      ownership_kind=template-input ;;
+  esac
+  ownership_phase=${INSTALLER_PHASE:-late-command}
+  case "$ownership_source" in -) ownership_source=generated ;; esac
+  case "$ownership_source:$ownership_phase:$ownership_kind" in
+    *[!A-Za-z0-9_./@+:-]*|'') installer_fatal 'invalid target ownership context'; exit 1 ;;
+  esac
+  case "$ownership_target" in /*) ;; *) installer_fatal 'target ownership path is not absolute'; exit 1 ;; esac
+  case "$ownership_target" in
+    /|*//*|*/../*|*/..|*/./*|*/.|*[!A-Za-z0-9_./@+\ -]*)
+      installer_fatal 'target ownership path is not normalized'; exit 1 ;;
+  esac
+  case "$ownership_mode" in [0-7][0-7][0-7]|0[0-7][0-7][0-7]) ;; *) exit 1 ;; esac
+  ownership_root=${DIR_INSTALLER_TARGET_OWNERSHIP:?installer ownership contract is unavailable}
+  installer_lifecycle_parent_safe "$ownership_root" || installer_fatal 'unsafe target ownership ancestry'
+  [ -d "$ownership_root" ] || mkdir -m 0700 "$ownership_root"
+  [ "$(installer_metadata_value "$ownership_root" uid_gid_mode)" = '0:0:700' ] ||
+    installer_fatal 'target ownership directory is not private'
+  ownership_digest=$(printf '%s' "$ownership_target" | sha256sum) || exit 1
+  ownership_digest=${ownership_digest%% *}
+  case "$ownership_digest" in ''|*[!a-f0-9]*) exit 1 ;; esac
+  [ "${#ownership_digest}" -eq 64 ] || exit 1
+  ownership_final=$ownership_root/$ownership_digest.tsv
+  if [ -e "$ownership_final" ] || [ -L "$ownership_final" ]; then
+    [ -f "$ownership_final" ] && [ ! -L "$ownership_final" ] &&
+      [ "$(installer_metadata_value "$ownership_final" uid_gid_mode_links)" = '0:0:600:1' ] ||
+      installer_fatal 'unsafe target ownership record'
+  fi
+  ownership_work=$(mktemp "$ownership_root/.record.XXXXXX") || exit 1
+  trap 'rm -f -- "$ownership_work"' 0
+  trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  printf '%s\t%s\t%s\t%s\t%s\n' "$ownership_target" "$ownership_source" \
+    "$ownership_kind" "$ownership_phase" "$ownership_mode" >"$ownership_work"
+  chmod 0600 "$ownership_work"
+  mv -fT -- "$ownership_work" "$ownership_final"
+)
+
+installer_target_ownership_forget() (
+  set -eu
+  ownership_digest=$(printf '%s' "$1" | sha256sum) || exit 1
+  ownership_digest=${ownership_digest%% *}
+  case "$ownership_digest" in ''|*[!a-f0-9]*) exit 1 ;; esac
+  [ "${#ownership_digest}" -eq 64 ] || exit 1
+  ownership_root=${DIR_INSTALLER_TARGET_OWNERSHIP:?installer ownership contract is unavailable}
+  installer_lifecycle_parent_safe "$ownership_root" || exit 1
+  rm -f -- "$ownership_root/$ownership_digest.tsv"
+)
+
 installer_primary_default_path() (
   case "$1" in
     "${DIR_ETC_SKEL_DESKTOP}/"*) default_family=desktop; default_relative=${1#"${DIR_ETC_SKEL_DESKTOP}/"} ;;
@@ -53,6 +164,7 @@ installer_stage_account_creation() {
 
 installer_stage_profile_asset() (
   set -eu
+  installer_target_context_init || exit 1
   source_path=$1; target_path=$2; asset_mode=$3
   if command -v installer_operation_context >/dev/null 2>&1; then
     installer_operation_context "$source_path" 1 stage_profile_asset
@@ -105,6 +217,7 @@ installer_stage_profile_asset() (
   installer_capture_primary_default "$output" "$target_path" "$asset_mode"
   installer_apt_safe_path "${TARGET_ROOT}${target_path}" || installer_fatal 'target identity changed before publication'
   chmod "$asset_mode" "$output"
+  installer_target_ownership_record "$source_path" "$target_path" plain "$asset_mode"
   mv -f "$output" "${TARGET_ROOT}${target_path}"
 )
 
@@ -132,6 +245,7 @@ installer_run_target_setup() (
       installer_error 'temporary installer program cleanup failed'
       [ "$setup_status" -ne 0 ] || setup_status=1
     fi
+    installer_target_ownership_forget "$setup_program" || setup_status=1
     exit "$setup_status"
   }
   trap setup_cleanup 0

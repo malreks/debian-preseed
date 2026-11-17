@@ -666,15 +666,23 @@ installer_fetch_seed_path() (
   repository_fetch_status=0
   # The caller owns mandatory/optional policy. Report the original cause here
   # without publishing a terminal failure for a caller-handled fetch result.
-  trap 'repository_fetch_status=$?; trap - 0; if [ -n "$logging_fetch_work" ]; then rm -rf -- "$logging_fetch_work" || :; fi; if [ "$repository_fetch_status" -ne 0 ]; then installer_error "repository asset acquisition failed: status=${repository_fetch_status} step=${repository_fetch_step} source=${repository_fetch_source} destination=${repository_fetch_destination} source_file=${INSTALLER_FAILURE_SOURCE:-unknown} line=${INSTALLER_FAILURE_LINE:-unknown} operation=${INSTALLER_FAILURE_OPERATION:-unknown}" || :; fi; exit "$repository_fetch_status"' 0
+  trap 'repository_fetch_status=$?; trap - 0; if [ -n "$logging_fetch_work" ]; then rm -rf -- "$logging_fetch_work" || :; fi; if [ "$repository_fetch_status" -ne 0 ]; then installer_error "repository asset acquisition failed: status=${repository_fetch_status} step=${repository_fetch_step} suite=${INSTALLER_SUITE:-unknown} profile=${INSTALLER_HOST_PROFILE:-unknown} phase=${INSTALLER_PHASE:-unknown} source=${repository_fetch_source} destination=${repository_fetch_destination} source_file=${INSTALLER_FAILURE_SOURCE:-unknown} line=${INSTALLER_FAILURE_LINE:-unknown} operation=${INSTALLER_FAILURE_OPERATION:-unknown}" || :; fi; exit "$repository_fetch_status"' 0
   if [ -z "$repository_fetch_source" ] || [ -z "$repository_fetch_destination" ]; then
     installer_error 'repository asset source and destination must be nonempty' || :
     exit 64
   fi
-  if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] &&
-     [ "$repository_fetch_seed_base" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
+  repository_fetch_identity=$repository_fetch_seed_base
+  if command -v source_normalize_base >/dev/null 2>&1; then
+    repository_fetch_identity=$(source_normalize_base "$repository_fetch_seed_base") || exit 125
+  fi
+  if [ "${BOOTSTRAP_PREPARED_PRESENT:-0}" = 1 ] ||
+     [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
+    if [ "$repository_fetch_identity" != "${BOOTSTRAP_PREPARED_SEED_BASE:-}" ]; then
+      installer_error "prepared payload identity mismatch; refusing remote fallback: source=${repository_fetch_source} prepared_identity=authenticated-receipt requested_identity=authenticated-request" || :
+      exit 125
+    fi
     installer_repo_assert_asset_family "$repository_fetch_source"
-    bootstrap_copy_prepared_file "$repository_fetch_seed_base" "$repository_fetch_source" \
+    bootstrap_copy_prepared_file "$repository_fetch_identity" "$repository_fetch_source" \
       "$repository_fetch_destination" "$repository_fetch_mode"
     exit "$?"
   fi

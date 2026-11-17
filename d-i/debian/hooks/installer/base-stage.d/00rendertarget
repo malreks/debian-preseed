@@ -24,6 +24,7 @@ installer_fetch_host_env "$seed_base" "$(installer_resolve_host_profile "")" "$h
 installer_load_data_env "$host_env"
 installer_prepare_late_account_env "$seed_base" "$TMP_ENV_DIR/account.env"
 installer_load_data_env "$TMP_ENV_DIR/account.env"
+installer_target_context_init
 bootstrap_source_common_support_libs "$seed_base" "$TMP_ENV_DIR/render-support" fetch target
 stage=${TARGET_ROOT}${DIR_INSTALLER_TARGET_STAGE}
 installer_apt_safe_path "$stage" || installer_fatal 'unsafe target rendering workspace ancestry'
@@ -45,6 +46,15 @@ done
 cp "$runtime/bootstrap/payload.ready" "$work/identity"
 cp "$runtime/bootstrap/payload.manifest" "$work/inputs/payload.manifest"
 cp "$source_root/$(installer_repo_file_value FILE_COMMON_RENDER)" "$work/render.pl"
+# Keep the authenticated placeholder ownership index in installer-only
+# bootstrap state.  finish-install uses it for exact owner/source/phase
+# diagnostics; it is never copied into the installed target.
+placeholder_registry_source="$source_root/$(installer_repo_file_value FILE_COMMON_PLACEHOLDER_REGISTRY)"
+[ -f "$placeholder_registry_source" ] && [ ! -L "$placeholder_registry_source" ] ||
+  installer_fatal 'authenticated payload is missing the placeholder ownership registry'
+install -m 0600 "$placeholder_registry_source" "$runtime/bootstrap/placeholder-registry.tsv"
+install -m 0600 "$source_root/$(installer_repo_file_value FILE_COMMON_TARGET_OWNED_SCAN)" \
+  "$runtime/bootstrap/target-owned-scan.awk"
 installer_runtime_path_placeholder_map >"$work/inputs/paths.map"
 installer_load_logging_helpers "$seed_base"
 installer_validate_logging_data "$seed_base" \
@@ -90,6 +100,9 @@ prepare_run_logged 'payload copied; rendering target assets with base-system Per
   --perl-root "$DIR_PERL5_SITE_PERL" --family "$INSTALLER_HOST_VARIANT" --snapshots "$snapshots" \
   --sha256 "${DIR_USR_BIN}/sha256sum"
 [ -s "$work/receipt.json" ] && [ ! -L "$work/receipt.json" ] || installer_fatal 'target renderer did not produce a receipt'
+while IFS="$(printf '\t')" read -r published_source published_target published_mode published_digest; do
+  installer_target_ownership_record "$published_source" "$published_target" plain "$published_mode"
+done <"$work/inputs/published-assets.tsv"
 mv -T -- "$work" "$stage"
 cp "$stage/identity" "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"
 chmod 0600 "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"

@@ -3,7 +3,11 @@
 # Only the guarded 99reboot sentinel may publish installation.success later.
 set -eu
 runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
-. "$runtime/bootstrap/source.sh"
+[ -f "$runtime/bootstrap/common-lib.sh" ] && [ ! -L "$runtime/bootstrap/common-lib.sh" ] || {
+  printf '%s\n' 'fatal: cached installer common contract is unavailable at finish-install' >&2
+  exit 1
+}
+. "$runtime/bootstrap/common-lib.sh"
 . "$runtime/bootstrap/di.env"
 installer_lifecycle_paths
 [ -r "${DIR_INSTALLER_ENV}/runtime.env" ] || {
@@ -23,19 +27,40 @@ installer_lifecycle_paths
 # shellcheck disable=SC1090,SC1091
 . "${DIR_INSTALLER_ENV}/runtime.env"
 installer_operation_context_repo FILE_INST_FINISH_94ZZ_99_VALIDATE_TARGET 25 finish_install_validate_target
+tmp=
 finish_validate_target_exit() {
   finish_validate_target_status=$?
+  [ -z "$tmp" ] || rm -f -- "$tmp"
+  if [ "$finish_validate_target_status" -ne 0 ]; then
+    installer_record_failure "$finish_validate_target_status" finish-install 'target readiness validation failed' || :
+    installer_preserve_failure || :
+  fi
   if [ "$finish_validate_target_status" -ne 0 ] && command -v installer_error >/dev/null 2>&1; then
     installer_error "finish-install target validation exited with status ${finish_validate_target_status}"
   fi
   exit "$finish_validate_target_status"
 }
 trap finish_validate_target_exit 0
-target=${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}
+target=$(installer_target_context_path)
 target_state="${target}${DIR_VAR_LIB_INSTALLER_STATE}"
-awk -v p="$target" '$2==p {found=1} END {exit !found}' /proc/mounts
+# Reruns must earn readiness again, including after a previous successful scan.
+path=$target_state
+while [ "$path" != / ]; do
+  [ ! -L "$path" ]
+  path=${path%/*}; [ -n "$path" ] || path=/
+done
+rm -f "$LC_STATE/target-validated" "$target_state/target-validated"
 [ -f "$LC_STATE/late.done" ]
 [ ! -e "$LC_STATE/first-failure" ]
+placeholder_registry=${DIR_INSTALLER_RUNTIME}/bootstrap/placeholder-registry.tsv
+[ -f "$placeholder_registry" ] && [ ! -L "$placeholder_registry" ] || {
+  printf '%s\n' 'fatal: authenticated placeholder ownership registry is unavailable' >&2
+  exit 1
+}
+[ "$(installer_metadata_value "$placeholder_registry" uid_gid_mode_links)" = '0:0:600:1' ] || {
+  printf '%s\n' 'fatal: placeholder ownership registry metadata is unsafe' >&2
+  exit 1
+}
 chroot "$target" /bin/sh -eu -c '
 target_etc=$1
 target_boot=$2
@@ -43,7 +68,16 @@ target_lib=$3
 target_usr_local_bin=$4
 target_usr_local_sbin=$5
 target_usr_local_libexec=$6
-shift 6
+target_usr_local_lib=$7
+target_usr_local_share=$8
+target_usr_lib=$9
+target_var_lib_install_state=${10}
+target_firstboot=${11}
+target_perl=${12}
+target_python=${13}
+target_apparmor=${14}
+target_systemd=${15}
+shift 15
 audit=$(dpkg --audit)
 [ -z "$audit" ] || { printf "%s\n" "$audit" >&2; exit 1; }
 test -s "$target_etc/fstab"
@@ -71,22 +105,87 @@ for file in "$target_boot/efi/EFI/debian/shim${suffix}.efi" "$target_boot/efi/EF
   require_signature "$file"
 done
 systemctl --root=/ get-default >/dev/null
-# Only installer-specific placeholders in published configuration/executables.
-# Repository source templates and documentation are intentionally not scanned.
-if grep -rIlE "__INSTALLER_[A-Z0-9_]+__" "$target_etc" "$target_usr_local_bin" "$target_usr_local_sbin" "$target_usr_local_libexec"; then
-  echo "fatal: unresolved installer placeholder published" >&2
-  exit 1
-else
-  result=$?
-  test "$result" -eq 1
-fi
 ' sh \
   "$DIR_ETC" \
   "$DIR_BOOT" \
   "$DIR_LIB" \
   "$DIR_USR_LOCAL_BIN" \
   "$DIR_USR_LOCAL_SBIN" \
-  "$DIR_USR_LOCAL_LIBEXEC"
+  "$DIR_USR_LOCAL_LIBEXEC" \
+  "$DIR_USR_LOCAL_LIB" \
+  "$DIR_USR_LOCAL_SHARE" \
+  "$DIR_USR_LIB" \
+  "$DIR_VAR_LIB_INSTALLER_STATE" \
+  "$DIR_FIRSTBOOT" \
+  "$DIR_PERL5_SITE_PERL" \
+  "$DIR_PYTHON3_SITE_PACKAGES" \
+  "$DIR_APPARMOR" \
+  "$DIR_SYSTEMD_ETC"
+# Scan only files declared at the authenticated publication boundary. Keeping
+# the inventory in private installer state avoids package-tree traversal and
+# prevents installer environment or repository selectors entering the target.
+owned_scan=${DIR_INSTALLER_RUNTIME}/bootstrap/target-owned-scan.awk
+[ -f "$owned_scan" ] && [ ! -L "$owned_scan" ] &&
+  [ "$(installer_metadata_value "$owned_scan" uid_gid_mode_links)" = '0:0:600:1' ] || {
+    printf '%s\n' 'fatal: authenticated target ownership scanner is unavailable' >&2
+    exit 1
+  }
+[ -d "$DIR_INSTALLER_TARGET_OWNERSHIP" ] && [ ! -L "$DIR_INSTALLER_TARGET_OWNERSHIP" ] &&
+  [ "$(installer_metadata_value "$DIR_INSTALLER_TARGET_OWNERSHIP" uid_gid_mode)" = '0:0:700' ] || {
+    printf '%s\n' 'fatal: private target ownership inventory is unavailable' >&2
+    exit 1
+  }
+marker_report=$(mktemp "${DIR_INSTALLER_RUNTIME}/target-marker-scan.XXXXXX")
+owned_inventory=$(mktemp "${DIR_INSTALLER_RUNTIME}/target-owned-files.XXXXXX")
+chmod 0600 "$marker_report" "$owned_inventory"
+owned_count=0
+for owned_record in "$DIR_INSTALLER_TARGET_OWNERSHIP"/*.tsv; do
+  [ -f "$owned_record" ] && [ ! -L "$owned_record" ] &&
+    [ "$(installer_metadata_value "$owned_record" uid_gid_mode_links)" = '0:0:600:1' ] || {
+      printf '%s\n' 'fatal: unsafe or absent target ownership record' >&2
+      exit 1
+    }
+  owned_count=$((owned_count + 1))
+  [ "$owned_count" -le 10000 ] || { printf '%s\n' 'fatal: excessive target ownership records' >&2; exit 1; }
+  while IFS="$(printf '\t')" read -r owned_path owned_source owned_kind owned_phase owned_mode owned_extra; do
+    [ -n "$owned_source" ] && [ -n "$owned_kind" ] && [ -n "$owned_phase" ] &&
+      [ -n "$owned_mode" ] && [ -z "$owned_extra" ] || exit 1
+    case "$owned_path" in /*) ;; *) exit 1 ;; esac
+    case "$owned_path" in /|*//*|*/../*|*/..|*/./*|*/.|*[!A-Za-z0-9_./@+\ -]*) exit 1 ;; esac
+    owned_file=${target}${owned_path}
+    case "$owned_source" in repo.env|hosts/installer/runtime.env|hooks/installer/di.env)
+      printf 'fatal: installer input published into target file=%s source=%s phase=%s\n' "$owned_path" "$owned_source" "$owned_phase" >&2
+      exit 1 ;;
+    esac
+    # Typed consumer scratch inputs may already have been removed. No other
+    # missing publication is accepted as a successfully installed final file.
+    if [ "$owned_kind" = template-input ]; then
+      [ ! -e "$owned_file" ] && [ ! -L "$owned_file" ] || {
+        printf 'fatal: installer consumer input remains in target file=%s source=%s phase=%s\n' "$owned_path" "$owned_source" "$owned_phase" >&2
+        exit 1
+      }
+      continue
+    fi
+    [ -f "$owned_file" ] && [ ! -L "$owned_file" ] &&
+      [ "$(installer_metadata_value "$owned_file" links)" = 1 ] || {
+        printf 'fatal: absent or indirect owned target file=%s source=%s phase=%s\n' "$owned_path" "$owned_source" "$owned_phase" >&2
+        exit 1
+      }
+    owned_real=$(readlink -f -- "$owned_file") || exit 1
+    [ "$owned_real" = "$owned_file" ] || { printf '%s\n' 'fatal: owned target ancestry contains a symlink alias' >&2; exit 1; }
+    case "$owned_real" in "$target"/*) ;; *) printf '%s\n' 'fatal: owned target parent escapes mounted target' >&2; exit 1 ;; esac
+    owned_bytes=$(wc -c <"$owned_file")
+    [ "$owned_bytes" -le 16777216 ] || { printf '%s\n' 'fatal: excessive owned target file size' >&2; exit 1; }
+    printf '%s\t%s\t%s\t%s\t%s\n' "$owned_path" "$owned_source" "$owned_kind" "$owned_phase" "$owned_mode" >>"$owned_inventory"
+  done <"$owned_record"
+done
+if ! LC_ALL=C awk -v registry="$placeholder_registry" -v target_root="$target" \
+    -f "$owned_scan" "$owned_inventory" >"$marker_report"; then
+  cat "$marker_report" >&2
+  printf 'fatal: owned target validation failed; evidence=%s inventory=%s\n' "$marker_report" "$owned_inventory" >&2
+  exit 1
+fi
+rm -f "$marker_report" "$owned_inventory"
 # Do not traverse indirect parents when writing privileged readiness state.
 path=$target_state
 while [ "$path" != / ]; do
@@ -95,7 +194,6 @@ while [ "$path" != / ]; do
 done
 install -d -m 0700 "$target_state"
 tmp=$(mktemp "$target_state/.validated.XXXXXX")
-trap 'finish_validate_target_status=$?; [ -z "${tmp:-}" ] || rm -f "$tmp"; if [ "$finish_validate_target_status" -ne 0 ] && command -v installer_error >/dev/null 2>&1; then installer_error "finish-install target validation exited with status ${finish_validate_target_status}"; fi; exit "$finish_validate_target_status"' 0
 printf 'state=TARGET_VALIDATED\ninstallation_success=not_yet\n' >"$tmp"
 chmod 0600 "$tmp"
 mv "$tmp" "$target_state/target-validated"

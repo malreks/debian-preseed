@@ -821,6 +821,7 @@ apparmor_apply_desktop_state() {
   awk \
     -v selected_state="$desktop_apparmor_state" '
       /^[[:space:]]*(#|$)/ {
+        gsub(/__DESKTOP_APPARMOR_STATE__/, selected_state)
         print
         next
       }
@@ -1846,8 +1847,8 @@ configure_target_stubby() (
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  stage_target_asset "$(installer_repo_file_value FILE_LATE_STUBBY_CONFIG)" \
-    "$stubby_stage/configure.py" 0600
+  stage_target_template_input "$(installer_repo_file_value FILE_LATE_STUBBY_CONFIG)" \
+    "$stubby_stage" configure.py
   stage_target_template_input "$(installer_repo_file_value FILE_TARGET_STUBBY_STUBBY_TMPL)" \
     "$stubby_stage" stubby.yml.tmpl
   app_veth_dns_placeholder_map >"$stubby_stage_host/policy.map"
@@ -1882,6 +1883,8 @@ configure_target_stubby() (
   run_in_target "authenticate DNS certificate identities and configure Stubby" \
     __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "$stubby_stage/configure.py" \
     "$stubby_stage/stubby.yml.tmpl" "$stubby_stage/policy.map" "$stubby_ca_input"
+  installer_target_ownership_record "$(installer_repo_file_value FILE_TARGET_STUBBY_STUBBY_TMPL)" \
+    "${DIR_ETC_STUBBY}/stubby.yml" template 0644
 )
 
 configure_target_app_veth() {

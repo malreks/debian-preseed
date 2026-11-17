@@ -55,7 +55,6 @@ DIR_DATA_PKI=$DIR_DATA_PKI
 DIR_DATA_BACKUP=$DIR_DATA_BACKUP
 DIR_POOL=$DIR_POOL
 DIR_POOL_TMP=$DIR_POOL_TMP
-GITBUILD_DISTRIBUTION=$GITBUILD_DISTRIBUTION
 DIR_POOL_BUILD=$DIR_POOL_BUILD
 DIR_POOL_BUILD_RUNNERS=$DIR_POOL_BUILD_RUNNERS
 DIR_POOL_CACHE=$DIR_POOL_CACHE
@@ -318,10 +317,11 @@ render_target_scalar_placeholders() (
           exit 1
         }
         name = substr(record, 1, separator - 1)
-        if (name !~ /^[A-Z_][A-Z0-9_]*$/) {
+        if (name !~ /^[A-Z][A-Z0-9_]*$/ || name in seen) {
           print "fatal: invalid scalar placeholder name" > "__INSTALLER_PATH_DIR_DEV__/stderr"
           exit 1
         }
+        seen[name] = 1
         value = substr(record, separator + 1)
         values["__INSTALLER_" name "__"] = value
         values["__" name "__"] = value
@@ -330,23 +330,33 @@ render_target_scalar_placeholders() (
       close(map_path)
     }
     {
+      # Parse one exact token at a time.  The first closing __ terminates the
+      # name, so adjacent tokens cannot be merged and no longest-prefix guess
+      # can turn an unknown marker into a different known marker.
       rest = $0
       output = ""
-      while (match(rest, /__/)) {
-        output = output substr(rest, 1, RSTART - 1)
-        rest = substr(rest, RSTART)
-        selected = ""
-        for (token in values)
-          if (index(rest, token) == 1 && length(token) > length(selected)) selected = token
-        if (selected != "") {
-          output = output values[selected]
-          rest = substr(rest, length(selected) + 1)
-        } else {
-          output = output "__"
-          rest = substr(rest, 3)
+      while (length(rest) > 0) {
+        start = index(rest, "__")
+        if (!start) { output = output rest; rest = ""; break }
+        output = output substr(rest, 1, start - 1)
+        rest = substr(rest, start)
+        if (substr(rest, 1, 12) == "__INSTALLER_") {
+          suffix = substr(rest, 13)
+          close = index(suffix, "__")
+          if (close) {
+            name = substr(suffix, 1, close - 1)
+            token = "__INSTALLER_" name "__"
+            if (name ~ /^[A-Z][A-Z0-9_]*$/ && token in values) {
+              output = output values[token]
+              rest = substr(rest, length(token) + 1)
+              continue
+            }
+          }
         }
+        output = output "__"
+        rest = substr(rest, 3)
       }
-      print output rest
+      print output
     }
   ' "$scalar_file" >"$scalar_tmp"; then
     rm -f "$scalar_tmp"

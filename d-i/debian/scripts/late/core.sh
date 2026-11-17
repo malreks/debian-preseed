@@ -44,6 +44,7 @@ late_command_shared_init() {
   bootstrap_source_common_lib "$requested_seed_base" || {
     late_command_bootstrap_fatal "failed to source installer common library"
   }
+  installer_target_context_init || late_command_bootstrap_fatal 'mounted target context is unavailable'
   LOG="$(installer_runtime_log_file)"
   installer_init_log_file "$LOG" "" "${hook_family} late_command" late-command late_command
   installer_operation_context_repo FILE_LATE_CORE 49 late_command_shared_init

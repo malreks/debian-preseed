@@ -8,9 +8,11 @@ from isolation import require_test_isolation
 require_test_isolation()
 
 import hashlib
+import collections
 import json
 import os
 import re
+import resource
 import shlex
 import shutil
 import subprocess
@@ -30,6 +32,25 @@ SELECTORS = {'scripts': 'scripts', 'target': 'assets', 'installer': 'hooks/insta
 class PreparedBootstrapTests(unittest.TestCase):
     """Adoption starts from bootstrap.sh alone, as the supervised late shell does."""
 
+    def prepared_receipt(self, stage, archive, manifest, identity):
+        data = b'fixture\n'
+        (stage / 'source/member').write_bytes(data)
+        index = f'{hashlib.sha256(data).hexdigest()}  member\n'.encode('ascii')
+        (stage / 'inputs/rendered.checksums').write_bytes(index)
+        (stage / 'inputs/rendered.checksums').chmod(0o600)
+        published = b'fixture\n'
+        (stage / 'inputs/published-assets.tsv').write_bytes(published)
+        (stage / 'inputs/published-assets.tsv').chmod(0o600)
+        receipt = {'format': 1, 'members': 1, 'input_bytes': len(data),
+                   'rendered_files': 0, 'rendered_bytes': 0, 'published_perl_files': 1,
+                   'rendered_sha256': 'e' * 64,
+                   'rendered_manifest_sha256': hashlib.sha256(index).hexdigest(),
+                   'published_manifest_sha256': hashlib.sha256(published).hexdigest(),
+                   'source_archive_sha256': archive, 'source_manifest_sha256': manifest,
+                   'source_identity': identity}
+        (stage / 'receipt.json').write_text(json.dumps(receipt, separators=(',', ':')) + '\n', encoding='ascii')
+        (stage / 'receipt.json').chmod(0o600)
+
     def test_fresh_shell_loads_lifecycle_before_prepared_payload_checks(self):
         common = RENDERER.parent
         with tempfile.TemporaryDirectory(prefix='prepared-bootstrap-') as temporary:
@@ -41,10 +62,15 @@ class PreparedBootstrapTests(unittest.TestCase):
             (stage / 'source').mkdir()
             stage.chmod(0o700)
             marker = runtime / 'ready'
-            for path in (marker, stage / 'identity', runtime / 'bootstrap/payload.ready',
-                         stage / 'receipt.json', stage / 'inputs/published-assets.tsv'):
-                path.write_text('fixture\n', encoding='ascii')
+            archive = 'a' * 64
+            manifest = 'b' * 64
+            identity = f'{archive} {manifest} /fixture-seed\n'
+            for path in (marker, stage / 'identity', runtime / 'bootstrap/payload.ready'):
+                path.write_text(identity, encoding='ascii')
                 path.chmod(0o600)
+            self.prepared_receipt(stage, archive, manifest, '/fixture-seed')
+            (stage / 'inputs/published-assets.tsv').write_text('fixture\n', encoding='ascii')
+            (stage / 'inputs/published-assets.tsv').chmod(0o600)
             shells = [['/bin/dash']]
             if shutil.which('busybox'):
                 shells.append([shutil.which('busybox'), 'sh'])
@@ -57,7 +83,7 @@ class PreparedBootstrapTests(unittest.TestCase):
             code = '\n'.join((
                 '. ' + shlex.quote(str(common / 'bootstrap.sh')),
                 'if command -v installer_lifecycle_parent_safe >/dev/null 2>&1; then exit 98; fi',
-                'bootstrap_load_prepared_source /fixture-seed',
+                'bootstrap_load_prepared_source file://localhost/fixture-seed/preseed.cfg?fixture=1',
                 'command -v installer_lifecycle_parent_safe >/dev/null',
                 '[ "$BOOTSTRAP_PREPARED_SOURCE_ROOT" = "$TARGET_ROOT/stage/source" ]',
                 '[ "$BOOTSTRAP_PREPARED_SEED_BASE" = /fixture-seed ]'))
@@ -66,6 +92,101 @@ class PreparedBootstrapTests(unittest.TestCase):
                     result = subprocess.run([*shell, '-eu', '-c', code], env=env,
                                             capture_output=True, timeout=15, check=False)
                     self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+
+    def test_prepared_seed_identity_must_match_authenticated_request(self):
+        common = RENDERER.parent
+        with tempfile.TemporaryDirectory(prefix='prepared-seed-mismatch-') as temporary:
+            root = Path(temporary)
+            runtime = root / 'runtime'
+            stage = root / 'target/stage'
+            (runtime / 'bootstrap').mkdir(parents=True)
+            (stage / 'inputs').mkdir(parents=True)
+            (stage / 'source').mkdir()
+            stage.chmod(0o700)
+            marker = runtime / 'ready'
+            archive = 'c' * 64
+            manifest = 'd' * 64
+            identity = f'{archive} {manifest} /other-seed\n'
+            for path in (marker, stage / 'identity', runtime / 'bootstrap/payload.ready'):
+                path.write_text(identity, encoding='ascii')
+                path.chmod(0o600)
+            self.prepared_receipt(stage, archive, manifest, '/other-seed')
+            (stage / 'inputs/published-assets.tsv').write_text('fixture\n', encoding='ascii')
+            (stage / 'inputs/published-assets.tsv').chmod(0o600)
+            env = {'PATH': '/usr/bin:/bin', 'HOME': str(root), 'TMPDIR': str(root),
+                   'TMP': str(root), 'TEMP': str(root), 'LC_ALL': 'C',
+                   'INSTALLER_SOURCE_LIBRARY': str(common / 'source.sh'),
+                   'INSTALLER_RUNTIME_DIR': str(runtime), 'DIR_INSTALLER_RUNTIME': str(runtime),
+                   'TARGET_ROOT': str(root / 'target'), 'DIR_INSTALLER_TARGET_STAGE': '/stage',
+                   'FILE_INSTALLER_TARGET_RENDER_READY': str(marker)}
+            code = '\n'.join((
+                '. ' + shlex.quote(str(common / 'bootstrap.sh')),
+                'bootstrap_load_prepared_source /fixture-seed'))
+            result = subprocess.run(['/bin/dash', '-eu', '-c', code], env=env,
+                                    capture_output=True, timeout=15, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                b'prepared target payload seed identity differs from authenticated request',
+                result.stderr)
+
+    def test_prepared_mutations_fail_without_fetching_or_replacing_destination(self):
+        common = RENDERER.parent
+        for mutation in ('member', 'symlink', 'hardlink', 'sentinel', 'ready', 'receipt', 'index'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(prefix='prepared-identity-') as temporary:
+                root = Path(temporary)
+                runtime = root / 'runtime'
+                stage = root / 'target/stage'
+                (runtime / 'bootstrap').mkdir(parents=True)
+                (stage / 'inputs').mkdir(parents=True)
+                (stage / 'source').mkdir()
+                stage.chmod(0o700)
+                marker = runtime / 'ready'
+                archive = 'a' * 64
+                manifest = 'b' * 64
+                identity = f'{archive} {manifest} /fixture-seed\n'
+                for path in (marker, stage / 'identity', runtime / 'bootstrap/payload.ready'):
+                    path.write_text(identity, encoding='ascii')
+                    path.chmod(0o600)
+                self.prepared_receipt(stage, archive, manifest, '/fixture-seed')
+                published = stage / 'inputs/published-assets.tsv'
+                published.write_text('fixture\n', encoding='ascii')
+                published.chmod(0o600)
+                if mutation == 'member':
+                    (stage / 'source/member').write_bytes(b'changed\n')
+                elif mutation == 'symlink':
+                    other = root / 'other'
+                    other.write_bytes(b'fixture\n')
+                    (stage / 'source/member').unlink()
+                    (stage / 'source/member').symlink_to(other)
+                elif mutation == 'hardlink':
+                    os.link(stage / 'source/member', root / 'linked')
+                elif mutation == 'sentinel':
+                    (stage / 'source/prepared-sentinel').write_bytes(b'unexpected\n')
+                elif mutation == 'ready':
+                    marker.unlink()
+                elif mutation == 'receipt':
+                    receipt = (stage / 'receipt.json').read_text(encoding='ascii')
+                    (stage / 'receipt.json').write_text(receipt.replace(archive, 'c' * 64), encoding='ascii')
+                else:
+                    (stage / 'inputs/rendered.checksums').write_text('invalid\n', encoding='ascii')
+                destination = root / 'destination'
+                destination.write_bytes(b'previous\n')
+                env = {'PATH': '/usr/bin:/bin', 'HOME': str(root), 'TMPDIR': str(root),
+                       'TMP': str(root), 'TEMP': str(root), 'LC_ALL': 'C',
+                       'INSTALLER_SOURCE_LIBRARY': str(common / 'source.sh'),
+                       'INSTALLER_RUNTIME_DIR': str(runtime), 'DIR_INSTALLER_RUNTIME': str(runtime),
+                       'TARGET_ROOT': str(root / 'target'), 'DIR_INSTALLER_TARGET_STAGE': '/stage',
+                       'FILE_INSTALLER_TARGET_RENDER_READY': str(marker)}
+                code = '\n'.join((
+                    '. ' + shlex.quote(str(common / 'bootstrap.sh')),
+                    'source_fetch() { printf "UNEXPECTED_FETCH\\n" >&2; return 99; }',
+                    'bootstrap_load_prepared_source /fixture-seed',
+                    'bootstrap_copy_prepared_file /fixture-seed member ' + shlex.quote(str(destination))))
+                result = subprocess.run(['/bin/dash', '-eu', '-c', code], env=env,
+                                        capture_output=True, timeout=15, check=False)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn(b'UNEXPECTED_FETCH', result.stderr)
+                self.assertEqual(destination.read_bytes(), b'previous\n')
 
 
 class BatchRenderTests(unittest.TestCase):
@@ -96,13 +217,16 @@ class BatchRenderTests(unittest.TestCase):
             (self.root / ('inputs/' + name + '.map')).write_bytes(
                 b''.join(key + b'=' + value + b'\n' for key, value in (values or {}).items()))
 
-    def run_render(self, *, succeeds=True):
+    def run_render(self, *, succeeds=True, filesize_limit=None):
         argv = ['/usr/bin/perl', '-f', str(RENDERER), str(self.root)]
         options = dict(SELECTORS, **{'perl-root': str(self.destination), 'family': 'desktop',
                                    'snapshots': 'false', 'sha256': '/usr/bin/sha256sum'})
         for key, value in options.items():
             argv += ['--' + key, value]
-        result = subprocess.run(argv, capture_output=True, env=self.env, timeout=30, check=False)
+        def limit_output():
+            resource.setrlimit(resource.RLIMIT_FSIZE, (filesize_limit, filesize_limit))
+        result = subprocess.run(argv, capture_output=True, env=self.env, timeout=30, check=False,
+                                preexec_fn=limit_output if filesize_limit is not None else None)
         self.assertEqual(result.returncode == 0, succeeds, result.stderr.decode(errors='replace'))
         if succeeds:
             return json.loads((self.root / 'receipt.json').read_text(encoding='ascii'))
@@ -132,11 +256,29 @@ class BatchRenderTests(unittest.TestCase):
             'installer_runtime_path_placeholder_map() {', 1)[1].split('\n}\n', 1)[0]
         names = sorted(set(re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", emitter)))
         self.assertIn('GITBUILD_DISTRIBUTION', names)
-        values = {name.encode(): ('/canonical/' + name.lower()).encode() for name in names}
+        values = {
+            name.encode(): (
+                ('profile-' + name.lower().replace('_', '-')).encode()
+                if name.startswith('APPARMOR_PROFILE_')
+                else ('forky' if name == 'GITBUILD_DISTRIBUTION' else
+                      '/canonical/' + name.lower()).encode()
+            )
+            for name in names
+        }
         self.candidate({'assets/all-runtime-fields': b''.join(
             b'__INSTALLER_' + name + b'__' for name in values)}, values)
         self.run_render()
         self.assertEqual((self.source / 'assets/all-runtime-fields').read_bytes(), b''.join(values.values()))
+
+    def test_template_map_does_not_duplicate_canonical_keys(self):
+        canonical = PUBLICATION.read_text(encoding='utf-8').split(
+            'installer_runtime_path_placeholder_map() {', 1)[1].split('\n}', 1)[0]
+        templates = (RENDERER.parents[1] / 'late/templates.sh').read_text(encoding='utf-8').split(
+            'render_target_template_placeholder_map() {', 1)[1].split('\n}', 1)[0]
+        keys = re.findall(r"printf '([A-Z][A-Z0-9_]*)=%s", canonical)
+        keys += re.findall(r'^([A-Z][A-Z0-9_]*)=', templates, re.M)
+        duplicates = [key for key, count in collections.Counter(keys).items() if count != 1]
+        self.assertEqual(duplicates, [])
 
     def assert_gitbuild_assets_rendered(self, suite):
         target = RENDERER.parents[2] / 'hooks/target'
@@ -285,6 +427,25 @@ class BatchRenderTests(unittest.TestCase):
         self.candidate({'scripts/helper': b'__INSTALLER_PATH_UNKNOWN__'})
         self.run_render(succeeds=False)
 
+    def test_failed_output_write_preserves_previous_bytes_and_mode(self):
+        previous = b'__INSTALLER_PATH_A__\n'
+        self.candidate({'assets/config': previous}, {b'PATH_A': b'/' + b'a' * 8192})
+        candidate = self.source / 'assets/config'
+        candidate.chmod(0o755)
+        self.run_render(succeeds=False, filesize_limit=4096)
+        self.assertEqual(candidate.read_bytes(), previous)
+        self.assertEqual(candidate.stat().st_mode & 0o777, 0o755)
+        self.assertFalse(self.destination.exists())
+
+    def test_invalid_provenance_fails_before_rendering_or_target_publication(self):
+        previous = b'__INSTALLER_PATH_A__\n'
+        self.candidate({'assets/config': previous}, {b'PATH_A': b'/etc'})
+        (self.root / 'identity').write_text('invalid identity\n', encoding='ascii')
+        result = self.run_render(succeeds=False)
+        self.assertIn(b'prepared payload identity is malformed', result.stderr)
+        self.assertEqual((self.source / 'assets/config').read_bytes(), previous)
+        self.assertFalse(self.destination.exists())
+
     def test_modified_copy_is_rejected_against_authenticated_manifest(self):
         self.candidate({'assets/data': b'original'})
         (self.source / 'assets/data').write_bytes(b'replaced')
@@ -388,15 +549,20 @@ class TypedPublicationTests(unittest.TestCase):
             'scripts/common/modules/files-logging.sh', 'scripts/common/lifecycle.sh',
             'scripts/late/target-assets.sh', 'scripts/desktop/components/appearance.sh',
             'scripts/late/security.sh')]
+        self.prepare('scripts/common/modules/target-publication.sh')
         self.base = '\n'.join((
             '. "$1"', '. "$2"', '. "$3"', '. "$4"', '. "$5"',
             'TARGET_ROOT=$6; SEED=$7; DIR_TMP=/tmp',
+            'DIR_ETC_STUBBY=/etc/stubby',
+            '. "$SEED/scripts/common/modules/target-publication.sh"',
             'installer_fatal() { printf "%s\\n" "$*" >&2; exit 93; }',
             'installer_fatal_status() { exit "$1"; }',
             'installer_operation_context_repo() { :; }',
             'bootstrap_prepared_asset_published() { return 1; }',
             'target_normalize_systemd_config_parent_modes() { :; }',
             'installer_capture_primary_default() { :; }',
+            'installer_target_ownership_record() { :; }',
+            'installer_mounts_find_record() { [ "$1" = "$TARGET_ROOT" ] || return 1; INSTALLER_MOUNT_POINT=$TARGET_ROOT; }',
             'fetch_hook() { cp "$SEED/$1" "$2"; }'))
 
     def prepare(self, relative):
@@ -442,12 +608,13 @@ class TypedPublicationTests(unittest.TestCase):
         relative = 'hooks/target/usr/local/share/desktop/labwc-appearance/fields.json.tmpl'
         source = self.prepare(relative)
         original = source.read_text(encoding='utf-8')
-        output = self.target / 'fields.json'
+        output = self.target / 'usr/local/share/fields.json'
+        output.parent.mkdir(parents=True)
         for unknown in (False, True):
             with self.subTest(unknown=unknown):
                 source.write_text(original + ('\n__INSTALLER_UNKNOWN_FIELD__\n' if unknown else ''), encoding='utf-8')
                 output.write_text('previous', encoding='ascii')
-                result = self.shell('publish_target_asset "$8" /fields.json 0644 appearance-registry', relative)
+                result = self.shell('publish_target_asset "$8" /usr/local/share/fields.json 0644 appearance-registry', relative)
                 self.assertEqual(result.returncode == 0, not unknown, result.stderr.decode(errors='replace'))
                 if unknown:
                     self.assertEqual(output.read_text(), 'previous')
@@ -455,7 +622,7 @@ class TypedPublicationTests(unittest.TestCase):
                     registry = json.loads(output.read_text(encoding='utf-8'))
                     self.assertGreater(len(registry['fields']), 500)
                     self.assertIn('__INSTALLER_LABWC_WAYBAR_INTERNAL_ACTIVE_SHADOW__', output.read_text())
-                self.assertFalse(list(self.target.glob('.installer-asset.*')))
+                self.assertFalse(list(output.parent.glob('.installer-asset.*')))
 
     def test_actual_stubby_handoff_renders_before_publication_and_retains_previous_output_on_failure(self):
         helper = 'scripts/late/stubby-config.py'
@@ -498,14 +665,25 @@ raise SystemExit(module['main']([str(paths[1]), str(paths[2]), sys.argv[5]]))
             ' "$fixture_python" -I -B "$runner" "$TARGET_ROOT" "$@"; }',
             'configure_target_stubby'))
         output = self.target / 'etc/stubby/stubby.yml'
-        for variant in ('reported-failure', 'rendered', 'unknown-field'):
+        for variant in ('reported-failure', 'rendered', 'unknown-field', 'duplicate-field',
+                        'missing-field', 'duplicate-block', 'unknown-application-field'):
             with self.subTest(variant=variant):
                 helper_path.write_text(helper_source.replace(
-                    "'  __INSTALLER_' + 'SYSTEM_NAMESERVERS_UPSTREAMS__'",
-                    "'  __INSTALLER_SYSTEM_NAMESERVERS_UPSTREAMS__'")
+                    "UPSTREAM_BLOCK_TOKEN = '  __INSTALLER_SYSTEM_NAMESERVERS_UPSTREAMS__'",
+                    "UPSTREAM_BLOCK_TOKEN = '  __INSTALLER_SYSTEM_NAMESERVERS_UPSTREAMS_MISSING__'")
                     if variant == 'reported-failure' else helper_source, encoding='utf-8')
-                input_path.write_text(original + ('\n__INSTALLER_UNKNOWN_FIELD__\n'
-                                                 if variant == 'unknown-field' else ''), encoding='utf-8')
+                template_data = original
+                if variant == 'unknown-field':
+                    template_data += '\n__INSTALLER_UNKNOWN_FIELD__\n'
+                elif variant == 'unknown-application-field':
+                    template_data += '\n__UNKNOWN_APPLICATION_FIELD__\n'
+                elif variant == 'duplicate-field':
+                    template_data += '\n__INSTALLER_APP_VETH_TLS_HOST_PORT__\n'
+                elif variant == 'missing-field':
+                    template_data = template_data.replace('__INSTALLER_APP_VETH_TLS_HOST_PORT__', '53001')
+                elif variant == 'duplicate-block':
+                    template_data += '\n  __INSTALLER_SYSTEM_NAMESERVERS_UPSTREAMS__\n'
+                input_path.write_text(template_data, encoding='utf-8')
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text('previous', encoding='ascii')
                 result = self.shell(code, policy, runner, sys.executable)
@@ -514,7 +692,7 @@ raise SystemExit(module['main']([str(paths[1]), str(paths[2]), sys.argv[5]]))
                     self.assertEqual(output.read_text(), 'previous')
                     self.assertNotIn(b'fixture_tls_authentication=mocked', result.stdout)
                     if variant == 'reported-failure':
-                        self.assertIn(b'has unresolved installer placeholders', result.stderr)
+                        self.assertIn(b'Stubby template requires one upstream block placeholder', result.stderr)
                 else:
                     data = output.read_text(encoding='utf-8')
                     self.assertNotIn('__INSTALLER_', data)
@@ -525,6 +703,32 @@ raise SystemExit(module['main']([str(paths[1]), str(paths[2]), sys.argv[5]]))
 
 class ScalarPublicationTests(unittest.TestCase):
     """The shared copy fast path must recognize canonical non-path fields too."""
+
+    def test_failed_scalar_render_keeps_previous_bytes_mode_and_cleans_stage(self):
+        with tempfile.TemporaryDirectory(prefix='scalar-atomic-') as temporary:
+            root = Path(temporary)
+            source = root / 'source'
+            destination = root / 'output'
+            source.write_text('__INSTALLER_VALUE__', encoding='ascii')
+            destination.write_text('previous', encoding='ascii')
+            destination.chmod(0o751)
+            tools = root / 'tools'
+            tools.mkdir()
+            sed = tools / 'sed'
+            sed.write_text('#!/bin/sh\nif [ "$1" = -f ]; then printf partial; exit 73; fi\n'
+                           'exec /bin/sed "$@"\n', encoding='ascii')
+            sed.chmod(0o755)
+            environment = {'PATH': str(tools) + ':/usr/bin:/bin', 'HOME': str(root),
+                           'TMPDIR': str(root), 'TMP': str(root), 'TEMP': str(root), 'LC_ALL': 'C'}
+            result = subprocess.run(['/bin/dash', '-eu', '-c',
+                                     '. "$1"; installer_fatal() { exit 93; }; '
+                                     'installer_apply_scalar_placeholders "$2" "$3" VALUE rendered',
+                                     'scalar-atomic', str(PUBLICATION), str(source), str(destination)],
+                                    env=environment, capture_output=True, timeout=10, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(destination.read_text(encoding='ascii'), 'previous')
+            self.assertEqual(destination.stat().st_mode & 0o777, 0o751)
+            self.assertEqual(list(root.glob('.installer-scalars.*')), [])
 
     def test_suite_only_input_and_suite_in_scalar_value_render_in_dash_and_busybox(self):
         shells = [['/bin/dash']]
@@ -576,15 +780,17 @@ class ScalarPublicationTests(unittest.TestCase):
             env = {'PATH': '/usr/bin:/bin', 'HOME': str(root), 'TMPDIR': str(root),
                    'TMP': str(root), 'TEMP': str(root), 'LC_ALL': 'C'}
             code = '\n'.join((
-                '. "$1"', '. "$2"', 'TARGET_ROOT=$3', 'GITBUILD_DISTRIBUTION=forky',
+                '. "$1"', '. "$2"', '. "$5"', 'TARGET_ROOT=$3', 'GITBUILD_DISTRIBUTION=forky',
                 'installer_fatal() { printf "%s\\n" "$*" >&2; exit 93; }',
                 'installer_fatal_status() { exit "$1"; }',
                 'installer_operation_context_repo() { :; }',
                 'bootstrap_prepared_asset_published() { return 1; }',
+                'installer_target_context_init() { :; }',
                 'target_asset_host_path() { printf "%s%s\\n" "$TARGET_ROOT" "$1"; }',
                 'ensure_target_asset_parent() { [ "$1" = /output ]; }',
                 'fetch_hook() { cp "$1" "$2"; }',
                 'installer_capture_primary_default() { :; }',
+                'installer_target_ownership_record() { :; }',
                 'publish_target_asset "$4" /output 0644 plain'))
             for token, expected_status, expected_output in (
                     ('__INSTALLER_UNKNOWN_SCALAR__', 93, 'original'),
@@ -594,7 +800,8 @@ class ScalarPublicationTests(unittest.TestCase):
                     output.write_text('original', encoding='ascii')
                     result = subprocess.run(
                         ['/bin/dash', '-eu', '-c', code, 'plain-publication-fixture',
-                         str(PUBLICATION), str(publication), str(target), str(source)],
+                         str(PUBLICATION), str(publication), str(target), str(source),
+                         str(RENDERER.parent / 'modules/target-publication.sh')],
                         env=env, capture_output=True, timeout=10, check=False)
                     self.assertEqual(result.returncode, expected_status, result.stderr.decode(errors='replace'))
                     self.assertEqual(output.read_text(encoding='ascii'), expected_output)

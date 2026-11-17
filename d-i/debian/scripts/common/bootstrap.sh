@@ -134,6 +134,7 @@ DIR_INSTALLER_ENV
 DIR_INSTALLER_LATE_ENV
 DIR_INSTALLER_PRE_PKGSEL_ENV
 DIR_INSTALLER_RUNTIME_STATE
+DIR_INSTALLER_TARGET_OWNERSHIP
 DIR_INSTALLER_BIN
 DIR_INSTALLER_SBIN
 DIR_INSTALLER_USR
@@ -295,11 +296,19 @@ bootstrap_ensure_repo_env() {
 bootstrap_load_prepared_source() {
   BOOTSTRAP_PREPARED_SOURCE_ROOT=
   BOOTSTRAP_PREPARED_SEED_BASE=
+  BOOTSTRAP_PREPARED_ARCHIVE_SHA256=
   BOOTSTRAP_PREPARED_PUBLISHED_ASSETS=
+  BOOTSTRAP_PREPARED_PRESENT=0
   [ -n "${FILE_INSTALLER_TARGET_RENDER_READY:-}" ] || return 0
   if [ ! -e "$FILE_INSTALLER_TARGET_RENDER_READY" ] && [ ! -L "$FILE_INSTALLER_TARGET_RENDER_READY" ]; then
+    bootstrap_prepared_stage_probe=${TARGET_ROOT}${DIR_INSTALLER_TARGET_STAGE:-}
+    if [ -n "${DIR_INSTALLER_TARGET_STAGE:-}" ] &&
+       { [ -e "$bootstrap_prepared_stage_probe" ] || [ -L "$bootstrap_prepared_stage_probe" ]; }; then
+      bootstrap_fatal 'prepared target payload exists without its ready marker'
+    fi
     return 0
   fi
+  BOOTSTRAP_PREPARED_PRESENT=1
   # Fresh phase runners can reach this before common-lib.sh loads lifecycle.
   # Fetch helpers run in subshells; load the cached transport (which embeds
   # lifecycle) here so its ancestry and metadata helpers exist in this shell.
@@ -308,6 +317,7 @@ bootstrap_load_prepared_source() {
   installer_lifecycle_parent_safe "$bootstrap_prepared_stage" || bootstrap_fatal 'unsafe prepared target payload ancestry'
   for bootstrap_prepared_file in "$FILE_INSTALLER_TARGET_RENDER_READY" \
       "$bootstrap_prepared_stage/identity" "$bootstrap_prepared_stage/receipt.json" \
+      "$bootstrap_prepared_stage/inputs/rendered.checksums" \
       "$bootstrap_prepared_stage/inputs/published-assets.tsv"; do
     [ -f "$bootstrap_prepared_file" ] && [ ! -L "$bootstrap_prepared_file" ] ||
       bootstrap_fatal 'prepared target payload is incomplete or indirect'
@@ -319,35 +329,106 @@ bootstrap_load_prepared_source() {
   cmp -s "$FILE_INSTALLER_TARGET_RENDER_READY" "$bootstrap_prepared_stage/identity" &&
     cmp -s "$FILE_INSTALLER_TARGET_RENDER_READY" "${DIR_INSTALLER_RUNTIME}/bootstrap/payload.ready" ||
     bootstrap_fatal 'prepared target payload belongs to a different authenticated source'
+  IFS=' ' read -r bootstrap_identity_archive bootstrap_identity_manifest bootstrap_identity_base \
+    <"$bootstrap_prepared_stage/identity" ||
+    bootstrap_fatal 'prepared target payload identity cannot be parsed'
+  case "$bootstrap_identity_archive" in ''|*[!a-f0-9]*) bootstrap_fatal 'prepared target payload archive identity has invalid digest' ;; esac
+  case "$bootstrap_identity_manifest" in ''|*[!a-f0-9]*) bootstrap_fatal 'prepared target payload manifest identity has invalid digest' ;; esac
+  [ "${#bootstrap_identity_archive}" -eq 64 ] && [ "${#bootstrap_identity_manifest}" -eq 64 ] ||
+    bootstrap_fatal 'prepared target payload identity digest length is invalid'
+  [ "$(wc -l <"$bootstrap_prepared_stage/receipt.json")" -eq 1 ] &&
+    [ "$(wc -c <"$bootstrap_prepared_stage/receipt.json")" -le 16384 ] &&
+    LC_ALL=C grep -Eq '^\{"format":1,"members":[1-9][0-9]{0,4},"input_bytes":[0-9]{1,9},"rendered_files":[0-9]{1,5},"rendered_bytes":[0-9]{1,9},"published_perl_files":[1-9][0-9]{0,4},"rendered_sha256":"[a-f0-9]{64}","rendered_manifest_sha256":"[a-f0-9]{64}","published_manifest_sha256":"[a-f0-9]{64}","source_archive_sha256":"[a-f0-9]{64}","source_manifest_sha256":"[a-f0-9]{64}","source_identity":"[A-Za-z0-9:/._+?%#@ -]+"\}$' "$bootstrap_prepared_stage/receipt.json" ||
+    bootstrap_fatal 'prepared target receipt schema is invalid'
+  grep -Fqx "\"source_archive_sha256\":\"$bootstrap_identity_archive\"" \
+    "$bootstrap_prepared_stage/receipt.json" 2>/dev/null ||
+    grep -Fq "\"source_archive_sha256\":\"$bootstrap_identity_archive\"" \
+      "$bootstrap_prepared_stage/receipt.json" ||
+    bootstrap_fatal 'prepared target receipt archive identity mismatch'
+  grep -Fq "\"source_manifest_sha256\":\"$bootstrap_identity_manifest\"" \
+    "$bootstrap_prepared_stage/receipt.json" ||
+    bootstrap_fatal 'prepared target receipt manifest identity mismatch'
+  grep -Fq "\"source_identity\":\"$bootstrap_identity_base\"" \
+    "$bootstrap_prepared_stage/receipt.json" ||
+    bootstrap_fatal 'prepared target receipt seed identity mismatch'
   BOOTSTRAP_PREPARED_SOURCE_ROOT=$bootstrap_prepared_stage/source
-  BOOTSTRAP_PREPARED_SEED_BASE=$1
+  if command -v source_normalize_base >/dev/null 2>&1; then
+    bootstrap_requested_identity=$(source_normalize_base "$1") ||
+      bootstrap_fatal 'prepared target payload seed identity is not canonical'
+  else
+    bootstrap_requested_identity=$1
+  fi
+  [ "$bootstrap_identity_base" = "$bootstrap_requested_identity" ] ||
+    bootstrap_fatal 'prepared target payload seed identity differs from authenticated request'
+  bootstrap_rendered_expected=$(sed -n 's/.*"rendered_manifest_sha256":"\([a-f0-9]\{64\}\)".*/\1/p' \
+    "$bootstrap_prepared_stage/receipt.json") || return "$?"
+  bootstrap_rendered_actual=$(sha256sum "$bootstrap_prepared_stage/inputs/rendered.checksums") || return "$?"
+  [ "${bootstrap_rendered_actual%% *}" = "$bootstrap_rendered_expected" ] ||
+    bootstrap_fatal 'prepared rendered member index differs from its receipt'
+  bootstrap_published_expected=$(sed -n 's/.*"published_manifest_sha256":"\([a-f0-9]\{64\}\)".*/\1/p' \
+    "$bootstrap_prepared_stage/receipt.json") || return "$?"
+  bootstrap_published_actual=$(sha256sum "$bootstrap_prepared_stage/inputs/published-assets.tsv") || return "$?"
+  [ "${bootstrap_published_actual%% *}" = "$bootstrap_published_expected" ] ||
+    bootstrap_fatal 'prepared published member index differs from its receipt'
+  bootstrap_expected_members=$(sed -n 's/.*"members":\([0-9]*\),.*/\1/p' "$bootstrap_prepared_stage/receipt.json")
+  # One bounded metadata walk rejects extra files, links, unsafe ownership and
+  # writable members. Parse only fixed numeric ls columns, never filenames.
+  (LC_ALL=C ls -lnR -- "$BOOTSTRAP_PREPARED_SOURCE_ROOT"; printf '\nSCAN_STATUS=%s\n' "$?") |
+    LC_ALL=C awk -v expected="$bootstrap_expected_members" '
+      /^SCAN_STATUS=/ { if ($0 != "SCAN_STATUS=0") bad=1; completed++; next }
+      /^[[:space:]]*$/ || /^total [0-9]+$/ || /^\// { next }
+      {
+        if (++entries > 20000 || length($1) < 10 || $3 != 0 || $4 != 0 ||
+            substr($1,6,1) == "w" || substr($1,9,1) == "w") bad=1
+        if (substr($1,1,1) == "-") {
+          if ($2 != 1 || ++members > 10000) bad=1
+        } else if (substr($1,1,1) != "d") bad=1
+      }
+      END { exit bad || completed != 1 || members != expected }
+    ' || bootstrap_fatal 'prepared source inventory or member metadata differs from its receipt'
+  (cd "$BOOTSTRAP_PREPARED_SOURCE_ROOT" && sha256sum -c \
+    "$bootstrap_prepared_stage/inputs/rendered.checksums" >/dev/null 2>&1) ||
+    bootstrap_fatal 'prepared source member digest differs from the rendered receipt'
+  BOOTSTRAP_PREPARED_SEED_BASE=$bootstrap_requested_identity
+  BOOTSTRAP_PREPARED_ARCHIVE_SHA256=$bootstrap_identity_archive
   BOOTSTRAP_PREPARED_PUBLISHED_ASSETS=$(cat "$bootstrap_prepared_stage/inputs/published-assets.tsv") || return "$?"
 }
 
-# Complete namespaces were published before late_command. The private receipt
-# binds source, destination and mode, so later owners can adopt them without
-# repeating directory walks, copying and rendering each module. A removed file
-# takes the normal publication path; do not claim an absent delegate is ready.
+# Complete namespaces were published before late_command. The receipt binds
+# source, destination, mode and digest; a declared member cannot silently fall
+# back to another acquisition/publication path when its identity changes.
 bootstrap_prepared_asset_published() {
   [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || return 1
-  [ -f "${TARGET_ROOT}$2" ] && [ ! -L "${TARGET_ROOT}$2" ] || return 1
   case "$3" in 644|0644) ;; *) return 1 ;; esac
-  bootstrap_published_row=$(printf '%s\t%s\t0644' "$1" "$2")
+  bootstrap_published_prefix=$(printf '%s\t%s\t0644\t' "$1" "$2")
   case "
 $BOOTSTRAP_PREPARED_PUBLISHED_ASSETS
-" in
-    *"
+" in *"
+$bootstrap_published_prefix"*) ;; *) return 1 ;; esac
+  [ -f "${TARGET_ROOT}$2" ] && [ ! -L "${TARGET_ROOT}$2" ] ||
+    bootstrap_fatal 'published prepared Perl member is missing or indirect'
+  [ "$(installer_metadata_value "${TARGET_ROOT}$2" uid_gid_mode_links)" = 0:0:644:1 ] ||
+    bootstrap_fatal 'published prepared Perl member metadata changed'
+  bootstrap_published_digest=$(sha256sum "${TARGET_ROOT}$2") || return "$?"
+  bootstrap_published_digest=${bootstrap_published_digest%% *}
+  bootstrap_published_row=$(printf '%s\t%s\t0644\t%s' "$1" "$2" "$bootstrap_published_digest")
+  case "
+$BOOTSTRAP_PREPARED_PUBLISHED_ASSETS
+" in *"
 $bootstrap_published_row
-"*) return 0 ;;
-  esac
-  return 1
+"*) return 0 ;; esac
+  bootstrap_fatal 'published prepared Perl member digest changed'
 }
 
 bootstrap_copy_prepared_file() (
   set -eu
   umask 077
-  [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] &&
-    [ "$1" = "$BOOTSTRAP_PREPARED_SEED_BASE" ] || exit 125
+  [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || exit 125
+  prepared_requested_seed=$1
+  if command -v source_normalize_base >/dev/null 2>&1; then
+    prepared_requested_seed=$(source_normalize_base "$prepared_requested_seed") || exit 125
+  fi
+  [ "$prepared_requested_seed" = "$BOOTSTRAP_PREPARED_SEED_BASE" ] || exit 125
   prepared_relative=$2; prepared_destination=$3; prepared_mode=${4:-0600}
   source_validate_relative "$prepared_relative" || exit 1
   case "$prepared_mode" in [0-7][0-7][0-7]|0[0-7][0-7][0-7]) ;; *) exit 1 ;; esac
@@ -363,6 +444,17 @@ bootstrap_copy_prepared_file() (
   [ -f "$prepared_source" ] && [ ! -L "$prepared_source" ] || {
     bootstrap_log "fatal: file absent from prepared target payload: $prepared_relative"; exit 1;
   }
+  installer_lifecycle_parent_safe "${prepared_source%/*}" || exit 1
+  [ "$(installer_metadata_value "$prepared_source" links)" = 1 ] || {
+    bootstrap_log 'fatal: prepared target member is hardlinked'; exit 1;
+  }
+  prepared_member=${prepared_source#"$BOOTSTRAP_PREPARED_SOURCE_ROOT/"}
+  prepared_digest=$(awk -v member="$prepared_member" '
+    substr($0,67) == member { digest=substr($0,1,64); count++ }
+    END { if (count != 1 || length(digest) != 64 || digest !~ /^[a-f0-9]+$/) exit 1; print digest }
+  ' "${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/rendered.checksums") || {
+    bootstrap_log 'fatal: prepared target member has no unique rendered digest'; exit 1;
+  }
   case "$prepared_destination" in
     "$BOOTSTRAP_PREPARED_SOURCE_ROOT"|"$BOOTSTRAP_PREPARED_SOURCE_ROOT/"*)
       bootstrap_log 'fatal: prepared target source is immutable'; exit 1 ;;
@@ -374,6 +466,10 @@ bootstrap_copy_prepared_file() (
   trap 'rm -f -- "$prepared_temporary"' 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   cat "$prepared_source" >"$prepared_temporary"
+  prepared_actual=$(sha256sum "$prepared_temporary") || exit 1
+  [ "${prepared_actual%% *}" = "$prepared_digest" ] || {
+    bootstrap_log 'fatal: prepared target member digest changed before publication'; exit 1;
+  }
   chmod "$prepared_mode" "$prepared_temporary"
   mv -fT -- "$prepared_temporary" "$prepared_destination"
 )

@@ -127,6 +127,38 @@ installer_replace_placeholder_in_file() {
   mv "$installer_placeholder_tmp" "$installer_placeholder_file"
 }
 
+installer_validate_placeholder_map() {
+  installer_placeholder_map=$1
+  [ -f "$installer_placeholder_map" ] && [ ! -L "$installer_placeholder_map" ] || return 1
+  # Map rows are data, not shell assignments.  Reject duplicate names before
+  # any renderer consumes them, and validate the canonical path namespaces
+  # before a value can enter a target file or executable.
+  LC_ALL=C awk '
+    # /dev/stderr is the immutable BusyBox/POSIX diagnostic interface; this
+    # validator runs before the target path map is available.
+    function invalid(message) { print "fatal: " message > "/dev/stderr"; status = 1 }
+    {
+      separator = index($0, "=")
+      if (separator < 2) { invalid("malformed placeholder map row"); next }
+      name = substr($0, 1, separator - 1)
+      value = substr($0, separator + 1)
+      if (name !~ /^[A-Z][A-Z0-9_]*$/) invalid("invalid placeholder map key")
+      if (name in seen) invalid("duplicate placeholder map key: " name)
+      seen[name] = 1
+      if (value == "" || value ~ /[\r\n]/) invalid("empty or multiline placeholder map value: " name)
+      if (name ~ /^PATH_(DIR_|FILE_)/) {
+        if (value !~ /^\// || value ~ /[^A-Za-z0-9_./@+ -]/ || value ~ /(^|\/)\.\.?($|\/)|\/\// || (value != "/" && value ~ /\/$/))
+          invalid("non-normalized path placeholder value: " name)
+      } else if (name ~ /^APPARMOR_PROFILE_/) {
+        if (value !~ /^[A-Za-z0-9_.-]+$/) invalid("invalid AppArmor profile value: " name)
+      } else if (name == "GITBUILD_DISTRIBUTION") {
+        if (value !~ /^[a-z][a-z0-9.-]*$/) invalid("invalid distribution value")
+      }
+    }
+    END { exit status }
+  ' "$installer_placeholder_map"
+}
+
 installer_runtime_path_placeholder_map() {
   [ -n "${DIR_APT_STATE:-}" ] && printf 'PATH_DIR_APT_STATE=%s\n' "$DIR_APT_STATE"
   # Emit only validated, non-empty values. Missing values leave their token
@@ -871,10 +903,30 @@ installer_runtime_path_placeholder_map() {
   return 0
 }
 
-installer_apply_scalar_placeholders() {
+installer_apply_scalar_placeholders() (
+  set -eu
+  umask 077
   installer_placeholder_src=$1
-  installer_placeholder_dest=$2
-  installer_placeholder_script="${installer_placeholder_dest}.sed.$$"
+  installer_placeholder_final=$2
+  [ -f "$installer_placeholder_src" ] && [ ! -L "$installer_placeholder_src" ] || return 1
+  installer_placeholder_parent=${installer_placeholder_final%/*}
+  [ "$installer_placeholder_parent" != "$installer_placeholder_final" ] || installer_placeholder_parent=.
+  [ -d "$installer_placeholder_parent" ] && [ ! -L "$installer_placeholder_parent" ] || return 1
+  installer_placeholder_work=$(mktemp -d "$installer_placeholder_parent/.installer-scalars.XXXXXX") || return 1
+  trap 'rm -rf -- "$installer_placeholder_work"' 0
+  trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  installer_placeholder_dest=$installer_placeholder_work/payload
+  if [ -e "$installer_placeholder_final" ] || [ -L "$installer_placeholder_final" ]; then
+    [ -f "$installer_placeholder_final" ] && [ ! -L "$installer_placeholder_final" ] || return 1
+    installer_placeholder_listing=$(LC_ALL=C ls -ln -- "$installer_placeholder_final") || return 1
+    IFS=' ' read -r installer_placeholder_permissions installer_placeholder_links installer_placeholder_rest <<EOF
+$installer_placeholder_listing
+EOF
+    [ "$installer_placeholder_links" = 1 ] || return 1
+    # Preserve candidate metadata; publish only after a complete render.
+    cp -p -- "$installer_placeholder_final" "$installer_placeholder_dest" || return 1
+  fi
+  installer_placeholder_script="$installer_placeholder_work/replacements.sed"
   installer_path_placeholder_map="${installer_placeholder_script}.paths"
   shift 2
 
@@ -890,19 +942,33 @@ installer_apply_scalar_placeholders() {
     [ "$installer_placeholder_probe" -eq 1 ] || return "$installer_placeholder_probe"
   fi
   if [ "$#" -eq 0 ] && [ "$installer_placeholder_needs_paths" = false ]; then
-    cat "$installer_placeholder_src" >"$installer_placeholder_dest"
-    return "$?"
+    cat "$installer_placeholder_src" >"$installer_placeholder_dest" || return 1
+    mv -fT -- "$installer_placeholder_dest" "$installer_placeholder_final"
+    return
   fi
   : >"$installer_placeholder_script" || {
     rm -f "$installer_placeholder_script"
     return 1
   }
+  installer_placeholder_seen=
   while [ "$#" -gt 1 ]; do
     installer_placeholder_name=$1
     installer_placeholder_value=$2
     shift 2
     case "$installer_placeholder_name" in
       ''|*[!A-Z0-9_]*) installer_fatal 'invalid scalar placeholder name' ;;
+    esac
+    case "$installer_placeholder_name" in
+      [A-Z]*) ;; *) installer_fatal 'scalar placeholder name must start with a letter' ;;
+    esac
+    case "$installer_placeholder_value" in
+      *"
+"*|*"$(printf '\r')"*) installer_fatal 'scalar placeholder value must be a single line' ;;
+    esac
+    case " $installer_placeholder_seen " in
+      *" $installer_placeholder_name "*)
+        installer_fatal "duplicate scalar placeholder key: $installer_placeholder_name" ;;
+      *) installer_placeholder_seen="${installer_placeholder_seen:+$installer_placeholder_seen }$installer_placeholder_name" ;;
     esac
     case "$installer_placeholder_value" in
       # Keep prefix probes incomplete so the early batch cannot render the
@@ -925,10 +991,15 @@ installer_apply_scalar_placeholders() {
     rm -f "$installer_placeholder_script" "$installer_path_placeholder_map"
     return 1
   fi
+  installer_validate_placeholder_map "$installer_path_placeholder_map" || {
+    rm -f "$installer_placeholder_script" "$installer_path_placeholder_map"
+    return 1
+  }
   # The canonical path map is single-line NAME=value data. Escape all of it
   # in one process, rather than launching sed for every path on every asset.
   # Keep the same sed renderer and scalar/block replacement semantics.
-  if ! LC_ALL=C awk '
+  if ! LC_ALL=C awk -v scalar_names="$installer_placeholder_seen" '
+    BEGIN { count = split(scalar_names, names, " "); for (i = 1; i <= count; i++) seen[names[i]] = 1 }
     function replacement(value, output, position, character) {
       output = ""
       for (position = 1; position <= length(value); position++) {
@@ -942,6 +1013,8 @@ installer_apply_scalar_placeholders() {
       separator = index($0, "=")
       name = substr($0, 1, separator - 1)
       if (separator < 2 || name !~ /^[A-Z][A-Z0-9_]*$/) exit 1
+      if (name in seen) exit 1
+      seen[name] = 1
       print "s|__INSTALLER_" name "__|" replacement(substr($0, separator + 1)) "|g"
     }
   ' "$installer_path_placeholder_map" >>"$installer_placeholder_script"; then
@@ -954,7 +1027,9 @@ installer_apply_scalar_placeholders() {
     return 1
   }
   rm -f "$installer_placeholder_script"
-}
+  [ ! -L "$installer_placeholder_parent" ] && [ ! -L "$installer_placeholder_final" ] || return 1
+  mv -fT -- "$installer_placeholder_dest" "$installer_placeholder_final"
+)
 
 installer_copy_path_with_mode() (
   umask 077

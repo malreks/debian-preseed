@@ -4,8 +4,8 @@
 use strict;
 use warnings;
 use bytes;
-use Fcntl qw(O_RDONLY O_WRONLY O_CREAT O_EXCL O_TRUNC O_NOFOLLOW O_NONBLOCK :mode);
-use File::Temp qw(tempdir);
+use Fcntl qw(O_RDONLY O_WRONLY O_CREAT O_EXCL O_NOFOLLOW O_NONBLOCK :mode);
+use File::Temp qw(tempdir tempfile);
 use IPC::Open2 qw(open2);
 use Cwd qw(getcwd);
 
@@ -67,15 +67,55 @@ sub read_regular {
 }
 sub write_file {
     my ($path, $data, $replace, $mode) = @_;
+    length($data) <= FILE_LIMIT or fail('render output exceeds byte limit');
+    my @before;
     if ($replace) {
-        my @info = lstat($path);
-        regular_metadata(\@info, FILE_LIMIT);
+        @before = lstat($path);
+        regular_metadata(\@before, FILE_LIMIT);
+        $mode //= $before[2] & 0777;
+    } else {
+        !lstat($path) or fail('refusing to replace existing render output');
     }
-    my $flags = O_WRONLY | O_NOFOLLOW | ($replace ? O_TRUNC : O_CREAT | O_EXCL);
-    sysopen(my $stream, $path, $flags, $mode // 0600) or fail('cannot open render output');
-    binmode($stream) or fail('cannot write render output as bytes');
-    print {$stream} $data or fail('cannot write render output');
-    close($stream) or fail('cannot close render output');
+    # A write failure or interruption must leave the previous candidate bytes
+    # intact. Stage beside the destination, then recheck identities before the
+    # single rename. New files use an exclusive link to avoid an overwrite race.
+    my $parent = parent_path($path);
+    directory($parent, 0, 0);
+    my @parent_before = lstat($parent);
+    my ($stream, $temporary) = tempfile('.render-XXXXXX', DIR => $parent, UNLINK => 0);
+    my $error;
+    eval {
+        binmode($stream) or fail('cannot write render output as bytes');
+        my $offset = 0;
+        while ($offset < length($data)) {
+            my $count = syswrite($stream, $data, length($data) - $offset, $offset);
+            defined($count) && $count > 0 or fail('cannot write render output');
+            $offset += $count;
+        }
+        chmod($mode // 0600, $stream) == 1 or fail('cannot set render output mode');
+        close($stream) or fail('cannot close render output');
+        directory($parent, 0, 0);
+        my @parent_after = lstat($parent);
+        for my $index (0, 1, 2, 4, 5) {
+            $parent_before[$index] == $parent_after[$index]
+                or fail('render output parent identity changed');
+        }
+        if ($replace) {
+            my @after = lstat($path);
+            regular_metadata(\@after, FILE_LIMIT);
+            same_metadata(\@before, \@after);
+            rename($temporary, $path) or fail('cannot publish render output');
+        } else {
+            link($temporary, $path) or fail('cannot publish exclusive render output');
+            unlink($temporary) == 1 or fail('cannot remove linked render output stage');
+        }
+        1;
+    } or $error = $@ || "unknown output publication failure\n";
+    if (defined($error)) {
+        close($stream) if defined(fileno($stream));
+        unlink($temporary) or fail('cannot remove failed render output stage') if -e $temporary;
+        die $error;
+    }
 }
 sub value_map {
     my ($path) = @_;
@@ -84,6 +124,16 @@ sub value_map {
         $line =~ /\A([A-Z][A-Z0-9_]*)=([^\0\r]*)\z/ or fail('malformed render-map row');
         my ($key, $value) = ($1, $2);
         !exists($values{$key}) or fail('duplicate render-map key');
+        if ($key =~ /\APATH_(?:DIR_|FILE_)/) {
+            length($value) && $value =~ m{\A/[A-Za-z0-9_./@+ -]*\z}
+                && ($value eq '/' || $value !~ m{/$})
+                && $value !~ m{(?:\A|/)(?:\.|\.\.)(?:/|\z)|//}
+                or fail('invalid normalized path render-map value');
+        } elsif ($key =~ /\AAPPARMOR_PROFILE_/) {
+            $value =~ /\A[A-Za-z0-9_.-]+\z/ or fail('invalid AppArmor profile render-map value');
+        } elsif ($key eq 'GITBUILD_DISTRIBUTION') {
+            $value =~ /\A[a-z][a-z0-9.-]*\z/ or fail('invalid distribution render-map value');
+        }
         $values{$key} = $value;
     }
     return \%values;
@@ -207,6 +257,38 @@ sub has_prefix {
     for my $prefix (@prefixes) { return 1 if index($member, "$prefix/") == 0; }
     return 0;
 }
+sub file_hashes {
+    my ($paths, $command) = @_;
+    my %digests;
+    # Bounded argv batches reuse the existing member inventory. No recursive
+    # discovery and no one-process-per-member hashing are needed.
+    for (my $offset = 0; $offset < @$paths; $offset += 128) {
+        my $last = $offset + 127 < $#$paths ? $offset + 127 : $#$paths;
+        my @batch = @{$paths}[$offset .. $last];
+        my %before;
+        for my $path (@batch) {
+            my @info = lstat($path);
+            regular_metadata(\@info, FILE_LIMIT);
+            $before{$path} = \@info;
+        }
+        open(my $stream, '-|', $command, '--binary', '--', @batch)
+            or fail('cannot start member digest command');
+        binmode($stream) or fail('cannot read member digest bytes');
+        my $count = 0;
+        while (my $line = <$stream>) {
+            length($line) <= 8192 && $line =~ /\A([a-f0-9]{64}) \*(.+)\n\z/
+                or fail('invalid member digest output');
+            my ($digest, $path) = ($1, $2);
+            exists($before{$path}) && !exists($digests{$path}) && ++$count <= @batch
+                or fail('unexpected or duplicate member digest');
+            my @after = lstat($path);
+            same_metadata($before{$path}, \@after);
+            $digests{$path} = $digest;
+        }
+        close($stream) && $count == @batch or fail('member digest command failed');
+    }
+    return \%digests;
+}
 sub render_tree {
     my ($root, $options) = @_;
     directory($root, 0, 1);
@@ -281,8 +363,17 @@ sub render_tree {
     $input_closed && $output_closed && $hash_waited == $hash_pid && $hash_status == 0
         or fail('render fingerprint command failed');
     $digest_line =~ /\A([a-f0-9]{64}) [ *]-\n\z/ or fail('invalid render fingerprint');
+    my $rendered_digest = $1;
+    my $digests = file_hashes($files, $options->{'sha256'});
+    my $rendered_checksums = join '', map {
+        $digests->{$_} . '  ' . relative(substr($_, length($source) + 1)) . "\n"
+    } sort @$files;
+    my $index = "$root/inputs/rendered.checksums";
+    write_file($index, $rendered_checksums, 0, 0600);
+    my $index_digest = file_hashes([$index], $options->{'sha256'})->{$index};
     return {format => 1, members => scalar(@$files), input_bytes => $total,
-            rendered_files => $rendered_count, rendered_bytes => $rendered_bytes, rendered_sha256 => $1};
+            rendered_files => $rendered_count, rendered_bytes => $rendered_bytes,
+            rendered_sha256 => $rendered_digest, rendered_manifest_sha256 => $index_digest};
 }
 sub publish_perl {
     my ($root, $options) = @_;
@@ -315,19 +406,41 @@ sub publish_perl {
         write_file("$temporary/$target", $assets{$target}, 0, 0644);
         chmod(0644, "$temporary/$target") == 1 or fail('cannot set Perl module mode');
     }
+    my @published_paths = map { "$temporary/$_" } sort keys %assets;
+    my $digests = file_hashes(\@published_paths, $options->{'sha256'});
+    my $rows = join '', map { $_->[0] . "\t$destination/" . $_->[1] . "\t0644\t"
+        . $digests->{"$temporary/" . $_->[1]} . "\n" } @publications;
     for my $name (sort keys %namespaces) {
         rename("$temporary/$name", "$destination/$name") or fail('cannot publish complete Perl namespace');
     }
     rmdir($temporary) or fail('cannot remove empty Perl publication directory');
-    my $rows = join '', map { $_->[0] . "\t$destination/" . $_->[1] . "\t0644\n" } @publications;
     write_file("$root/inputs/published-assets.tsv", $rows, 0, 0600);
     return scalar(@publications);
 }
 sub receipt {
     my ($report) = @_;
-    return '{' . join(',', map { '"' . $_ . '":' . $report->{$_} }
+    my $receipt = '{' . join(',', map { '"' . $_ . '":' . $report->{$_} }
         qw(format members input_bytes rendered_files rendered_bytes published_perl_files))
-        . ',"rendered_sha256":"' . $report->{rendered_sha256} . '"}' . "\n";
+        . ',"rendered_sha256":"' . $report->{rendered_sha256} . '"'
+        . ',"rendered_manifest_sha256":"' . $report->{rendered_manifest_sha256} . '"'
+        . ',"published_manifest_sha256":"' . $report->{published_manifest_sha256} . '"';
+    if (defined($report->{source_archive_sha256})) {
+        $receipt .= ',"source_archive_sha256":"' . $report->{source_archive_sha256}
+            . '","source_manifest_sha256":"' . $report->{source_manifest_sha256}
+            . '","source_identity":"' . $report->{source_identity} . '"';
+    }
+    return $receipt . "}\n";
+}
+
+sub source_provenance {
+    my ($root, $report) = @_;
+    return unless lstat("$root/identity");
+    my $identity = read_regular("$root/identity", 8192);
+    $identity =~ /\A([a-f0-9]{64}) ([a-f0-9]{64}) ([A-Za-z0-9:\/._+?%#@ -]+)\n\z/
+        or fail('prepared payload identity is malformed');
+    $report->{source_archive_sha256} = $1;
+    $report->{source_manifest_sha256} = $2;
+    $report->{source_identity} = $3;
 }
 sub cleanup_workspace {
     my ($root) = @_;
@@ -340,7 +453,7 @@ sub cleanup_workspace {
     # This private receipt has one exact producer and a fixed numeric schema;
     # do not pull JSON::PP (not in perl-base) into the early installer runtime.
     my $data = read_regular("$root/receipt.json", 65536);
-    $data =~ /\A\{"format":1,"members":[1-9][0-9]{0,4},"input_bytes":[0-9]{1,9},"rendered_files":[0-9]{1,5},"rendered_bytes":[0-9]{1,9},"published_perl_files":[1-9][0-9]{0,4},"rendered_sha256":"[a-f0-9]{64}"\}\n\z/
+    $data =~ /\A\{"format":1,"members\":[1-9][0-9]{0,4},"input_bytes\":[0-9]{1,9},"rendered_files\":[0-9]{1,5},"rendered_bytes\":[0-9]{1,9},"published_perl_files\":[1-9][0-9]{0,4},"rendered_sha256":"[a-f0-9]{64}","rendered_manifest_sha256":"[a-f0-9]{64}","published_manifest_sha256":"[a-f0-9]{64}"(?:,"source_archive_sha256":"[a-f0-9]{64}","source_manifest_sha256":"[a-f0-9]{64}","source_identity":"[A-Za-z0-9:\/._+?%#@ -]+")?\}\n\z/
         or fail('cleanup requires a completed render receipt');
     read_regular("$root/identity", 65536);
     my ($files, $directories) = tree_inventory($root, 64);
@@ -366,9 +479,16 @@ sub main {
     relative($options{$_}) for qw(scripts target installer late desktop firstboot appearance-python appearance-registry perl-assets);
     absolute($options{$_}) for qw(perl-root sha256);
     $options{family} =~ /\A(?:desktop|server)\z/ && $options{snapshots} =~ /\A(?:true|false)\z/ or fail('invalid selected target policy');
+    my %provenance;
+    source_provenance($root, \%provenance);
     my $report = render_tree($root, \%options);
+    @{$report}{keys %provenance} = values %provenance;
     $report->{published_perl_files} = publish_perl($root, \%options);
+    my $published_index = "$root/inputs/published-assets.tsv";
+    $report->{published_manifest_sha256} = file_hashes([$published_index], $options{'sha256'})->{$published_index};
     write_file("$root/receipt.json", receipt($report), 0, 0600);
-    print 'prepared target payload: ', receipt($report) or fail('cannot report target preparation');
+    print 'prepared target payload: members=', $report->{members}, ' rendered_files=',
+        $report->{rendered_files}, ' rendered_sha256=', $report->{rendered_sha256}, "\n"
+        or fail('cannot report target preparation');
 }
 eval { main(); 1 } or do { my $cause = $@ || "unknown rendering failure\n"; print STDERR 'target payload rendering failed: ', $cause; exit 1; };

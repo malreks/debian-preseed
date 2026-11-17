@@ -13,85 +13,126 @@ module_value_to_lines() {
 target_asset_canonical_path() {
   target_path=$1
   case "$target_path" in
-    __INSTALLER_PATH_DIR_USR_LOCAL__/bin|__INSTALLER_PATH_DIR_USR_LOCAL__/bin/*)
-      printf '%s%s\n' "${DIR_USR_LOCAL_BIN}" "${target_path#__INSTALLER_PATH_DIR_USR_LOCAL__/bin}"
-      ;;
-    __INSTALLER_PATH_DIR_USR_LOCAL__/sbin|__INSTALLER_PATH_DIR_USR_LOCAL__/sbin/*)
-      printf '%s%s\n' "${DIR_USR_LOCAL_SBIN}" "${target_path#__INSTALLER_PATH_DIR_USR_LOCAL__/sbin}"
-      ;;
-    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec|__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/*)
-      printf '%s%s\n' "${DIR_USR_LOCAL_LIBEXEC}" "${target_path#__INSTALLER_PATH_DIR_USR_LOCAL__/libexec}"
-      ;;
-    __INSTALLER_PATH_DIR_USR_LOCAL__/lib/perl5/site_perl|__INSTALLER_PATH_DIR_USR_LOCAL__/lib/perl5/site_perl/*)
-      printf '%s%s\n' "${DIR_PERL5_SITE_PERL}" "${target_path#__INSTALLER_PATH_DIR_USR_LOCAL__/lib/perl5/site_perl}"
-      ;;
-    __INSTALLER_PATH_DIR_USR_LOCAL__/lib/hardware_tuning|__INSTALLER_PATH_DIR_USR_LOCAL__/lib/hardware_tuning/*)
-      printf '%s%s\n' "${DIR_HARDWARE_TUNING}" "${target_path#__INSTALLER_PATH_DIR_USR_LOCAL__/lib/hardware_tuning}"
-      ;;
-    __INSTALLER_PATH_DIR_USR_LOCAL__/lib|__INSTALLER_PATH_DIR_USR_LOCAL__/lib/*)
-      printf '%s%s\n' "${DIR_USR_LOCAL_LIB}" "${target_path#__INSTALLER_PATH_DIR_USR_LOCAL__/lib}"
-      ;;
-    __INSTALLER_PATH_DIR_USR_LOCAL__/share|__INSTALLER_PATH_DIR_USR_LOCAL__/share/*)
-      printf '%s%s\n' "${DIR_USR_LOCAL_SHARE}" "${target_path#__INSTALLER_PATH_DIR_USR_LOCAL__/share}"
-      ;;
-    __INSTALLER_PATH_DIR_USR_LOCAL__|__INSTALLER_PATH_DIR_USR_LOCAL__/*)
-      printf '%s%s\n' "${DIR_USR_LOCAL}" "${target_path#__INSTALLER_PATH_DIR_USR_LOCAL__}"
-      ;;
-    __INSTALLER_PATH_DIR_USR_LIBEXEC__|__INSTALLER_PATH_DIR_USR_LIBEXEC__/*)
-      printf '%s%s\n' "${DIR_USR_LIBEXEC}" "${target_path#__INSTALLER_PATH_DIR_USR_LIBEXEC__}"
-      ;;
-    __INSTALLER_PATH_DIR_USR_LIB__/python3/dist-packages|__INSTALLER_PATH_DIR_USR_LIB__/python3/dist-packages/*)
-      printf '%s%s\n' "${DIR_PYTHON3_SYSTEM_PACKAGES}" "${target_path#__INSTALLER_PATH_DIR_USR_LIB__/python3/dist-packages}"
-      ;;
-    __INSTALLER_PATH_DIR_VAR__/lib/firstboot|__INSTALLER_PATH_DIR_VAR__/lib/firstboot/*)
-      printf '%s%s\n' "${DIR_FIRSTBOOT}" "${target_path#__INSTALLER_PATH_DIR_VAR__/lib/firstboot}"
-      ;;
-    __INSTALLER_PATH_DIR_VAR__/lib/installer-state|__INSTALLER_PATH_DIR_VAR__/lib/installer-state/*)
-      printf '%s%s\n' "${DIR_VAR_LIB_INSTALLER_STATE}" "${target_path#__INSTALLER_PATH_DIR_VAR__/lib/installer-state}"
-      ;;
-    __INSTALLER_PATH_DIR_ETC__/systemd|__INSTALLER_PATH_DIR_ETC__/systemd/*)
-      printf '%s%s\n' "${DIR_SYSTEMD_ETC}" "${target_path#__INSTALLER_PATH_DIR_ETC__/systemd}"
-      ;;
-    __INSTALLER_PATH_DIR_VAR__/lib|__INSTALLER_PATH_DIR_VAR__/lib/*)
-      printf '%s%s\n' "${DIR_VAR_LIB}" "${target_path#__INSTALLER_PATH_DIR_VAR__/lib}"
-      ;;
-    __INSTALLER_PATH_DIR_VAR__|__INSTALLER_PATH_DIR_VAR__/*)
-      printf '%s%s\n' "${DIR_VAR}" "${target_path#__INSTALLER_PATH_DIR_VAR__}"
-      ;;
-    __INSTALLER_PATH_DIR_ETC__|__INSTALLER_PATH_DIR_ETC__/*)
-      printf '%s%s\n' "${DIR_ETC}" "${target_path#__INSTALLER_PATH_DIR_ETC__}"
-      ;;
-    __INSTALLER_PATH_DIR_RUN__|__INSTALLER_PATH_DIR_RUN__/*)
-      printf '%s%s\n' "${DIR_RUN}" "${target_path#__INSTALLER_PATH_DIR_RUN__}"
+    __INSTALLER_PATH_*__|__INSTALLER_PATH_*__/*)
+      token_body=${target_path#\_\_}
+      token_name=${token_body%%__*}
+      token_suffix=${token_body#"$token_name"}
+      token_suffix=${token_suffix#\_\_}
+      case "$token_name" in
+        INSTALLER_PATH_DIR_*|INSTALLER_PATH_FILE_*) ;;
+        *) installer_fatal "unsupported target path token: __${token_name}__"; return 1 ;;
+      esac
+      token_value=$(installer_runtime_path_placeholder_map | awk -F= -v name="PATH_${token_name#INSTALLER_PATH_}" '
+        $1 == name { value = substr($0, index($0, "=") + 1); count++ }
+        END { if (count != 1) exit 1; print value }
+      ') || {
+        installer_fatal "target path token has no unique canonical value: __${token_name}__"
+        return 1
+      }
+      case "$token_value" in
+        /*) ;;
+        *) installer_fatal "canonical target path is not absolute: __${token_name}__"; return 1 ;;
+      esac
+      case "$token_value" in
+        *//*|*/../*|*/..|*/./*|*/.)
+          installer_fatal "canonical target path is not normalized: __${token_name}__"
+          return 1
+          ;;
+      esac
+      printf '%s%s\n' "$token_value" "$token_suffix"
       ;;
     *) printf '%s\n' "$target_path" ;;
   esac
 }
 
-target_asset_host_path() (
-  target_root=${INSTALLER_TARGET_DIR:-${TARGET_ROOT}}
+target_asset_validate_root_context() {
+  [ -n "${TARGET_ROOT:-}" ] && [ "${1:-}" = "$TARGET_ROOT" ] || {
+    installer_fatal 'target root is unset, empty or differs from the authenticated contract'
+    return 1
+  }
+  installer_target_context_path
+}
+
+target_asset_is_logical_path() {
   case "$1" in
-    "$target_root"/*)
-      target_path="${target_root}$(target_asset_canonical_path "${1#"$target_root"}")"
+    /|/bin|/bin/*|/boot|/boot/*|/dev|/dev/*|/etc|/etc/*|/home|/home/*|/lib|/lib/*|/lib64|/lib64/*|\
+    /opt|/opt/*|/proc|/proc/*|/root|/root/*|/run|/run/*|/sbin|/sbin/*|/srv|/srv/*|/sys|/sys/*|\
+    /tmp|/tmp/*|/usr|/usr/*|/var|/var/*|/pool|/pool/*|/data|/data/*)
+      return 0
       ;;
-    *) target_path=$(target_asset_canonical_path "$1") ;;
+    *) return 1 ;;
   esac
-  for checked_path in "$target_root" "$target_path"; do
-    case "$checked_path" in
-      /*) ;;
-      *) installer_fatal "target asset paths must be absolute: $checked_path"; exit 1 ;;
-    esac
-    case "$checked_path" in
-      *//*|*/../*|*/..|*/./*|*/.)
-        installer_fatal "target asset path is not normalized: $checked_path"; exit 1 ;;
-    esac
-  done
-  target_root=${target_root%/}
+}
+
+target_asset_host_path() (
+  set -eu
+  target_root=$(target_asset_validate_root_context "${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}") || exit 1
+  requested_path=${1:-}
+  case "$requested_path" in
+    "$target_root"/*)
+      target_path="${target_root}$(target_asset_canonical_path "${requested_path#"$target_root"}")"
+      ;;
+    *)
+      target_path=$(target_asset_canonical_path "$requested_path") || exit "$?"
+      target_asset_is_logical_path "$target_path" || {
+        installer_fatal "target asset path is outside the target namespace: $requested_path"
+        exit 1
+      }
+      target_path="${target_root}${target_path}"
+      ;;
+  esac
   case "$target_path" in
-    /|"$target_root") installer_fatal "target asset must name a file, not the target root"; exit 1 ;;
-    "$target_root"/*) printf '%s\n' "$target_path" ;;
-    *) printf '%s%s\n' "$target_root" "$target_path" ;;
+    /*) ;;
+    *) installer_fatal "target asset path must be absolute: $target_path"; exit 1 ;;
   esac
+  case "$target_path" in
+    *//*|*/../*|*/..|*/./*|*/.)
+      installer_fatal "target asset path is not normalized: $target_path"; exit 1 ;;
+  esac
+  case "$target_path" in
+    /|"$target_root") installer_fatal 'target asset must name a file, not the target root'; exit 1 ;;
+    */) installer_fatal "target asset path is not normalized: $target_path"; exit 1 ;;
+  esac
+  case "$target_path" in
+    "$target_root"/*) ;;
+    *) installer_fatal "target asset escapes target root: $target_path"; exit 1 ;;
+  esac
+  target_parent=${target_path%/*}
+  [ "$target_parent" != "$target_path" ] || target_parent=/
+  checked_parent=$target_parent
+  while [ "$checked_parent" != "$target_root" ]; do
+    [ ! -L "$checked_parent" ] || {
+      installer_fatal 'target asset ancestry contains a symlink alias'; exit 1;
+    }
+    checked_parent=${checked_parent%/*}; [ -n "$checked_parent" ] || checked_parent=/
+  done
+  ancestor=$target_parent
+  while [ ! -e "$ancestor" ]; do
+    [ ! -L "$ancestor" ] || {
+      installer_fatal 'target asset parent is an indirect symlink'; exit 1;
+    }
+    ancestor=${ancestor%/*}; [ -n "$ancestor" ] || ancestor=/
+  done
+  [ ! -L "$ancestor" ] || {
+    installer_fatal 'target asset parent is a symlink'; exit 1;
+  }
+  target_root_real=$(readlink -f -- "$target_root") || exit 1
+  ancestor_real=$(readlink -f -- "$ancestor") || exit 1
+  case "$ancestor_real/" in
+    "$target_root_real/"*) ;;
+    *) installer_fatal 'target asset parent escapes the mounted target'; exit 1 ;;
+  esac
+  if [ -e "$target_path" ] || [ -L "$target_path" ]; then
+    [ ! -L "$target_path" ] || {
+      installer_fatal 'target asset destination must not be a symlink'; exit 1;
+    }
+    if [ -f "$target_path" ]; then
+      [ "$(installer_metadata_value "$target_path" links)" = 1 ] || {
+        installer_fatal 'target asset destination must not be hardlinked'; exit 1;
+      }
+    fi
+  fi
+  printf '%s\n' "$target_path"
 )
 
 # Temporary inputs staged BEFORE in-target must not live below __INSTALLER_PATH_DIR_RUN__: d-i's
@@ -119,7 +160,7 @@ target_private_stage_dir() (
 
 ensure_target_asset_parent() (
   target_path=$1
-  target_root=${INSTALLER_TARGET_DIR:-${TARGET_ROOT}}
+  target_root=$(target_asset_validate_root_context "${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}") || exit 1
   target_host_path=$(target_asset_host_path "$target_path") || exit 1
   target_parent=$(dirname "$target_host_path")
   canonical_root=$(readlink -f "$target_root") || exit 1
@@ -167,10 +208,24 @@ publish_target_asset() (
   asset_mode=$3
   asset_kind=$4
   asset_map=${5:-}
+  INSTALLER_PUBLICATION_KIND=$asset_kind
+  INSTALLER_PUBLICATION_MEMBER=unknown
+  INSTALLER_PUBLICATION_DIGEST=unknown
+  INSTALLER_PUBLICATION_IDENTITY=unknown
+  INSTALLER_PUBLICATION_TARGET=unknown
+  INSTALLER_PUBLICATION_ACQUISITION=authenticated-fetch
+  INSTALLER_PUBLICATION_MAP_OWNER=${asset_map:-shared-path-and-typed-renderer}
+  case "$asset_source" in *[!A-Za-z0-9_./@+\ -]*|'') ;; *) INSTALLER_PUBLICATION_MEMBER=$asset_source ;; esac
+  case "$asset_target" in *[!A-Za-z0-9_./@+\ -]*|'') ;; *) INSTALLER_PUBLICATION_TARGET=$asset_target ;; esac
+  [ -z "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || INSTALLER_PUBLICATION_ACQUISITION=prepared
+  INSTALLER_PUBLICATION_IDENTITY=${BOOTSTRAP_PREPARED_ARCHIVE_SHA256:-unknown}
+  export INSTALLER_PUBLICATION_KIND INSTALLER_PUBLICATION_MEMBER INSTALLER_PUBLICATION_DIGEST \
+    INSTALLER_PUBLICATION_IDENTITY INSTALLER_PUBLICATION_TARGET INSTALLER_PUBLICATION_ACQUISITION \
+    INSTALLER_PUBLICATION_MAP_OWNER
   asset_work=
   target_publish_step=validate
   target_publish_status=0
-  trap 'target_publish_status=$?; trap - 0; if [ -n "$asset_work" ]; then rm -rf -- "$asset_work" || :; fi; if [ "$target_publish_status" -ne 0 ]; then installer_fatal_status "$target_publish_status" "target asset publication failed: step=${target_publish_step} kind=${asset_kind} source=${asset_source} target=${asset_target}"; fi' 0
+  trap 'target_publish_status=$?; trap - 0; if [ -n "$asset_work" ]; then rm -rf -- "$asset_work" || :; fi; if [ "$target_publish_status" -ne 0 ]; then installer_fatal_status "$target_publish_status" "target asset publication failed: step=${target_publish_step} kind=${asset_kind} suite=${INSTALLER_SUITE:-unknown} profile=${INSTALLER_HOST_PROFILE:-unknown} phase=${INSTALLER_PHASE:-unknown} source=${asset_source} target=${asset_target}"; fi' 0
   # A failed command substitution can leave an empty source argument while
   # the enclosing command still runs. Reject it before preparing or fetching
   # any target path; stdin publication has its own explicit source contract.
@@ -181,6 +236,7 @@ publish_target_asset() (
   fi
   case "$asset_mode" in [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
     *) installer_fatal "invalid target asset mode"; exit 1 ;; esac
+  installer_target_context_init || exit 1
   if [ "$asset_kind" = plain ] &&
       bootstrap_prepared_asset_published "$asset_source" "$asset_target" "$asset_mode"; then
     exit 0
@@ -201,6 +257,8 @@ publish_target_asset() (
   else
     (fetch_hook "$asset_source" "$asset_work/payload") || exit "$?"
   fi
+  INSTALLER_PUBLICATION_DIGEST=$(sha256sum "$asset_work/payload") || exit 1
+  INSTALLER_PUBLICATION_DIGEST=${INSTALLER_PUBLICATION_DIGEST%% *}
   target_publish_step=render
   installer_operation_context_repo FILE_LATE_TARGET_ASSETS 202 render_target_asset
   case "$asset_kind" in
@@ -247,7 +305,14 @@ publish_target_asset() (
   target_publish_step=publish
   installer_operation_context_repo FILE_LATE_TARGET_ASSETS 235 publish_target_asset
   chmod "$asset_mode" "$asset_work/payload" || exit "$?"
-  installer_capture_primary_default "$asset_work/payload" "$asset_target" "$asset_mode" || exit "$?"
+  # Named stdin publications come from the typed desktop renderer, which
+  # separately captures primary and future-account values before this call.
+  if [ "$asset_kind" != stdin ] || [ "$asset_source" = - ]; then
+    installer_capture_primary_default "$asset_work/payload" "$asset_target" "$asset_mode" || exit "$?"
+  fi
+  [ "$(target_asset_host_path "$asset_target")" = "$asset_destination" ] || exit 1
+  installer_target_ownership_record "$asset_source" "${asset_destination#"${INSTALLER_TARGET_DIR:-$TARGET_ROOT}"}" \
+    "$asset_kind" "$asset_mode" || exit "$?"
   mv -fT -- "$asset_work/payload" "$asset_destination" || exit "$?"
 )
 
@@ -289,6 +354,7 @@ write_target_file() {
 remove_target_asset() (
   target_host_path=$(target_asset_host_path "$1") || exit 1
   rm -f -- "$target_host_path"
+  installer_target_ownership_forget "${target_host_path#"${INSTALLER_TARGET_DIR:-$TARGET_ROOT}"}"
 )
 
 # Opt-in renderer: only explicitly selected resource-policy assets use it.
@@ -426,6 +492,7 @@ remove_target_asset_and_empty_parent() {
   target_parent=$(dirname "$target_host_path")
 
   rm -f "$target_host_path"
+  installer_target_ownership_forget "${target_host_path#"${TARGET_ROOT}"}" || return 1
   rmdir "$target_parent" 2>__INSTALLER_PATH_DIR_DEV__/null || true
 }
 
@@ -460,9 +527,10 @@ apply_placeholder_map_to_target() {
     installer_fatal "failed to render placeholder map ${map_func} for ${target_path}"
   fi
   while IFS= read -r map_line || [ -n "$map_line" ]; do
+    case "$map_line" in *=*) ;; *) installer_fatal "malformed placeholder map ${map_func}"; return 1 ;; esac
     map_name=${map_line%%=*}
     map_value=${map_line#*=}
-    [ -n "$map_name" ] || continue
+    [ -n "$map_name" ] || { installer_fatal "empty placeholder map key in ${map_func}"; return 1; }
     set -- "$@" "$map_name" "$map_value"
   done <"$map_tmp"
   rm -f "$map_tmp"
@@ -479,6 +547,9 @@ replace_placeholder_line_block() {
   placeholder=$2
   replacement=$3
   rendered_tmp="${target_path}.line.$$"
+  placeholder_count=$(LC_ALL=C grep -Fxc -- "$placeholder" "$target_path" || true)
+  if [ "$placeholder_count" = 0 ] && [ "${4:-optional}" = optional ]; then return 0; fi
+  [ "$placeholder_count" = 1 ] || { installer_fatal 'declared line block must occur exactly once'; return 1; }
 
   while IFS= read -r line || [ -n "$line" ]; do
     if [ "$line" = "$placeholder" ]; then
@@ -522,7 +593,7 @@ write_target_fstab_records() (
       }
       next
     }
-    $0 == ("__INSTALLER_" "FSTAB_RECORDS__") {
+    $0 == "__INSTALLER_FSTAB_RECORDS__" {
       for (row = 1; row <= count; row++) {
         if (row in comments) { print comments[row]; continue }
         section = sections[row]
@@ -540,6 +611,8 @@ write_target_fstab_records() (
   installer_assert_no_unresolved_installer_placeholders "$fstab_work/rendered" fstab || exit 1
   [ ! -L ${TARGET_ROOT}${DIR_ETC}/fstab ] || { installer_fatal "refusing a symlinked fstab"; exit 1; }
   chmod 0644 "$fstab_work/rendered" || exit 1
+  installer_target_ownership_record "$(installer_repo_file_value FILE_TARGET_FSTAB_TMPL)" \
+    "${DIR_ETC}/fstab" template 0644 || exit 1
   mv -fT -- "$fstab_work/rendered" ${TARGET_ROOT}${DIR_ETC}/fstab || exit 1
 )
 

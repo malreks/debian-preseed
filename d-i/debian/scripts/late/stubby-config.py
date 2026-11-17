@@ -22,6 +22,7 @@ import time
 PUBLIC_CA = '__INSTALLER_PATH_DIR_ETC__/ssl/certs/ca-certificates.crt'
 CUSTOM_CA = '__INSTALLER_PATH_DIR_ETC_STUBBY__/ca/upstream-custom.pem'
 OUTPUT = Path('__INSTALLER_PATH_DIR_ETC_STUBBY__/stubby.yml')
+UPSTREAM_BLOCK_TOKEN = '  __INSTALLER_SYSTEM_NAMESERVERS_UPSTREAMS__'
 
 
 def read_owned(path: Path, limit: int) -> bytes:
@@ -164,20 +165,26 @@ def render(template: str, values: dict[str, str], upstreams: list[dict]) -> byte
         '    tls_port: ' + str(upstream['tls_port']),
         '    tls_auth_name: ' + json.dumps(upstream['tls_auth_name']),
     )) for upstream in upstreams)
-    # This is the renderer's input grammar, not a field in this program.
-    # Keep the prefix separate so publishing the program cannot consume it.
-    token = '  __INSTALLER_' + 'SYSTEM_NAMESERVERS_UPSTREAMS__'
-    if template.count(token) != 1:
+    # This exact token is the only deferred grammar accepted by the typed
+    # Stubby consumer.  Keep it explicit so generic publication cannot mistake
+    # a constructed prefix for an owned installer placeholder.
+    if template.count(UPSTREAM_BLOCK_TOKEN) != 1:
         raise ValueError('Stubby template requires one upstream block placeholder')
-    template = template.replace(token, block)
-    for key in ('SYSTEM_DNS_UPSTREAM_TLS_CA_FILE', 'APP_VETH_TLS_HOST_ADDRESS', 'APP_VETH_TLS_HOST_PORT'):
-        value = values[key]
-        if key == 'APP_VETH_TLS_HOST_ADDRESS' and not ipaddress.IPv4Address(value).is_loopback:
+    template = template.replace(UPSTREAM_BLOCK_TOKEN, block)
+    replacements = {
+        '__INSTALLER_SYSTEM_DNS_UPSTREAM_TLS_CA_FILE__': values['SYSTEM_DNS_UPSTREAM_TLS_CA_FILE'],
+        '__INSTALLER_APP_VETH_TLS_HOST_ADDRESS__': values['APP_VETH_TLS_HOST_ADDRESS'],
+        '__INSTALLER_APP_VETH_TLS_HOST_PORT__': values['APP_VETH_TLS_HOST_PORT'],
+    }
+    for token, value in replacements.items():
+        if template.count(token) != 1:
+            raise ValueError('Stubby template requires exactly one field: ' + token)
+        if token == '__INSTALLER_APP_VETH_TLS_HOST_ADDRESS__' and not ipaddress.IPv4Address(value).is_loopback:
             raise ValueError('Stubby listener must be loopback')
-        if key == 'APP_VETH_TLS_HOST_PORT' and (not value.isdecimal() or not 1024 <= int(value) <= 65535):
+        if token == '__INSTALLER_APP_VETH_TLS_HOST_PORT__' and (not value.isdecimal() or not 1024 <= int(value) <= 65535):
             raise ValueError('invalid Stubby listener port')
-        template = template.replace('__INSTALLER_' + key + '__', value)
-    if '__INSTALLER_' in template:
+        template = template.replace(token, value)
+    if '__INSTALLER_' in template or re.search(r'__[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*__', template):
         raise ValueError('unresolved Stubby template placeholder')
     return template.encode('utf-8')
 

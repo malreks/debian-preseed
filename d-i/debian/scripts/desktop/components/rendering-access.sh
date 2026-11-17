@@ -71,6 +71,21 @@ desktop_assert_no_unresolved_template_placeholders() {
   target_asset_assert_no_unresolved_installer_placeholders "$rendered_path" "$label"
 }
 
+# Only Labwc's three declared XML line blocks are deferred past scalar
+# replacement. Complete them in the private candidate, before publication.
+desktop_render_declared_template_blocks() (
+  block_source=$1; block_candidate=$2
+  [ "$block_source" = "$(installer_repo_file_value FILE_TARGET_SKEL_LABWC_RC_TMPL)" ] || {
+    installer_fatal 'desktop template has no declared deferred consumer'; return 1;
+  }
+  replace_placeholder_line_block "$block_candidate" \
+    '__INSTALLER_LABWC_WORKSPACE_NAME_LINES__' "$(desktop_labwc_workspace_name_lines)" required || return 1
+  replace_placeholder_line_block "$block_candidate" \
+    '__INSTALLER_LABWC_WORKSPACE_KEYBIND_LINES__' "$(desktop_labwc_workspace_keybind_lines)" required || return 1
+  replace_placeholder_line_block "$block_candidate" \
+    '__INSTALLER_LABWC_RECORDING_KEYBIND_LINES__' "$(desktop_labwc_recording_keybind_lines)" required
+)
+
 desktop_render_target_template_impl() {
   source_path=$1
   target_path=$2
@@ -90,9 +105,10 @@ desktop_render_target_template_impl() {
     installer_fatal "failed to render desktop template ${source_path}"
   fi
 
-  if [ "$allow_deferred_placeholders" != true ]; then
-    desktop_assert_no_unresolved_template_placeholders "$tmp_rendered" "desktop template ${source_path}"
+  if [ "$allow_deferred_placeholders" = true ]; then
+    desktop_render_declared_template_blocks "$source_path" "$tmp_rendered" || return 1
   fi
+  desktop_assert_no_unresolved_template_placeholders "$tmp_rendered" "desktop template ${source_path}"
   ensure_target_asset_parent "$target_path"
   rendered_target=$(target_asset_host_path "$target_path")
   # The primary user's fully configured input is retained independently from
@@ -125,12 +141,10 @@ desktop_render_target_template_impl() {
       fi
       ;;
   esac
-  install -m "$mode" "$tmp_rendered" "$rendered_target"
-  # Rendering is performed in several installer execution contexts. Make the
-  # ownership contract explicit so a copied or fakeroot-backed target cannot
-  # leave root-owned native configuration attached to an unmapped UID.
-  chown root:root "$rendered_target"
-  chmod "$mode" "$rendered_target"
+  # A named stdin source is an authenticated, completely rendered candidate.
+  # The shared boundary owns its atomic rename and final ownership record;
+  # the primary/future-account split above has already captured its default.
+  publish_target_asset "$source_path" "$target_path" "$mode" stdin <"$tmp_rendered" || return 1
   rm -f "$tmp_source" "$tmp_rendered"
   desktop_log "rendered_template source=${source_path} target=${target_path} mode=${mode}"
 }

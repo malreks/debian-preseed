@@ -261,18 +261,6 @@ desktop_render_labwc_rc_xml() {
     LABWC_FONT_OSD_SIZE "${LABWC_FONT_OSD_SIZE:-13}" \
     LABWC_MOUSE_POINTER_SPEED "${LABWC_MOUSE_POINTER_SPEED:-0.55}" \
     LABWC_MOUSE_ACCEL_PROFILE "${LABWC_MOUSE_ACCEL_PROFILE:-flat}"
-  desktop_replace_block_placeholder_in_target \
-    "$rc_path" \
-    "__INSTALLER_LABWC_WORKSPACE_NAME_LINES__" \
-    "$(desktop_labwc_workspace_name_lines)"
-  desktop_replace_block_placeholder_in_target \
-    "$rc_path" \
-    "__INSTALLER_LABWC_WORKSPACE_KEYBIND_LINES__" \
-    "$(desktop_labwc_workspace_keybind_lines)"
-  desktop_replace_block_placeholder_in_target \
-    "$rc_path" \
-    "__INSTALLER_LABWC_RECORDING_KEYBIND_LINES__" \
-    "$(desktop_labwc_recording_keybind_lines)"
   desktop_assert_role_target_template_resolved FILE_TARGET_SKEL_LABWC_RC_TMPL "$rc_path"
   desktop_log "rendered_labwc_rc_xml workspaces=${workspace_count}"
 }
