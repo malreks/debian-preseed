@@ -1819,7 +1819,7 @@ def generate(directory: Path | None, cache: Path | None = None,
             products = {'source.sh': source, 'sources.sh': source, 'payload.manifest': manifest,
                         'support-matrix.json': encoded(matrix)}
             products['preseed.cfg'] = installer_build.generate_preseed(
-                tree_identity, installer_build.sha(manifest), installer_build.sha(source),
+                tree_identity, installer_build.sha(manifest),
                 suite, release, source.decode(), snapshot[f'frontends/{suite}/common.cfg'].decode())
             products['receipt.json'] = encoded({'format': 2, 'transport': 'local-flat-tree',
                 'release': release, 'source_fingerprint': fingerprint, 'tree_identity': tree_identity,

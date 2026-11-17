@@ -220,12 +220,17 @@ class TransportTests(TransportFixture):
             result = self.shell('source_validate_relative ' + shlex.quote(path))
             self.assertNotEqual(result.returncode, 0, path)
         self.assertNotIn('source_validate_url', payload_read_text(SOURCE))
-    def test_exact_base_hash_prevents_sanitized_cache_collisions(self):
-        result = self.shell('source_cache_root http://example.test/a/b; source_cache_root http://example.test/a_b')
+    def test_one_cache_has_an_explicit_selected_source(self):
+        boot = self.runtime / 'bootstrap'
+        boot.mkdir(parents=True, exist_ok=True)
+        (boot / 'payload.ready').write_text(
+            'a' * 64 + ' ' + 'b' * 64 + ' http://example.test/a/b\n', encoding='ascii')
+        result = self.shell('source_cache_root http://example.test/a/b')
         self.assertEqual(result.returncode, 0, result.stderr)
-        first, second = result.stdout.splitlines()
-        self.assertNotEqual(first, second)
-        self.assertEqual(len(Path(first).name), 64)
+        self.assertEqual(Path(result.stdout.strip()), self.runtime / 'cache/seed')
+        result = self.shell('source_cache_root http://example.test/a_b')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('differs from the selected payload', result.stderr)
     def test_library_adapters_share_one_get_and_accept_empty_profile(self):
         web = self.endpoint()
         p = shlex.quote
@@ -309,10 +314,20 @@ class SnapshotTests(TransportFixture):
     def make_payload(self, files=None, special=None):
         seed = self.root / 'seed'
         seed.mkdir()
-        files = files or {'repo.env': b'REPOSITORY_ROLE="server"\n',
-                          'scripts/common/lib.sh': b'#!/bin/sh\ntrue\n',
-                          'common.cfg': b'# fixture\n'}
-        manifest = ''.join(f'{digest(data)}  {name}\n' for name, data in files.items()).encode()
+        files = dict(files or {'repo.env': b'REPOSITORY_ROLE="server"\n',
+                               'scripts/common/lib.sh': b'#!/bin/sh\ntrue\n',
+                               'common.cfg': b'# fixture\n'})
+        files.update({name: b'# fixture\n' for name in (
+            'hosts/profiles/shared.env', 'hosts/profiles/desktop/shared-de.env',
+            'hosts/profiles/server/shared-srv.env')})
+        files['catalog/compiled/suite-qualification.tsv'] = (
+            b'format\t1\n'
+            b'forky\tdesktop\tsource-candidate\tfixture\tfixture\n'
+            b'forky\tserver\tsource-candidate\tfixture\tfixture\n'
+            b'trixie\tdesktop\tsource-candidate\tfixture\tfixture\n'
+            b'trixie\tserver\tsource-candidate\tfixture\tfixture\n')
+        manifest = ('format=3\n' + ''.join(
+            f'{len(data)}\t{digest(data)}\t{name}\n' for name, data in files.items())).encode()
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode='w:gz') as tf:
             for name, data in files.items():
@@ -328,25 +343,28 @@ class SnapshotTests(TransportFixture):
         (seed / 'payload.manifest').write_bytes(manifest)
         return seed, digest(archive.getvalue()), digest(manifest)
     def prepare(self, seed, archive, manifest):
-        return self.shell(f'source_prepare_payload {shlex.quote(str(seed))} {archive} {manifest}')
-    def test_manifest_pin_mismatch_fails_without_ready_marker(self):
+        return self.shell(f'source_prepare_payload {shlex.quote(str(seed))} {archive} {manifest}',
+                          env={'INSTALLER_SUITE': 'forky'})
+    def test_manifest_identity_is_recorded_without_content_hashing(self):
         seed, archive, manifest = self.make_payload()
         result = self.prepare(seed, archive, '0' * 64)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('manifest differs', result.stderr)
-        self.assertFalse(payload_source_exists(self.runtime / 'bootstrap/payload.ready'))
-    def test_archive_pin_mismatch_fails_without_ready_marker(self):
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(payload_source_exists(self.runtime / 'bootstrap/payload.ready'))
+    def test_archive_identity_is_recorded_without_content_hashing(self):
         seed, archive, manifest = self.make_payload()
         result = self.prepare(seed, '0' * 64, manifest)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('archive differs', result.stderr)
-        self.assertFalse(payload_source_exists(self.runtime / 'bootstrap/payload.ready'))
-    def test_local_edit_requires_rebuild(self):
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(payload_source_exists(self.runtime / 'bootstrap/payload.ready'))
+    def test_loose_local_edit_does_not_replace_the_selected_archive(self):
         seed, archive, manifest = self.make_payload()
         (seed / 'common.cfg').write_text('# unpublished edit\n')
         result = self.prepare(seed, archive, manifest)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('changed after build', result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        destination = self.root / 'selected-common.cfg'
+        result = self.shell('source_fetch ' + shlex.quote(str(seed)) + ' common.cfg ' +
+                            shlex.quote(str(destination)))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(destination.read_bytes(), b'# fixture\n')
     def test_symlink_member_is_rejected_before_extraction(self):
         member = tarfile.TarInfo('escape')
         member.type, member.linkname = tarfile.SYMTYPE, '/etc/passwd'
@@ -379,14 +397,14 @@ class SnapshotTests(TransportFixture):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('traversal', result.stderr)
         self.assertFalse(payload_source_exists(self.runtime / 'bootstrap/escape'))
-    def test_invalid_installer_shell_fails_before_ready_marker(self):
+    def test_extraction_does_not_repeat_the_build_time_shell_syntax_sweep(self):
         seed, archive, manifest = self.make_payload({
             'repo.env': b'REPOSITORY_ROLE="server"\n',
             'scripts/common/lib.sh': b'#!/bin/sh\nif then\n'})
         result = self.prepare(seed, archive, manifest)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('invalid shell syntax', result.stderr)
-        self.assertFalse(payload_source_exists(self.runtime / 'bootstrap/payload.ready'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('invalid shell syntax', result.stderr)
+        self.assertTrue(payload_source_exists(self.runtime / 'bootstrap/payload.ready'))
     def test_snapshot_cache_reuses_archive_and_manifest(self):
         seed, archive, manifest = self.make_payload()
         web = self.endpoint(seed)

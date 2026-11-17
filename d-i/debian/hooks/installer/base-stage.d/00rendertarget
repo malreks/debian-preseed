@@ -38,7 +38,7 @@ install -d -m 0700 "${stage%/*}"
 work=$(mktemp -d "${stage}.XXXXXX")
 # Retain a failed candidate for diagnosis. Only a completed, fully rendered
 # candidate may receive the ready marker; late dispatch requires that marker.
-installer_info "copying authenticated payload into target workspace=${work#"$TARGET_ROOT"}"
+installer_info "copying selected payload into target workspace=${work#"$TARGET_ROOT"}"
 install -d -m 0700 "$work/source" "$work/inputs"
 source_root=$(source_cache_root "$seed_base")
 cp -a "$source_root/." "$work/source/"
@@ -52,12 +52,12 @@ done
 cp "$runtime/bootstrap/payload.ready" "$work/identity"
 cp "$runtime/bootstrap/payload.manifest" "$work/inputs/payload.manifest"
 cp "$source_root/$(installer_repo_file_value FILE_COMMON_RENDER)" "$work/render.pl"
-# Keep the authenticated placeholder ownership index in installer-only
+# Keep the selected placeholder ownership index in installer-only
 # bootstrap state.  finish-install uses it for exact owner/source/phase
 # diagnostics; it is never copied into the installed target.
 placeholder_registry_source="$source_root/$(installer_repo_file_value FILE_COMMON_PLACEHOLDER_REGISTRY)"
 [ -f "$placeholder_registry_source" ] && [ ! -L "$placeholder_registry_source" ] ||
-  installer_fatal 'authenticated payload is missing the placeholder ownership registry'
+  installer_fatal 'selected payload is missing the placeholder ownership registry'
 install -m 0600 "$placeholder_registry_source" "$runtime/bootstrap/placeholder-registry.tsv"
 install -m 0600 "$source_root/$(installer_repo_file_value FILE_COMMON_TARGET_OWNED_SCAN)" \
   "$runtime/bootstrap/target-owned-scan.awk"
@@ -128,10 +128,9 @@ prepare_run_logged 'payload copied; rendering target assets with base-system Per
   --appearance-registry "$(installer_repo_file_value FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL)" \
   --perl-assets "$(installer_repo_file_value FILE_SHARED_PERL_ASSETS)" \
   --profile-assets "$(installer_repo_file_value FILE_SHARED_PROFILE_ASSETS)" \
-  --perl-root "$DIR_PERL5_SITE_PERL" --family "$INSTALLER_HOST_VARIANT" --snapshots "$snapshots" \
-  --sha256 "${DIR_USR_BIN}/sha256sum"
+  --perl-root "$DIR_PERL5_SITE_PERL" --family "$INSTALLER_HOST_VARIANT" --snapshots "$snapshots"
 [ -s "$work/receipt.json" ] && [ ! -L "$work/receipt.json" ] || installer_fatal 'target renderer did not produce a receipt'
-while IFS="$(printf '\t')" read -r published_source published_target published_mode published_digest; do
+while IFS="$(printf '\t')" read -r published_source published_target published_mode; do
   installer_target_ownership_record "$published_source" "$published_target" plain "$published_mode"
 done <"$work/inputs/published-assets.tsv"
 mv -T -- "$work" "$stage"

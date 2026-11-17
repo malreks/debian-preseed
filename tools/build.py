@@ -279,7 +279,7 @@ def preseed_command(question: str, value: str) -> str:
     lines.append(prefix + remaining)
     return '\n'.join(lines) + '\n'
 
-def generate_preseed(archive_sha: str, manifest_sha: str, source_sha: str,
+def generate_preseed(archive_sha: str, manifest_sha: str,
                      suite: str, release_id: str,
                      source: str, common: str) -> bytes:
     core = source.split('# BEGIN BOOTSTRAP CORE\n', 1)[1].split('# END BOOTSTRAP CORE', 1)[0]
@@ -295,11 +295,12 @@ def generate_preseed(archive_sha: str, manifest_sha: str, source_sha: str,
     command = ('set -eu; umask 077; ' + identity + core +
         ' installer_lifecycle_arm preflight; base=$(source_resolve_seed) || exit "$?"; '
         'boot=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}/bootstrap; '
-        'cached_hash=; if [ -f "$boot/source.sh" ]; then cached_hash=$(source_hash <"$boot/source.sh"); fi; '
-        f'if [ "${{cached_hash%% *}}" != {source_sha} ]; then '
-        'source_transfer "$base" source.sh "$boot/source.sh" || exit 1; fi; '
-        'actual=$(source_hash <"$boot/source.sh"); '
-        f'[ "${{actual%% *}}" = {source_sha} ] || {{ source_error "transport checksum differs from preseed pin"; exit 1; }}; '
+        '[ ! -L "$boot/source.release" ] || { source_error "indirect transport release marker"; exit 1; }; '
+        'if [ ! -f "$boot/source.sh" ] || [ -L "$boot/source.sh" ] || '
+        '[ ! -f "$boot/source.release" ] || '
+        '[ "$(cat "$boot/source.release")" != "$INSTALLER_RELEASE_ID" ]; then '
+        'source_transfer "$base" source.sh "$boot/source.sh" || exit 1; '
+        'printf "%s\\012" "$INSTALLER_RELEASE_ID" >"$boot/source.release"; fi; '
         '. "$boot/source.sh"; '
         f'source_bootstrap "$base" {archive_sha} {manifest_sha} {suite}; '
         'installer_lifecycle_complete')
@@ -417,7 +418,7 @@ def serialize(contents: dict[str, bytes], compiler_inputs: dict[str, bytes]
     for suite in ('forky', 'trixie'):
         common = contents[f'frontends/{suite}/common.cfg']
         frontends[f'{suite}/preseed.cfg'] = generate_preseed(
-            sha(payload), sha(manifest), sha(source), suite, release_id,
+            sha(payload), sha(manifest), suite, release_id,
             source.decode(), common.decode())
     products = {'payload.tar.gz': payload, 'payload.manifest': manifest, 'source.sh': source,
                 'support-matrix.json': json.dumps(matrix, sort_keys=True, indent=2).encode() + b'\n'}

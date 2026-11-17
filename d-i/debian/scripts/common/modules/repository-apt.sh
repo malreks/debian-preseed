@@ -394,7 +394,7 @@ installer_repo_family_asset_path() {
   case "${INSTALLER_HOST_VARIANT:-}" in desktop|server) ;; *) installer_fatal 'validated asset role family is required' ;; esac
   family_asset_base=$(installer_repo_dir_value "$1") || return "$?"
   # The existing join validator rejects traversal and malformed suffixes before
-  # matching the authenticated in-memory FILE catalogue; no source tree scan.
+  # matching the selected in-memory FILE catalogue; no source tree scan.
   family_asset_leaf=${2:-}
   installer_repo_join_var "$1" "$family_asset_leaf" >/dev/null || return "$?"
   case "$family_asset_leaf" in common/*|desktop/*|server/*)
@@ -593,13 +593,6 @@ EOF
   printf '%s\n' "$pref_normalized"
 }
 
-installer_seed_cache_key() (
-  installer_load_source_library "$1" || exit 1
-  normalized=$(source_normalize_base "$1") || exit 1
-  key=$(printf '%s' "$normalized" | source_hash) || exit 1
-  printf '%s\n' "${key%% *}"
-)
-
 installer_seed_cache_path() (
   installer_load_source_library "$1" || exit 1
   source_validate_relative "$2" || exit 1
@@ -630,7 +623,7 @@ installer_load_logging_helpers() {
     source_fetch "$1" "$log_helper_source" "$log_helper_path" 0600 || return $?
   fi
   [ -f "$log_helper_path" ] && [ ! -L "$log_helper_path" ] || {
-    installer_error 'logging helpers are absent from the authenticated source'; return 1;
+    installer_error 'logging helpers are absent from the selected source'; return 1;
   }
   # shellcheck disable=SC1090,SC1091
   . "$log_helper_path"
@@ -645,7 +638,7 @@ installer_render_logging_asset() (
     log_cache_root=$(source_cache_root "$1") || exit 1
     case "$3" in
       "$log_cache_root"|"$log_cache_root"/*)
-        installer_error 'refusing to render inside the authenticated source snapshot'; exit 1 ;;
+        installer_error 'refusing to render inside the selected source snapshot'; exit 1 ;;
     esac
     installer_render_logging_file "$1" "$3" || exit 1
   else
@@ -678,7 +671,7 @@ installer_fetch_seed_path() (
   if [ "${BOOTSTRAP_PREPARED_PRESENT:-0}" = 1 ] ||
      [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
     if [ "$repository_fetch_identity" != "${BOOTSTRAP_PREPARED_SEED_BASE:-}" ]; then
-      installer_error "prepared payload identity mismatch; refusing remote fallback: source=${repository_fetch_source} prepared_identity=authenticated-receipt requested_identity=authenticated-request" || :
+      installer_error "prepared payload identity mismatch; refusing remote fallback: source=${repository_fetch_source} prepared_identity=selected-receipt requested_identity=selected-request" || :
       exit 125
     fi
     installer_repo_assert_asset_family "$repository_fetch_source"
@@ -687,7 +680,7 @@ installer_fetch_seed_path() (
     exit "$?"
   fi
   repository_fetch_step=load_source
-  installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 676 load_asset_source
+  installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 684 load_asset_source
   installer_load_source_library "$repository_fetch_seed_base" || exit "$?"
   case "$repository_fetch_source" in
     "${DIR_HOOKS_TARGET}/"*|"${DIR_REPO_SCRIPTS}/"*)
@@ -698,27 +691,27 @@ installer_fetch_seed_path() (
       trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
       chmod 0700 "$logging_fetch_work" || exit "$?"
       repository_fetch_step=fetch
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 687 source_fetch
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 695 source_fetch
       source_fetch "$repository_fetch_seed_base" "$repository_fetch_source" "$logging_fetch_work/asset" "$repository_fetch_mode" || exit "$?"
       repository_fetch_step=render_logging
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 690 installer_render_logging_asset
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 698 installer_render_logging_asset
       installer_render_logging_asset "$repository_fetch_seed_base" "$repository_fetch_source" "$logging_fetch_work/asset" || exit "$?"
       repository_fetch_step=render_paths
       # This is the code/data publication boundary for every script family,
-      # including common, runtime and server helpers. Keep the authenticated
+      # including common, runtime and server helpers. Keep the selected
       # source bytes untouched and publish only a complete rendered candidate.
       if installer_contains_unresolved_path_placeholders "$logging_fetch_work/asset"; then
         repository_path_cache=$(source_cache_root "$repository_fetch_seed_base") || exit "$?"
         case "$repository_fetch_destination" in
           "$repository_path_cache"|"$repository_path_cache"/*)
-            installer_error 'refusing to render inside the authenticated source snapshot'; exit 1 ;;
+            installer_error 'refusing to render inside the selected source snapshot'; exit 1 ;;
         esac
         command -v installer_apply_scalar_placeholders >/dev/null 2>&1 &&
           command -v installer_assert_no_unresolved_path_placeholders >/dev/null 2>&1 ||
           installer_fatal 'runtime path asset requested before common library initialization'
-        installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 705 render_runtime_paths
+        installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 713 render_runtime_paths
         installer_apply_scalar_placeholders "$logging_fetch_work/asset" "$logging_fetch_work/rendered" || exit "$?"
-        installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 707 validate_runtime_paths
+        installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 715 validate_runtime_paths
         installer_assert_no_unresolved_path_placeholders "$logging_fetch_work/rendered" "$repository_fetch_source" || exit "$?"
         chmod "$repository_fetch_mode" "$logging_fetch_work/rendered" || exit "$?"
         mv -f -- "$logging_fetch_work/rendered" "$logging_fetch_work/asset" || exit "$?"
@@ -727,11 +720,11 @@ installer_fetch_seed_path() (
         [ "$repository_path_probe_status" -eq 1 ] || exit "$repository_path_probe_status"
       fi
       repository_fetch_step=publish
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 716 publish_fetched_asset
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 724 publish_fetched_asset
       mv -f -- "$logging_fetch_work/asset" "$repository_fetch_destination" || exit "$?" ;;
     *)
       repository_fetch_step=fetch
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 720 source_fetch
+      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 728 source_fetch
       source_fetch "$repository_fetch_seed_base" "$repository_fetch_source" "$repository_fetch_destination" "$repository_fetch_mode" || exit "$?" ;;
   esac
 )
@@ -769,7 +762,7 @@ installer_repo_apt_file() {
   installer_repo_file_value "$(installer_repo_apt_selector "$1")"
 }
 
-# Enumerate only authenticated immediate drop-ins from the suite's common and
+# Enumerate only selected immediate drop-ins from the suite's common and
 # selected role directories. repo.env, not a filesystem glob, owns membership.
 installer_repo_apt_conf_catalog() (
   set -eu

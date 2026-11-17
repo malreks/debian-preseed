@@ -129,7 +129,7 @@ partman_early_prepare_layout() {
       ;;
     append|reuse)
       prep_inventory=$(runtime_partition_inventory) || installer_fatal 'cannot revalidate the preserved partition inventory'
-      prep_hash=$(printf '%s\n' "$prep_inventory" | source_hash) || return 1
+      prep_hash=$(printf '%s\n' "$prep_inventory" | source_state_key) || return 1
       [ "${prep_hash%% *}" = "$RUNTIME_PARTITION_INVENTORY_HASH" ] ||
         installer_fatal 'partition geometry changed after the layout was planned'
       prep_identity=$(runtime_partition_identity_hash) || return 1

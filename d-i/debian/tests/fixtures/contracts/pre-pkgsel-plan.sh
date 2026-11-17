@@ -36,7 +36,7 @@ bootstrap_source_common_lib() {
   installer_fatal_status() { test_status=$1; shift; printf '%s\n' "$*" >&2; exit "$test_status"; }
   installer_fatal() { installer_fatal_status 1 "$@"; }
   installer_operation_context_repo() { :; }
-  source_hash() { sha256sum; }
+  source_state_key() { sha256sum; }
   bootstrap_repo_file_value() { printf '%s\n' "$TEST_SOURCE/scripts/common/credential-data.awk"; }
   bootstrap_parser_asset_path() { printf '%s\n' "$1"; }
   installer_repo_file_value() {

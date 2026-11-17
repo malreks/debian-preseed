@@ -91,7 +91,7 @@ runtime_partition_identity_hash() {
   # extents. Hash raw bounded bytes; never evaluate names or display them.
   layout_dump=$(sfdisk --dump "$DEV_INSTALL_DISK") || return 1
   [ "${#layout_dump}" -le 65536 ] || return 1
-  printf '%s\n' "$layout_dump" | source_hash
+  printf '%s\n' "$layout_dump" | source_state_key
 }
 
 runtime_inventory_value() {
@@ -151,7 +151,7 @@ $RUNTIME_PARTITION_INVENTORY
 EOF
     [ -n "$RUNTIME_DETECTED_EFI_SLOT" ] || runtime_fatal 'no existing GPT EFI System Partition was found'
   fi
-  RUNTIME_PARTITION_INVENTORY_HASH=$(printf '%s\n' "$RUNTIME_PARTITION_INVENTORY" | source_hash)
+  RUNTIME_PARTITION_INVENTORY_HASH=$(printf '%s\n' "$RUNTIME_PARTITION_INVENTORY" | source_state_key)
   RUNTIME_PARTITION_INVENTORY_HASH=${RUNTIME_PARTITION_INVENTORY_HASH%% *}
   RUNTIME_PARTITION_IDENTITY_HASH=
   if [ "$RUNTIME_PARTITION_MODE" != fresh ]; then

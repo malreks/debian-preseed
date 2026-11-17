@@ -44,7 +44,7 @@ target_asset_canonical_path() {
 
 target_asset_validate_root_context() {
   [ -n "${TARGET_ROOT:-}" ] && [ "${1:-}" = "$TARGET_ROOT" ] || {
-    installer_fatal 'target root is unset, empty or differs from the authenticated contract'
+    installer_fatal 'target root is unset, empty or differs from the selected contract'
     return 1
   }
   installer_target_context_path
@@ -201,16 +201,15 @@ publish_target_asset() (
   asset_map=${5:-}
   INSTALLER_PUBLICATION_KIND=$asset_kind
   INSTALLER_PUBLICATION_MEMBER=unknown
-  INSTALLER_PUBLICATION_DIGEST=unknown
   INSTALLER_PUBLICATION_IDENTITY=unknown
   INSTALLER_PUBLICATION_TARGET=unknown
-  INSTALLER_PUBLICATION_ACQUISITION=authenticated-fetch
+  INSTALLER_PUBLICATION_ACQUISITION=selected-source
   INSTALLER_PUBLICATION_MAP_OWNER=${asset_map:-shared-path-and-typed-renderer}
   case "$asset_source" in *[!A-Za-z0-9_./@+\ -]*|'') ;; *) INSTALLER_PUBLICATION_MEMBER=$asset_source ;; esac
   case "$asset_target" in *[!A-Za-z0-9_./@+\ -]*|'') ;; *) INSTALLER_PUBLICATION_TARGET=$asset_target ;; esac
   [ -z "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || INSTALLER_PUBLICATION_ACQUISITION=prepared
   INSTALLER_PUBLICATION_IDENTITY=${BOOTSTRAP_PREPARED_ARCHIVE_SHA256:-unknown}
-  export INSTALLER_PUBLICATION_KIND INSTALLER_PUBLICATION_MEMBER INSTALLER_PUBLICATION_DIGEST \
+  export INSTALLER_PUBLICATION_KIND INSTALLER_PUBLICATION_MEMBER \
     INSTALLER_PUBLICATION_IDENTITY INSTALLER_PUBLICATION_TARGET INSTALLER_PUBLICATION_ACQUISITION \
     INSTALLER_PUBLICATION_MAP_OWNER
   asset_work=
@@ -220,7 +219,7 @@ publish_target_asset() (
   # A failed command substitution can leave an empty source argument while
   # the enclosing command still runs. Reject it before preparing or fetching
   # any target path; stdin publication has its own explicit source contract.
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 178 validate_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 223 validate_target_asset
   if [ "$asset_kind" != stdin ] && [ -z "$asset_source" ]; then
     installer_fatal 'target asset source is empty; repository selector resolution failed'
     exit 1
@@ -233,7 +232,7 @@ publish_target_asset() (
     exit 0
   fi
   target_publish_step=prepare_destination
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 186 prepare_target_asset_destination
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 236 prepare_target_asset_destination
   asset_destination=$(target_asset_host_path "$asset_target") || exit "$?"
   ensure_target_asset_parent "$asset_target" || exit "$?"
   [ ! -d "$asset_destination" ] || { installer_fatal "asset destination is a directory"; exit 1; }
@@ -242,16 +241,14 @@ publish_target_asset() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   target_publish_step=acquire
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 195 acquire_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 245 acquire_target_asset
   if [ "$asset_kind" = stdin ]; then
     cat >"$asset_work/payload" || exit "$?"
   else
     (fetch_hook "$asset_source" "$asset_work/payload") || exit "$?"
   fi
-  INSTALLER_PUBLICATION_DIGEST=$(sha256sum "$asset_work/payload") || exit 1
-  INSTALLER_PUBLICATION_DIGEST=${INSTALLER_PUBLICATION_DIGEST%% *}
   target_publish_step=render
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 202 render_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 252 render_target_asset
   case "$asset_kind" in
     plain|stdin|template-input|appearance-registry)
       # Canonical fields always use the shared map. Private renderer inputs
@@ -298,7 +295,7 @@ publish_target_asset() (
     *) installer_fatal "invalid target asset operation"; exit 1 ;;
   esac
   target_publish_step=publish
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 235 publish_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 299 publish_target_asset
   chmod "$asset_mode" "$asset_work/payload" || exit "$?"
   # Named stdin publications come from the typed desktop renderer, which
   # separately captures primary and future-account values before this call.

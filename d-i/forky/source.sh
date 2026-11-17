@@ -105,14 +105,13 @@ installer_record_failure() (
   trap 'rm -f "$lc_tmp"' 0;
   { printf 'format=1\nstate=FATAL\nstatus=%s\n' "$lc_status";
     printf 'phase=%s\ncomponent=%s\nsource=%s\nline=%s\noperation=%s\n' "${INSTALLER_PHASE:-unknown}" "$lc_component" "$lc_source" "$lc_line" "$lc_operation";
-    # Publication fields contain only identifiers, digests and target paths.
+    # Publication fields contain only identifiers and target paths.
     # The owning boundary never puts seed URLs or input values in this context.
     for lc_field in \
       "suite=${INSTALLER_SUITE:-unknown}" \
       "profile=${INSTALLER_HOST_PROFILE:-unknown}" \
       "publication_kind=${INSTALLER_PUBLICATION_KIND:-unknown}" \
       "member=${INSTALLER_PUBLICATION_MEMBER:-unknown}" \
-      "member_sha256=${INSTALLER_PUBLICATION_DIGEST:-unknown}" \
       "acquisition=${INSTALLER_PUBLICATION_ACQUISITION:-unknown}" \
       "source_identity=${INSTALLER_PUBLICATION_IDENTITY:-unknown}" \
       "map_owner=${INSTALLER_PUBLICATION_MAP_OWNER:-unknown}" \
@@ -569,8 +568,10 @@ source_cmdline() {
     source_cmdline_reject_secrets "$source_cmdline_value";
   fi;
 };
-source_hash() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum; elif command -v busybox >/dev/null 2>&1; then busybox sha256sum; else source_error 'sha256sum is required in the installer'; return 1; fi;
+source_state_key() {
+  # Small selector/device identity keys only. Never read or verify payload files
+  # with this helper; installer asset publication performs no content hashing.
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum; else busybox sha256sum; fi;
 };
 source_monotonic_seconds() (
   IFS=' ' read -r seconds remainder </proc/uptime || exit 1;
@@ -615,8 +616,8 @@ source_http_get() (
   set -- "$@" --no-check-certificate;
   # d-i intentionally delegates HTTP/HTTPS parsing, redirects, and certificate
   # behavior to wget. This keeps url=/preseed/url= usable with LAN HTTP,
-  # shorteners, GitHub and lightweight installer images. Payload and manifest
-  # digests remain the independent authenticity boundary.
+  # shorteners, GitHub and lightweight installer images. Repository transport
+  # follows the operator-selected seed; installer content is not checksum-verified.
   # One deadline covers every transfer attempt and retry.
   started=$(source_monotonic_seconds) || exit 125;
   deadline=$(expr "$started" + "$wall_timeout") || exit 125;
@@ -649,7 +650,7 @@ source_http_get() (
   if [ -n "$effective" ]; then printf '%s\n' "$resolved" >"$effective"; chmod 0600 "$effective"; fi;
 );
 source_validate_relative() {
-  # The payload validator runs before repo.env can be authenticated and
+  # The payload validator runs before repo.env can be selected and
   # sourced. Keep this one space-bearing archive member in the immutable
   # bootstrap protocol; tools/build.py carries the matching allow-list entry.
   # All other paths stay space-free and repository-relative.
@@ -663,10 +664,10 @@ source_validate_selector_path() {
   source_selector_name=$1;
   source_selector_value=$2;
   [ -n "$source_selector_value" ] || {
-    source_error "${source_selector_name} is unset in authenticated repo.env"; return 1;
+    source_error "${source_selector_name} is unset in selected repo.env"; return 1;
   };
   source_validate_relative "$source_selector_value" || {
-    source_error "${source_selector_name} is unsafe in authenticated repo.env"; return 1;
+    source_error "${source_selector_name} is unsafe in selected repo.env"; return 1;
   };
 };
 source_transfer() (
@@ -774,19 +775,15 @@ source_normalize_base() (
   printf '%s\n' "$value"
 )
 
-source_verify_manifest() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "$1"
-  else
-    busybox sha256sum -c "$1"
-  fi
-}
-
 source_cache_root() (
-  installer_lifecycle_paths || exit 1;
   base=$(source_normalize_base "$1") || exit 1
-  key=$(printf '%s' "$base" | source_hash) || exit 1
-  printf '%s/cache/seed/%s\n' "${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}" "${key%% *}"
+  runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+  marker=$runtime/bootstrap/payload.ready
+  if [ -f "$marker" ]; then
+    IFS=' ' read -r archive manifest selected_base <"$marker" || exit 1
+    [ "$selected_base" = "$base" ] || { source_error 'repository source differs from the selected payload'; exit 1; }
+  fi
+  printf '%s/cache/seed\n' "$runtime"
 )
 
 # One content snapshot per install. A release is built before it is served;
@@ -794,6 +791,7 @@ source_cache_root() (
 source_prepare_payload() (
   set -eu
   umask 077
+  installer_lifecycle_paths || exit 1
   base=$(source_normalize_base "$1") || exit 1
   expected_archive=$2; expected_manifest=$3
   case "$expected_archive$expected_manifest" in *[!a-f0-9]*) source_error 'invalid payload digest'; exit 1 ;; esac
@@ -807,9 +805,7 @@ source_prepare_payload() (
   trap 'rm -rf "$work"' 0
   trap 'exit 130' INT; trap 'exit 143' TERM
   source_transfer "$base" payload.manifest "$work/payload.manifest" || exit 1
-  actual=$(source_hash <"$work/payload.manifest"); [ "${actual%% *}" = "$expected_manifest" ] || { source_error 'payload manifest differs from preseed pin; rebuild and publish atomically'; exit 1; }
   source_transfer "$base" payload.tar.gz "$work/payload.tar.gz" || exit 1
-  actual=$(source_hash <"$work/payload.tar.gz"); [ "${actual%% *}" = "$expected_archive" ] || { source_error 'payload archive differs from preseed pin; rebuild and publish atomically'; exit 1; }
   # A bundle must contain regular files only; reject links, devices, directories,
   # duplicate entries and escaping paths BEFORE extraction into a private tree.
   tar -tzf "$work/payload.tar.gz" >"$work/members" || { source_error 'cannot list payload archive'; exit 1; }
@@ -823,7 +819,6 @@ source_prepare_payload() (
   # Keep the filename as the complete suffix after the fixed checksum field;
   # a valid payload member may contain spaces (the Vivaldi Local State file).
   awk -F '\t' 'NR==1 {if($0!="format=3") exit 1; next} NF!=3 || $1 !~ /^[0-9]+$/ || $1>16777216 || length($2)!=64 || $2 ~ /[^a-f0-9]/ {exit 1} {count++;total+=$1;if(count>10000 || total>268435456)exit 1; print $3}' "$work/payload.manifest" >"$work/expected" || { source_error 'malformed or excessive versioned payload manifest'; exit 1; }
-  awk -F '\t' 'NR>1 {print $2 "  " $3}' "$work/payload.manifest" >"$work/checksums" || exit 1
   while IFS= read -r path; do source_validate_relative "$path" || exit 1; done <"$work/expected"
   sort "$work/expected" >"$work/expected.sorted"
   cmp -s "$work/expected.sorted" "$work/members.sorted" || { source_error 'payload member set differs from manifest'; exit 1; }
@@ -831,7 +826,7 @@ source_prepare_payload() (
   tar -xzf "$work/payload.tar.gz" -C "$work/tree" || { source_error 'cannot extract payload archive'; exit 1; }
   case "${INSTALLER_SUITE:-}" in forky|trixie) ;; *) source_error 'requested suite is unavailable while validating the payload'; exit 1 ;; esac
   payload_suite_policy=$work/tree/catalog/compiled/suite-qualification.tsv
-  [ -f "$payload_suite_policy" ] && [ ! -L "$payload_suite_policy" ] || { source_error 'authenticated payload lacks suite qualification metadata'; exit 1; }
+  [ -f "$payload_suite_policy" ] && [ ! -L "$payload_suite_policy" ] || { source_error 'selected payload lacks suite qualification metadata'; exit 1; }
   awk -F '\t' -v suite="$INSTALLER_SUITE" '
     NR == 1 { if ($0 != "format\t1") exit 2; next }
     NF != 5 || $1 !~ /^(forky|trixie)$/ || $2 !~ /^(desktop|server)$/ ||
@@ -839,25 +834,14 @@ source_prepare_payload() (
     $1 == suite { count++ }
     END { if (count != 2) exit 1 }
   ' "$payload_suite_policy" || { source_error 'payload suite qualification does not match the requested suite'; exit 1; }
-  (cd "$work/tree"; source_verify_manifest ../checksums >../verification.log 2>&1) || { source_error 'payload file verification failed'; exit 1; }
-  while IFS="$(printf '\t')" read -r size digest path; do
-    [ "$size" != format=3 ] || continue
-    actual_size=$(wc -c <"$work/tree/$path") || exit 1
-    [ "$actual_size" -eq "$size" ] || { source_error 'payload member size differs from pinned manifest'; exit 1; }
-  done <"$work/payload.manifest"
   payload_scripts_dir=${DIR_REPO_SCRIPTS:-scripts}
   payload_profiles_dir=${DIR_HOSTS_PROFILES:-hosts/profiles}
-  payload_installer_dir=${DIR_HOSTS_INSTALLER:-hosts/installer}
   payload_common_dir=${DIR_SCRIPTS_COMMON:-${payload_scripts_dir}/common}
   [ -s "$work/tree/repo.env" ] && [ -s "$work/tree/${payload_common_dir}/lib.sh" ] || { source_error 'payload lacks installer entry files'; exit 1; }
   [ -f "$work/tree/${payload_profiles_dir}/shared.env" ] &&
     [ -f "$work/tree/${payload_profiles_dir}/desktop/shared-de.env" ] &&
     [ -f "$work/tree/${payload_profiles_dir}/server/shared-srv.env" ] ||
     { source_error 'payload lacks mandatory shared host profile environment'; exit 1; }
-  for file in "$work/tree/${payload_scripts_dir}"/*/*.sh "$work/tree/${payload_installer_dir}"/*.env; do
-    [ -f "$file" ] || continue
-    /bin/sh -n "$file" || { source_error "invalid shell syntax: ${file#"$work/tree/"}"; exit 1; }
-  done
   mkdir -p "$(dirname "$root")" || exit 1
   if [ -e "$root" ]; then rm -rf "$root" || exit 1; fi
   mv "$work/tree" "$root" || exit 1
@@ -889,7 +873,7 @@ source_fetch() (
       fi
       ;;
   esac
-  # Resolve an explicit local source only before a snapshot is authenticated.
+  # Resolve an explicit local source only before a snapshot is selected.
   # Never probe moving remote aliases or bypass a verified payload.
   if [ ! -e "$cache" ] && [ ! -L "$cache" ] &&
      [ ! -f "${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}/bootstrap/payload.ready" ]; then
@@ -953,18 +937,18 @@ source_bootstrap() (
   runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
   boot=$runtime/bootstrap
   source_prepare_payload "$base" "$archive_digest" "$manifest_digest" || exit 1
-  # The payload is authenticated before repo.env is trusted.  Load its
+  # The payload is selected before repo.env is trusted.  Load its
   # selectors before choosing any further bootstrap source, so a customized
   # repository layout cannot silently fall back to a stale hard-coded path.
   source_fetch "$base" repo.env "$boot/repo.env" 0600 || {
-    source_error 'authenticated payload is missing repo.env'; exit 1;
+    source_error 'selected payload is missing repo.env'; exit 1;
   }
   /bin/sh -n "$boot/repo.env" || {
-    source_error 'authenticated repo.env has invalid shell syntax'; exit 1;
+    source_error 'selected repo.env has invalid shell syntax'; exit 1;
   }
   # shellcheck disable=SC1090
   . "$boot/repo.env" || {
-    source_error 'cannot load authenticated repo.env'; exit 1;
+    source_error 'cannot load selected repo.env'; exit 1;
   }
   source_validate_repo_env_selectors "$boot/repo.env" || exit 1
   source_validate_selector_path DIR_REPO_SCRIPTS "${DIR_REPO_SCRIPTS:-}" || exit 1
@@ -978,12 +962,12 @@ source_bootstrap() (
     source_validate_selector_path "$source_selector" "$source_rel" || exit 1
     source_name=${pair##*:}
     source_fetch "$base" "$source_rel" "$boot/$source_name" 0700 || {
-      source_error "cannot stage authenticated bootstrap file: $source_rel"; exit 1;
+      source_error "cannot stage selected bootstrap file: $source_rel"; exit 1;
     }
   done
   preseed_apply=$boot/preseed-apply.sh
   [ -f "$preseed_apply" ] && [ ! -L "$preseed_apply" ] && [ -x "$preseed_apply" ] || {
-    source_error "authenticated payload did not create executable preseed runner: $preseed_apply"; exit 1;
+    source_error "selected payload did not create executable preseed runner: $preseed_apply"; exit 1;
   }
   "$boot/preseed-bootstrap-entry.sh" prepare-context "${FILE_INSTALLER_LOG:-/tmp/installer.log}" "$base" "$requested_suite" || { source_error "class/profile preflight failed; see ${FILE_INSTALLER_LOG:-/tmp/installer.log} (console 4)"; exit 1; }
   # All includes are local, absolute URIs: preseed.last_location can no longer
@@ -993,12 +977,12 @@ source_bootstrap() (
     source_validate_selector_path "$include_selector" "$rel" || exit 1
     destination=$boot/includes/$rel
     source_fetch "$base" "$rel" "$destination" 0600 || {
-      source_error "cannot stage authenticated preseed include: $rel"; exit 1;
+      source_error "cannot stage selected preseed include: $rel"; exit 1;
     }
     printf 'file://%s\n' "$destination"
   done
   # preseed/run is a second-stage include.  Do not publish it until the
-  # authenticated payload has staged the runner it names; otherwise d-i can
+  # selected payload has staged the runner it names; otherwise d-i can
   # report a misleading "file could not be retrieved" before the real
   # payload/bootstrap diagnostic is visible.
   run_control=$boot/preseed-run.cfg

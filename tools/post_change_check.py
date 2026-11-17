@@ -3421,9 +3421,11 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
     for suite, preseed in preseeds.items():
         if b'INSTALLER_SUITE=' + suite.encode() not in preseed:
             raise ValueError('preseed suite binding differs')
-        for product in ('source.sh', 'payload.manifest', 'payload.tar.gz'):
+        # These are recorded build identities. The installer does not checksum
+        # transport or payload contents; byte consistency is checked here only.
+        for product in ('payload.manifest', 'payload.tar.gz'):
             if digest(products[product]).encode() not in preseed:
-                raise ValueError('preseed lacks trusted product pin: ' + suite + '/' + product)
+                raise ValueError('preseed lacks declared product identity: ' + suite + '/' + product)
     # Setup code is payload input, never a permanent installed target program.
     setup_sources = ('scripts/common/network-profile-stage.py.tmpl',
                      'scripts/common/snander-install.py.tmpl', 'scripts/server/setup.py.tmpl',
@@ -4308,7 +4310,7 @@ def check_target_render_contract(paths: list[Path], errors: list[str], counts: d
     option_pattern = re.search(r'--\((scripts\|[^)]+)\)', renderer_text)
     options = {'--' + key for key in option_pattern[1].split('|')} if option_pattern else set()
     options.add('--cleanup')
-    call = re.search(r'"\$\{DIR_USR_BIN\}/perl" -f(.*?)--sha256 "\$\{DIR_USR_BIN\}/sha256sum"', preparation, re.S)
+    call = re.search(r'"\$\{DIR_USR_BIN\}/perl" -f[^\n]*', preparation.replace('\\\n', ' '))
     requested = set(re.findall(r'--[a-z][a-z0-9-]+', call[0])) if call else set()
     if not call or requested != options - {'--cleanup'}:
         errors.append('pre-late hook passes an unsupported target renderer option')

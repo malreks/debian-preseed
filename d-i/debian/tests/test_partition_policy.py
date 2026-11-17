@@ -42,7 +42,7 @@ runtime_probe_gpt_part_type() {
 }
 runtime_gpt_part_type_is_esp() { [ "$1" = c12a7328-f81f-11d2-ba4b-00a0c93ec93b ]; }
 runtime_probe_filesystem_type() { printf 'vfat\n'; }
-source_hash() { sha256sum; }
+source_state_key() { sha256sum; }
 parted() {
   [ "$1" = -sm ] && [ "$2" = /dev/fixture ] || exit 91
   printf '%s\n' "$FIXTURE_INVENTORY"

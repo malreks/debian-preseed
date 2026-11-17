@@ -160,7 +160,7 @@ fi
 layout_assert_disk
 layout_inventory=$(runtime_partition_inventory) || layout_die 'cannot re-read selected disk GPT'
 RUNTIME_PARTITION_INVENTORY=$layout_inventory
-layout_hash=$(printf '%s\n' "$layout_inventory" | source_hash) || exit 1
+layout_hash=$(printf '%s\n' "$layout_inventory" | source_state_key) || exit 1
 [ "${layout_hash%% *}" = "$RUNTIME_PARTITION_INVENTORY_HASH" ] || layout_die 'selected disk geometry changed before partitioning'
 if [ "$RUNTIME_PARTITION_MODE" != fresh ]; then
   layout_identity=$(runtime_partition_identity_hash) || exit 1

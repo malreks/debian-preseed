@@ -36,21 +36,23 @@ class PreparedBootstrapTests(unittest.TestCase):
     """Adoption starts from bootstrap.sh alone, as the supervised late shell does."""
 
     def prepared_receipt(self, stage, archive, manifest, identity):
-        data = b'fixture\n'
-        (stage / 'source/member').write_bytes(data)
-        index = f'{hashlib.sha256(data).hexdigest()}  member\n'.encode('ascii')
-        (stage / 'inputs/rendered.checksums').write_bytes(index)
-        (stage / 'inputs/rendered.checksums').chmod(0o600)
+        members = {'member': b'fixture\n', '.hidden': b'hidden\n',
+                   '.config/nested': b'nested\n'}
+        for name, data in members.items():
+            path = stage / 'source' / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            path.chmod(0o644)
+        index = ''.join(name + '\n' for name in sorted(members)).encode('ascii')
+        (stage / 'inputs/prepared-members').write_bytes(index)
+        (stage / 'inputs/prepared-members').chmod(0o600)
         (stage / 'inputs/paths.map').write_bytes(b'')
         (stage / 'inputs/paths.map').chmod(0o600)
         published = b'fixture\n'
         (stage / 'inputs/published-assets.tsv').write_bytes(published)
         (stage / 'inputs/published-assets.tsv').chmod(0o600)
-        receipt = {'format': 1, 'members': 1, 'input_bytes': len(data),
+        receipt = {'format': 2, 'members': len(members), 'input_bytes': sum(map(len, members.values())),
                    'rendered_files': 0, 'rendered_bytes': 0, 'published_perl_files': 1,
-                   'rendered_sha256': 'e' * 64,
-                   'rendered_manifest_sha256': hashlib.sha256(index).hexdigest(),
-                   'published_manifest_sha256': hashlib.sha256(published).hexdigest(),
                    'source_archive_sha256': archive, 'source_manifest_sha256': manifest,
                    'source_identity': identity}
         (stage / 'receipt.json').write_text(json.dumps(receipt, separators=(',', ':')) + '\n', encoding='ascii')
@@ -87,11 +89,16 @@ class PreparedBootstrapTests(unittest.TestCase):
                    'FILE_INSTALLER_TARGET_RENDER_READY': str(marker)}
             code = '\n'.join((
                 '. ' + shlex.quote(str(common / 'bootstrap.sh')),
+                'sha256sum() { printf "UNEXPECTED_HASH\\n" >&2; return 97; }',
+                'ls() { case "$1" in -lnR|-R) printf "UNEXPECTED_SCAN\\n" >&2; return 96 ;; esac; command ls "$@"; }',
                 'if command -v installer_lifecycle_parent_safe >/dev/null 2>&1; then exit 98; fi',
                 'bootstrap_load_prepared_source file://localhost/fixture-seed/preseed.cfg?fixture=1',
                 'command -v installer_lifecycle_parent_safe >/dev/null',
                 '[ "$BOOTSTRAP_PREPARED_SOURCE_ROOT" = "$TARGET_ROOT/stage/source" ]',
-                '[ "$BOOTSTRAP_PREPARED_SEED_BASE" = /fixture-seed ]'))
+                '[ "$BOOTSTRAP_PREPARED_SEED_BASE" = /fixture-seed ]',
+                'bootstrap_copy_prepared_file /fixture-seed .config/nested "$TARGET_ROOT/result"',
+                '[ "$(cat "$TARGET_ROOT/result")" = nested ]',
+                'bootstrap_load_prepared_source /fixture-seed'))
             for shell in shells:
                 with self.subTest(shell=shell):
                     result = subprocess.run([*shell, '-eu', '-c', code], env=env,
@@ -131,12 +138,12 @@ class PreparedBootstrapTests(unittest.TestCase):
                                     capture_output=True, timeout=15, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(
-                b'prepared target payload seed identity differs from authenticated request',
+                b'prepared target payload seed identity differs from selected request',
                 result.stderr)
 
     def test_prepared_mutations_fail_without_fetching_or_replacing_destination(self):
         common = RENDERER.parent
-        for mutation in ('member', 'symlink', 'hardlink', 'sentinel', 'ready', 'receipt', 'index'):
+        for mutation in ('symlink', 'hardlink', 'sentinel', 'ready', 'receipt', 'index'):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(prefix='prepared-identity-') as temporary:
                 root = Path(temporary)
                 runtime = root / 'runtime'
@@ -156,9 +163,7 @@ class PreparedBootstrapTests(unittest.TestCase):
                 published = stage / 'inputs/published-assets.tsv'
                 published.write_text('fixture\n', encoding='ascii')
                 published.chmod(0o600)
-                if mutation == 'member':
-                    (stage / 'source/member').write_bytes(b'changed\n')
-                elif mutation == 'symlink':
+                if mutation == 'symlink':
                     other = root / 'other'
                     other.write_bytes(b'fixture\n')
                     (stage / 'source/member').unlink()
@@ -173,7 +178,7 @@ class PreparedBootstrapTests(unittest.TestCase):
                     receipt = (stage / 'receipt.json').read_text(encoding='ascii')
                     (stage / 'receipt.json').write_text(receipt.replace(archive, 'c' * 64), encoding='ascii')
                 else:
-                    (stage / 'inputs/rendered.checksums').write_text('invalid\n', encoding='ascii')
+                    (stage / 'inputs/prepared-members').write_text('invalid\n', encoding='ascii')
                 destination = root / 'destination'
                 destination.write_bytes(b'previous\n')
                 env = {'PATH': '/usr/bin:/bin', 'HOME': str(root), 'TMPDIR': str(root),
@@ -186,7 +191,9 @@ class PreparedBootstrapTests(unittest.TestCase):
                     '. ' + shlex.quote(str(common / 'bootstrap.sh')),
                     'source_fetch() { printf "UNEXPECTED_FETCH\\n" >&2; return 99; }',
                     'bootstrap_load_prepared_source /fixture-seed',
-                    'bootstrap_copy_prepared_file /fixture-seed member ' + shlex.quote(str(destination))))
+                    'bootstrap_copy_prepared_file /fixture-seed ' +
+                    ('prepared-sentinel' if mutation == 'sentinel' else 'member') + ' ' +
+                    shlex.quote(str(destination))))
                 result = subprocess.run(['/bin/dash', '-eu', '-c', code], env=env,
                                         capture_output=True, timeout=15, check=False)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -229,7 +236,7 @@ class BatchRenderTests(unittest.TestCase):
     def run_render(self, *, succeeds=True, filesize_limit=None):
         argv = ['/usr/bin/perl', '-f', str(RENDERER), str(self.root)]
         options = dict(SELECTORS, **{'perl-root': str(self.destination), 'family': 'desktop',
-                                   'snapshots': 'false', 'sha256': '/usr/bin/sha256sum'})
+                                   'snapshots': 'false'})
         for key, value in options.items():
             argv += ['--' + key, value]
         def limit_output():
@@ -555,10 +562,21 @@ class BatchRenderTests(unittest.TestCase):
         self.assertEqual((self.source / 'assets/config').read_bytes(), previous)
         self.assertFalse(self.destination.exists())
 
-    def test_modified_copy_is_rejected_against_authenticated_manifest(self):
+    def test_manifest_is_a_render_work_list_without_file_hash_verification(self):
         self.candidate({'assets/data': b'original'})
         (self.source / 'assets/data').write_bytes(b'replaced')
-        self.run_render(succeeds=False)
+        self.run_render()
+        self.assertEqual((self.source / 'assets/data').read_bytes(), b'replaced')
+
+    def test_hidden_members_are_included_without_recursive_discovery(self):
+        self.candidate({'assets/.config/nested': b'__INSTALLER_PATH_DIR_ETC__\n'},
+                       {b'PATH_DIR_ETC': b'/etc'})
+        report = self.run_render()
+        self.assertEqual(report['format'], 2)
+        self.assertEqual((self.source / 'assets/.config/nested').read_bytes(), b'/etc\n')
+        self.assertIn('assets/.config/nested',
+                      (self.root / 'inputs/prepared-members').read_text(encoding='ascii').splitlines())
+        self.assertFalse((self.root / 'inputs/rendered.checksums').exists())
 
     def test_missing_copy_is_rejected(self):
         self.candidate({'assets/data': b'original'})

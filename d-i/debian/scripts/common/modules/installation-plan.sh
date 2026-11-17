@@ -122,7 +122,7 @@ installer_prepare_class_plan() (
   plan_whisper_enable=${INSTALLER_PROFILE_WHISPER_ENABLE:?explicit Whisper policy required}
   plan_llama_enable=${INSTALLER_PROFILE_LLAMA_ENABLE:?explicit Llama policy required}
   case "$plan_whisper_enable:$plan_llama_enable" in true:true|true:false|false:true|false:false) ;; *) installer_fatal 'invalid frozen AI policy' ;; esac
-  plan_key=$(printf '%s\n' "$INSTALLER_SUITE|$plan_roles|$plan_profile|amd64|$INSTALLER_SELECTED_CLASS_REFS|$plan_release|$plan_snapshots|$plan_crypto_root|$plan_crypto_home|$plan_wifi_enable|$plan_primary_iface|$plan_ipv6_enable|$plan_ssh_enable|$plan_ssh_port|$plan_codex_only|$plan_whisper_enable|$plan_llama_enable|$plan_mode|$INSTALLER_PROFILE_PARTMAN_CEILING_ENABLE|$INSTALLER_PROFILE_PARTMAN_CEILING_MB|$INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE|$INSTALLER_PROFILE_PARTMAN_REUSE_START" | source_hash)
+  plan_key=$(printf '%s\n' "$INSTALLER_SUITE|$plan_roles|$plan_profile|amd64|$INSTALLER_SELECTED_CLASS_REFS|$plan_release|$plan_snapshots|$plan_crypto_root|$plan_crypto_home|$plan_wifi_enable|$plan_primary_iface|$plan_ipv6_enable|$plan_ssh_enable|$plan_ssh_port|$plan_codex_only|$plan_whisper_enable|$plan_llama_enable|$plan_mode|$INSTALLER_PROFILE_PARTMAN_CEILING_ENABLE|$INSTALLER_PROFILE_PARTMAN_CEILING_MB|$INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE|$INSTALLER_PROFILE_PARTMAN_REUSE_START" | source_state_key)
   plan_key=${plan_key%% *}
   if [ -e "$plan_path" ]; then
     [ ! -L "$plan_path" ] && [ "$(installer_plan_value input_key)" = "$plan_key" ] ||
@@ -177,17 +177,15 @@ installer_prepare_class_plan() (
   } >"$plan_work"
   chmod 0400 "$plan_work" || exit "$?"
   mv "$plan_work" "$plan_path" || exit "$?"
-  plan_hash=$(source_hash <"$plan_path") || exit "$?"
-  printf '%s\n' "${plan_hash%% *}" >"${plan_path}.sha256"
-  chmod 0400 "${plan_path}.sha256"
+  printf 'ready\n' >"${plan_path}.ready"
+  chmod 0400 "${plan_path}.ready"
 )
 
 installer_assert_class_plan() {
   plan_path=$(installer_class_plan_path)
-  [ -f "$plan_path" ] && [ ! -L "$plan_path" ] && [ -r "${plan_path}.sha256" ] ||
+  [ -f "$plan_path" ] && [ ! -L "$plan_path" ] &&
+    [ -f "${plan_path}.ready" ] && [ ! -L "${plan_path}.ready" ] ||
     installer_fatal 'validated installation plan is unavailable'
-  plan_actual=$(source_hash <"$plan_path") || return "$?"
-  [ "${plan_actual%% *}" = "$(cat "${plan_path}.sha256")" ] || installer_fatal 'immutable installation plan changed'
   [ "$(installer_plan_value suite)" = "$INSTALLER_SUITE" ] &&
     [ "$(installer_plan_value release)" = "$INSTALLER_RELEASE_ID" ] || installer_fatal 'installation plan/release mismatch'
 }
