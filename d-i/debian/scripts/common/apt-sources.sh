@@ -70,8 +70,11 @@ installer_apt_publish_metadata_policy() (
   mv -fT -- "$metadata_work" "$metadata_destination"
 )
 
-# During bootstrap, overlay acquisition/dependency limits and preserve the
-# debconf writer before the first base-installer APT transaction. Retain d-i's
+# During bootstrap, overlay only acquisition/dependency limits. The running
+# d-i frontend owns debconf and its descriptors; retain its native 70debconf
+# without adding a preconfiguration hook or keeping only its writer open.
+# dpkg-preconfigure --apt repurposes stdin, so that partial passthrough setup
+# can wait for a reply from the wrong stream. Retain d-i's
 # media, NoMount and temporary verification configuration through apt-setup and
 # pkgsel. Full replacement starts in late_command, after those consumers finish.
 # Preserve the first bytes of each backup leaf; later passes also archive new
@@ -136,7 +139,7 @@ installer_apt_install_target_policy() (
   installer_repo_apt_conf_catalog >"$apt_policy_work/catalog" || exit "$?"
   while IFS='|' read -r apt_policy_leaf apt_policy_selector; do
     if [ "$apt_policy_phase" = bootstrap ]; then
-      case "$apt_policy_leaf" in 25no-pdiffs|70debconf|99noinstall-recommends) ;; *) continue ;; esac
+      case "$apt_policy_leaf" in 25no-pdiffs|99noinstall-recommends) ;; *) continue ;; esac
     fi
     case "$apt_policy_leaf" in
       00suite-default-release) [ "$apt_policy_phase" = final ] || continue ;;

@@ -229,28 +229,45 @@ installer_apt_install_target_policy "$TARGET_ROOT" final
                     self.assertIn('apt-mok-prehook::InfoFD "3";', content)
                     self.assertIn('APT::Keep-Fds:: "3";', (parts / '70debconf').read_text())
 
-    def test_bootstrap_preserves_debconf_writer_before_base_package_installation(self) -> None:
+    def test_bootstrap_preserves_native_debconf_without_installing_managed_hooks(self) -> None:
         for suite in ('forky', 'trixie'):
             for family in ('desktop', 'server'):
-                with self.subTest(suite=suite, family=family), tempfile.TemporaryDirectory(
-                        prefix='apt-bootstrap-debconf-') as temporary:
-                    root = Path(temporary)
-                    environment = self.prepare(root, suite, family)
-                    environment['FIXTURE_PHASE'] = 'bootstrap'
-                    helper = root / 'target/usr/sbin/dpkg-preconfigure'
-                    helper.parent.mkdir(parents=True)
-                    helper.write_text('#!/bin/sh\nexit 0\n', encoding='ascii')
-                    helper.chmod(0o755)
-                    parts = root / 'target/etc/apt/apt.conf.d'
-                    previous = '// native default without APT descriptor preservation\n'
-                    (parts / '70debconf').write_text(previous, encoding='ascii')
-                    result = self.invoke(root, environment)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn('APT::Keep-Fds:: "3";', (parts / '70debconf').read_text())
-                    self.assertIn('dpkg-preconfigure --apt', (parts / '70debconf').read_text())
-                    self.assertEqual((parts.with_name('apt.conf.d.bak') / '70debconf').read_text(), previous)
-                    self.assertEqual((parts / '00trustcdrom').read_text(), 'ORIGINAL MEDIA POLICY\n')
-                    self.assertFalse((parts / '00installer-policy').exists())
+                for native_present in (False, True):
+                    with self.subTest(suite=suite, family=family, native=native_present), tempfile.TemporaryDirectory(
+                            prefix='apt-bootstrap-debconf-') as temporary:
+                        root = Path(temporary)
+                        environment = self.prepare(root, suite, family)
+                        environment['FIXTURE_PHASE'] = 'bootstrap'
+                        helper = root / 'target/usr/sbin/dpkg-preconfigure'
+                        helper.parent.mkdir(parents=True)
+                        helper.write_text('#!/bin/sh\nexit 0\n', encoding='ascii')
+                        helper.chmod(0o755)
+                        parts = root / 'target/etc/apt/apt.conf.d'
+                        previous = ('// native debconf package policy\n'
+                                    'DPkg::Pre-Install-Pkgs { "/usr/sbin/dpkg-preconfigure --apt || true"; };\n')
+                        if native_present:
+                            (parts / '70debconf').write_text(previous, encoding='ascii')
+                            (parts / '70debconf').chmod(0o640)
+                        # Repeating bootstrap (base-stage, network adapter and
+                        # apt-setup) must preserve the same native bytes/mode.
+                        result = self.invoke(root, environment,
+                            'installer_apt_install_target_policy "$TARGET_ROOT" bootstrap\n')
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        active = parts / '70debconf'
+                        saved = parts.with_name('apt.conf.d.bak') / '70debconf'
+                        if native_present:
+                            self.assertEqual(active.read_text(), previous)
+                            self.assertEqual(active.stat().st_mode & 0o777, 0o640)
+                            self.assertEqual(saved.read_text(), previous)
+                        else:
+                            self.assertFalse(active.exists())
+                            self.assertFalse(saved.exists())
+                        self.assertEqual((parts / '00trustcdrom').read_text(), 'ORIGINAL MEDIA POLICY\n')
+                        self.assertFalse((parts / '00installer-policy').exists())
+                        environment['FIXTURE_PHASE'] = 'install'
+                        result = self.invoke(root, environment)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn('APT::Keep-Fds:: "3";', active.read_text())
 
     def test_commit_failure_restores_previous_or_retains_recovery(self) -> None:
         for recovery_failure in (False, True):
