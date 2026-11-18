@@ -18,6 +18,7 @@ desktop_install_codex_standalone() (
   if ! installer_tools_class_selected 2>__INSTALLER_PATH_DIR_DEV__/null; then
     return 0
   fi
+  installer_operation_context_repo FILE_DESKTOP_LABWC 17 desktop_install_codex_standalone
 
   : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set before Codex standalone installation}"
   : "${ACCOUNT_HOME:?ACCOUNT_HOME must be set before Codex standalone installation}"
@@ -117,7 +118,7 @@ desktop_install_kanshi_policy() (
   helper_host=$(target_asset_host_path "$helper")
   [ ! -e "$helper_host" ] && [ ! -L "$helper_host" ] ||
     installer_fatal "unexpected Kanshi installer staging file: $helper"
-  trap 'rm -f -- "$helper_host"' EXIT
+  trap 'cleanup_target_assets "$?" "$helper"' EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM

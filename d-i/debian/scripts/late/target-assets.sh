@@ -345,9 +345,26 @@ write_target_file() {
 
 remove_target_asset() (
   target_host_path=$(target_asset_host_path "$1") || exit 1
-  rm -f -- "$target_host_path"
+  rm -f -- "$target_host_path" || exit "$?"
   installer_target_ownership_forget "${target_host_path#"${INSTALLER_TARGET_DIR:-$TARGET_ROOT}"}"
 )
+
+# EXIT trap for temporary target programs published through this boundary.
+# Retain the command's status and its ownership evidence if removal fails.
+cleanup_target_assets() {
+  cleanup_status=$1
+  shift
+  trap - 0 HUP INT TERM
+  for cleanup_asset do
+    if remove_target_asset "$cleanup_asset"; then
+      :
+    else
+      installer_error "temporary target asset cleanup failed: $cleanup_asset"
+      [ "$cleanup_status" -ne 0 ] || cleanup_status=1
+    fi
+  done
+  exit "$cleanup_status"
+}
 
 # Opt-in renderer: only explicitly selected resource-policy assets use it.
 render_target_resource_asset() {

@@ -174,8 +174,10 @@ def main(argv: list[str], *, runtime_parent: Path = RUNTIME_PARENT,
          timeout: float | None = INSTALL_TIMEOUT) -> int:
     if os.geteuid() != 0:
         raise PermissionError('the installer-session supervisor must run as root inside in-target')
-    if len(argv) != 8:
-        raise ValueError('usage: codex-installer-session.py USER HOME HELPER URL SHA256 MAX_BYTES CODEX_HOME PACKAGES')
+    # Match desktop_install_codex_standalone and the four-argument target
+    # helper. There is no MAX_BYTES positional argument in that interface.
+    if len(argv) != 7:
+        raise ValueError('usage: codex-installer-session.py USER HOME HELPER URL SHA256 CODEX_HOME PACKAGES')
     username, home_text, helper_text, *installer_args = argv
     try:
         account = pwd.getpwnam(username)

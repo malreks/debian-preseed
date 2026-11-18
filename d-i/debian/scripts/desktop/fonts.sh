@@ -16,8 +16,7 @@ desktop_install_fonts() (
   : "${LABWC_FONT_MICROSOFT_URL:?font URL must be set}"
   : "${LABWC_FONT_MICROSOFT_SHA256:?font SHA-256 must be set}"
   helper="${DIR_USR_LOCAL_LIBEXEC}/installer-desktop-fonts"
-  helper_host=$(target_asset_host_path "$helper")
-  trap 'rm -f -- "$helper_host"' EXIT
+  trap 'cleanup_target_assets "$?" "$helper"' EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM

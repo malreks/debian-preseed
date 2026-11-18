@@ -19,6 +19,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from fixture_render import compiled_runtime_paths
 
 
 RENDERER = Path(__file__).resolve().parents[1] / 'scripts/common/render.pl'
@@ -837,15 +838,7 @@ class TypedPublicationTests(unittest.TestCase):
         self.prepared = self.root / 'prepared'
         (self.prepared / 'inputs').mkdir(parents=True)
         (self.prepared / 'source').mkdir()
-        values = {}
-        profile = self.seed / 'catalog/compiled/forky/profiles/desktop/btrfs-de-p15s.env'
-        for line in profile.read_text(encoding='utf-8').splitlines():
-            if not line or line.startswith('#'):
-                continue
-            key, separator, raw = line.partition('=')
-            self.assertTrue(separator)
-            values[key] = shlex.split(raw)[0]
-        self.paths = {key: values[name] for key, name in RUNTIME_FIELDS.items() if values.get(name)}
+        self.paths = compiled_runtime_paths()
         (self.prepared / 'inputs/paths.map').write_text(''.join(
             key + '=' + value + '\n' for key, value in self.paths.items()), encoding='utf-8')
         self.env = {'PATH': '/usr/bin:/bin', 'HOME': str(self.root), 'LC_ALL': 'C',
@@ -886,6 +879,55 @@ class TypedPublicationTests(unittest.TestCase):
                                'typed-publication', *map(str, self.modules), str(self.target),
                                str(self.prepared / 'source'), *map(str, arguments)],
                               env=self.env, capture_output=True, timeout=20, check=False)
+
+    def test_temporary_program_cleanup_removes_ownership_and_preserves_status(self):
+        source = self.prepared / 'source/cleanup-fixture'
+        source.write_text('#!/bin/sh\nexit 0\n', encoding='ascii')
+        helper = self.target / 'usr/local/libexec/installer-fixture'
+        ledger = self.root / 'owned-helper'
+        shells = [['/bin/dash']]
+        if shutil.which('busybox'):
+            shells.append([shutil.which('busybox'), 'sh'])
+        code = '''
+installer_target_ownership_record() { printf '%s\\n' "$2" >"$HOME/owned-helper"; }
+installer_target_ownership_forget() { rm -f -- "$HOME/owned-helper"; }
+installer_error() { printf '%s\\n' "$*" >&2; }
+helper=/usr/local/libexec/installer-fixture
+trap 'cleanup_target_assets "$?" "$helper"' 0
+stage_target_asset cleanup-fixture "$helper" 0700
+exit "$8"
+'''
+        for shell in shells:
+            for status in (0, 37, 129, 130, 143):
+                with self.subTest(shell=shell, status=status):
+                    result = self.shell(code, status, shell=shell)
+                    self.assertEqual(result.returncode, status, result.stderr.decode(errors='replace'))
+                    self.assertFalse(helper.exists())
+                    self.assertFalse(ledger.exists())
+
+    def test_temporary_program_removal_failure_retains_ownership_and_fails(self):
+        source = self.prepared / 'source/cleanup-fixture'
+        source.write_text('#!/bin/sh\nexit 0\n', encoding='ascii')
+        code = '''
+installer_target_ownership_record() { printf '%s\\n' "$2" >"$HOME/owned-helper"; }
+installer_target_ownership_forget() { rm -f -- "$HOME/owned-helper"; }
+installer_error() { printf '%s\\n' "$*" >&2; }
+helper=/usr/local/libexec/installer-fixture
+trap 'cleanup_target_assets "$?" "$helper"' 0
+stage_target_asset cleanup-fixture "$helper" 0700
+rm() {
+  case "$3" in "$TARGET_ROOT$helper") return 23 ;; esac
+  command rm "$@"
+}
+exit "$8"
+'''
+        for status, expected in ((0, 1), (37, 37)):
+            with self.subTest(status=status):
+                result = self.shell(code, status)
+                self.assertEqual(result.returncode, expected, result.stderr.decode(errors='replace'))
+                self.assertTrue((self.target / 'usr/local/libexec/installer-fixture').is_file())
+                self.assertTrue((self.root / 'owned-helper').is_file())
+                self.assertIn(b'temporary target asset cleanup failed', result.stderr)
 
     def test_template_inputs_require_a_private_root_and_preserve_grammar_until_the_consumer(self):
         relative = 'hooks/target/etc/stubby/stubby.yml.tmpl'

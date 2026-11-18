@@ -17,7 +17,8 @@ _isolation_sys.path.pop(0)
 _require_test_isolation()
 
 from payload_fixture import installed_argv as payload_installed_argv, source_exists as payload_source_exists, source_is_file as payload_source_is_file, source_stat as payload_source_stat
-from payload_fixture import read_text as payload_read_text
+from payload_fixture import read_text as payload_source_text
+from fixture_render import rendered_path_text
 import importlib.util
 import json
 import os
@@ -39,8 +40,14 @@ SCRIPT = FORKY / 'scripts/late/codex-installer-session.py'
 STANDALONE = FORKY / 'hooks/target/usr/local/bin/desktop/codex-standalone-install'
 
 
-def load_module():
-    spec = importlib.util.spec_from_file_location('codex_installer_session', SCRIPT)
+def payload_read_text(path, *args, **kwargs):
+    return rendered_path_text(payload_source_text(path, *args, **kwargs))
+
+
+def load_module(directory):
+    staged = directory / 'codex-installer-session.py'
+    staged.write_text(payload_read_text(SCRIPT), encoding='utf-8')
+    spec = importlib.util.spec_from_file_location('codex_installer_session', staged)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -71,12 +78,13 @@ class CodexSessionTests(unittest.TestCase):
             base.pw_gid, base.pw_gecos, str(self.home), '/bin/sh'))
         self.parent = self.root / 'runtime'
         self.helper = self.root / 'installer'
-        self.module = load_module()
+        self.module = load_module(self.root)
         self.patch = mock.patch.object(self.module.pwd, 'getpwnam', return_value=self.account)
         self.patch.start()
         self.addCleanup(self.patch.stop)
         self.args = [self.account.pw_name, str(self.home), str(self.helper),
-                     'https://raw.githubusercontent.com/openai/codex/89461ea6833832b0551ce24ee32205824d5c108d/scripts/install/install.sh', '1048576',
+                     'https://raw.githubusercontent.com/openai/codex/89461ea6833832b0551ce24ee32205824d5c108d/scripts/install/install.sh',
+                     '95d14ccaba915e52a3f0cc590638ca5ac510086ff6a23dc9ac9f77e957403a93',
                      str(self.home / 'codex/usr/home'), str(self.home / 'codex/packages')]
 
     def write_helper(self, body):
@@ -117,6 +125,24 @@ INNER
         self.assertIsNone(receipt['secret'])
         self.assertFalse(payload_source_exists(Path(receipt['runtime'])))
         self.assert_clean()
+
+    def test_desktop_arguments_reach_helper_without_an_extra_size_argument(self):
+        self.write_helper('exit 0\n')
+        with mock.patch.object(self.module, 'supervise', return_value=0) as supervise:
+            self.assertEqual(self.run_installer(), 0)
+        self.assertEqual(supervise.call_args.args[0],
+                         ['/bin/sh', str(self.helper), *self.args[3:]])
+        self.assertEqual(len(supervise.call_args.args[0][2:]), 4)
+        self.assert_clean()
+
+    def test_wrong_argument_count_fails_before_account_or_runtime_access(self):
+        for args in (self.args[:-1], self.args + ['unexpected']):
+            with self.subTest(argument_count=len(args)):
+                with mock.patch.object(self.module.pwd, 'getpwnam') as lookup:
+                    with self.assertRaisesRegex(ValueError, 'usage:'):
+                        self.module.main(args, runtime_parent=self.parent)
+                    lookup.assert_not_called()
+                self.assertFalse(self.parent.exists())
 
     def test_helper_in_deployed_root_owned_sticky_group_directory(self):
         os.chown(self.root, 0, self.account.pw_gid)
@@ -216,7 +242,7 @@ wait
 ''')
         driver = self.root / 'driver.py'
         driver.write_text(f'''import importlib.util, pwd, pathlib, sys
-spec = importlib.util.spec_from_file_location('fixture', {str(SCRIPT)!r})
+spec = importlib.util.spec_from_file_location('fixture', {str(self.module.__file__)!r})
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 account = pwd.struct_passwd({tuple(self.account)!r})
 m.pwd.getpwnam = lambda name: account

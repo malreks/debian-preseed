@@ -3033,6 +3033,35 @@ def check_private_server_setup(paths: list[Path], errors: list[str], counts: dic
     counts['technitium_authenticated_backup_format'] = 3
 
 
+def check_codex_installer_arguments(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
+    """Compare the desktop/session/helper argv as data, without target execution."""
+    inputs = (
+        DEBIAN_ROOT / 'scripts/desktop/labwc.sh',
+        DEBIAN_ROOT / 'scripts/late/codex-installer-session.py',
+        TARGET_ROOT / 'usr/local/bin/desktop/codex-standalone-install',
+    )
+    if not set(inputs).intersection(paths):
+        return
+    desktop, session, helper = map(_read_text, inputs)
+    call = re.search(r'\bpython3[ \t]+(?="\$session_helper")', desktop)
+    arguments = _shell_invocation_arguments(desktop, call.end()) if call else None
+    guards = [node for node in ast.walk(ast.parse(session))
+              if isinstance(node, ast.Compare) and len(node.ops) == 1
+              and isinstance(node.ops[0], ast.NotEq)
+              and isinstance(node.left, ast.Call) and isinstance(node.left.func, ast.Name)
+              and node.left.func.id == 'len' and len(node.left.args) == 1
+              and isinstance(node.left.args[0], ast.Name) and node.left.args[0].id == 'argv'
+              and isinstance(node.comparators[0], ast.Constant)
+              and type(node.comparators[0].value) is int]
+    helper_guard = re.search(r'\[ "\$#" -eq ([0-9]+) \]', helper)
+    if (arguments is None or len(guards) != 1 or helper_guard is None
+            or len(arguments) != guards[0].comparators[0].value
+            or len(arguments) - 3 != int(helper_guard[1])):
+        errors.append('Codex desktop/session/standalone helper argument counts disagree')
+        return
+    counts['codex_installer_argument_boundaries'] = 2
+
+
 def check_codex_and_private_git(paths: list[Path], errors: list[str], counts: dict[str, int]) -> None:
     """Inspect account/credential boundaries as source, without managed imports."""
     inputs = (
@@ -4798,6 +4827,7 @@ def main() -> int:
         check_timeshift_profile_policy(paths, errors, counts)
         check_server_configuration(paths, errors, counts)
         check_private_server_setup(paths, errors, counts)
+        check_codex_installer_arguments(paths, errors, counts)
         check_codex_and_private_git(paths, errors, counts)
         check_server_podman_ownership(paths, errors, counts)
         check_server_ai_profile_ownership(paths, errors, counts)

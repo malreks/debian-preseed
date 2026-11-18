@@ -22,8 +22,7 @@ desktop_install_resctl_bench() (
   desktop_resctl_bench_preflight_target_architecture
   # A fixed, verified repository helper, never the downloaded archive's script.
   helper=__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/installer-resctl-bench
-  helper_host=$(target_asset_host_path "$helper")
-  trap 'rm -f -- "$helper_host"' EXIT
+  trap 'cleanup_target_assets "$?" "$helper"' EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM

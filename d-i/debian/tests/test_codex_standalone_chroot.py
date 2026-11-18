@@ -19,6 +19,7 @@ _require_test_isolation()
 
 from payload_fixture import installed_argv as payload_installed_argv, source_exists as payload_source_exists, source_is_file as payload_source_is_file, source_stat as payload_source_stat
 from payload_fixture import read_text as payload_read_text
+from fixture_render import rendered_path_text
 import hashlib
 import os
 from pathlib import Path
@@ -82,7 +83,7 @@ fi
 
         helper = root / 'installer'
         helper.write_text(
-            payload_read_text(FORKY / 'hooks/target/usr/local/bin/desktop/codex-standalone-install')
+            rendered_path_text(payload_read_text(FORKY / 'hooks/target/usr/local/bin/desktop/codex-standalone-install'))
         )
         helper.chmod(0o755)
         profile = root / 'home/account/.profile.d/71-devops-de.sh'
@@ -144,17 +145,8 @@ ln -s bin/codex "$CODEX_HOME/packages/standalone/releases/0.153.3-x86_64-unknown
 ln -s "$CODEX_HOME/packages/standalone/releases/0.153.3-x86_64-unknown-linux-musl" "$CODEX_HOME/packages/standalone/current"
 '''
 
-        # Model the reviewed script's digest with this fixture payload. The
-        # actual hash operation remains real, entirely inside the fixture.
-        source = helper.read_text()
-        pin_prefix = 'installer_sha256='
-        self.assertEqual(source.count(pin_prefix), 1)
-        pin_line = next(line for line in source.splitlines() if line.startswith(pin_prefix))
-        helper.write_text(source.replace(
-            pin_line,
-            pin_prefix + hashlib.sha256(payload.encode()).hexdigest(),
-            1,
-        ))
+        # Pass the fixture's pin through the production helper interface;
+        # leave its argument validation and digest check intact.
         self.installer_sha256 = hashlib.sha256(payload.encode()).hexdigest()
         if digest_error:
             payload += '# fixture corruption after pinning\n'
@@ -188,7 +180,7 @@ cat > "$output" <<'PAYLOAD'
                 shutil.which('chroot'), '--userspec=65534:65534', str(root),
                 '/bin/sh', '/installer', 'https://fixture.invalid/installer',
                 self.installer_sha256,
-                '1048576', '/data/codex/usr/home', '/data/codex/packages',
+                '/data/codex/usr/home', '/data/codex/packages',
             ]),
             env={
                 'PATH': '/usr/bin:/bin',

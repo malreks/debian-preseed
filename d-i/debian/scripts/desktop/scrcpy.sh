@@ -65,8 +65,7 @@ desktop_install_scrcpy() (
   set -eu
   desktop_scrcpy_preflight_target_architecture
   helper=__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/installer-scrcpy
-  helper_host=$(target_asset_host_path "$helper")
-  trap 'rm -f -- "$helper_host"' EXIT
+  trap 'cleanup_target_assets "$?" "$helper"' EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
