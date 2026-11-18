@@ -68,9 +68,16 @@ installer_target_ownership_record() (
   esac
   ownership_phase=${INSTALLER_PHASE:-late-command}
   case "$ownership_source" in -) ownership_source=generated ;; esac
-  case "$ownership_source:$ownership_phase:$ownership_kind" in
-    *[!A-Za-z0-9_./@+:-]*|'') installer_fatal 'invalid target ownership context'; exit 1 ;;
+  # Source members include the declared Vivaldi "Local State" filename. Spaces
+  # are data in this TSV field; tabs/newlines remain forbidden field separators.
+  case "$ownership_source" in
+    *[!A-Za-z0-9_./@+:\ -]*|'') installer_fatal 'invalid target ownership source'; exit 1 ;;
   esac
+  for ownership_context in "$ownership_phase" "$ownership_kind"; do
+    case "$ownership_context" in
+      *[!A-Za-z0-9_./@+:-]*|'') installer_fatal 'invalid target ownership context'; exit 1 ;;
+    esac
+  done
   case "$ownership_target" in /*) ;; *) installer_fatal 'target ownership path is not absolute'; exit 1 ;; esac
   case "$ownership_target" in
     /|*//*|*/../*|*/..|*/./*|*/.|*[!A-Za-z0-9_./@+\ -]*)

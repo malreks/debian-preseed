@@ -1,4 +1,4 @@
-"""Native AWK scan fixtures, run only in a reviewed disposable image."""
+"""Native ownership writer/scan fixtures; reviewed isolated execution only."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,6 +9,7 @@ require_test_isolation()
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -37,11 +38,114 @@ class TargetOwnedScanTests(unittest.TestCase):
             path.write_text(data, encoding='utf-8')
             rows.append(f'{destination}\t{source}\t{kind}\tlate-command\t0644\n')
         self.inventory.write_text(''.join(rows), encoding='utf-8')
+        return self.scan_inventory(registry=registry)
+
+    def scan_inventory(self, *, registry=None):
         return subprocess.run(['/usr/bin/awk', '-v', 'target_root=' + str(self.target),
                                '-v', 'registry=' + str(registry or self.registry),
                                '-f', str(SEED / 'scripts/common/target-owned-scan.awk'),
                                str(self.inventory)], env=self.environment, capture_output=True,
                               timeout=15, check=False)
+
+    def shells(self):
+        yield ['/bin/dash']
+        busybox = shutil.which('busybox', path='/usr/bin:/bin')
+        self.assertIsNotNone(busybox, 'the isolated fixture must provide BusyBox')
+        yield [busybox, 'sh']
+
+    def record(self, shell, source, destination, kind='plain', phase='late-command'):
+        # Root identity is fixture metadata; all actual writes stay under the
+        # private fixture root. No target or host metadata helper is executed.
+        script = '''
+. "$1"
+installer_fatal() { printf 'fatal: %s\\n' "$*" >&2; exit 1; }
+installer_lifecycle_parent_safe() { [ "$1" = "$DIR_INSTALLER_TARGET_OWNERSHIP" ]; }
+installer_metadata_value() {
+  case "$1:$2" in
+    "$DIR_INSTALLER_TARGET_OWNERSHIP:uid_gid_mode") printf '0:0:700\\n' ;;
+    "$DIR_INSTALLER_TARGET_OWNERSHIP/"*:uid_gid_mode_links) printf '0:0:600:1\\n' ;;
+    *) return 1 ;;
+  esac
+}
+installer_target_ownership_record "$2" "$3" "$4" 0644
+'''
+        return subprocess.run(
+            [*shell, '-eu', '-c', script, 'owned-record',
+             str(SEED / 'scripts/common/modules/target-publication.sh'),
+             source, destination, kind],
+            cwd=self.root, env={**self.environment,
+                               'DIR_INSTALLER_TARGET_OWNERSHIP': str(self.root / 'records'),
+                               'INSTALLER_PHASE': phase},
+            capture_output=True, text=True, timeout=5, check=False)
+
+    def test_spaced_source_round_trips_through_writer_and_final_scan(self):
+        source = 'hooks/target/etc/skel-desktop/.config/vivaldi/Local State'
+        destination = '/etc/skel-desktop/.config/vivaldi/Local State'
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                result = self.record(shell, source, destination)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                records = list((self.root / 'records').glob('*.tsv'))
+                self.assertEqual(len(records), 1)
+                data = records[0].read_bytes()
+                self.assertEqual(data.decode().splitlines(), [
+                    f'{destination}\t{source}\tplain\tlate-command\t0644'])
+                self.inventory.write_bytes(data)
+                target = self.target / destination.lstrip('/')
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('{}\n', encoding='utf-8')
+                scan = self.scan_inventory()
+                self.assertEqual(scan.returncode, 0, scan.stdout + scan.stderr)
+                target.write_text('__UNKNOWN_FIXTURE__\n', encoding='utf-8')
+                scan = self.scan_inventory()
+                self.assertNotEqual(scan.returncode, 0)
+                self.assertIn(b'token=__UNKNOWN_FIXTURE__', scan.stdout)
+
+    def test_source_field_separators_and_empty_source_fail_before_record_creation(self):
+        for shell in self.shells():
+            for source in ('', 'source\tother', 'source\nother', 'source\rother',
+                           'source\\other', 'source;other', 'source$other', 'source|other'):
+                with self.subTest(shell=shell, source=source):
+                    result = self.record(shell, source, '/etc/fixture')
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('invalid target ownership source', result.stderr)
+                    self.assertFalse((self.root / 'records').exists())
+
+    def test_phase_and_kind_keep_their_identifier_grammar(self):
+        for shell in self.shells():
+            for phase, kind in (('late command', 'plain'), ('late\ncommand', 'plain'),
+                                ('late-command', 'template input'), ('late-command', ''),
+                                ('late-command', 'plain\tother')):
+                with self.subTest(shell=shell, phase=phase, kind=kind):
+                    result = self.record(shell, 'generated', '/etc/fixture', kind, phase)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('invalid target ownership context', result.stderr)
+                    self.assertFalse((self.root / 'records').exists())
+
+    def test_generated_stdin_retains_its_declared_source(self):
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                result = self.record(shell, '-', '/etc/fixture', 'stdin')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                record, = (self.root / 'records').glob('*.tsv')
+                self.assertEqual(record.read_text().split('\t')[1:4],
+                                 ['generated', 'stdin', 'late-command'])
+
+    def test_invalid_replacement_preserves_previous_record_and_target(self):
+        target = self.target / 'etc/fixture'
+        target.parent.mkdir()
+        target.write_text('previous target\n', encoding='utf-8')
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                result = self.record(shell, 'generated', '/etc/fixture', 'stdin')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                record, = (self.root / 'records').glob('*.tsv')
+                before = record.read_bytes()
+                result = self.record(shell, 'bad\tsource', '/etc/fixture')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(record.read_bytes(), before)
+                self.assertEqual(target.read_text(), 'previous target\n')
+                self.assertEqual(list((self.root / 'records').glob('.record.*')), [])
 
     def test_unknown_tokens_in_perl_share_and_generated_state_fail(self):
         for destination in ('/usr/local/lib/perl5/site_perl/fixture.pm',

@@ -8,6 +8,8 @@ bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
 bootstrap_source_common_lib ""
 seed_base=$(installer_seed_base "")
 installer_ensure_context_loaded "$seed_base"
+# Late providers run in fresh shells; the dispatcher cannot pass its functions.
+bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/timeshift-support" target || exit "$?"
 installer_assert_class_plan
 installer_snapshots_enabled || installer_fatal 'Timeshift stage requires TIMESHIFT_ENABLE=true in the selected host profile'
 profile_env="${DIR_INSTALLER_LATE_ENV}/timeshift-profile.env"
