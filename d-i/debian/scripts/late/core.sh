@@ -204,7 +204,7 @@ late_command_ensure_profile_env() {
   late_command_host_env=$LATE_COMMAND_HOST_ENV
 
   if [ ! -s "$late_command_host_env" ]; then
-    installer_operation_context_repo FILE_LATE_CORE 204 installer_fetch_host_env
+    # The acquisition helper owns and restores its diagnostic context.
     installer_fetch_host_env "$SEED_BASE" "$HOST_PROFILE" "$late_command_host_env" 0600 || {
       late_command_env_status=$?
       installer_fatal_status "$late_command_env_status" \
@@ -236,7 +236,8 @@ late_command_load_account_env() {
   # atomic publisher used by the dispatcher and standalone addon fallbacks.
   late_command_load_profile_env || return $?
   late_command_account_env=$LATE_COMMAND_ACCOUNT_ENV
-  installer_operation_context_repo FILE_LATE_CORE 236 prepare_late_account_env
+  # The publisher sets its own context in its subshell. A successful account
+  # handoff must leave the provider's context intact for later target commands.
   installer_prepare_late_account_env "$SEED_BASE" "$late_command_account_env" || {
     late_command_env_status=$?
     installer_fatal_status "$late_command_env_status" \

@@ -1342,19 +1342,17 @@ software_store_managed_artifact() {
   if [ -e "$artifact_host_path" ] || [ -L "$artifact_host_path" ]; then
     [ -f "$artifact_host_path" ] && [ ! -L "$artifact_host_path" ] ||
       software_fatal "$label retained artifact path is not a regular file: $artifact_path"
-    source_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$source_path" | awk '{print $1}')
-    retained_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$artifact_path" | awk '{print $1}')
-    [ "$source_sha256" = "$retained_sha256" ] ||
+    # Compare an existing name once. Hashing both files adds two target
+    # processes and does not establish any additional publisher identity.
+    cmp -s -- "$source_host_path" "$artifact_host_path" ||
       software_fatal "$label retained artifact conflicts with the verified download: $artifact_path"
     return 0
   fi
 
   install -m 0644 "$source_host_path" "$artifact_tmp"
   chown root:root "$artifact_tmp"
-  source_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$source_path" | awk '{print $1}')
-  retained_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "${artifact_path}.tmp.$$" | awk '{print $1}')
-  [ "$source_sha256" = "$retained_sha256" ] ||
-    software_fatal "$label retained artifact digest changed during copy"
+  # install reports read/write failures. Do not rehash a successful private
+  # copy of an already verified download before its atomic rename.
   chmod 0644 "$artifact_tmp"
   mv -f -- "$artifact_tmp" "$artifact_host_path"
 }
@@ -2161,7 +2159,7 @@ software_run_selected_app() {
   selected_worker=$3
   selected_result=$4
   installer_class_selected_any $selected_classes || return 0
-  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2170 "install_managed_application:${selected_worker}"
+  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2168 "install_managed_application:${selected_worker}"
   software_info "starting ${selected_label}"
   # A required worker runs outside a conditional context so Dash keeps errexit.
   (

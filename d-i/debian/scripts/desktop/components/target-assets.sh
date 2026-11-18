@@ -393,26 +393,16 @@ desktop_stage_target_assets() {
       LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
   done
   desktop_stage_labwc_managed_app_python_modules
-  if [ -e ${TARGET_ROOT}${DIR_OPT}/vivaldi/vivaldi ]; then
-    [ -x ${TARGET_ROOT}${DIR_OPT}/vivaldi/update-ffmpeg ] &&
-      [ ! -L ${TARGET_ROOT}${DIR_OPT}/vivaldi/update-ffmpeg ] ||
-      installer_fatal "installed Vivaldi is missing its packaged codec updater"
-    # The signed package's postinst starts this updater asynchronously. Its
-    # cleanup removes partial downloads, so wait for that process before
-    # running the checked system installation. procps is a desktop dependency;
-    # pidwait observes exact root-owned updater processes without signalling.
-    run_in_target "install compatible Vivaldi proprietary media codecs" \
-      __INSTALLER_PATH_DIR_USR_BIN__/env -i PATH=__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_BIN__ HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ USER=root LANG=C.UTF-8 \
-      __INSTALLER_PATH_DIR_USR_BIN__/timeout --signal=TERM --kill-after=5s 180s \
-      __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
-if __INSTALLER_PATH_DIR_USR_BIN__/pidwait --exact --uid 0 -- update-ffmpeg; then
-  :
-else
-  status=$?
-  [ "$status" -eq 1 ] || exit "$status"
-fi
-exec __INSTALLER_PATH_DIR_OPT__/vivaldi/update-ffmpeg --system
-'
+  if [ -e "${TARGET_ROOT}${DIR_OPT_VIVALDI}/vivaldi" ]; then
+    (
+      # The packaged updater's byte-offset pipelines can leave a partial
+      # library and delete the previous codec. Read its release selection as
+      # data and extract the actual ZIP member in the shared Python setup path.
+      installer_operation_context_repo FILE_DESKTOP_VIVALDI_CODECS_INSTALL 1 install_vivaldi_media_codecs
+      installer_run_target_setup FILE_DESKTOP_VIVALDI_CODECS_INSTALL \
+        'install compatible Vivaldi proprietary media codecs' \
+        "$DIR_OPT_VIVALDI" "${DIR_VAR}/opt/vivaldi" "${DIR_USR_BIN}/pidwait"
+    )
   fi
   desktop_stage_role_asset FILE_TARGET_LIBEXEC_LABWC_PROXY_SESSION __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-proxy-session 0755
   desktop_normalize_proxy3_directories

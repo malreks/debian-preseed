@@ -322,6 +322,42 @@ runtime_apply_account_from_credentials
                 self.assertNotIn('fixture-password', result.stdout + result.stderr)
                 self.assertNotIn('fixture-root-password', result.stdout + result.stderr)
 
+    def test_late_core_account_handoff_preserves_provider_context(self) -> None:
+        self.write_complete_account_credentials()
+        (self.root / 'state/runtime-common.sh').write_text('# private fixture\n', encoding='utf-8')
+        shutil.copyfile(SOURCE / 'scripts/runtime/account.sh', self.root / 'state/account-runtime.sh')
+        (self.root / 'state/resolved-account.env').write_text(
+            "ACCOUNT_USERNAME='fileuser'\nACCOUNT_HOME='" + str(self.root / 'home/fileuser') + "'\n",
+            encoding='utf-8')
+        code = ACCOUNT_SETUP + r'''
+. "$FIXTURE_SOURCE/scripts/late/core.sh"
+TMP_ENV_DIR="$FIXTURE_ROOT/state"
+SEED_BASE=fixture
+LATE_COMMAND_ACCOUNT_ENV="$FIXTURE_ROOT/state/account.env"
+late_command_load_profile_env() { :; }
+installer_prepare_late_account_env() { cp "$FIXTURE_ROOT/state/resolved-account.env" "$2"; }
+installer_operation_context_repo() {
+  case "$1" in
+    FILE_RUNTIME_ACCOUNT) fixture_source=scripts/runtime/account.sh ;;
+    FILE_COMMON_MOD_PROFILES) fixture_source=scripts/common/modules/profiles.sh ;;
+    FILE_LATE_CORE) fixture_source=scripts/late/core.sh ;;
+    *) return 95 ;;
+  esac
+  installer_operation_context "$fixture_source" "$2" "$3"
+}
+installer_operation_context scripts/late/desktop.sh 35 desktop_late_command
+late_command_load_account_env
+[ "$INSTALLER_FAILURE_SOURCE|$INSTALLER_FAILURE_LINE|$INSTALLER_FAILURE_OPERATION" = \
+  'scripts/late/desktop.sh|35|desktop_late_command' ]
+late_command_load_account_env
+[ "$INSTALLER_FAILURE_OPERATION" = desktop_late_command ]
+'''
+        for name, shell in self.shells:
+            with self.subTest(shell=name):
+                result = self.run_code(code, shell=shell)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn('fixture-password', result.stdout + result.stderr)
+
     def test_fresh_shared_stage_renders_its_first_account_dependent_perl_asset(self) -> None:
         (self.root / 'profile.env').write_text(
             'DIR_HOME=' + shlex.quote(str(self.root / 'home')) + '\n', encoding='utf-8')

@@ -718,7 +718,8 @@ if [ -e "$destination" ] || [ -L "$destination" ]; then
   [ -f "$destination" ] && [ ! -L "$destination" ]
 fi
 install -m 0644 -- "$source_path" "$temporary"
-[ "$(sha256sum "$source_path" | awk "{print \$1}")" = "$(sha256sum "$temporary" | awk "{print \$1}")" ]
+# install reports copy failures; the source signature was verified before
+# retention. Rehashing the copy adds no publisher authentication.
 mv -f -- "$temporary" "$destination"
 ' sh "$mullvad_deb_path" "$mullvad_repository_dir" "$mullvad_repository_deb" "$mullvad_repository_tmp"
     # Install the original verified path: the inbox consumer may remove its copy.
