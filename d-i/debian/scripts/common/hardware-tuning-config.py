@@ -45,10 +45,14 @@ def parse_environment(text: str) -> dict[str, str]:
     for line in text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        match = re.fullmatch(r'(HARDWARE_(?:INTEL_CPU_TUNING|NVIDIA_GPU_TUNING|TUNING)_[A-Z0-9_]+)="([A-Za-z0-9_,.-]{1,100})"', line)
+        # Authored profiles use double quotes; the canonical compiled snapshot
+        # uses single quotes. Both delimit the same restricted literal values.
+        match = re.fullmatch(
+            r"""(HARDWARE_(?:INTEL_CPU_TUNING|NVIDIA_GPU_TUNING|TUNING)_[A-Z0-9_]+)=(['"])([A-Za-z0-9_,.-]{1,100})\2""",
+            line)
         if not match or match[1] in result:
-            raise ValueError("hardware policy requires unique literal NAME=\"value\" assignments")
-        result[match[1]] = match[2]
+            raise ValueError("hardware policy requires unique assignments with single- or double-quoted literal values")
+        result[match[1]] = match[3]
     return result
 
 

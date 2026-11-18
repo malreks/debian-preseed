@@ -164,6 +164,9 @@ while IFS='|' read -r stage_id stage_phase stage_selector || [ -n "$stage_id" ];
   INSTALLER_LOG_TAG=$stage_id
   export INSTALLER_LOG_STAGE INSTALLER_LOG_TAG
   installer_info "starting selected stage ${stage_id}"
+  # desktop.session has its own child invocation below; do not retain the
+  # preceding provider's diagnostic context when this stage fails.
+  installer_operation_context_repo "$stage_selector" 1 "late_stage:${stage_id}"
   case "$stage_id:$INSTALLER_HOST_VARIANT" in
     desktop.storage:desktop) dispatch_storage_foundation ;;
     *)

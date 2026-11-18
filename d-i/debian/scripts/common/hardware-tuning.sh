@@ -17,6 +17,9 @@ profile_hardware_intel_detected() {
 install_profile_hardware_tuning() (
   set -eu
   umask 077
+  if command -v installer_operation_context_repo >/dev/null 2>&1; then
+    installer_operation_context_repo FILE_OS_HARDWARE_TUNING 17 install_profile_hardware_tuning
+  fi
   for hardware_flag in "${HARDWARE_INTEL_CPU_TUNING_ENABLE:-false}" "${HARDWARE_NVIDIA_GPU_TUNING_ENABLE:-false}"; do
     case "$hardware_flag" in true|false) ;; *) installer_fatal "hardware tuning enable flags must be literal true or false"; exit 1 ;; esac
   done

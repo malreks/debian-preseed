@@ -55,15 +55,20 @@ runtime_account_apply_home_paths() {
 }
 
 runtime_apply_account_from_credentials() {
-  if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_RUNTIME_ACCOUNT 69 runtime_apply_account_from_credentials
-  fi
   # The command line is an optional override channel. Every account value is
   # resolved through runtime_cmdline_value, which falls back to the protected
   # initrd /preseed.env when the requested key is absent from the command line.
   set +x
   set +v
   [ "${RUNTIME_ACCOUNT_CREDENTIALS_READY:-0}" = 1 ] && return 0
+  # Function positional parameters preserve the caller's advisory context
+  # without global scratch variables. Keep account context only on failure.
+  set -- "${INSTALLER_FAILURE_SOURCE+x}" "${INSTALLER_FAILURE_SOURCE-}" \
+    "${INSTALLER_FAILURE_LINE+x}" "${INSTALLER_FAILURE_LINE-}" \
+    "${INSTALLER_FAILURE_OPERATION+x}" "${INSTALLER_FAILURE_OPERATION-}"
+  if command -v installer_operation_context_repo >/dev/null 2>&1; then
+    installer_operation_context_repo FILE_RUNTIME_ACCOUNT 75 runtime_apply_account_from_credentials
+  fi
 
   # Resolve root first and preserve loader errors. The former stderr/status
   # suppression turned a missing d-i stat applet into "password required".
@@ -138,6 +143,22 @@ runtime_apply_account_from_credentials() {
     primary_gpg_passphrase_raw \
     root_password_raw
   RUNTIME_ACCOUNT_CREDENTIALS_READY=1
+  if [ "$1" = x ]; then
+    INSTALLER_FAILURE_SOURCE=$2; export INSTALLER_FAILURE_SOURCE
+  else
+    unset INSTALLER_FAILURE_SOURCE
+  fi
+  if [ "$3" = x ]; then
+    INSTALLER_FAILURE_LINE=$4; export INSTALLER_FAILURE_LINE
+  else
+    unset INSTALLER_FAILURE_LINE
+  fi
+  if [ "$5" = x ]; then
+    INSTALLER_FAILURE_OPERATION=$6; export INSTALLER_FAILURE_OPERATION
+  else
+    unset INSTALLER_FAILURE_OPERATION
+  fi
+  return 0
 }
 
 # Compatibility name for out-of-tree callers. New installer callers use the

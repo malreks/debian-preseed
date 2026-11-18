@@ -128,6 +128,16 @@ bootstrap_source_module() {
 RUNTIME_ACCOUNT_CREDENTIALS_READY=1
 '''
 
+ACCOUNT_SETUP = r'''
+. "$FIXTURE_SOURCE/scripts/runtime/modules/identity.sh"
+RUNTIME_COMMON_READY=1
+. "$FIXTURE_SOURCE/scripts/runtime/account.sh"
+installer_operation_context_repo() {
+  [ "$1" = FILE_RUNTIME_ACCOUNT ] || return 95
+  installer_operation_context scripts/runtime/account.sh "$2" "$3"
+}
+'''
+
 
 class PrimaryAccountContractTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -144,6 +154,7 @@ class PrimaryAccountContractTests(unittest.TestCase):
         self.environment = {
             'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C',
             'HOME': str(self.root / 'home'), 'TMPDIR': str(self.root / 'temp'),
+            'TMP': str(self.root / 'temp'), 'TEMP': str(self.root / 'temp'),
             'FIXTURE_ROOT': str(self.root), 'FIXTURE_SOURCE': str(SOURCE),
             'INSTALLER_PRESEED_ENV_FILE': str(self.credentials),
             'INSTALLER_CMDLINE_FILE': str(self.root / 'cmdline'),
@@ -241,7 +252,7 @@ class PrimaryAccountContractTests(unittest.TestCase):
                          "PRESEED_PRIMARY_PASSWORD='fixture-password'\n"
                          "PRESEED_ROOT_PASSWORD='fixture-root-password'\n")
         for cmdline, expected in (('quiet', 'fileuser'), ('primary_username=bootuser', 'bootuser')):
-            result = self.run_code('\n. "$FIXTURE_SOURCE/scripts/runtime/account.sh"\n'
+            result = self.run_code(ACCOUNT_SETUP + '\n'
                 'runtime_apply_account_from_credentials\n'
                 'early_identity="$ACCOUNT_USERNAME|$ACCOUNT_HOME"\n'
                 'unset ACCOUNT_USERNAME ACCOUNT_HOME\ninstaller_load_primary_account\n'
@@ -251,6 +262,65 @@ class PrimaryAccountContractTests(unittest.TestCase):
             self.assertEqual(result.stdout, expected + '\n')
             self.assertNotIn('fixture-password', result.stdout + result.stderr)
             self.assertNotIn('fixture-root-password', result.stdout + result.stderr)
+
+    def write_complete_account_credentials(self) -> None:
+        self.credentials.write_text(
+            "PRESEED_PRIMARY_USERNAME='fileuser'\n"
+            "PRESEED_PRIMARY_FULLNAME='Fixture User'\n"
+            "PRESEED_PRIMARY_PASSWORD='fixture-password'\n"
+            "PRESEED_ROOT_PASSWORD='fixture-root-password'\n", encoding='utf-8')
+
+    def test_success_and_cached_account_load_preserve_the_callers_context(self) -> None:
+        self.write_complete_account_credentials()
+        code = ACCOUNT_SETUP + r'''
+installer_operation_context scripts/desktop/labwc.sh 17 desktop-stage
+runtime_apply_account_from_credentials
+[ "$INSTALLER_FAILURE_SOURCE|$INSTALLER_FAILURE_LINE|$INSTALLER_FAILURE_OPERATION" = \
+  'scripts/desktop/labwc.sh|17|desktop-stage' ]
+installer_operation_context scripts/desktop/labwc.sh 21 following-stage
+runtime_apply_account_from_credentials
+[ "$INSTALLER_FAILURE_SOURCE|$INSTALLER_FAILURE_LINE|$INSTALLER_FAILURE_OPERATION" = \
+  'scripts/desktop/labwc.sh|21|following-stage' ]
+printf 'context-preserved\n'
+'''
+        for name, shell in self.shells:
+            with self.subTest(shell=name):
+                result = self.run_code(code, shell=shell)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, 'context-preserved\n')
+
+    def test_success_preserves_unset_and_explicitly_empty_context_fields(self) -> None:
+        self.write_complete_account_credentials()
+        for initial, assertion in (
+            ('unset INSTALLER_FAILURE_SOURCE INSTALLER_FAILURE_LINE INSTALLER_FAILURE_OPERATION',
+             '[ -z "${INSTALLER_FAILURE_SOURCE+x}${INSTALLER_FAILURE_LINE+x}${INSTALLER_FAILURE_OPERATION+x}" ]'),
+            ("INSTALLER_FAILURE_SOURCE=; unset INSTALLER_FAILURE_LINE; INSTALLER_FAILURE_OPERATION='next stage'",
+             '[ "${INSTALLER_FAILURE_SOURCE+x}:${INSTALLER_FAILURE_SOURCE}" = x: ] && '
+             '[ -z "${INSTALLER_FAILURE_LINE+x}" ] && [ "$INSTALLER_FAILURE_OPERATION" = "next stage" ]'),
+        ):
+            for name, shell in self.shells:
+                with self.subTest(shell=name, initial=initial):
+                    result = self.run_code(ACCOUNT_SETUP + '\n' + initial + '\n'
+                        'runtime_apply_account_from_credentials\n' + assertion + '\n', shell=shell)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_real_credential_failure_retains_account_context_without_secret_output(self) -> None:
+        self.write_complete_account_credentials()
+        self.credentials.write_text(self.credentials.read_text().replace(
+            "PRESEED_PRIMARY_USERNAME='fileuser'", "PRESEED_PRIMARY_USERNAME='root'"), encoding='utf-8')
+        code = ACCOUNT_SETUP + r'''
+installer_operation_context scripts/desktop/labwc.sh 17 desktop-stage
+trap 'printf "%s|%s\n" "$INSTALLER_FAILURE_SOURCE" "$INSTALLER_FAILURE_OPERATION"' 0
+runtime_apply_account_from_credentials
+'''
+        for name, shell in self.shells:
+            with self.subTest(shell=name):
+                result = self.run_code(code, shell=shell)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout,
+                                 'scripts/runtime/account.sh|runtime_apply_account_from_credentials\n')
+                self.assertNotIn('fixture-password', result.stdout + result.stderr)
+                self.assertNotIn('fixture-root-password', result.stdout + result.stderr)
 
     def test_fresh_shared_stage_renders_its_first_account_dependent_perl_asset(self) -> None:
         (self.root / 'profile.env').write_text(
