@@ -49,7 +49,14 @@ class FirmwareArchivePublication(unittest.TestCase):
         self.binary = bytes(binary)
         self.commit = 'a' * 40
         data = io.BytesIO()
-        with tarfile.open(fileobj=data, mode='w', format=tarfile.USTAR_FORMAT) as archive:
+        with tarfile.open(fileobj=data, mode='w', format=tarfile.PAX_FORMAT,
+                          pax_headers={'comment': self.commit}) as archive:
+            # Model the pinned GitHub archive's previously rejected metadata
+            # before reaching the selected regular members.
+            alias = tarfile.TarInfo('SNANDer-' + self.commit + '/src/libusb-1.0.27/README.md')
+            alias.type = tarfile.SYMTYPE
+            alias.linkname = 'README'
+            archive.addfile(alias)
             for name, content in (('Linux/SNANDer', self.binary), ('LICENSE', b'fixture license\n'),
                                   ('readme.txt', b'fixture readme\n'), ('flash_support_list.txt', b'fixture data\n')):
                 member = tarfile.TarInfo('SNANDer-' + self.commit + '/' + name)
@@ -125,6 +132,82 @@ class FirmwareArchivePublication(unittest.TestCase):
                           release / 'metadata', release / 'source'):
             self.assertEqual(directory.stat().st_mode & 0o7777, 0o755)
         self.assertEqual(self.program.STATE.stat().st_mode & 0o7777, 0o700)
+
+
+class FirmwareArchiveMetadata(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='snander-archive-')
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.program = types.ModuleType('snander_archive_fixture')
+        exec(compile(SOURCE.read_text(encoding='utf-8'), str(SOURCE), 'exec'), self.program.__dict__)
+        self.commit = 'a' * 40
+        self.prefix = 'SNANDer-' + self.commit + '/'
+        binary = bytearray(64)
+        binary[:6] = b'\x7fELF\x02\x01'
+        binary[18:20] = (62).to_bytes(2, 'little')
+        self.selected = {'Linux/SNANDer': bytes(binary), 'LICENSE': b'license',
+                         'readme.txt': b'readme', 'flash_support_list.txt': b'flash data'}
+
+    def archive(self, links, *, format=tarfile.PAX_FORMAT, omitted=()):
+        data = io.BytesIO()
+        with tarfile.open(fileobj=data, mode='w', format=format) as archive:
+            for name, target, kind in links:
+                member = tarfile.TarInfo(self.prefix + name)
+                member.type = kind
+                member.linkname = target
+                archive.addfile(member)
+            for name, content in self.selected.items():
+                if name in omitted:
+                    continue
+                member = tarfile.TarInfo(self.prefix + name)
+                member.size = len(content)
+                archive.addfile(member, io.BytesIO(content))
+        path = self.root / 'source.tar.gz'
+        path.write_bytes(gzip.compress(data.getvalue(), mtime=0))
+        return path
+
+    def test_unselected_symlinks_of_any_version_and_target_are_discarded(self):
+        links = [(f'src/libusb-{version}/README.md', 'README', tarfile.SYMTYPE)
+                 for version in ('1.0.27', '1.0.28', '2.0.0', 'future-version')]
+        links += [('docs/relative', '../../readme.txt', tarfile.SYMTYPE),
+                  ('docs/absolute', '/outside-fixture-never-followed', tarfile.SYMTYPE)]
+        result = self.program.archive_members(self.archive(links), self.commit)
+        self.assertEqual(result, {self.prefix + name: content for name, content in self.selected.items()})
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), ['source.tar.gz'])
+
+    def test_pax_and_gnu_long_symlink_metadata_is_discarded(self):
+        for format in (tarfile.PAX_FORMAT, tarfile.GNU_FORMAT):
+            with self.subTest(format=format):
+                links = [('docs/' + 'a' * 180, 'b' * 180, tarfile.SYMTYPE)]
+                result = self.program.archive_members(self.archive(links, format=format), self.commit)
+                self.assertEqual(result, {self.prefix + name: content for name, content in self.selected.items()})
+
+    def test_selected_files_cannot_be_replaced_by_symlinks(self):
+        for name in self.selected:
+            with self.subTest(member=name), self.assertRaisesRegex(ValueError, 'required vendor file is a symlink'):
+                self.program.archive_members(self.archive([(name, 'alias', tarfile.SYMTYPE)], omitted=(name,)), self.commit)
+
+    def test_hardlinks_unsafe_names_and_duplicates_still_fail(self):
+        cases = [
+            [('docs/alias', 'readme.txt', tarfile.LNKTYPE)],
+            [('../escape', 'readme.txt', tarfile.SYMTYPE)],
+            [('docs/alias', 'one', tarfile.SYMTYPE), ('docs/alias', 'two', tarfile.SYMTYPE)],
+        ]
+        for links in cases:
+            with self.subTest(links=links), self.assertRaises(ValueError):
+                self.program.archive_members(self.archive(links), self.commit)
+
+    def test_diagnostics_show_operation_without_external_error_values(self):
+        self.program.PROGRESS['operation'] = 'archive-members'
+        detail = self.program.failure_diagnostic(self.program.ArtifactError('required vendor file is a symlink'))
+        self.assertEqual(detail, 'operation=archive-members cause=required-vendor-file-is-a-symlink')
+        for error in (ValueError('private-password-canary'),
+                      FileNotFoundError(2, 'private-password-canary', '/private-path-canary')):
+            with self.subTest(error=type(error).__name__):
+                detail = self.program.failure_diagnostic(error)
+                self.assertIn('operation=archive-members', detail)
+                self.assertNotIn('private', detail)
 
 
 if __name__ == '__main__':
