@@ -157,7 +157,7 @@ class BuildIdPolicyTests(unittest.TestCase):
                     self.assertRaises(self.installer.Error):
                 self.installer.main()
 
-    def test_exact_asset_directory_shape_unpacks_and_verifies_all_members(self):
+    def test_exact_asset_directory_shape_unpacks_after_one_download_check(self):
         # Shape regression only. The ELF fixture is deliberately not executable.
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
@@ -170,7 +170,7 @@ class BuildIdPolicyTests(unittest.TestCase):
             root, binaries = self.installer.unpack(args, path, work / 'stage')
             self.assertEqual(root.name, ASSET_ROOT)
             self.assertEqual(binaries, ['rd-agent', 'rd-hashd', 'resctl-bench'])
-            self.installer.verify_release(root)
+            self.assertFalse(hasattr(self.installer, 'verify_release'))
 
 
 class ProfilePreflightTests(unittest.TestCase):

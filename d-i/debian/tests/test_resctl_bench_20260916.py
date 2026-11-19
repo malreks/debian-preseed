@@ -146,8 +146,6 @@ class ReleasePolicyTests(unittest.TestCase):
         self.assertEqual(pipeline.count('  desktop_install_resctl_bench\n'), 1)
         self.assertLess(pipeline.index('  desktop_install_resctl_bench\n'),
                         pipeline.index('  desktop_stage_target_assets\n'))
-        verifier = payload_read_text(SEED/'scripts/desktop/verify.sh')
-        self.assertLess(verifier.index('for resctl_binary'), verifier.index('desktop_verify_target_staging()'))
         firstboot = payload_read_text(SEED/'scripts/firstboot/04-validation.sh')
         for binary in ('resctl-bench', 'rd-agent', 'rd-hashd'):
             self.assertIn('/usr/local/bin/'+binary, firstboot)
@@ -277,11 +275,11 @@ class ArchiveTests(unittest.TestCase):
                     self.unpack()
                 shutil.rmtree(self.stage); (self.work/'release.tar').unlink(missing_ok=True)
 
-    def test_checksum_inventory_or_format_mismatch_is_rejected(self):
+    def test_inner_checksum_inventory_is_data_after_archive_authentication(self):
         for checksum in (b'', b'not a checksum\n', b'0'*64+b'  README.md\n', b'0'*64+b'  SHA256SUMS\n'):
             with self.subTest(checksum=checksum):
                 archive(self.path, checksum=checksum)
-                with self.assertRaises(self.installer.Error):
+                with mock.patch.object(self.installer, 'digest', side_effect=AssertionError('post-download checksum pass')):
                     self.unpack()
                 shutil.rmtree(self.stage); (self.work/'release.tar').unlink(missing_ok=True)
 

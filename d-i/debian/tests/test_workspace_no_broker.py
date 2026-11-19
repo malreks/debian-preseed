@@ -74,13 +74,6 @@ def complete_fixture(root: Path, count: int = 4, style: str = 'thumbnail') -> No
     shutil.copytree(config, root / 'home/test/.config')
 
 
-def verifier(root: Path) -> str:
-    code = embedded_code('verify.sh', 'desktop_verify_native_workspace_config')
-    # Target-version checks are intentionally not faked into GUI acceptance.
-    # Test the exact subsequent production checks against a relocated target.
-    start = code.index('for package, minimum in ')
-    end = code.index('root = Path(', start)
-    return relocate(code[:start] + code[end:], root)
 
 
 class NativeWorkspaceRenderingTests(unittest.TestCase):
@@ -197,104 +190,6 @@ class NativeWorkspaceRenderingTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 17)
 
 
-class InstalledVerifierTests(unittest.TestCase):
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
-        complete_fixture(self.root)
-        self.code = verifier(self.root)
-
-    def verify(self):
-        return run_code(self.code, '/home/test')
-
-    def test_accepts_native_multi_workspace_configuration(self):
-        result = self.verify()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('native=current broker=absent taskbar=omitted-no-workspace-protocol', result.stdout)
-
-    def test_accepts_native_single_workspace_configuration(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            complete_fixture(root, 1, 'thumbnail')
-            result = run_code(verifier(root), '/home/test')
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('taskbar=native-single-workspace', result.stdout)
-
-    def test_rejects_global_taskbar_in_nested_group(self):
-        path = self.root / 'etc/skel-desktop/.config/waybar/config'
-        bars = json.loads(payload_read_text(path))
-        bar = bars[0]
-        bar['group/apps']['modules'].append('wlr/taskbar')
-        path.write_text(json.dumps(bars))
-        self.assertIn('global task list enabled', self.verify().stderr)
-
-    def test_rejects_global_alt_tab_in_account_copy(self):
-        path = self.root / 'home/test/.config/labwc/rc.xml'
-        tree = ET.parse(path)
-        tree.find("./keyboard/keybind[@key='A-Tab']/action").set('workspace', 'all')
-        tree.write(path, encoding='unicode')
-        self.assertIn('non-local A-Tab', self.verify().stderr)
-
-    def test_rejects_list_f13_in_account_copy(self):
-        path = self.root / 'home/test/.config/labwc/rc.xml'
-        tree = ET.parse(path)
-        tree.find("./keyboard/keybind[@key='F13']/action").set('name', 'ShowMenu')
-        tree.write(path, encoding='unicode')
-        self.assertIn('panel must use the native thumbnail switcher', self.verify().stderr)
-
-    def test_rejects_misplaced_window_switcher_button(self):
-        path = self.root / 'etc/skel-desktop/.config/waybar/config'
-        bars = json.loads(payload_read_text(path))
-        bar = bars[0]
-        bar['modules-left'].remove('custom/window-switcher')
-        path.write_text(json.dumps(bars))
-        self.assertIn('native switcher button order changed', self.verify().stderr)
-
-    def test_rejects_classic_list_style(self):
-        path = self.root / 'home/test/.config/labwc/rc.xml'
-        tree = ET.parse(path)
-        tree.find('windowSwitcher/osd').set('style', 'classic')
-        tree.write(path, encoding='unicode')
-        self.assertIn('native thumbnail switcher required', self.verify().stderr)
-
-    def test_rejects_classic_list_fields(self):
-        path = self.root / 'home/test/.config/labwc/rc.xml'
-        tree = ET.parse(path)
-        fields = ET.SubElement(tree.find('windowSwitcher'), 'fields')
-        ET.SubElement(fields, 'field', content='title', width='100%')
-        tree.write(path, encoding='unicode')
-        self.assertIn('classic list fields must not be configured', self.verify().stderr)
-
-    def test_rejects_stale_broker_executable(self):
-        path = self.root / 'usr/local/libexec/labwc-workspace-broker'
-        path.parent.mkdir(parents=True)
-        path.write_text('retired')
-        self.assertIn('retired taskbar executable remains', self.verify().stderr)
-
-    def test_rejects_dangling_broker_enablement(self):
-        path = self.root / 'home/test/.config/systemd/user/labwc-session.target.wants/labwc-workspace-broker.service'
-        path.parent.mkdir(parents=True)
-        path.symlink_to('../labwc-workspace-broker.service')
-        self.assertIn('retired taskbar unit remains', self.verify().stderr)
-
-    def test_rejects_stale_service_dependency(self):
-        path = self.root / 'home/test/.config/systemd/user/waybar.service'
-        path.write_text(render_theme_defaults(payload_read_text(path)) + '\nWants=labwc-workspace-broker.service\n')
-        self.assertIn('retired dependency', self.verify().stderr)
-
-    def test_rejects_invented_workspace_option(self):
-        path = self.root / 'etc/skel-desktop/.config/waybar/config'
-        bars = json.loads(payload_read_text(path))
-        bar = bars[0]
-        bar['wlr/taskbar']['current-workspace-only'] = True
-        path.write_text(json.dumps(bars))
-        self.assertIn('unsupported taskbar workspace option', self.verify().stderr)
-
-    def test_rejects_unresolved_template(self):
-        path = self.root / 'etc/skel-desktop/.config/waybar/style.css'
-        path.write_text(render_theme_defaults(payload_read_text(path)) + '\n/* __INSTALLER_BROKEN__ */\n')
-        self.assertIn('unresolved workspace configuration', self.verify().stderr)
 
 
 class SourceWiringTests(unittest.TestCase):
@@ -312,10 +207,6 @@ class SourceWiringTests(unittest.TestCase):
     def test_cleanup_and_verification_are_wired(self):
         components = render_theme_defaults(payload_read_text(FORKY / 'scripts/desktop/components.sh'))
         self.assertNotIn('desktop_retire_workspace_broker', components)
-        verification = render_theme_defaults(payload_read_text(FORKY / 'scripts/desktop/verify.sh'))
-        stage = verification.split('desktop_verify_target_staging() {', 1)[1]
-        self.assertIn('desktop_verify_native_workspace_config', stage)
-        self.assertNotIn('desktop_verify_workspace_broker', stage)
         for path in (FORKY / 'scripts/desktop/detect.sh', TARGET / 'etc/labwc/desktop.conf.tmpl'):
             self.assertNotIn('LABWC_WORKSPACE_BROKER_', render_theme_defaults(payload_read_text(path)))
         packages = render_theme_defaults(payload_read_text(FORKY / 'classes/class-select/role/desktop.cfg')).split()

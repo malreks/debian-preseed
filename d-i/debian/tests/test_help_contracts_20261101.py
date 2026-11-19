@@ -200,22 +200,12 @@ class HelpStaticContracts(unittest.TestCase):
     def test_app_armor_and_installer_assets_cover_help(self):
         policy = (TARGET / "etc/apparmor.d/desktop-wrappers.tmpl").read_text(encoding="utf-8")
         staging = (ROOT / "scripts/desktop/components/target-assets.sh").read_text(encoding="utf-8")
-        verify = (ROOT / "scripts/desktop/verify.sh.tmpl").read_text(encoding="utf-8")
         self.assertIn("profile labwc-help-ui", policy)
         self.assertIn("deny network inet", policy)
         self.assertIn("desktop_stage_help", staging)
-        self.assertIn("/usr/local/share/labwc-help/catalog.json", verify)
-        self.assertIn("/usr/local/share/labwc-help/theme.json", verify)
-        self.assertIn("/usr/local/bin/labwc-help", verify)
-        self.assertNotIn('import gi', verify)
-        self.assertNotIn('/usr/bin/desktop-file-validate /usr/local/share/applications/labwc-help.desktop', verify)
         dependencies = (ROOT / 'classes/class-select/role/desktop.cfg').read_text().split()
         self.assertIn('gir1.2-gtk-4.0', dependencies)
         self.assertIn('gir1.2-adw-1', dependencies)
-        self.assertIn('/usr/local/share/labwc-help/articles/*.json', verify)
-        self.assertIn('labwc_help/theme.py', verify)
-        self.assertNotIn('/usr/local/share/labwc-help/installed.json', verify)
-        self.assertNotIn('labwc_help/system.py', verify)
         help_profile = policy.split('profile labwc-help-ui', 1)[1].split('profile labwc-zoom-command', 1)[0]
         for forbidden in ('dpkg-query', 'findmnt', 'systemctl', 'subprocess', 'installed.json'):
             self.assertNotIn(forbidden, help_profile)

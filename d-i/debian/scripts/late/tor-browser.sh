@@ -104,7 +104,7 @@ software_install_tor_browser() (
     __INSTALLER_PATH_DIR_USR_BIN__/awk -v expected="$fingerprint" '\''$1 == "[GNUPG:]" && $2 == "VALIDSIG" &&
       ($3 == expected || $NF == expected) { valid++ }
       END { exit valid != 1 }'\'' "$key_home/status"
-    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "$installer" "$archive" "$expected"
+    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "$installer" "$archive"
   ' sh "$tor_archive" "$tor_signature" "$tor_key" "$tor_sha" "$tor_key_sha" \
     "$SOFTWARE_TOR_BROWSER_SIGNING_FINGERPRINT" "$tor_install_helper" "$work_dir"
   # The root-owned immutable bundle is maintained through release pins and

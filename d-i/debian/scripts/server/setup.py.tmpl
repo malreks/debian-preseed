@@ -456,7 +456,7 @@ def elf(path: Path, arch: str) -> None:
 
 
 def artifact_members(tree: Path, record: dict) -> dict:
-    """Bind reuse to current regular-file bytes, link identity and modes."""
+    """Describe published names, file sizes, link identities and modes."""
     pending, result, total = [tree], {}, 0
     while pending:
         parent = pending.pop()
@@ -484,16 +484,7 @@ def artifact_members(tree: Path, record: dict) -> dict:
                     total += info.st_size
                     if total > record['expanded_bytes']:
                         raise ValueError('artifact verification byte bound exceeded')
-                    digest = hashlib.sha256()
-                    with path.open('rb') as stream:
-                        while block := stream.read(65536):
-                            if time.monotonic() >= DEADLINE:
-                                raise TimeoutError('artifact verification deadline expired')
-                            digest.update(block)
-                    after = path.lstat()
-                    if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
-                        raise ValueError('artifact changed during verification')
-                    result[name] = ['file', stat.S_IMODE(info.st_mode), info.st_size, digest.hexdigest()]
+                    result[name] = ['file', stat.S_IMODE(info.st_mode), info.st_size]
                 else:
                     raise ValueError('artifact contains an unsafe member')
     return result
@@ -508,7 +499,11 @@ def artifact(name: str, arch: str) -> Path:
     destination = RELEASES / (name + '-' + identity)
     if destination.exists():
         receipt = json_document(regular(destination / 'artifact.json', maximum=8388608))
-        expected = {'format': 1, 'artifact': name, 'architecture': arch, 'digest': identity,
+        if receipt.get('format') == 1 and isinstance(receipt.get('members'), dict):
+            receipt['format'] = 2
+            receipt['members'] = {key: value[:3] if value and value[0] == 'file' else value
+                                  for key, value in receipt['members'].items()}
+        expected = {'format': 2, 'artifact': name, 'architecture': arch, 'digest': identity,
                     'members': artifact_members(destination, record)}
         if receipt != expected:
             raise ValueError('existing artifact identity differs')
@@ -529,7 +524,7 @@ def artifact(name: str, arch: str) -> Path:
         raise ValueError('pinned artifact entry is absent or a link')
     if record['kind'] == 'elf' or name in ('github-actions', 'dotnet'):
         elf(entry, arch)
-    receipt = {'format': 1, 'artifact': name, 'architecture': arch, 'digest': identity,
+    receipt = {'format': 2, 'artifact': name, 'architecture': arch, 'digest': identity,
                'members': artifact_members(tree, record)}
     write(tree / 'artifact.json', json.dumps(receipt, sort_keys=True).encode(), 0o644)
     for directory, names, files in os.walk(tree, topdown=False, followlinks=False):

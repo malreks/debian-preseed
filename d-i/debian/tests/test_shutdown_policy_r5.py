@@ -205,14 +205,6 @@ ExecStart=/usr/bin/true
                 if scope == 'user':
                     self.assertRegex(broker, r'(?m)^\s*Slice: session.slice$')
 
-    def test_target_verifier_requires_new_files_in_skeleton_and_home(self):
-        source=payload_read_text(base.SEED/'scripts/desktop/verify.sh')
-        for name in ('app-.scope', 'waybar.service', 'crystal-dock.service'):
-            leaf=name+'.d/60-resource-class.conf'
-            self.assertIn('/etc/skel-desktop/.config/systemd/user/'+leaf, source)
-            self.assertIn('$account_home/.config/systemd/user/'+leaf, source)
-        for rel in DESTS:
-            self.assertIn('/'+rel, source)
 
 
 if __name__ == '__main__':

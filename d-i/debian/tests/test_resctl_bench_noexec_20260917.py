@@ -141,16 +141,11 @@ int main(int argc, char **argv) {
                 self.installer.smoke_verified(self.root, self.binaries, '2.2.6')
         self.assert_clean()
 
-    def test_bad_copy_digest_is_rejected_before_execution(self):
-        original = self.installer.shutil.copyfile
-        def corrupt(source, destination, **kwargs):
-            original(source, destination, **kwargs)
-            Path(destination).write_bytes(b'corrupted fixture copy')
-        with mock.patch.object(self.installer.shutil, 'copyfile', side_effect=corrupt), \
+    def test_smoke_copy_does_not_rehash_authenticated_release(self):
+        with mock.patch.object(self.installer, 'digest', side_effect=AssertionError('post-download checksum pass')), \
                 mock.patch.object(self.installer, 'smoke') as smoke:
-            with self.assertRaisesRegex(self.installer.Error, 'checksum mismatch'):
-                self.installer.smoke_verified(self.root, self.binaries, '2.2.6')
-        smoke.assert_not_called()
+            self.installer.smoke_verified(self.root, self.binaries, '2.2.6')
+        smoke.assert_called_once()
         self.assert_clean()
 
     def test_untrusted_executable_or_symlink_is_rejected(self):

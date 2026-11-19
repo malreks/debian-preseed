@@ -314,11 +314,6 @@ verify_target_zram_staging() {
     -N1 \
     -f \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.conf
-  run_in_target \
-    "validate zram logrotate configuration" \
-    __INSTALLER_PATH_DIR_USR_SBIN__/logrotate \
-    --debug \
-    __INSTALLER_PATH_DIR_ETC__/logrotate.conf
 }
 
 

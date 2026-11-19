@@ -115,7 +115,7 @@ class KanshiPackageTests(unittest.TestCase):
             (wants / 'kanshi.service').symlink_to('../kanshi.service')
         self.policy.WRAPPER.write_bytes(render_theme_bytes(payload_read_bytes(TARGET / 'usr/local/libexec/labwc-kanshi')))
 
-    def test_known_fingerprints_match_all_current_installer_assets(self):
+    def test_explicit_ownership_headers_cover_current_installer_assets(self):
         self.managed_tree()
         self.assertEqual(len(self.policy.cleanup_plan(self.home)), 10)
 
@@ -284,17 +284,15 @@ class KanshiWiringTests(unittest.TestCase):
         self.assertIn('stage_target_asset \\\n', render_theme_defaults(payload_read_text(FORKY/'scripts/desktop/labwc.sh')))
 
     def verifier(self):
-        installer = render_theme_defaults(payload_read_text(FORKY/'scripts/desktop/verify.sh'))
         firstboot = render_theme_defaults(payload_read_text(FORKY/'scripts/firstboot/04-validation.sh'))
         begin='set -eu\n. /etc/labwc/desktop.conf\nhome=$1\n'
         end='printf "desktop_kanshi_verification enabled=%s\\n" "$enabled"'
         scripts=[]
-        for source in (installer,firstboot):
+        for source in (firstboot,):
             start=source.index(begin); scripts.append(source[start:source.index(end,start)+len(end)])
-        self.assertEqual(*scripts)
         return scripts[0]
 
-    def test_both_installed_policy_verifiers_accept_only_matching_states(self):
+    def test_firstboot_policy_verifier_accepts_only_matching_states(self):
         script = self.verifier()
         with tempfile.TemporaryDirectory(prefix='kanshi-check-') as directory:
             root=Path(directory); home=root/'home'; home.mkdir()

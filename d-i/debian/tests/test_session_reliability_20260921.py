@@ -107,11 +107,8 @@ class FootResults(unittest.TestCase):
     def test_removed_helpers_have_no_installer_or_runtime_dependencies(self):
         for name in ('labwc-foot-supervisor', 'labwc-stage-waybar-icons'):
             self.assertFalse(payload_source_exists(TARGET/'usr/local/libexec'/name))
-            for relative in ('scripts/desktop/components.sh', 'scripts/desktop/labwc.sh',
-                             'scripts/desktop/verify.sh'):
+            for relative in ('scripts/desktop/components.sh', 'scripts/desktop/labwc.sh'):
                 self.assertNotIn(name, render_theme_defaults(payload_read_text(TARGET.parents[1]/relative)))
-        self.assertNotIn('desktop_prepare_native_drawer_icons',
-                         render_theme_defaults(payload_read_text(TARGET.parents[1]/'scripts/desktop/verify.sh')))
 
 
 class SaveVeto(unittest.TestCase):

@@ -617,10 +617,8 @@ sub _retained_path {
     -f $path && !-l $path
         or die "retained Discord artifact is unavailable\n";
     my @st = lstat $path;
-    @st && $st[4] == 0 && $st[5] == 0 && !($st[2] & 0022)
+    @st && $st[3] == 1 && $st[4] == 0 && $st[5] == 0 && !($st[2] & 0022)
         or die "retained Discord artifact ownership or mode is unsafe\n";
-    $self->_sha256($path) eq $record->{sha256}
-        or die "retained Discord artifact digest is invalid\n";
     return $path;
 }
 

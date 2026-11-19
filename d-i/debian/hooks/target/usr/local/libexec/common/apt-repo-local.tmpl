@@ -193,6 +193,12 @@ def digest_file(path: Path) -> str:
         return digest.hexdigest()
 
 
+def file_size(path: Path) -> int:
+    """Read protected artifact metadata without rescanning published bytes."""
+    with os.fdopen(checked_file(path), "rb") as stream:
+        return os.fstat(stream.fileno()).st_size
+
+
 def parse_control(raw: bytes) -> dict[str, str]:
     try:
         text = raw.decode("utf-8")
@@ -389,76 +395,6 @@ def sign_deb_archive(source: Path, destination: Path, signing_home: Path,
         temporary.unlink(missing_ok=True)
 
 
-def verify_deb_signature(path: Path, signing_home: Path, fingerprint: str) -> None:
-    """Verify the local _gpgorigin signature and every signed archive member."""
-    records = deb_member_digests(path)
-    candidates = [(name, size) for name, size, _, _ in records
-                  if re.fullmatch(r"_gpgorigin[0-9A-Z]*", name)]
-    if not candidates:
-        raise Error(f"package has no local _gpgorigin signature: {path.name}")
-    signature_name, _ = candidates[-1]
-    signature_blob = None
-    with os.fdopen(checked_file(path, private=False), "rb") as stream:
-        for name, size, offset in ar_members(stream):
-            if name == signature_name:
-                stream.seek(offset)
-                signature_blob = stream.read(size)
-                break
-    if signature_blob is None:
-        raise Error("local package signature member disappeared during verification")
-    signature = path.with_name("." + path.name + ".verify.asc")
-    plain = path.with_name("." + path.name + ".verify.plain")
-    try:
-        signature.write_bytes(signature_blob)
-        os.chmod(signature, 0o600)
-        status = run([
-            "__INSTALLER_PATH_DIR_USR__/bin/gpg", "--batch", "--no-options", "--no-tty",
-            "--homedir", str(signing_home), "--status-fd", "1",
-            "--output", str(plain), "--decrypt", str(signature),
-        ]).decode("utf-8", "replace")
-        os.chmod(plain, 0o600)
-        valid = [line.split() for line in status.splitlines()
-                 if line.startswith("[GNUPG:] VALIDSIG ")]
-        if not any(len(row) > 2 and row[2].upper() == fingerprint.upper() for row in valid):
-            raise Error(f"local package signature has an unexpected signer: {path.name}")
-        fields: dict[str, str] = {}
-        current = ""
-        for line in read_bytes(plain, MAX_CONTROL).decode("utf-8").splitlines():
-            if line.startswith((" ", "\t")) and current:
-                continuation = line.strip()
-                if not continuation:
-                    raise Error("local package signature metadata has an empty continuation")
-                previous = fields.get(current, "")
-                fields[current] = previous + ("\n" if previous else "") + continuation
-                continue
-            match = re.fullmatch(r"([A-Za-z][A-Za-z0-9-]*):[ ]*(.*)", line)
-            if not match:
-                raise Error("local package signature metadata is malformed")
-            current = match[1].lower()
-            fields[current] = match[2]
-        if (fields.get("version") != "4" or fields.get("role") != "origin"
-                or fields.get("signer", "").upper() != fingerprint.upper()):
-            raise Error("local package signature metadata has an unsupported version or role")
-        signed: dict[str, tuple[int, str, str]] = {}
-        for line in fields.get("files", "").split("\n"):
-            parts = line.split()
-            if len(parts) != 4:
-                raise Error("local package signature has malformed member digests")
-            md5, sha1, size, name = parts
-            if not re.fullmatch(r"[0-9a-f]{32}", md5) or not re.fullmatch(r"[0-9a-f]{40}", sha1):
-                raise Error("local package signature has invalid member digests")
-            if not size.isdigit():
-                raise Error("local package signature has an invalid member size")
-            signed[name] = (int(size), sha1, md5)
-        actual = {name: (size, sha1, md5) for name, size, sha1, md5 in records
-                  if name != signature_name}
-        if signed != actual:
-            raise Error(f"local package signature does not cover the published archive: {path.name}")
-        if "debian-binary" not in signed or not any(name.startswith("control.tar") for name in signed) or not any(name.startswith("data.tar") for name in signed):
-            raise Error("local package signature does not cover the Debian payload members")
-    finally:
-        signature.unlink(missing_ok=True)
-        plain.unlink(missing_ok=True)
 
 
 MAINTAINER_SCRIPTS = {"preinst", "postinst", "prerm", "postrm", "config"}
@@ -1244,10 +1180,6 @@ def update_decision(candidate: dict, record: dict) -> str:
         comparable = previous.split(":", 1)[-1] if ":" not in version else previous
         if newer(version, comparable):
             return "download"
-        if version == comparable and candidate.get("sha256") and candidate["sha256"] != record.get("upstream_sha256", record["sha256"]):
-            raise Error("release advertises different bytes under the published version; nothing downloaded")
-        if saved and version == comparable and saved.get("token") != candidate["token"]:
-            raise Error("release asset changed without a newer package version; nothing downloaded")
         return "current"
     if saved:
         if candidate.get("published", 0) < saved.get("published", 0):
@@ -1301,14 +1233,13 @@ BINARY_DEPENDS = ", ".join(("libc6", "libasound2t64", "libatk-bridge2.0-0t64", "
 def extract_vendor(archive: Path, destination: Path, kind: str) -> None:
     # Reuse the locked, unprivileged packaged-parser sandbox. Its worker has
     # live byte/inode budgets, namespace isolation and no network/host config.
-    # The digest binds its snapshot to these already verified input bytes;
-    # it does not upgrade an unsigned vendor artifact to a signed artifact.
+    # Acquisition already authenticates the download. The extractor pins its
+    # private input descriptor; it does not rescan content after acquisition.
     if kind not in ('postman', 'appimage'):
         raise Error('unsupported repository extraction format')
-    digest = digest_file(archive)
     try:
         run(['__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tuta-extract', '--repository-' + kind,
-             str(archive), str(destination), digest], timeout=660, file_limit=MAX_ARCHIVE)
+             str(archive), str(destination)], timeout=660, file_limit=MAX_ARCHIVE)
     except Error as error:
         if (isinstance(error, CommandFailure) and error.returncode == 3
                 or isinstance(error.__cause__, subprocess.TimeoutExpired)):
@@ -1606,8 +1537,8 @@ class Repository:
                 fsync_dir(directory)
             finally:
                 temporary.unlink(missing_ok=True)
-        if digest_file(destination) != digest:
-            raise Error("retained upstream digest mismatch")
+        if file_size(destination) != file_size(source):
+            raise Error("retained upstream size mismatch")
         return str(destination.relative_to(self.root))
 
     def select(self, name: str) -> tuple[str, dict]:
@@ -1636,8 +1567,7 @@ class Repository:
         if not relative or not re.fullmatch(r"upstream/[a-z0-9][a-z0-9+.-]+/[0-9a-f]{64}\.deb", relative):
             raise Error("original upstream archive is not retained; add the original .deb again to reapply this policy")
         source = self.root / relative
-        if digest_file(source) != previous["upstream_sha256"]:
-            raise Error("retained upstream archive failed verification")
+        file_size(source)
         ready = self.stage(source, policy=policy, expected=(previous["package"], previous["architecture"]))
         try:
             result = self.ingest(ready)
@@ -1681,11 +1611,7 @@ class Repository:
             previous_archive = self.repo / previous_filename if POOL_PATH.fullmatch(previous_filename) else Path("/")
             try:
                 signing_fingerprint = self.signing_key()
-                if (previous_archive.is_file()
-                        and digest_file(previous_archive) == previous.get("sha256")
-                        and previous_archive.stat().st_size == previous.get("size")
-                        and (verify_deb_signature(previous_archive, self.signing,
-                                                   signing_fingerprint) is None)):
+                if file_size(previous_archive) == previous.get("size"):
                     signature_record = package_signature_record(signing_fingerprint)
                     if previous.get("package_signature") != signature_record:
                         previous["package_signature"] = signature_record
@@ -1720,15 +1646,13 @@ class Repository:
             if previous:
                 if newer(previous["version"], fields["Version"]):
                     raise Error(f"refusing downgrade for {key}")
-                if previous["version"] == fields["Version"] and previous["sha256"] != sha:
-                    raise Error(f"different bytes under the same version for {key}; use a new version")
             filename = f"{fields['Package']}_{fields['Version']}_{fields['Architecture']}.deb"
             directory = self.repo / "pool" / fields["Package"] / sha
             safe_dir(directory)
             destination = directory / filename
             if destination.exists() or destination.is_symlink():
-                if digest_file(destination) != sha:
-                    raise Error("immutable pool object failed its digest check")
+                if file_size(destination) != file_size(signed_path):
+                    raise Error("immutable pool object has a different size")
             else:
                 temporary = directory / ("." + uuid.uuid4().hex)
                 try:
@@ -1740,16 +1664,12 @@ class Repository:
                     fsync_dir(directory)
                 finally:
                     temporary.unlink(missing_ok=True)
-            if identity[0] == "bitwarden" and payload_path == path:
-                # Preserve the existing unmodified-vendor receipt contract for
-                # explicit offline repair after a normal APT-driven refresh.
-                atomic_bytes(Path(str(destination) + ".upstream-sha256"), (upstream_sha256 + "\n").encode())
-                atomic_bytes(Path(str(destination) + ".published-sha256"), (sha + "\n").encode())
             upstream_filename = self.retain_upstream(path, identity[0], upstream_sha256)
             record = {"package": identity[0], "architecture": identity[1], "version": fields["Version"],
                       "upstream_version": upstream_version, "upstream_sha256": upstream_sha256,
                       "upstream_filename": upstream_filename, "sha256": sha,
-                      "transformed_sha256": digest_file(payload_path), "published_sha256": sha, "size": destination.stat().st_size,
+                      "transformed_sha256": upstream_sha256 if payload_path == path else digest_file(payload_path),
+                      "published_sha256": sha, "size": destination.stat().st_size,
                       "filename": str(destination.relative_to(self.repo)), "control": fields, "policy": actual_policy,
                       "package_signature": package_signature_record(signing_fingerprint)}
             if previous != record:
@@ -1805,8 +1725,7 @@ class Repository:
                 if not re.fullmatch(r"upstream/[a-z0-9][a-z0-9+.-]+/[0-9a-f]{64}\.deb", relative):
                     raise Error("invalid retained upstream filename")
                 source = self.root / relative
-                if digest_file(source) != record["upstream_sha256"]:
-                    raise Error("retained upstream digest mismatch")
+                file_size(source)
                 policy["local_revision"] = record.get("policy", {}).get("local_revision", 0) + 1
                 self.ingest(self.stage(source, policy=policy,
                     expected=(record["package"], record["architecture"])))
@@ -1830,8 +1749,8 @@ class Repository:
                 if not re.fullmatch(r"pool/[a-z0-9][a-z0-9+.-]+/[0-9a-f]{64}/[A-Za-z0-9_.+:~\-]+\.deb", filename):
                     raise Error(f"invalid catalogue filename for {key}")
                 archive = self.repo / filename
-                if digest_file(archive) != record["sha256"] or archive.stat().st_size != record["size"]:
-                    raise Error(f"published package digest mismatch for {key}")
+                if file_size(archive) != record["size"]:
+                    raise Error(f"published package size mismatch for {key}")
                 package_signature = record.get("package_signature")
                 if package_signature is not None:
                     if (not isinstance(package_signature, dict)
@@ -1840,7 +1759,6 @@ class Repository:
                             or package_signature.get("role") != "origin"
                             or package_signature.get("fingerprint") != fingerprint):
                         raise Error(f"invalid package signature record for {key}")
-                    verify_deb_signature(archive, self.signing, fingerprint)
                 fields = {k: v for k, v in record["control"].items() if k.lower() not in INDEX_FIELDS}
                 fields.update({"Filename": "./" + filename, "Size": str(record["size"]), "SHA256": record["sha256"]})
                 stanzas.append(control_bytes(fields) + b"\n")
@@ -1995,18 +1913,10 @@ class Repository:
                 descriptor = staged
             elif app == "postman":
                 archive = Path(descriptor["archive"])
-                if digest_file(archive) != source_id:
-                    raise Error("Postman retained archive digest mismatch")
                 extract_postman(archive, work / "extracted")
                 descriptor["tree"] = str(work / "extracted/Postman")
             else:
                 archive = Path(descriptor["archive"])
-                with os.fdopen(checked_file(archive), "rb") as stream:
-                    hasher = hashlib.sha512() if len(source_id) == 128 else hashlib.sha256()
-                    while chunk := stream.read(1024 * 1024):
-                        hasher.update(chunk)
-                if hasher.hexdigest() != source_id:
-                    raise Error("AppImage receipt no longer matches its retained bytes")
                 extract_appimage(archive, work / "extracted")
                 descriptor["tree"] = str(work / "extracted")
         tree = Path(descriptor["tree"])

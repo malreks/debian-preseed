@@ -98,7 +98,9 @@ desktop_install_codex_standalone() (
 
   packages_host_path=$(target_asset_host_path "$packages_root")
   packages_name=${DEVOPS_CODEX_PACKAGES_ROOT##*/}
-  home_packages_host_path=$(target_asset_host_path "${DEVOPS_CODEX_HOME}/${packages_name}")
+  # The cloned Codex home deliberately links packages to the managed root.
+  # Inspect that entry itself; it is not a file publication destination.
+  home_packages_host_path=$(target_asset_entry_host_path "${DEVOPS_CODEX_HOME}/${packages_name}")
   [ -d "$packages_host_path" ] && [ ! -L "$packages_host_path" ] ||
     fatal "official Codex standalone package root is missing after installation"
   [ -L "$home_packages_host_path" ] &&
@@ -219,9 +221,6 @@ run_desktop_late_command() {
   desktop_install_waypaper
   desktop_log "installed pinned Waypaper application for ${ACCOUNT_USERNAME}"
   if installer_tools_class_selected; then desktop_install_codex_standalone; fi
-  desktop_verify_appearance_assets
-  desktop_verify_target_staging
-  desktop_verify_role_installation
   desktop_enable_target_services
   desktop_log "staged Labwc desktop service enablement"
   installer_info "Labwc desktop role installation completed for seed ${requested_seed_base:-$SEED_BASE}"

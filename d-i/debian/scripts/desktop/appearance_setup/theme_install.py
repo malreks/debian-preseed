@@ -1,12 +1,11 @@
 """Offline installation of verified theme data before consumer activation.
 
-Asset directories are append-only. Existing matching assets are reused;
-different existing bytes are refused. The public inventory is published last.
+Asset directories are append-only. Existing complete metadata inventories are
+reused without reading asset contents. The public inventory is published last.
 An interrupted publication retains its private candidate and journal instead
 of guessing which published directory may be removed or silently retrying.
 """
 from __future__ import annotations
-import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -52,10 +51,10 @@ def dependencies() -> dict:
                                ('6', ('adwaita.so', 'libkvantum.so', 'breeze6.so'))):
             for name in (*('styles/' + item for item in names), 'platformthemes/libqt' + version + 'ct.so'):
                 path = 'lib/' + architecture + '/qt' + version + '/plugins/' + name
-                blob = usr.read(path, limit=MAX_MEMBER)
-                if not blob.startswith(b'\x7fELF'):
-                    raise ValueError('installed Qt theme engine is not an ELF plugin')
-                plugins[path] = hashlib.sha256(blob).hexdigest()
+                with usr.open_read(path, limit=MAX_MEMBER) as (stream, info):
+                    if stream.read(4) != b'\x7fELF':
+                        raise ValueError('installed Qt theme engine is not an ELF plugin')
+                    plugins[path] = info.st_size
     with Tree(Path('__INSTALLER_PATH_DIR_VAR_LIB__/dpkg'), uid=0) as dpkg:
         status = dpkg.read('status', limit=16 * 1024**2).decode('utf-8')
     versions = {}
@@ -146,8 +145,8 @@ def matches(tree: Tree, relative: str, files: dict[str, bytes], *, deadline: flo
                             item.st_uid != 0 or stat.S_IMODE(item.st_mode) != 0o644 or item.st_nlink != 1):
                         raise ValueError('existing theme directory contains unowned or unexpected data')
                     seen.add(path)
-                    if tree.read(relative + '/' + path, limit=MAX_MEMBER) != files[path]:
-                        raise ValueError('existing desktop theme assets differ; refusing replacement')
+                    if item.st_size != len(files[path]):
+                        raise ValueError('existing desktop theme asset length differs; refusing replacement')
     try:
         visit(fd)
     finally:
@@ -157,13 +156,12 @@ def matches(tree: Tree, relative: str, files: dict[str, bytes], *, deadline: flo
     return True
 
 
-def inventory(candidate: Candidate, packages: dict, source: Source) -> bytes:
-    files = {directory + '/' + path: {'bytes': len(blob), 'sha256': hashlib.sha256(blob).hexdigest()}
+def inventory(candidate: Candidate, packages: dict) -> bytes:
+    files = {directory + '/' + path: {'bytes': len(blob)}
              for directory, values in candidate.directories.items() for path, blob in values.items()}
-    value = {'schema': 1, 'variants': candidate.variants, 'files': files,
+    value = {'schema': 2, 'variants': candidate.variants, 'files': files,
              'packages': packages, 'repairs': candidate.repairs,
-             'sourceInventorySha256': hashlib.sha256(source.tree.read('sources.json')).hexdigest(),
-             'trust': 'Pinned public HTTPS data and local installation hashes; no vendor signature claim.'}
+             'trust': 'SHA-256 verified download; installed files are tracked by path and size.'}
     data = (json.dumps(value, sort_keys=True, indent=2) + '\n').encode('utf-8')
     if len(data) > 6 * 1024**2:
         raise ValueError('installed desktop theme inventory exceeds the read budget')
@@ -178,7 +176,6 @@ def remove_inputs(registry: Tree, paths: tuple[str, ...], identity: list[int], *
         source = Source(inputs, deadline=deadline)
         if set(source.files) != set(paths):
             raise RuntimeError('theme source inventory changed before cleanup')
-        source.verify_all()
         directories = {str(parent) for path in paths for parent in PurePosixPath(path).parents if str(parent) != '.'}
         for path in (*paths, 'sources.json'):
             check(deadline)
@@ -206,11 +203,10 @@ def main(argv: list[str]) -> int:
             info = os.fstat(inputs.fd)
             input_identity = [info.st_dev, info.st_ino]
             source = Source(inputs, deadline=deadline)
-            source.verify_all()
             input_paths = tuple(source.files)
             packages = dependencies()
             candidate = prepare(source)
-            data = inventory(candidate, packages, source)
+            data = inventory(candidate, packages)
         with Tree(PUBLIC, uid=0) as public:
             missing = []
             for path, files in candidate.directories.items():
@@ -225,9 +221,7 @@ def main(argv: list[str]) -> int:
             journal = {'schema': 1, 'token': token, 'phase': 'preparing', 'stages': stages,
                        'newDirectories': missing, 'published': [],
                        'identities': {}, 'stageIdentities': {}, 'sourceIdentity': input_identity,
-                       'previousInventoryPresent': previous is not None,
-                       'previousInventorySha256': hashlib.sha256(previous or b'').hexdigest(),
-                       'newInventorySha256': hashlib.sha256(data).hexdigest()}
+                       'previousInventoryPresent': previous is not None}
             registry.write('themes-install-previous.json', previous)
             registry.write('themes-install-next.json', data)
             registry.put_json(PENDING, journal)

@@ -880,6 +880,145 @@ class TypedPublicationTests(unittest.TestCase):
                                str(self.prepared / 'source'), *map(str, arguments)],
                               env=self.env, capture_output=True, timeout=20, check=False)
 
+    def test_entry_lookup_preserves_links_and_file_publication_rejects_them(self):
+        protected = self.root / 'protected'
+        protected.write_bytes(b'previous\n')
+        (self.target / 'etc').mkdir()
+        link = self.target / 'etc/fixture'
+        for destination in (protected, self.root / 'missing'):
+            with self.subTest(destination=destination):
+                link.symlink_to(destination)
+                before = link.lstat()
+                result = self.shell('target_asset_entry_host_path /etc/fixture')
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+                self.assertEqual(result.stdout.decode().strip(), str(link))
+                result = self.shell('stage_target_asset unused /etc/fixture 0644')
+                self.assertEqual(result.returncode, 93, result.stderr.decode(errors='replace'))
+                self.assertIn(b'destination must not be a symlink', result.stderr)
+                self.assertEqual(link.lstat().st_ino, before.st_ino)
+                self.assertEqual(protected.read_bytes(), b'previous\n')
+                link.unlink()
+        os.link(protected, link)
+        result = self.shell('target_asset_host_path /etc/fixture')
+        self.assertEqual(result.returncode, 93, result.stderr.decode(errors='replace'))
+        self.assertIn(b'destination must not be hardlinked', result.stderr)
+        self.assertEqual(protected.read_bytes(), b'previous\n')
+
+    def test_entry_lookup_and_removal_reject_symlinked_parents_and_traversal(self):
+        protected = self.root / 'protected'
+        protected.mkdir()
+        marker = protected / 'marker'
+        marker.write_bytes(b'previous\n')
+        (self.target / 'etc').mkdir()
+        (self.target / 'etc/alias').symlink_to(protected, target_is_directory=True)
+        for command in ('target_asset_entry_host_path', 'target_asset_host_path',
+                        'ensure_target_asset_parent', 'remove_target_asset',
+                        'remove_target_asset_and_empty_parent'):
+            for path in ('/etc/alias/marker', '/etc/../marker', '/etc//marker'):
+                with self.subTest(command=command, path=path):
+                    result = self.shell(command + ' ' + shlex.quote(path))
+                    self.assertNotEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+                    self.assertEqual(marker.read_bytes(), b'previous\n')
+
+    def test_link_cleanup_unlinks_only_the_entry_and_forgets_it(self):
+        protected = self.root / 'protected'
+        protected.write_bytes(b'previous\n')
+        shells = [['/bin/dash']]
+        if shutil.which('busybox'):
+            shells.append([shutil.which('busybox'), 'sh'])
+        for shell in shells:
+            for command in ('remove_target_asset', 'remove_target_asset_and_empty_parent'):
+                for destination in (protected, self.root / 'missing'):
+                    with self.subTest(shell=shell, command=command, destination=destination):
+                        parent = self.target / 'etc/fixture.target.wants'
+                        parent.mkdir(parents=True, exist_ok=True)
+                        link = parent / 'fixture.service'
+                        link.symlink_to(destination)
+                        code = ('installer_target_ownership_forget() { printf "%s\\n" "$1"; }\n'
+                                + command + ' /etc/fixture.target.wants/fixture.service')
+                        result = self.shell(code, shell=shell)
+                        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+                        self.assertEqual(result.stdout.strip(), b'/etc/fixture.target.wants/fixture.service')
+                        self.assertFalse(link.is_symlink())
+                        self.assertEqual(protected.read_bytes(), b'previous\n')
+
+    def test_link_replacement_is_idempotent_without_following_the_previous_link(self):
+        protected = self.root / 'protected'
+        protected.write_bytes(b'previous\n')
+        parent = self.target / 'usr/local/bin'
+        parent.mkdir(parents=True)
+        alias = parent / 'fixture-alias'
+        alias.symlink_to(protected)
+        code = '''
+ensure_target_asset_parent /usr/local/bin/fixture-alias
+alias_host=$(target_asset_entry_host_path /usr/local/bin/fixture-alias)
+ln -sfnT labwc-app "$alias_host"
+'''
+        for _attempt in range(2):
+            result = self.shell(code)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+            self.assertEqual(alias.readlink(), Path('labwc-app'))
+            self.assertEqual(protected.read_bytes(), b'previous\n')
+
+    def test_codex_desktop_accepts_only_the_managed_packages_link(self):
+        self.prepare('scripts/desktop/labwc.sh')
+        files = {
+            'home/account/.profile.d/71-devops-de.sh': 0o644,
+            'data/codex/share/bin/codex': 0o755,
+            'usr/local/bin/codex-standalone-install': 0o755,
+            'data/codex/.installer-codex-standalone.session.py': 0o700,
+        }
+        for directory in ('data/codex/usr/.git', 'data/codex/usr/home', 'data/codex/packages'):
+            (self.target / directory).mkdir(parents=True, exist_ok=True)
+        link = self.target / 'data/codex/usr/home/packages'
+        code = '''
+. "$SEED/scripts/desktop/labwc.sh"
+ACCOUNT_USERNAME=account
+ACCOUNT_HOME=/home/account
+DEVOPS_CODEX_ROOT=/data/codex
+DEVOPS_CODEX_BINARY_PATH=/data/codex/share/bin/codex
+DEVOPS_CODEX_USER_ROOT=/data/codex/usr
+DEVOPS_CODEX_PACKAGES_ROOT=/data/codex/packages
+DEVOPS_CODEX_HOME=/data/codex/usr/home
+DEVOPS_CODEX_STANDALONE_INSTALLER_URL=https://fixture.invalid/install.sh
+DEVOPS_CODEX_STANDALONE_INSTALLER_SHA256=fixture
+installer_tools_class_selected() { return 0; }
+fatal() { installer_fatal "$@"; }
+desktop_log() { :; }
+chroot() {
+  case "$4" in
+    "$installer_helper") printf '0:0:755' ;;
+    "$session_helper") printf '0:0:700' ;;
+    *) return 94 ;;
+  esac
+}
+run_in_target() {
+  [ "$#" -eq 10 ] || return 95
+  printf '%s\\n' called >"$HOME/supervisor-called"
+}
+desktop_install_codex_standalone
+'''
+        for destination in ('/data/codex/packages', '/data/codex/other', '../packages', None):
+            with self.subTest(destination=destination):
+                for relative, mode in files.items():
+                    path = self.target / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b'fixture\n')
+                    path.chmod(mode)
+                if destination is not None:
+                    link.symlink_to(destination)
+                result = self.shell(code)
+                if destination == '/data/codex/packages':
+                    self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+                else:
+                    self.assertEqual(result.returncode, 93, result.stderr.decode(errors='replace'))
+                    self.assertIn(b'CODEX_HOME package link does not target', result.stderr)
+                self.assertTrue((self.root / 'supervisor-called').is_file())
+                self.assertFalse((self.target / 'data/codex/.installer-codex-standalone.session.py').exists())
+                if destination is not None:
+                    self.assertEqual(str(link.readlink()), destination)
+                    link.unlink()
+
     def test_temporary_program_cleanup_removes_ownership_and_preserves_status(self):
         source = self.prepared / 'source/cleanup-fixture'
         source.write_text('#!/bin/sh\nexit 0\n', encoding='ascii')

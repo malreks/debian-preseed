@@ -1010,7 +1010,6 @@ class InstalledFailureRegressionTests(unittest.TestCase):
 
         account = render_theme_defaults(payload_read_text(ROOT / 'scripts/late/account.sh'))
         staging = render_theme_defaults(payload_read_text(ROOT / 'scripts/desktop/components.sh'))
-        verification = render_theme_defaults(payload_read_text(ROOT / 'scripts/desktop/verify.sh'))
         firstboot = render_theme_defaults(payload_read_text(ROOT / 'scripts/firstboot/04-validation.sh'))
         self.assertIn('install -d -m 0700 /target/etc/skel-desktop', account)
         for source in (account, staging):
@@ -1025,8 +1024,6 @@ class InstalledFailureRegressionTests(unittest.TestCase):
             account_path = f'"$account_home/{relative_path}"'
             self.assertIn(staged_path, staging)
             self.assertIn(installed_path, staging)
-            self.assertIn(installed_path, verification)
-            self.assertIn(account_path, verification)
             self.assertIn(installed_path, firstboot)
         self.assertIn('desktop-skeleton-metadata', firstboot)
 
@@ -1199,7 +1196,6 @@ class InstalledFailureRegressionTests(unittest.TestCase):
                       render_theme_defaults(payload_read_text(DESKTOP / 'etc/skel-desktop/.config/waypaper/config.ini')))
 
         staging = render_theme_defaults(payload_read_text(ROOT / 'scripts/desktop/components.sh'))
-        verification = render_theme_defaults(payload_read_text(ROOT / 'scripts/desktop/verify.sh'))
         self.assertEqual(staging.count('  desktop_normalize_background_directories\n'), 1)
         self.assertIn('chown root:root -- "$background_directory_host"', staging)
         self.assertIn('chmod 0755 -- "$background_directory_host"', staging)
@@ -1209,9 +1205,6 @@ class InstalledFailureRegressionTests(unittest.TestCase):
             '/usr/share/backgrounds/login',
         ):
             self.assertIn(directory, staging)
-            self.assertIn(directory, verification)
-        self.assertIn('require_mode "$background_directory" 755', verification)
-        self.assertIn('require_mode "$background_file" 644', verification)
 
         tmpfiles = render_theme_defaults(payload_read_text(DESKTOP / 'etc/tmpfiles.d/tmp.conf'))
         self.assertIn('d /tmp/.X11-unix 1777 root root -', tmpfiles)
@@ -1840,9 +1833,8 @@ desktop_normalize_background_directories
         ):
             self.assertIn(fragment, account)
 
-        verification = render_theme_defaults(payload_read_text(ROOT / 'scripts/desktop/verify.sh'))
         firstboot = render_theme_defaults(payload_read_text(ROOT / 'scripts/firstboot/04-validation.sh'))
-        for source in (verification, firstboot):
+        for source in (firstboot,):
             self.assertIn('findmnt -n -o OPTIONS -T /usr/sbin/unix_chkpwd', source)
             self.assertIn('*,nosuid,*', source)
             self.assertIn('/usr/sbin/unix_chkpwd', source)
@@ -1918,8 +1910,6 @@ desktop_normalize_background_directories
         greeter = render_theme_defaults(payload_read_text(DESKTOP / 'usr/local/bin/labwc-greeter-session.tmpl'))
         self.assertIn('export GTK_USE_PORTAL=0', greeter)
         self.assertIn('export GIO_USE_PORTALS=0', greeter)
-        verify = render_theme_defaults(payload_read_text(ROOT / 'scripts/desktop/verify.sh'))
-        self.assertIn('managed icon theme is unavailable', verify)
 
         profiles = render_theme_defaults(payload_read_text(DESKTOP / 'usr/local/lib/python3/dist-packages/labwc_managed_app/profiles.py'))
         persistent = profiles.index('PERSISTENT_SANDBOX_CONFIG = {')

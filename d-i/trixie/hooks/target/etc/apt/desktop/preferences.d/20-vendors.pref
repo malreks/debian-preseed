@@ -20,26 +20,8 @@ Package: incus incus-base incus-client incus-ui-canonical
 Pin: release o=Debian
 Pin-Priority: -1
 
-# microsoft-visual-studio-code
-Package: code
-Pin: origin packages.microsoft.com
-Pin-Priority: 1001
-
-Package: *
-Pin: origin packages.microsoft.com
-Pin-Priority: -1
-
-# microsoft-edge
-Package: microsoft-edge-stable
-Pin: origin packages.microsoft.com
-Pin-Priority: 1001
-
-Package: *
-Pin: origin packages.microsoft.com
-Pin-Priority: -1
-
-# microsoft-powershell-debian-13-trixie
-Package: powershell
+# Microsoft desktop tools share one scoped origin policy.
+Package: code microsoft-edge-stable powershell
 Pin: origin packages.microsoft.com
 Pin-Priority: 1001
 

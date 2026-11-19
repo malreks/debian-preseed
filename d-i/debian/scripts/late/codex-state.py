@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Compare an offline Codex publication with its verified staging tree.
+"""Check offline Codex publication metadata against its staging inventory.
 
-Immutable files must match bytes, ownership and modes. Only named account state
-is mutable. No Git command, hook, filter, config include or symlink is executed.
-All traversal and regular-file reads use directory descriptors and NOFOLLOW.
+Publication checks names, types, sizes, ownership and modes without rereading
+file contents. Only named account state is mutable. No Git command, hook,
+filter, config include or symlink is executed. Traversal uses NOFOLLOW.
 """
 from __future__ import annotations
 
 import argparse
 import configparser
-import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import stat
@@ -45,7 +44,7 @@ class Entry:
     uid: int
     gid: int
     mode: int
-    digest: str = ''
+    size: int = 0
     link: str = ''
 
 
@@ -91,39 +90,12 @@ def snapshot(root: Path) -> dict[str, Entry]:
                     before = os.fstat(child)
                     if (info.st_dev, info.st_ino, info.st_nlink) != (before.st_dev, before.st_ino, before.st_nlink):
                         raise StateError('managed file changed during verification')
-                    if rel in OPTIONAL_PRIVATE_FILES or rel in OPTIONAL_CONFIG_FILES:
-                        initial_metadata = (
-                            info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
-                            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns,
-                        )
-                        before_metadata = (
-                            before.st_dev, before.st_ino, before.st_mode, before.st_uid,
-                            before.st_gid, before.st_nlink, before.st_size,
-                            before.st_mtime_ns, before.st_ctime_ns,
-                        )
-                        if initial_metadata != before_metadata:
-                            raise StateError('managed file changed during verification')
-                        after = os.fstat(child)
-                        after_metadata = (
-                            after.st_dev, after.st_ino, after.st_mode, after.st_uid,
-                            after.st_gid, after.st_nlink, after.st_size,
-                            after.st_mtime_ns, after.st_ctime_ns,
-                        )
-                        if before_metadata != after_metadata:
-                            raise StateError('managed file changed during verification')
-                        entries[rel] = Entry('file', info.st_uid, info.st_gid, mode)
-                        continue
-                    digest = hashlib.sha256()
-                    read = 0
-                    while data := os.read(child, 1024 * 1024):
-                        read += len(data)
-                        if read > MAX_FILE:
-                            raise StateError('managed file grew beyond byte limit')
-                        digest.update(data)
-                    after = os.fstat(child)
-                    if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                    if (info.st_mode, info.st_uid, info.st_gid, info.st_size,
+                            info.st_mtime_ns, info.st_ctime_ns) != (
+                            before.st_mode, before.st_uid, before.st_gid, before.st_size,
+                            before.st_mtime_ns, before.st_ctime_ns):
                         raise StateError('managed file changed during verification')
-                    entries[rel] = Entry('file', info.st_uid, info.st_gid, mode, digest.hexdigest())
+                    entries[rel] = Entry('file', info.st_uid, info.st_gid, mode, info.st_size)
                 finally:
                     os.close(child)
             else:
@@ -279,7 +251,7 @@ def compare_trees(expected: Path, actual: Path, uid: int, gid: int, branch: str,
             if entry.kind != 'file' or (entry.uid, entry.gid, entry.mode) != (w.uid, w.gid, w.mode):
                 raise StateError('private or shared runtime file has unsafe metadata')
         elif entry != wanted[name]:
-            raise StateError('immutable repository content or metadata differs from its verified checkout')
+            raise StateError('repository path metadata differs from its staging inventory')
     for name in wanted:
         if name == '.git' or name.startswith('.git/') or name in OPTIONAL_CONFIG_FILES:
             continue

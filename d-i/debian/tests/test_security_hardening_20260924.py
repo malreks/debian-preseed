@@ -492,11 +492,12 @@ class TutaExtraction(unittest.TestCase):
 
     def test_repository_adapter_preserves_parser_file_limit_headroom(self):
         repository = module(LIBEXEC / 'apt-repo-local')
-        with mock.patch.object(repository, 'digest_file', return_value='a' * 64), \
+        with mock.patch.object(repository, 'digest_file', side_effect=AssertionError('post-download checksum pass')), \
              mock.patch.object(repository, 'run') as run:
             repository.extract_appimage(Path('/fixture/artifact'), Path('/fixture/output'))
         argv = run.call_args.args[0]
         self.assertEqual(argv[:2], ['/usr/local/libexec/tuta-extract', '--repository-appimage'])
+        self.assertEqual(len(argv), 4)
         self.assertGreaterEqual(run.call_args.kwargs['file_limit'], self.m.MAX_IMAGE)
         self.assertEqual(run.call_args.kwargs['file_limit'], 2 * repository.MAX_DEB)
 
@@ -623,7 +624,7 @@ class TutaExtraction(unittest.TestCase):
     def test_failure_reports_the_rejected_condition(self):
         result=subprocess.run([sys.executable,'-I',str(LIBEXEC/'tuta-extract')],capture_output=True,text=True)
         self.assertNotEqual(result.returncode,0)
-        self.assertIn('ValueError: usage: tuta-extract ARTIFACT NEW_DESTINATION SHA256',result.stderr)
+        self.assertIn('ValueError: usage: tuta-extract ARTIFACT NEW_DESTINATION',result.stderr)
 
     def test_parser_reports_child_failure_without_blocking_on_output(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -673,11 +674,12 @@ class TutaExtraction(unittest.TestCase):
                     with self.assertRaises(ValueError):self.m.normalize_tree(root)
 
     @unittest.skipUnless(os.geteuid()==0,'root publication fixture')
-    def test_hash_mismatch_never_starts_parser_or_publishes(self):
+    def test_hardlinked_input_never_starts_parser_or_publishes(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);image=root/'input';image.write_bytes(self.image());destination=root/'new'
+            os.link(image, root / 'alias')
             with mock.patch.object(self.m.subprocess,'Popen') as parser:
-                with self.assertRaises(ValueError):self.m.extract(image,destination,'0'*64,65534,65534)
+                with self.assertRaises(ValueError):self.m.extract(image,destination,65534,65534)
                 parser.assert_not_called()
             self.assertFalse(destination.exists())
             self.assertFalse(list(root.glob('.tuta-extract-*')))

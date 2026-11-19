@@ -237,11 +237,6 @@ done
     -N1 \
     -f \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.conf
-  run_in_target \
-    "validate managed logrotate configuration" \
-    __INSTALLER_PATH_DIR_USR_SBIN__/logrotate \
-    --debug \
-    __INSTALLER_PATH_DIR_ETC__/logrotate.conf
 
   desktop_log "staged_logging_policy journal_input=imuxsock apps=__INSTALLER_LOG_APPLICATIONS_FILE__ system=__INSTALLER_LOG_SYSTEM_SERVICES_FILE__ kernel=__INSTALLER_LOG_KERNEL_FILE__ auth=__INSTALLER_LOG_AUTH_FILE__ apparmor=__INSTALLER_LOG_APPARMOR_FILE__ rotation=writer-size threshold_bytes=__INSTALLER_LOG_RSYSLOG_ROTATE_BYTES__ archives=__INSTALLER_LOG_ROTATE_COUNT__ scanner_socket=__INSTALLER_LOG_SCANNER_SOCKET__ log_group=__INSTALLER_LOG_GROUP__"
 }

@@ -533,7 +533,6 @@ whisper_target_model_is_valid() {
   candidate=$1
   model_validation_bytes=unknown
   model_validation_magic=unavailable
-  model_validation_sha256=not-checked
   model_validation_failure=unknown
 
   [ -f "$candidate" ] && [ ! -L "$candidate" ] || {
@@ -550,24 +549,12 @@ whisper_target_model_is_valid() {
   esac
 
   model_validation_magic=$(whisper_target_model_magic "$candidate" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-  actual_sha256=$(sha256sum "$candidate" 2>__INSTALLER_PATH_DIR_DEV__/null | awk '{print $1}')
-  if [ "$actual_sha256" = "$model_sha256" ]; then
-    model_validation_sha256=match
-  else
-    model_validation_sha256=mismatch
-  fi
-
   # whisper.cpp serializes 0x67676d6c through a little-endian int32, so a
   # valid legacy GGML model begins with the raw bytes "6c6d6767".
   [ "$model_validation_magic" = 6c6d6767 ] || {
     model_validation_failure=legacy-ggml-magic
     return 1
   }
-  [ "$model_validation_sha256" = match ] || {
-    model_validation_failure=sha256
-    return 1
-  }
-
   model_validation_failure=none
   return 0
 }
@@ -597,8 +584,10 @@ whisper_target_download_model() {
 
   if ! whisper_target_model_is_valid "$model_tmp"; then
     whisper_target_fatal \
-      "downloaded model failed integrity checks: ${model_filename} (bytes=${model_validation_bytes}, magic=${model_validation_magic}, sha256=${model_validation_sha256}, reason=${model_validation_failure})"
+      "downloaded model is invalid: ${model_filename} (bytes=${model_validation_bytes}, magic=${model_validation_magic}, reason=${model_validation_failure})"
   fi
+  actual_sha256=$(sha256sum "$model_tmp") || whisper_target_fatal 'cannot checksum the downloaded GGML model'
+  [ "${actual_sha256%% *}" = "$model_sha256" ] || whisper_target_fatal 'downloaded GGML model SHA-256 mismatch'
   chown "0:${whisper_model_gid}" "$model_tmp"
   chmod 0640 "$model_tmp"
   mv -f "$model_tmp" "$final_model"
@@ -614,7 +603,7 @@ whisper_target_prepare_model() {
   if [ "$WHISPER_FORCE_DOWNLOAD" = 0 ] && whisper_target_model_is_valid "$final_model"; then
     chown "0:${whisper_model_gid}" "$final_model"
     chmod 0640 "$final_model"
-    whisper_target_info "reusing verified model ${model_filename}"
+    whisper_target_info "reusing installed model ${model_filename} without a checksum rescan"
     return 0
   fi
   whisper_target_download_model "$final_model"

@@ -1,10 +1,8 @@
 #!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
 """Install a verified Tor Browser archive without executing its contents."""
 
-import hashlib
 import os
 from pathlib import Path, PurePosixPath
-import re
 import shutil
 import stat
 import sys
@@ -13,20 +11,16 @@ import tempfile
 
 
 def main():
-    if os.geteuid() != 0 or len(sys.argv) != 3:
-        raise ValueError("requires installer root, archive and pinned SHA-256")
-    archive, expected = Path(sys.argv[1]), sys.argv[2]
-    if not re.fullmatch(r"[0-9a-f]{64}", expected):
-        raise ValueError("invalid archive digest")
+    if os.geteuid() != 0 or len(sys.argv) != 2:
+        raise ValueError("requires installer root and the verified download archive")
+    archive = Path(sys.argv[1])
     if (archive.parent != Path("__INSTALLER_PATH_DIR_TMP__/installer-software") or archive.is_symlink()
             or not archive.is_file()):
         raise ValueError("invalid installer archive path")
     destination = Path("__INSTALLER_PATH_DIR_OPT_TOR_BROWSER__")
     if destination.exists() or destination.is_symlink():
         raise ValueError("fresh Tor Browser installation requires an absent destination")
-    with archive.open("rb") as handle:
-        if hashlib.file_digest(handle, "sha256").hexdigest() != expected:
-            raise ValueError("archive differs from the authenticated pin")
+    # The acquisition caller verifies SHA-256 and the vendor signature once.
     temporary = Path(tempfile.mkdtemp(prefix=".tor-browser-", dir="__INSTALLER_PATH_DIR_OPT__"))
     try:
         with tarfile.open(archive, "r:xz") as bundle:

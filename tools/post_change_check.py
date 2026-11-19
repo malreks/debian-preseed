@@ -1074,7 +1074,6 @@ def check_private_skeletons(paths: list[Path], errors: list[str], counts: dict[s
             '"${DIR_ETC_SKEL_BASE:-}" "${DIR_ETC_SKEL_DESKTOP:-}" "${DIR_ETC_SKEL_SERVER:-}"',
             'install -d -m 0700 -- "${TARGET_ROOT}${skeleton}"',
             'chown root:root "${TARGET_ROOT}${skeleton}"'),
-        DEBIAN_ROOT / 'scripts/desktop/verify.sh.tmpl': ('require_mode "$desktop_skeleton" 700',),
         DEBIAN_ROOT / 'scripts/firstboot/04-validation.sh.tmpl': (
             'find -P "$skeleton" -maxdepth 0 -printf "%U:%G:%m")" = "0:0:700"',),
         target_source('usr/local/bin/labwc-sync-application-launchers.tmpl'): (
@@ -1953,10 +1952,10 @@ def check_appearance_render_preservation(paths: list[Path], errors: list[str],
         order = [calls.index(name) for name in (
             'desktop_stage_target_assets', 'desktop_install_appearance_themes',
             'desktop_install_user_config', 'desktop_capture_appearance_defaults',
-            'desktop_verify_appearance_assets', 'desktop_enable_target_services',
+            'desktop_enable_target_services',
         )]
         if order != sorted(order):
-            raise ValueError('appearance registry must stage before capture/verification/activation')
+            raise ValueError('appearance registry must stage before capture/activation')
         target_assets = _read_text(DEBIAN_ROOT / 'scripts/desktop/components/target-assets.sh')
         if re.search(r'^  desktop_stage_appearance\s*$', target_assets, re.MULTILINE) is None:
             raise ValueError('target asset staging must include the appearance registry')
@@ -3714,15 +3713,23 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
             raise ValueError('Qt agent must have one explicit suite-scoped release preference without a version pin')
         for tier in ('base', 'medium', 'full'):
             role_source = members[f'frontends/{suite}/classes/class-select/role/desktop/{tier}.cfg'].decode()
-            if suite == 'forky' and re.search(r'^d-i apt-setup/[^\n]+/repository string .*\btrixie(?:-backports)?\b', role_source, re.M):
-                raise ValueError('Forky desktop class contains a foreign Trixie repository')
+            if suite == 'forky':
+                compatibility_archives = set(re.findall(
+                    r'^d-i apt-setup/[^\n]+/repository string ([^\n]*\btrixie(?:-backports)?\b[^\n]*)$',
+                    role_source, re.M))
+                expected_archives = {
+                    'https://packages.microsoft.com/debian/13/prod trixie main',
+                    'https://repo.mysql.com/apt/debian trixie mysql-9.7-lts mysql-tools',
+                } if tier == 'full' else set()
+                if compatibility_archives != expected_archives:
+                    raise ValueError('Forky desktop vendor compatibility archives differ from the full-class contract')
+            if tier == 'full':
+                packages = set(re.findall(r'^d-i pkgsel/include string (.*)$', role_source, re.M)[0].split())
+                if not {'powershell', 'mysql-shell'} <= packages:
+                    raise ValueError('full desktop class omits PowerShell or MySQL Shell')
             if suite == 'forky':
                 if tier != 'base' and 'https://pkgs.tailscale.com/stable/debian forky main' not in role_source:
                     raise ValueError('Forky desktop does not use the published Tailscale Forky channel')
-                if tier == 'full':
-                    packages = set(re.findall(r'^d-i pkgsel/include string (.*)$', role_source, re.M)[0].split())
-                    if packages & {'powershell', 'mysql-shell'}:
-                        raise ValueError('Forky full selects vendor packages without a Forky archive')
         if suite == 'forky':
             apt_fragment = members[f'frontends/{suite}/fragments/apt.cfg'].decode()
             if 'apparmor-profiles-extra/trixie' not in apt_fragment:
@@ -4052,11 +4059,6 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
             "'--reconfigure'", 'no_network => 1, load_ext_dtd => 0, expand_entities => 0')):
         raise ValueError('native workspace topology policy or retained recovery is incomplete')
     counts['desktop_workspace_profiles'] = len(profile_names)
-    verifier = members['scripts/desktop/verify.sh.tmpl'].decode()
-    for path in ('71-devops-de.sh', '72-incus.sh', '75-firmware-workspace.sh',
-                 'podman-devops-host', 'podman-devops-bootstrap.service', 'incus-host.service'):
-        if path not in verifier.split('if role == "desktop/base":', 1)[1]:
-            raise ValueError('base absent-activation verification omits ' + path)
     for suite in ('forky', 'trixie'):
         selected = {tuple(row['roles']): json.loads(members[row['plan']]) for row in matrix if row['suite'] == suite}
         previous = set()

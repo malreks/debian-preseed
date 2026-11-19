@@ -1,3 +1,4 @@
+# Managed by unattended-installer.
 [Unit]
 StartLimitBurst=5
 StartLimitIntervalSec=60s

@@ -30,16 +30,13 @@ case "$operator" in
   ''|root|ci-github|ci-gitlab|srv-devops|technitium|*[!a-z0-9_-]*) installer_fatal 'virtualization requires an explicit human operator' ;;
 esac
 
-# Package identities and native unit/socket layouts are checked inside the
-# offline target. The Zabbly channel is explicitly suite-scoped by the class.
+# pkgsel installs the compiled QEMU/Incus package set. Configure only the
+# selected operator here; the class owns the suite-scoped Zabbly archive.
 # shellcheck disable=SC2016
-run_in_target 'verify shared QEMU/Incus package and operator contracts' "${DIR_BIN}/sh" -eu -c '
+run_in_target 'configure shared QEMU and Incus operator access' "${DIR_BIN}/sh" -eu -c '
   operator=$1
   PATH=/usr/sbin:/usr/bin:/sbin:/bin
   export PATH
-  for package in qemu-system-x86 qemu-system-modules-opengl qemu-utils qemu-block-extra ovmf swtpm swtpm-tools virtiofsd incus incus-client uidmap libosinfo-bin genisoimage python3; do
-    [ "$(dpkg-query -W -f="\${db:Status-Abbrev}" "$package")" = "ii " ] || exit 1
-  done
   [ "$(id -u "$operator")" -ge 1000 ] || exit 1
   case " $(id -nG "$operator") " in *" incus-admin "*) exit 1 ;; esac
   for group in kvm incus; do getent group "$group" >/dev/null || exit 1; done

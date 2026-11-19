@@ -426,14 +426,16 @@ ensure_target_asset_parent /private/subdir/data
         self.assertFalse(payload_source_exists(TARGET / 'usr/local/libexec/x-bitwarden-package'))
         self.assertNotIn('x-bitwarden-package',
                          payload_read_text(TARGET / 'etc/apparmor.d/desktop-wrappers'))
-        self.assertIn('vendor_sha256', cli)
-        self.assertIn('$vendor_installed &&', cli)
+        self.assertNotIn('bitwarden_vendor_digest_matches', cli)
+        self.assertNotIn('$vendor_installed &&', cli)
         repository = payload_read_text(TARGET / 'usr/local/lib/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/Repository.pm')
-        self.assertIn('next if !$self->bitwarden_vendor_digest_matches(', repository)
+        self.assertNotIn('bitwarden_published_digest_matches', repository)
         engine = payload_read_text(TARGET / 'usr/local/libexec/apt-repo-local')
         self.assertIn('payload_path == path', engine)
-        self.assertIn('.vendor-sha256', engine)
-        self.assertIn('immutable pool object failed its digest check', engine)
+        self.assertNotIn('.vendor-sha256', engine)
+        self.assertNotIn('.published-sha256', engine)
+        self.assertIn('immutable pool object has a different size', engine)
+        self.assertNotIn('digest_file(destination) != sha', engine)
 
     def test_misc_failure_contracts(self):
         templates = TARGET / 'data/config/podman/templates/devops'

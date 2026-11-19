@@ -226,7 +226,7 @@ def shell_sources(code):
     import shlex
     for relative in ('scripts/common/lib.sh', 'scripts/runtime/common.sh',
                      'scripts/desktop/components.sh', 'scripts/desktop/detect.sh',
-                     'scripts/desktop/verify.sh', 'scripts/late/devops.sh',
+                     'scripts/late/devops.sh',
                      'scripts/late/software.sh', 'scripts/firstboot/04-validation.sh'):
         if relative not in code:
             continue

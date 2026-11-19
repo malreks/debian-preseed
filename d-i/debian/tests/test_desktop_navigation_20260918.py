@@ -235,14 +235,11 @@ class DesktopIntegrationTests(unittest.TestCase):
 
     def test_new_executables_and_font_policy_are_staged_and_verified(self):
         stage=render_theme_defaults(payload_read_text(FORKY/'scripts/desktop/components.sh'))
-        verify=render_theme_defaults(payload_read_text(FORKY/'scripts/desktop/verify.sh'))
         firstboot=render_theme_defaults(payload_read_text(FORKY/'scripts/firstboot/04-validation.sh'))
         for name in ('labwc-window-switcher',):
             self.assertIn(f'usr/local/bin/{name} /usr/local/bin/{name} 0755',stage)
-            self.assertIn(name,verify); self.assertIn(name,firstboot)
+            self.assertIn(name,firstboot)
             self.assertTrue(payload_source_stat(BIN/name).st_mode & 0o111)
-        self.assertIn('terminal-fonts/current/release-manifest.json',verify)
-        self.assertIn('require_absent /usr/local/libexec/installer-desktop-fonts',verify)
 
     def test_apparmor_keeps_strict_profiles_and_font_access_readonly(self):
         profiles=render_theme_defaults(payload_read_text(TARGET/'etc/apparmor.d/desktop-wrappers'))

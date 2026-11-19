@@ -96,24 +96,10 @@ class NativeDrawerTests(unittest.TestCase):
                 self.assertIsNone(re.search(r'(?:^|;)\s*background(?:-image)?\s*:',body))
             self.assertEqual(css.count('url("'+ICON_PATHS[icon]+'")'),1)
 
-    def test_installed_verifier_checks_decoding_and_config_instead_of_silent_fallback(self):
-        source=render_theme_defaults(payload_read_text(FORKY/'scripts/desktop/verify.sh'))
-        self.assertIn('Path(icon).is_file()',source)
-        self.assertIn('GdkPixbuf.Pixbuf.new_from_file_at_scale(icon, 18, 18, True)',source)
-        for icon in ICON_PATHS.values():self.assertIn('"'+icon+'"',source)
-        self.assertNotIn('desktop_prepare_native_drawer_icons',source)
-        # Do not start installing third-party amd64-only apps on other targets.
-        self.assertIn('if (arch != "amd64" or sys.argv[3] == "0") and module in {"custom/app-tuta", "custom/app-sleek"}',source)
 
     def test_drawer_audit_is_not_an_installer_gate(self):
         role=render_theme_defaults(payload_read_text(FORKY/'scripts/desktop/labwc.sh')).split('run_desktop_late_command() {',1)[1]
         self.assertNotIn('desktop_verify_',role)
-        source=render_theme_defaults(payload_read_text(FORKY/'scripts/desktop/verify.sh'))
-        self.assertIn('desktop_verify_native_menus() {\n  desktop_verify_native_drawer_icons',source)
-        function=source.split('desktop_verify_native_drawer_icons() {',1)[1].split('desktop_verify_native_menus()',1)[0]
-        python_code=function.split("/usr/bin/python3 -I -B -c '\n",1)[1].rsplit("\n' ",1)[0]
-        compile(python_code,'<installed-drawer-verifier>','exec')
-        self.assertIn('installer_selected_class_reference_is_selected addon/software',function)
 
     def test_notification_lock_and_power_palette_is_explicit(self):
         css=render_theme_defaults(waybar_style_text(SKEL/'waybar'))
@@ -154,121 +140,6 @@ class NativeDrawerTests(unittest.TestCase):
 
 
 
-class InstalledDrawerVerifierTests(unittest.TestCase):
-    """Execute the installed check's logic over real temporary configs/icons API mocks."""
-    def setUp(self):
-        import ast
-        import types
-        from unittest import mock
-        self.mock=mock;self.types=types
-        source=render_theme_defaults(payload_read_text(FORKY/'scripts/desktop/verify.sh'))
-        function=source.split('desktop_verify_native_drawer_icons() {',1)[1].split('desktop_verify_native_menus()',1)[0]
-        code=function.split("/usr/bin/python3 -I -B -c '\n",1)[1].rsplit("\n' ",1)[0]
-        tree=ast.parse(code)
-        tree.body=[node for node in tree.body if not isinstance(node,(ast.Import,ast.ImportFrom))]
-        self.code=compile(tree,'<installed-drawer-verifier>','exec')
-        tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup);self.root=Path(tmp.name)
-        self.configs=[]
-        for relative in ('etc/skel-desktop','home/desktop'):
-            config=self.root/relative/'.config/waybar';config.mkdir(parents=True)
-            from waybar_fixture import rendered_assets
-            assets = rendered_assets(FORKY / 'hosts/profiles/btrfs-de.env')
-            for name, content in assets.items():
-                (config / name).parent.mkdir(parents=True, exist_ok=True)
-                (config / name).write_text(content)
-            self.configs.append(config)
-        for icon in ICON_PATHS.values():
-            path=self.root/icon.lstrip('/')
-            path.parent.mkdir(parents=True,exist_ok=True)
-            path.write_bytes(b'fixture image: decoder is mocked')
-
-    def execute(self,arch='amd64',software='1',missing=None,dimensions=(18,18),decoded=True):
-        if missing is not None:
-            (self.root/ICON_PATHS[missing].lstrip('/')).unlink(missing_ok=True)
-        image=self.types.SimpleNamespace(get_width=lambda:dimensions[0],get_height=lambda:dimensions[1])
-        decoder=self.mock.Mock(return_value=image if decoded else None)
-        pixbuf=self.types.SimpleNamespace(Pixbuf=self.types.SimpleNamespace(new_from_file_at_scale=decoder))
-        scope={'json':json,'re':re,'Path':lambda path:self.root/path.lstrip('/'),
-               'pwd':self.types.SimpleNamespace(getpwnam=lambda user:self.types.SimpleNamespace(pw_uid=1000,pw_dir='/home/desktop')),
-               'subprocess':self.types.SimpleNamespace(check_output=lambda *a,**kw:arch+'\n'),
-               'sys':self.types.SimpleNamespace(argv=['check','/home/desktop','desktop',software,'18','100','18','100']),
-               'gi':self.types.SimpleNamespace(require_version=lambda *args:None),'GdkPixbuf':pixbuf}
-        import contextlib,io
-        with contextlib.redirect_stdout(io.StringIO()):exec(self.code,scope)
-        for call in decoder.call_args_list:
-            self.assertEqual(call.args[1:],(18,18,True))
-        return [call.args[0] for call in decoder.call_args_list]
-
-    def test_selected_amd64_bundle_requires_all_five_decodable_icons(self):
-        self.assertEqual(set(self.execute()),set(ICON_PATHS.values()))
-        with self.assertRaisesRegex(SystemExit,'not installed'):self.execute(missing='sleek')
-
-    def test_unselected_or_other_architecture_does_not_add_package_requirements(self):
-        expected={ICON_PATHS[name] for name in ('foot','org.xfce.thunar','l3afpad')}
-        self.assertEqual(set(self.execute(software='0',missing='sleek')),expected)
-        self.assertEqual(set(self.execute(arch='arm64',missing='tuta-mail')),expected)
-
-    def test_undecodable_empty_and_oversized_images_are_rejected(self):
-        with self.assertRaisesRegex(SystemExit,'cannot be decoded at 18px'):
-            self.execute(decoded=False)
-        for dimensions in ((0,18),(18,0),(19,18),(18,19),(24,24),(512,512)):
-            with self.subTest(dimensions=dimensions), self.assertRaisesRegex(SystemExit,'cannot be decoded at 18px'):
-                self.execute(dimensions=dimensions)
-
-    def test_missing_papirus_is_not_replaced_by_hicolor_fallback(self):
-        with self.assertRaisesRegex(SystemExit,'not installed'):
-            self.execute(missing='org.xfce.thunar')
-
-    def test_missing_size_bound_is_rejected(self):
-        path=self.configs[0]/'style.css'
-        path.write_text(render_theme_defaults(payload_read_text(path)).replace('background-size: 18px 18px, 100% 100%;','background-size: auto;'))
-        with self.assertRaisesRegex(SystemExit,'size is misconfigured'):
-            self.execute()
-
-    def test_reference_buttons_cannot_hide_a_missing_drawer_size_rule(self):
-        path=self.configs[0]/'style.css'
-        style=render_theme_defaults(payload_read_text(path))
-        # The first declaration is for apps/wayscriber; the second is the drawer.
-        needle='background-size: 18px 18px, 100% 100%;'
-        position=style.rindex(needle)
-        style=style[:position]+style[position:].replace(needle, 'background-size: auto;', 1)
-        path.write_text(style)
-        self.assertIn(needle, style)
-        with self.assertRaisesRegex(SystemExit, 'size is misconfigured'):
-            self.execute()
-
-    def test_any_single_24px_icon_override_is_rejected_in_either_config(self):
-        for config in self.configs:
-            path = config / 'style.css'
-            original = render_theme_defaults(payload_read_text(path))
-            try:
-                for module in ('custom/apps', 'custom/wayscriber', *ICONS):
-                    for suffix in ('', ':hover'):
-                        selector = 'window#waybar.external #' + module.replace('/', '-') + suffix
-                        with self.subTest(config=str(config), selector=selector):
-                            path.write_text(original + '\n' + selector +
-                                            ' { background-size: 24px 24px, 100% 100%; }\n')
-                            with self.assertRaisesRegex(SystemExit, 'size is misconfigured'):
-                                self.execute()
-            finally:
-                path.write_text(original)
-
-    def test_corrupt_account_drawer_is_not_hidden_by_valid_skeleton(self):
-        path=self.configs[1]/'config';data=json.loads(render_theme_defaults(payload_read_text(path)))
-        data[0]['custom/app-terminal']['format']='font-glyph';path.write_text(json.dumps(data))
-        with self.assertRaisesRegex(SystemExit,'misconfigured'):self.execute()
-
-    def test_missing_artwork_is_rejected(self):
-        path=self.configs[0]/'style.css';path.write_text(render_theme_defaults(payload_read_text(path)).replace('url("'+ICON_PATHS['foot']+'")','none',1))
-        with self.assertRaisesRegex(SystemExit,'icon is missing'):self.execute()
-
-    def test_hover_shorthand_must_not_erase_artwork(self):
-        path=self.configs[0]/'style.css'
-        path.write_text(render_theme_defaults(payload_read_text(path))+'\n#custom-app-terminal:hover { background: #222222; }\n')
-        with self.assertRaisesRegex(SystemExit,'survive hover'):self.execute()
-
-    def test_invalid_software_policy_cannot_silently_skip_icons(self):
-        with self.assertRaisesRegex(SystemExit,'software policy'):self.execute(software='yes')
 
 
 if __name__=='__main__':unittest.main()

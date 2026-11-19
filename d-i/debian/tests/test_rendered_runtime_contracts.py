@@ -1,4 +1,4 @@
-"""Unexecuted source contracts for the metadata-only installer verifier.
+"""Source contracts for desktop staging without a second installer audit.
 
 These fixtures inspect source data only. No target, helper, repository import,
 service manager or disposable execution environment is used by the cases.
@@ -19,44 +19,31 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts/desktop'
 
 
 class RenderedRuntimeContractTests(unittest.TestCase):
-    def setUp(self):
-        self.source = (SCRIPTS / 'verify.sh.tmpl').read_text()
-
-    def test_verifier_has_no_content_or_installed_helper_execution(self):
-        for pattern in (
-                r'(?m)^\s*(?:/\S*/)?(?:python3|desktop-file-validate|dpkg-query|dpkg|git|cat|grep|awk|sed)\s',
-                r'/usr/local/libexec/labwc-hyprpolkit-agent --check',
-                r'obsidian_git\(', r'findmnt -', r'import gi',
-                r'read_(?:text|bytes)\(', r'open\('):
-            self.assertNotRegex(self.source, pattern)
-        self.assertIn('file contents are intentionally never read or compared', self.source)
-
-    def test_stage_is_passed_to_the_independent_target_shell(self):
-        function = self.source.split('desktop_verify_runtime_contracts() {', 1)[1]
-        self.assertIn('stage=$1', function)
-        self.assertIn("' sh \"$stage\"", function)
-        self.assertIn('case "$stage" in code-only|with-account|account-only)', function)
-
-    def test_metadata_rejects_aliases_wrong_owner_mode_and_hardlinks(self):
-        function = self.source.split('desktop_verify_runtime_contracts() {', 1)[1]
-        self.assertIn('[ -f "$path" ] && [ ! -L "$path" ]', function)
-        self.assertIn('"0:0:$mode:1"', function)
-        self.assertIn('[ -d "$directory" ] && [ ! -L "$directory" ]', function)
-        self.assertIn('= 0:0:755', function)
-        self.assertIn('executable() { metadata "$1" 755;', function)
-        self.assertIn('""|*[!a-z0-9_-]*|[!a-z_]*)', function)
-        self.assertIn('[ "${#runtime_identifier}" -le 32 ]', function)
-
-    def test_metadata_gate_is_after_staging_and_before_consumer_enablement(self):
-        source = (SCRIPTS / 'labwc.sh').read_text()
-        gate = source.index('  desktop_verify_runtime_contracts with-account')
-        for step in ('desktop_stage_target_assets', 'desktop_install_user_config',
-                     'desktop_install_fonts', 'desktop_install_waypaper'):
-            self.assertLess(source.index('  ' + step), gate)
-        self.assertLess(gate, source.index('  desktop_enable_target_services'))
+    def test_loader_and_catalog_have_no_desktop_audit_module(self):
         loader = (SCRIPTS.parent / 'late/desktop.sh').read_text()
-        self.assertIn('fonts verify labwc; do', loader)
-        self.assertIn('. "${desktop_module_dir}/verify.sh"', loader)
+        modules = re.search(r'for desktop_module in ([^;]+); do', loader).group(1).split()
+        self.assertNotIn('verify', modules)
+        self.assertNotIn('/verify.sh', loader)
+        self.assertFalse((SCRIPTS / 'verify.sh.tmpl').exists())
+        self.assertNotIn('FILE_DESKTOP_VERIFY', (SCRIPTS.parents[1] / 'repo.env').read_text())
+
+    def test_staging_and_installation_still_precede_service_enablement(self):
+        source = (SCRIPTS / 'labwc.sh').read_text().split('run_desktop_late_command() {', 1)[1]
+        self.assertNotIn('desktop_verify_', source)
+        activation = source.index('  desktop_enable_target_services')
+        for step in ('desktop_stage_target_assets', 'desktop_install_appearance_themes',
+                     'desktop_install_user_config', 'desktop_capture_appearance_defaults',
+                     'desktop_install_fonts', 'desktop_install_waypaper'):
+            self.assertLess(source.index('  ' + step), activation)
+
+    def test_completed_stage_stamp_still_requires_a_successful_installer(self):
+        loader = (SCRIPTS.parent / 'late/desktop.sh').read_text()
+        self.assertIn('set -eu', loader)
+        self.assertLess(loader.index('run_desktop_late_command "$requested_seed_base" "$requested_host_profile"'),
+                        loader.index(': >"$desktop_late_stage_stamp"'))
+        appearance = (SCRIPTS / 'components/appearance.sh').read_text()
+        self.assertNotIn('desktop_verify_appearance_assets', appearance)
+        self.assertIn('desktop_run_appearance_setup defaults', appearance)
         renderer = (SCRIPTS / 'components/rendering-access.sh').read_text()
         self.assertIn('desktop_assert_no_unresolved_template_placeholders', renderer)
 

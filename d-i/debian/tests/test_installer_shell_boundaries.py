@@ -77,7 +77,6 @@ class TargetShellBoundaryTests(unittest.TestCase):
         make_chroot(self.root)
         copy_binary(self.root, "/bin/dash")
         shutil.copy2(SEED / "scripts/late/grub.sh", self.root / "grub.sh")
-        shutil.copy2(SEED / "scripts/desktop/verify.sh.tmpl", self.root / "verify.sh")
 
     def run_shell(self, shell: str, script: str):
         return subprocess.run(["/usr/sbin/chroot", str(self.root), shell, "-c", script],
@@ -98,29 +97,6 @@ class TargetShellBoundaryTests(unittest.TestCase):
                     elif "/usr/bin/python3" in header:
                         compile(decoded_body(body), f"{path}:{line}", "exec")
 
-    def test_desktop_verifiers_receive_one_script_without_installer_expansion(self):
-        cases = (("desktop_verify_staged_files", "verify Labwc desktop staged file metadata", []),
-                 ("desktop_verify_greeter_access", "verify Labwc greeter seat and DRM access", ["greeter"]))
-        for function, label, expected_tail in cases:
-            for shell in ("/bin/sh", "/bin/dash"):
-                with self.subTest(function=function, shell=shell):
-                    result = self.run_shell(shell, r'''
-set -eu
-. /verify.sh
-run_in_target() { printf '%s\000' "$@"; }
-LABWC_GREETER_USER=greeter
-''' + function + "\n")
-                    self.assertEqual(result.returncode, 0, result.stderr.decode())
-                    args = result.stdout.decode().split("\0")
-                    self.assertEqual(args.pop(), "")
-                    self.assertEqual(len(args), 5 + len(expected_tail), args)
-                    self.assertEqual(args[:3], [label, "/bin/sh", "-c"])
-                    self.assertEqual(args[4:], ["sh"] + expected_tail)
-                    if function == "desktop_verify_staged_files":
-                        self.assertIn("-f='${Status}'", args[3])
-                        self.assertIn("fatal 'sleep.target does not require the package lock guard'", args[3])
-                    else:
-                        self.assertIn("'ConditionUser=!root'", args[3])
 
     def test_grub_defaults_execute_correctly_in_an_existing_target_file(self):
         for shell in ("/bin/sh", "/bin/dash"):

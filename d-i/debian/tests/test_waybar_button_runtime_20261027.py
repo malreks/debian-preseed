@@ -272,16 +272,6 @@ class WaybarDescriptorFixtures(unittest.TestCase):
 class WaybarSeparationFixtures(unittest.TestCase):
     """Source-only cases; native execution remains prohibited."""
 
-    def test_include_loader_exists_in_each_independent_verifier_process(self):
-        source = (SOURCE.parents[5] / 'scripts/desktop/verify.sh.tmpl').read_text()
-        for name in ('native_workspace_config', 'native_menus'):
-            section = source.split('desktop_verify_' + name + '() {', 1)[1].split('\n}\n', 1)[0]
-            code = section.split("/usr/bin/python3 -I -B -c '\n", 1)[1].rsplit("\n' ", 1)[0]
-            tree = ast.parse(code)
-            self.assertTrue(any(isinstance(node, ast.FunctionDef) and node.name == 'load_waybar_config'
-                                for node in tree.body))
-            self.assertTrue(any(isinstance(node, ast.Import) and
-                                any(alias.name == 're' for alias in node.names) for node in tree.body))
 
     def test_every_native_menu_leaf_has_one_scoped_action(self):
         import xml.etree.ElementTree as ET

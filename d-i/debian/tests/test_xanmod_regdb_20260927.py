@@ -111,9 +111,11 @@ run_in_target() { shift; "$@"; }
     def test_both_storage_families_select_before_kernel_image_repair(self):
         for family in ('btrfs', 'f2fs'):
             text = (ROOT / f'scripts/late/{family}-family.sh').read_text()
-            self.assertLess(text.index('repair_target_pkgsel_include_packages\n'
-                                       'configure_target_xanmod_regulatory_database'),
-                            text.index('repair_target_installed_kernels'))
+            self.assertNotIn('repair_target_pkgsel_include_packages', text)
+            self.assertLess(text.index('\nfinish_target_pkgsel_apt_state\n'),
+                            text.index('\nconfigure_target_xanmod_regulatory_database\n'))
+            self.assertLess(text.index('\nconfigure_target_xanmod_regulatory_database\n'),
+                            text.index('\nrepair_target_installed_kernels\n'))
 
 
 if __name__ == '__main__':

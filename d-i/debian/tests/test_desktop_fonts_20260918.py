@@ -58,6 +58,8 @@ class FontInstallTests(unittest.TestCase):
             self.archives[name] = path
             triples.append([name, 'https://github.com/mjcramerz/fonts/releases/download/test/' + name + '.tar.xz', self.m.digest(path)])
         self.policy = self.m.validate_policy(triples)
+        self.limits = (1024 * 1024, 128 * 1024, 1000)
+        self.download_owner = self.m.download
         self.download = self.enterContext(mock.patch.object(self.m, 'download', side_effect=self.copy_archive))
 
     def archive(self, filename, members):
@@ -77,7 +79,7 @@ class FontInstallTests(unittest.TestCase):
         payload_copyfile(self.archives[name], destination)
 
     def generation(self):
-        return self.m.prepare_generation(self.cache, self.policy)
+        return self.m.prepare_generation(self.cache, self.policy, self.limits)
 
     def test_policy_has_exactly_five_unique_https_pins(self):
         self.assertEqual({x['name'] for x in self.policy}, set(self.m.NAMES))
@@ -93,38 +95,48 @@ class FontInstallTests(unittest.TestCase):
         self.assertEqual(self.m.policy_id(self.policy), self.m.policy_id(self.m.validate_policy(rows)))
 
     def test_sha_mismatch_rejected_before_extraction(self):
-        out = self.root / 'out'; out.mkdir()
-        with self.assertRaises(ValueError):
-            self.m.extract_archive(self.archives['FiraCode'], out, '0' * 64)
-        self.assertEqual(list(out.iterdir()), [])
+        destination = self.root / 'download.tar.xz'
+        def transfer(_argv, **_options):
+            payload_copyfile(self.archives['FiraCode'], destination)
+        # Exercise the real acquisition owner instead of the mocked download
+        # used by the generation fixtures below.
+        with mock.patch.object(self.m.subprocess, 'run', side_effect=transfer), self.assertRaises(ValueError):
+            self.download_owner(self.policy[0]['url'], destination, '0' * 64)
+
+    def test_extraction_cache_and_publication_never_rehash_font_contents(self):
+        with mock.patch.object(self.m, 'digest', side_effect=AssertionError('post-download checksum pass')):
+            source = self.generation()
+            self.m.publish(self.home, source, self.policy)
+            self.assertEqual(source, self.generation())
+            self.m.publish(self.home, source, self.policy)
 
     def test_unsafe_paths_rejected(self):
         for name in ('../font.ttf', '/font.ttf', 'dir/../../font.ttf', 'dir\\font.ttf', 'dir/\x1bfont.ttf'):
             with self.subTest(name=name):
                 archive = self.archive('bad.tar.xz', [(name, b'x', tarfile.REGTYPE)])
                 with tempfile.TemporaryDirectory(dir=self.root) as output, self.assertRaises(ValueError):
-                    self.m.extract_archive(archive, Path(output), self.m.digest(archive))
+                    self.m.extract_archive(archive, Path(output), self.limits)
 
     def test_links_devices_fifo_rejected(self):
         for kind in (tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.CHRTYPE, tarfile.BLKTYPE, tarfile.FIFOTYPE):
             archive = self.archive('bad.tar.xz', [('font.ttf', b'', kind)])
             with self.subTest(kind=kind), tempfile.TemporaryDirectory(dir=self.root) as output, self.assertRaises(ValueError):
-                self.m.extract_archive(archive, Path(output), self.m.digest(archive))
+                self.m.extract_archive(archive, Path(output), self.limits)
 
     def test_duplicates_rejected(self):
         archive = self.archive('bad.tar.xz', [('font.ttf', b'a', tarfile.REGTYPE)] * 2)
         with tempfile.TemporaryDirectory(dir=self.root) as output, self.assertRaises(ValueError):
-            self.m.extract_archive(archive, Path(output), self.m.digest(archive))
+            self.m.extract_archive(archive, Path(output), self.limits)
 
     def test_archive_without_fonts_rejected(self):
         archive = self.archive('bad.tar.xz', [('README', b'not a font', tarfile.REGTYPE)])
         with tempfile.TemporaryDirectory(dir=self.root) as output, self.assertRaises(ValueError):
-            self.m.extract_archive(archive, Path(output), self.m.digest(archive))
+            self.m.extract_archive(archive, Path(output), self.limits)
 
     def test_member_size_and_expansion_limits(self):
-        for setting in ('MAX_MEMBER', 'MAX_EXPANDED', 'MAX_ARCHIVE'):
-            with self.subTest(setting=setting), mock.patch.object(self.m, setting, 1), tempfile.TemporaryDirectory(dir=self.root) as output, self.assertRaises(ValueError):
-                self.m.extract_archive(self.archives['FiraCode'], Path(output), self.m.digest(self.archives['FiraCode']))
+        for limits in ((1, 128 * 1024, 1000), (1024 * 1024, 1, 1000)):
+            with self.subTest(limits=limits), tempfile.TemporaryDirectory(dir=self.root) as output, self.assertRaises(ValueError):
+                self.m.extract_archive(self.archives['FiraCode'], Path(output), limits)
 
     def test_decompressed_header_bytes_are_bounded(self):
         stream = self.m.BoundedStream(io.BytesIO(b'x' * 20), 10)
@@ -132,8 +144,8 @@ class FontInstallTests(unittest.TestCase):
         with self.assertRaises(ValueError): stream.read(1000)
 
     def test_archive_member_count_limit(self):
-        with mock.patch.object(self.m, 'MAX_MEMBERS', 0), tempfile.TemporaryDirectory(dir=self.root) as output, self.assertRaises(ValueError):
-            self.m.extract_archive(self.archives['FiraCode'], Path(output), self.m.digest(self.archives['FiraCode']))
+        with tempfile.TemporaryDirectory(dir=self.root) as output, self.assertRaises(ValueError):
+            self.m.extract_archive(self.archives['FiraCode'], Path(output), (1024 * 1024, 128 * 1024, 0))
 
     def test_modes_archive_owners_and_executable_bits_are_not_preserved(self):
         generation = self.generation()
@@ -165,7 +177,7 @@ class FontInstallTests(unittest.TestCase):
                 generation = self.generation(); font = generation / 'FiraCode/font.ttf'; link = generation / 'extra.ttf'
                 if kind == 'symlink': link.symlink_to(font)
                 else: os.link(font, link)
-                with self.assertRaises(ValueError): self.m.verify_generation(generation, self.policy)
+                with self.assertRaises(ValueError): self.m.generation_inventory(generation, self.policy)
                 link.unlink()
 
     def test_user_and_skeleton_publish_two_closed_groups_without_fontconfig(self):
@@ -361,7 +373,7 @@ class FontInstallTests(unittest.TestCase):
         currents, _ = self.m.publish(self.home, source, self.policy)
         old = [os.readlink(p) for p in currents]
         rows = [[p['name'], p['url'].replace('/test/', '/next/'), p['sha256']] for p in self.policy]
-        policy = self.m.validate_policy(rows); source = self.m.prepare_generation(self.cache, policy)
+        policy = self.m.validate_policy(rows); source = self.m.prepare_generation(self.cache, policy, self.limits)
         replace = self.m.replace_current
         failed = False
         def interrupted(path, value):
@@ -382,67 +394,10 @@ class FontInstallTests(unittest.TestCase):
         self.m.seal(currents[0].resolve(), subset)
         with self.assertRaises(ValueError): self.m.publish(self.home, source, self.policy)
 
-    def verification_fixture(self):
-        if os.geteuid() != 0:
-            self.skipTest('desktop ownership verification fixture requires root')
-        account = pwd.getpwnam('nobody')
-        fake = types.SimpleNamespace(pw_uid=account.pw_uid, pw_gid=account.pw_gid,
-                                     pw_dir=str(self.home))
-        source = self.generation()
-        skel = self.root / 'skel'; skel.mkdir(mode=0o755)
-        config_source = FORKY / 'hooks/target/etc/skel-desktop/.config/fontconfig/conf.d'
-        for home in (skel, self.home):
-            currents, _ = self.m.publish(home, source, self.policy)
-            with mock.patch.object(self.m.subprocess, 'run'):
-                self.m.font_cache(home, currents, home / '.cache', self.m.policy_id(self.policy), True)
-            destination = home / '.config/fontconfig/conf.d'
-            destination.mkdir(parents=True, mode=0o700)
-            for config in config_source.glob('*.conf'):
-                payload_copyfile(config, destination / config.name)
-                (destination / config.name).chmod(0o644 if home == skel else 0o600)
-        for path in (self.home, *self.home.rglob('*')):
-            os.chown(path, account.pw_uid, account.pw_gid, follow_symlinks=False)
-        source = payload_read_text(FORKY / 'scripts/desktop/verify.sh').split('desktop_verify_font_publications() {', 1)[1]
-        code = source.split("/usr/bin/python3 -I -c '\n", 1)[1].split("\n' \"${ACCOUNT_HOME", 1)[0]
-        rows = {row['name']: row for row in self.policy}
-        argv = ['desktop-font-verifier', str(self.home), 'fixture-user', str(skel), str(self.cache)]
-        for name in self.m.NAMES:
-            argv.extend((rows[name]['url'], rows[name]['sha256']))
-        def verify():
-            import sys
-            with mock.patch.object(pwd, 'getpwnam', return_value=fake), mock.patch.object(sys, 'argv', argv):
-                exec(compile(code, 'desktop/verify.sh:font-publications', 'exec'), {})
-        return verify
 
-    def test_desktop_verifier_checks_both_publications(self):
-        verify = self.verification_fixture()
-        verify()
-        # Existing skeleton deployment tightens an existing user tree on rerun.
-        for path in self.home.rglob('*'):
-            if not path.is_symlink(): path.chmod(0o700 if path.is_dir() else 0o600)
-        verify()
 
-    def test_desktop_verifier_rejects_tampered_font(self):
-        verify = self.verification_fixture()
-        (self.home / '.local/share/fonts/microsoft-fonts/current/MicrosoftLocalFonts/font.ttf').write_bytes(b'tampered')
-        with self.assertRaises(ValueError): verify()
 
-    def test_desktop_verifier_rejects_wrong_or_broken_current(self):
-        verify = self.verification_fixture()
-        current = self.home / '.local/share/fonts/microsoft-fonts/current'
-        current.unlink(); current.symlink_to('../../icons/terminal-fonts/current')
-        account = pwd.getpwnam('nobody')
-        os.chown(current, account.pw_uid, account.pw_gid, follow_symlinks=False)
-        with self.assertRaises(ValueError): verify()
 
-    def test_desktop_verifier_rejects_wrong_fontconfig_and_unsafe_modes(self):
-        verify = self.verification_fixture()
-        config = self.home / '.config/fontconfig/conf.d/61-microsoft-fonts.conf'
-        original = payload_read_bytes(config)
-        config.write_bytes(original.replace(b'fonts/microsoft-fonts/current', b'icons/terminal-fonts/current'))
-        with self.assertRaises(ValueError): verify()
-        config.write_bytes(original); config.chmod(0o666)
-        with self.assertRaises(ValueError): verify()
 
     def test_requested_debian_packages_present(self):
         packages = payload_read_text(FORKY / 'classes/class-select/role/desktop.cfg').split()

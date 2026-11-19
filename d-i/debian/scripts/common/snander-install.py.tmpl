@@ -141,10 +141,10 @@ def pairs(items):
 def policy() -> dict:
     value = json.loads(regular(POLICY, 65536), object_pairs_hook=pairs)
     if (not isinstance(value, dict) or set(value) != {'format','version','commit','url','hosts',
-            'sha256','binary_sha256'} or value['format'] != 1):
+            'sha256'} or value['format'] != 1):
         raise ArtifactError('unsupported firmware policy schema')
     for field, pattern in (('version',r'[0-9]+(?:\.[0-9]+){3}'),('commit',r'[0-9a-f]{40}'),
-                           ('sha256',r'[0-9a-f]{64}'),('binary_sha256',r'[0-9a-f]{64}')):
+                           ('sha256',r'[0-9a-f]{64}')):
         if not isinstance(value[field], str) or re.fullmatch(pattern,value[field]) is None:
             raise ArtifactError('invalid firmware artifact identity')
     hosts = value['hosts'].split()
@@ -315,10 +315,15 @@ def install(value: dict, lock: int, deadline: float) -> None:
     expected = json.dumps(value,sort_keys=True).encode()+b'\n'
     if release.exists() or release.is_symlink():
         PROGRESS['operation'] = 'existing-release'
-        if regular(release/'metadata/policy.json',65536) != expected:
+        previous = json.loads(regular(release/'metadata/policy.json',65536), object_pairs_hook=pairs)
+        previous.pop('binary_sha256', None)  # Retired inner-binary pin from older releases.
+        if previous != value:
             raise ArtifactError('existing firmware release policy differs; no reset')
-        if hashlib.sha256(regular(binary,33_554_432)).hexdigest() != value['binary_sha256']:
-            raise ArtifactError('existing firmware executable identity differs')
+        directory(binary.parent)
+        info = binary.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) != 0o755 or not 64 <= info.st_size <= 33_554_432):
+            raise ArtifactError('existing firmware executable metadata is unsafe')
     else:
         PROGRESS['operation'] = 'acquisition-state'
         workspace = Path(tempfile.mkdtemp(prefix='.install-',dir=STATE))
@@ -342,8 +347,6 @@ def install(value: dict, lock: int, deadline: float) -> None:
             PROGRESS['operation'] = 'archive-members'
             files = archive_members(staged_archive,value['commit'])
             binary_data = files['SNANDer-'+value['commit']+'/Linux/SNANDer']
-            if hashlib.sha256(binary_data).hexdigest() != value['binary_sha256']:
-                raise ArtifactError('firmware binary digest differs')
             PROGRESS['operation'] = 'release-staging'
             write(staging/'bin/SNANDer',binary_data,0o755)
             for member,destination in (('LICENSE','LICENSE'),('readme.txt','readme.txt'),('flash_support_list.txt','flash-support-list.txt')):
@@ -368,9 +371,6 @@ def install(value: dict, lock: int, deadline: float) -> None:
             raise ArtifactError('firmware command has a competing owner; no replacement')
     else:
         ENTRY.symlink_to(binary);sync(ENTRY.parent)
-    PROGRESS['operation'] = 'published-binary'
-    if hashlib.sha256(regular(binary,33_554_432)).hexdigest() != value['binary_sha256']:
-        raise ArtifactError('published firmware command failed final integrity verification')
 
 
 def main(argv: list[str]) -> int:

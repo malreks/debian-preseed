@@ -385,7 +385,6 @@ llama_target_model_is_valid() {
   candidate=$1
   model_validation_bytes=unknown
   model_validation_magic=unavailable
-  model_validation_sha256=not-checked
   model_validation_failure=unknown
 
   [ -f "$candidate" ] && [ ! -L "$candidate" ] || {
@@ -402,22 +401,10 @@ llama_target_model_is_valid() {
   esac
 
   model_validation_magic=$(llama_target_model_magic "$candidate" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-  actual_sha256=$(sha256sum "$candidate" 2>__INSTALLER_PATH_DIR_DEV__/null | awk '{print $1}')
-  if [ "$actual_sha256" = "$LLAMA_MODEL_SHA256" ]; then
-    model_validation_sha256=match
-  else
-    model_validation_sha256=mismatch
-  fi
-
   [ "$model_validation_magic" = 47475546 ] || {
     model_validation_failure=gguf-magic
     return 1
   }
-  [ "$model_validation_sha256" = match ] || {
-    model_validation_failure=sha256
-    return 1
-  }
-
   model_validation_failure=none
   return 0
 }
@@ -445,8 +432,10 @@ llama_target_download_model() {
 
   if ! llama_target_model_is_valid "$model_tmp"; then
     llama_fatal \
-      "downloaded model failed integrity checks: ${LLAMA_DEFAULT_MODEL} (bytes=${model_validation_bytes}, magic=${model_validation_magic}, sha256=${model_validation_sha256}, reason=${model_validation_failure})"
+      "downloaded model is invalid: ${LLAMA_DEFAULT_MODEL} (bytes=${model_validation_bytes}, magic=${model_validation_magic}, reason=${model_validation_failure})"
   fi
+  actual_sha256=$(sha256sum "$model_tmp") || llama_fatal 'cannot checksum the downloaded GGUF model'
+  [ "${actual_sha256%% *}" = "$LLAMA_MODEL_SHA256" ] || llama_fatal 'downloaded GGUF model SHA-256 mismatch'
   chown "0:${llama_model_gid}" "$model_tmp"
   chmod 0640 "$model_tmp"
   mv -f "$model_tmp" "$final_model"
@@ -462,7 +451,7 @@ llama_target_prepare_model() {
   if [ "$LLAMA_FORCE_DOWNLOAD" = 0 ] && llama_target_model_is_valid "$final_model"; then
     chown "0:${llama_model_gid}" "$final_model"
     chmod 0640 "$final_model"
-    llama_info "reusing verified model ${LLAMA_DEFAULT_MODEL}"
+    llama_info "reusing installed model ${LLAMA_DEFAULT_MODEL} without a checksum rescan"
     return 0
   fi
   llama_target_download_model "$final_model"

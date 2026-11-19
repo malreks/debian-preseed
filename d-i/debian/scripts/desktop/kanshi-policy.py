@@ -1,13 +1,12 @@
 #!/usr/bin/python3 -I
 """Installer-only opt-in Kanshi reconciliation. Never run in a live desktop.
 
-Only the named Debian package and byte-identical installer-owned activation
-files are removed. Administrator changes fail closed. Inert user display
+Only the named Debian package and explicitly marked installer activation
+files are removed. Unmarked administrator files are preserved. Inert display
 profiles are retained, not erased. The caller removes this helper after use.
 """
 from __future__ import annotations
 import argparse
-import hashlib
 import os
 from pathlib import Path
 import stat
@@ -15,14 +14,11 @@ import signal
 import subprocess
 import sys
 
-# Exact known managed assets; no regex/content-marker ownership guesses.
-KNOWN = {
-    'kanshi.service': {'4e8bc3c6657947ed78eb850f517bcbf6aef3196b37cd6a1e360509b8f6f7b88b',
-                       'b7016c56cf1977ae6c631c6bee4e0986e52b46812390c2fe5506322f06b75fec'},
-    '60-resource-class.conf': {'72f14f2f8d8f2ca33c751eedc1631c3d9013c52a4f3156424e0559b260efeee8'},
-    'labwc-kanshi': {'68a2d0f7f62ca1108b2765c67cee0dd2e4f3caf4093a6d808771584cc41fbe80', '58e9109521808650b8fc896a69f2ec783ae11f84db7cd3ca62b2cf5265a210f8',
-                    '264939767fa436eef61ad5f8c2f822fca19fef5ca89dcff74ee47055da371e3b'},
-}
+# These three fixed publication interfaces declare installer ownership with the
+# existing header convention. This is an ownership declaration, not a checksum
+# or a claim that administrator edits can be detected inside a managed file.
+OWNED_NAMES = frozenset({'kanshi.service', '60-resource-class.conf', 'labwc-kanshi'})
+OWNER_HEADER = b'# Managed by unattended-installer.'
 WRAPPER = Path('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-kanshi')
 EXECUTABLES = tuple(Path(p) for p in ('__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/kanshi', '__INSTALLER_PATH_DIR_USR_BIN__/kanshi', '__INSTALLER_PATH_DIR_BIN__/kanshi'))
 ENV = {'HOME': '__INSTALLER_PATH_DIR_ROOT_HOME__', 'PATH': '__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__',
@@ -40,7 +36,7 @@ def unit_roots(home: Path) -> tuple[Path, ...]:
             home / '.config/systemd/user')
 
 
-def cleanup_plan(home: Path) -> list[tuple[Path, str]]:
+def cleanup_plan(home: Path) -> list[tuple[Path, str | tuple[int, ...]]]:
     plan = []
     for base in unit_roots(home):
         safe_path(base / '.policy-check')
@@ -51,7 +47,7 @@ def cleanup_plan(home: Path) -> list[tuple[Path, str]]:
         if dropins.exists() and any(p.name != '60-resource-class.conf' for p in dropins.iterdir()):
             raise ValueError(f'unmanaged Kanshi drop-ins preserved: {dropins}')
         for path in (base / 'kanshi.service', dropins / '60-resource-class.conf'):
-            check_file(path, plan)
+            check_file(path, plan, uid=home.lstat().st_uid if path.is_relative_to(home) else os.geteuid())
         for directory in sorted(base.iterdir()):
             if not directory.name.endswith(('.wants', '.requires')):
                 continue
@@ -68,16 +64,28 @@ def cleanup_plan(home: Path) -> list[tuple[Path, str]]:
     return plan
 
 
-def check_file(path: Path, plan: list[tuple[Path, str]]) -> None:
+def file_identity(info: os.stat_result) -> tuple[int, ...]:
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def check_file(path: Path, plan: list[tuple[Path, str | tuple[int, ...]]], *, uid: int | None = None) -> None:
     safe_path(path)
     if not path.exists() and not path.is_symlink():
         return
-    if not stat.S_ISREG(path.lstat().st_mode):
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode):
         raise ValueError(f'unmanaged Kanshi file preserved: {path}')
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if digest not in KNOWN[path.name]:
-        raise ValueError(f'modified Kanshi file preserved: {path}')
-    plan.append((path, digest))
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (file_identity(info) != file_identity(before)
+                or path.name not in OWNED_NAMES or not stat.S_ISREG(info.st_mode)
+                or info.st_uid != (os.geteuid() if uid is None else uid)
+                or info.st_nlink != 1 or info.st_mode & 0o022
+                or OWNER_HEADER not in stream.read(128).splitlines()[:2]):
+            raise ValueError(f'unmanaged Kanshi file preserved: {path}')
+    plan.append((path, file_identity(info)))
 
 
 def command(argv: list[str], *, check: bool = True, capture: bool = False,
@@ -162,10 +170,10 @@ def reconcile(enabled: bool, home: Path) -> None:
         safe_path(path)
         if not path.exists() and not path.is_symlink():
             continue
-        if expected.startswith('link:'):
+        if isinstance(expected, str):
             current = 'link:' + os.readlink(path) if path.is_symlink() else ''
         else:
-            current = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() and not path.is_symlink() else ''
+            current = file_identity(path.lstat())
         if current != expected:
             raise RuntimeError(f'Kanshi asset changed during installer cleanup: {path}')
         path.unlink()

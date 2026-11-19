@@ -157,9 +157,6 @@ class FixedPowerUnitTests(unittest.TestCase):
             ('crystal-dock.service.d/60-resource-class.conf', 'Service', 'app')):
             self.assertEqual(directives(base.TARGET / base.USER_BASE / leaf), [f'[{section}]', f'Slice={cls}.slice'])
         self.assertEqual(directives(base.TARGET / WIRE), ['[Service]', 'Slice=session.slice'])
-        verifier = payload_read_text(base.SEED / 'scripts/desktop/verify.sh')
-        for rel in (WIRE,):
-            self.assertIn('/' + rel, verifier)
 
 
 class HandoffTests(unittest.TestCase):

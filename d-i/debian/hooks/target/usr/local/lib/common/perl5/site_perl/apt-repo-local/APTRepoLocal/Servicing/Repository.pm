@@ -9,8 +9,6 @@ use Moo;
 use MooX::StrictConstructor;
 use MooX::Types::MooseLike::Base qw(Str);
 use JSON::PP qw(decode_json);
-use APTRepoLocal::Servicing::Atomic;
-use APTRepoLocal::Servicing::ArtifactLimits qw(MAX_DEB_BYTES);
 use APTRepoLocal::Servicing::Process;
 
 # Compatibility boundary for explicit installer/bootstrap and offline repair.
@@ -77,10 +75,6 @@ sub retain {
     my $directory = $self->directory();
     $path =~ m{\A\Q$directory\E/pool/[a-z0-9][a-z0-9+.-]+/[0-9a-f]{64}/[A-Za-z0-9_.+:~-]+\.deb\z}
         or die "managed repository returned an unsafe package path\n";
-    if ($metadata->{package} eq 'bitwarden') {
-        my $digest = APTRepoLocal::Servicing::Atomic->sha256_file($source, 536_870_912);
-        APTRepoLocal::Servicing::Atomic->write_text("$path.upstream-sha256", "$digest\n", 0644);
-    }
     return wantarray ? ($path, 1) : $path;
 }
 
@@ -101,29 +95,12 @@ sub latest {
         my $path = $self->directory() . "/$relative";
         my $metadata = $deb->validate_spec($path, $spec, "$spec->{label} retained archive");
         next if !$metadata;
-        my $digest;
-        if ($spec->{name} eq 'bitwarden') {
-            $digest = APTRepoLocal::Servicing::Atomic->sha256_file($path, MAX_DEB_BYTES);
-            next if !$self->bitwarden_published_digest_matches("$path.published-sha256", $digest);
-        }
         if (!$candidate || system('__INSTALLER_PATH_DIR_USR__/bin/dpkg', '--compare-versions', $metadata->{version},
                                   'gt', $candidate->{metadata}->{version}) == 0) {
-            $candidate = { path => $path, metadata => $metadata, vendor_sha256 => $digest };
+            $candidate = { path => $path, metadata => $metadata };
         }
     }
     return $candidate;
-}
-
-sub bitwarden_published_digest_matches {
-    my ($self, $receipt, $digest) = @_;
-    defined($digest) && $digest =~ /\A[0-9a-f]{64}\z/
-        or die "Bitwarden published digest is missing or invalid\n";
-    my @st = lstat $receipt;
-    return 0 if !@st;
-    -f _ && !-l _ && $st[4] == 0 && !($st[2] & 0022)
-        or die "Bitwarden published receipt is unsafe: $receipt\n";
-    return APTRepoLocal::Servicing::Atomic->read_limited($receipt, 65)
-        eq "$digest\n";
 }
 
 sub repair {

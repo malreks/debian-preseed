@@ -827,7 +827,12 @@ class CodexStateTests(unittest.TestCase):
         auth.write_bytes(b'\xffnot-installer-configuration\x00')
         auth.chmod(0o600)
         self.compare()
-        self.assertEqual(self.mod.snapshot(self.actual)['home/auth.json'].digest, '')
+        self.assertEqual(self.mod.snapshot(self.actual)['home/auth.json'].size, auth.stat().st_size)
+
+    def test_snapshot_does_not_read_managed_file_contents(self):
+        with mock.patch.object(self.mod.os, 'read', side_effect=AssertionError('content rescan')):
+            entries = self.mod.snapshot(self.actual)
+        self.assertEqual(entries['home/README'].size, (self.actual / 'home/README').stat().st_size)
 
     def test_installer_candidate_must_not_stage_auth(self):
         auth = self.expected / 'home/auth.json'

@@ -6,7 +6,6 @@ Component profiles live separately in catalog.py and always remain dark.
 """
 from __future__ import annotations
 from dataclasses import dataclass
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -181,8 +180,8 @@ def public_catalog() -> dict:
 def require_installed(identity: str) -> None:
     """Preflight the chosen provider before writing any desktop state.
 
-    Only root-owned data from the installer is accepted. Hash reads are bounded
-    to the selected variant and its Qt engines, never all 50 variants.
+    Only root-owned data from the installer is accepted. Check the selected
+    variant's metadata without rereading installed assets or Qt engines.
     """
     theme = variant(identity)
     deadline = time.monotonic() + 15
@@ -190,7 +189,7 @@ def require_installed(identity: str) -> None:
         if registry.read('themes-install-pending.json', missing=True) is not None:
             raise RuntimeError('desktop theme installation has retained recovery evidence')
         manifest = json.loads(registry.read('themes.json', limit=6 * 1024**2))
-    if (not isinstance(manifest, dict) or manifest.get('schema') != 1 or
+    if (not isinstance(manifest, dict) or manifest.get('schema') not in (1, 2) or
             not isinstance(manifest.get('variants'), dict) or set(manifest['variants']) != set(VARIANTS) or
             not isinstance(manifest.get('files'), dict) or not 0 < len(manifest['files']) <= 24000):
         raise ValueError('invalid installed desktop theme inventory')
@@ -204,9 +203,7 @@ def require_installed(identity: str) -> None:
     for path, metadata in manifest['files'].items():
         parts(path)
         if (not isinstance(metadata, dict) or type(metadata.get('bytes')) is not int or
-                not 0 <= metadata['bytes'] <= 16 * 1024**2 or
-                not isinstance(metadata.get('sha256'), str) or
-                not re.fullmatch(r'[0-9a-f]{64}', metadata['sha256'])):
+                not 0 <= metadata['bytes'] <= 16 * 1024**2):
             raise ValueError('invalid installed desktop theme asset descriptor')
         if any(path.startswith(directory + '/') for directory in expected):
             size += metadata['bytes']
@@ -232,14 +229,15 @@ def require_installed(identity: str) -> None:
     prefix = 'lib/' + packages['multiarch'] + '/qt6/plugins/'
     plugins = (prefix + 'styles/' + plugin, prefix + 'platformthemes/libqt6ct.so')
     with Tree(Path('__INSTALLER_PATH_DIR_USR_SHARE__'), uid=0) as public, Tree(Path('__INSTALLER_PATH_DIR_USR__'), uid=0) as usr:
-        for tree, records in ((public, files), (usr, {path: {'bytes': None, 'sha256': packages['plugins'].get(path)}
+        for tree, records in ((public, files), (usr, {path: {'bytes': packages['plugins'].get(path)}
                                                     for path in plugins})):
             for path, metadata in records.items():
                 if time.monotonic() >= deadline:
                     raise TimeoutError('desktop theme preflight exceeded its deadline')
-                digest = metadata['sha256']
-                if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+                expected_size = metadata['bytes']
+                legacy_plugin = manifest['schema'] == 1 and tree is usr
+                if not legacy_plugin and type(expected_size) is not int:
                     raise ValueError('selected desktop theme engine is not installed')
-                blob = tree.read(path, limit=16 * 1024**2)
-                if (metadata['bytes'] is not None and len(blob) != metadata['bytes']) or hashlib.sha256(blob).hexdigest() != digest:
-                    raise ValueError('installed desktop theme assets changed; refusing an incomplete provider')
+                with tree.open_read(path, limit=16 * 1024**2) as (_, info):
+                    if not legacy_plugin and info.st_size != expected_size:
+                        raise ValueError('installed desktop theme asset length changed; refusing an incomplete provider')

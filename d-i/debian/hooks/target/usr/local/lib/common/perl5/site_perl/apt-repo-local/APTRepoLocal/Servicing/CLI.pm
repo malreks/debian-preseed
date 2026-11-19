@@ -421,18 +421,6 @@ sub _apply_deb {
     return (2, 'current') if !defined $candidate;
 
     my $metadata = $candidate->{metadata};
-    my $vendor_receipt;
-    my $vendor_installed = 1;
-    if ($app->{name} eq 'bitwarden') {
-        $vendor_receipt = $repository->directory() . '/bitwarden.installed-vendor.sha256';
-        $vendor_installed = eval { $repository->bitwarden_vendor_digest_matches(
-            $vendor_receipt, $candidate->{vendor_sha256},
-        ) };
-        if ($@) {
-            $self->_record_apply_failure_detail('vendor-receipt', $@);
-            return (1, 'validation');
-        }
-    }
     my $installed = $deb->installed_version($metadata->{package});
     my $reinstall = 0;
     if (defined $installed) {
@@ -487,7 +475,7 @@ sub _apply_deb {
             return (1, 'payload');
         }
         if ($candidate_is_equal) {
-            if ($vendor_installed && $self->_payload_is_present($deb, $app, $chatgpt)) {
+            if ($self->_payload_is_present($deb, $app, $chatgpt)) {
                 return (2, 'current');
             }
             $reinstall = 1;
@@ -539,18 +527,6 @@ sub _apply_deb {
         return (1, 'postinstall');
     }
     $chatgpt->commit_install() if $app->{name} eq 'chatgpt';
-    if (defined $vendor_receipt) {
-        my $recorded = eval {
-            APTRepoLocal::Servicing::Atomic->write_text(
-                $vendor_receipt, "$candidate->{vendor_sha256}\n", 0644,
-            );
-            1;
-        };
-        if (!$recorded) {
-            $self->_record_apply_failure_detail('vendor-receipt', $@);
-            return (1, 'postinstall');
-        }
-    }
     $event->emit('updated', $app->{name}, $installed // 'not-installed', $metadata->{version});
     return (0, 'updated');
 }

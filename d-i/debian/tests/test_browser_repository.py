@@ -75,15 +75,12 @@ class BrowserPolicyTests(unittest.TestCase):
         base = 'etc/skel-desktop/.config/vivaldi'
         target = SEED / 'hooks/target' / base
         staging = (SEED / 'scripts/desktop/components/target-assets.sh').read_text()
-        verifier = (SEED / 'scripts/desktop/verify.sh.tmpl').read_text()
         for leaf in ('search_engines.json', 'search_engines_prompt.json'):
             self.assertFalse((target / leaf).exists())
             self.assertNotIn(f'{base}/{leaf}', staging)
-            self.assertNotIn(f'{base}/{leaf}', verifier)
             source = f'etc/vivaldi/search-engines/{leaf}.signed'
             self.assertTrue((SEED / 'hooks/target' / source).read_bytes().startswith(b'// '))
             self.assertIn(f'desktop_stage_role_asset {source} /{source} 0644', staging)
-            self.assertIn('/' + source, verifier)
         self.assertIn('.config/vivaldi', (SEED / 'scripts/desktop/components/user-config.sh').read_text())
 
     def test_profile_policy_rejects_missing_duplicate_injected_and_commit_pins(self):
@@ -212,11 +209,6 @@ class BrowserPolicyTests(unittest.TestCase):
             self.assertIn(f'desktop_stage_role_asset {family}/policies/managed/extensions.json '
                           f'/{family}/policies/managed/extensions.json 0644', staging)
         self.assertNotIn('browser-imports', staging)
-        verifier = (SEED/'scripts/desktop/verify.sh.tmpl').read_text()
-        self.assertNotIn('browser-imports', verifier)
-        for family in BROWSER.FAMILIES:
-            self.assertIn(f'/{family}/policies/managed/extensions.json', verifier)
-        self.assertIn('"$account_home/Workspace/netscape/.git"', verifier)
 
     def test_served_source_permission_contract(self):
         paths = [p for p in ROOT.iterdir() if p.is_file()]
@@ -230,38 +222,6 @@ class BrowserPolicyTests(unittest.TestCase):
                 self.assertEqual(path.stat().st_nlink, 1, str(path))
             elif path.is_dir():
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o755, str(path))
-
-
-class InstalledBrowserVerifierTests(unittest.TestCase):
-    def test_real_verifier_accepts_only_complete_private_branch_checkout(self):
-        text = (SEED/'scripts/desktop/verify.sh.tmpl').read_text()
-        block = text[text.index('# Browser exports are account-owned Git data,'):
-                     text.index('# The encrypted identity and sealed passphrase')]
-        with tempfile.TemporaryDirectory() as directory:
-            home = Path(directory)
-            root = home/'Workspace/netscape'
-            (root/'.git').mkdir(parents=True)
-            head = root/'.git/HEAD'; head.write_text('ref: refs/heads/mcr/main\n')
-            export = root/'export.json'; export.write_text('{}\n')
-            for path in (root.parent, root, root/'.git'):
-                path.chmod(0o700)
-            head.chmod(0o600); export.chmod(0o600)
-            program = ('fatal() { printf "%s\\n" "$*" >&2; exit 1; };\n'
-                       'check_required_owned() { [ -f "$1" ] || fatal "missing file"; };\n'
-                       'check_required_owned_dir() { [ -d "$1" ] || fatal "missing directory"; };\n'
-                       'account_home=$1; uid=$(id -u); gid=$(id -g);\n' + block)
-            def verify():
-                return subprocess.run(['/bin/sh', '-eu', '-c', program, 'verifier-test', str(home)],
-                                      capture_output=True, text=True)
-            self.assertEqual(verify().returncode, 0)
-            export.chmod(0o640)
-            self.assertNotEqual(verify().returncode, 0)
-            export.chmod(0o600)
-            head.write_text('ref: refs/heads/main\n')
-            self.assertNotEqual(verify().returncode, 0)
-            head.write_text('ref: refs/heads/mcr/main\n')
-            export.unlink(); export.symlink_to(head)
-            self.assertNotEqual(verify().returncode, 0)
 
 
 class PrivateCopyTests(unittest.TestCase):

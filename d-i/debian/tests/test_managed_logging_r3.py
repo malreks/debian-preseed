@@ -238,10 +238,8 @@ stage_target_logging_foundation
 
     def test_managed_checker_is_staged_and_run_at_install_and_boot(self):
         components = payload_read_text(SEED / 'scripts/desktop/components.sh')
-        verify = payload_read_text(SEED / 'scripts/desktop/verify.sh')
         for path in NEW_ASSETS:
             self.assertIn(path, components)
-            self.assertIn('/' + path, verify)
             self.assertTrue(source_path(TARGET / path).is_file())
         unit = payload_read_text(TARGET / NEW_ASSETS[3])
         for command in ('journal-check', 'log-layout', 'rsyslogd -N1'):
@@ -389,7 +387,6 @@ class JournalForwardingTests(unittest.TestCase):
                      'etc/systemd/system/rsyslog-journal-forwarding.service',
                      'etc/systemd/system/rsyslog.service.d/40-journal-forwarding.conf'):
             self.assertIn(path, foundation)
-            self.assertIn('/' + path, payload_read_text(SEED / 'scripts/desktop/verify.sh'))
         self.assertNotIn('stat ', foundation)
         self.assertIn('installer_metadata_value', foundation)
         validation = payload_read_text(SEED / 'scripts/firstboot/04-validation.sh')

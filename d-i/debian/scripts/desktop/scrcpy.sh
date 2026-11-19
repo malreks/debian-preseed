@@ -11,7 +11,6 @@ desktop_scrcpy_validate_policy() {
   : "${SCRCPY_ARCHITECTURE:?SCRCPY_ARCHITECTURE must be set}"
   : "${SCRCPY_URL:?SCRCPY_URL must be set}"
   : "${SCRCPY_SHA256:?SCRCPY_SHA256 must be set}"
-  : "${SCRCPY_SERVER_SHA256:?SCRCPY_SERVER_SHA256 must be set}"
   : "${SCRCPY_MAXIMUM_EXTRACTED_BYTES:?SCRCPY_MAXIMUM_EXTRACTED_BYTES must be set}"
   : "${SCRCPY_MAXIMUM_MEMBERS:?SCRCPY_MAXIMUM_MEMBERS must be set}"
 
@@ -30,13 +29,6 @@ desktop_scrcpy_validate_policy() {
   esac
   [ "${#SCRCPY_SHA256}" -eq 64 ] ||
     desktop_scrcpy_fail "archive SHA-256 must be 64 lowercase hexadecimal characters"
-  case "$SCRCPY_SERVER_SHA256" in
-    ''|*[!0123456789abcdef]*)
-      desktop_scrcpy_fail "server SHA-256 must be lowercase hexadecimal characters"
-      ;;
-  esac
-  [ "${#SCRCPY_SERVER_SHA256}" -eq 64 ] ||
-    desktop_scrcpy_fail "server SHA-256 must be 64 lowercase hexadecimal characters"
   for scrcpy_limit in \
     "$SCRCPY_MAXIMUM_EXTRACTED_BYTES" \
     "$SCRCPY_MAXIMUM_MEMBERS"
@@ -78,7 +70,6 @@ desktop_install_scrcpy() (
     __INSTALLER_PATH_DIR_USR_BIN__/python3 -I "$helper" \
     --version "$SCRCPY_VERSION" --tag "$SCRCPY_TAG" \
     --url "$SCRCPY_URL" --sha256 "$SCRCPY_SHA256" \
-    --server-sha256 "$SCRCPY_SERVER_SHA256" \
     --architecture "$SCRCPY_ARCHITECTURE" \
     --max-extracted "$SCRCPY_MAXIMUM_EXTRACTED_BYTES" \
     --max-members "$SCRCPY_MAXIMUM_MEMBERS"

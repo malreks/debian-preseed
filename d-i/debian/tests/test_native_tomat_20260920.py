@@ -470,13 +470,11 @@ class TomatRepositoryTests(unittest.TestCase):
             'usr/local/share/software/tomat/apt.conf',
         )
         stage = render_theme_defaults(payload_read_text(FORKY / 'scripts/late/software.sh'))
-        verify = render_theme_defaults(payload_read_text(FORKY / 'scripts/desktop/verify.sh'))
         for relative in retired:
             with self.subTest(relative=relative):
                 self.assertFalse(payload_source_exists(TARGET / relative))
                 self.assertFalse((TARGET / relative).is_symlink())
                 self.assertNotIn(relative, stage)
-                self.assertNotIn(relative, verify)
         self.assertFalse(payload_source_exists(TARGET / 'etc/systemd/system/apt-repo-local-tomat-upgrade.timer'))
 
     def test_shared_refresh_and_normal_apt_maintenance_remain(self):

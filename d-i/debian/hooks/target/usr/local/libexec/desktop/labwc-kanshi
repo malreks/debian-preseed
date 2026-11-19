@@ -1,4 +1,5 @@
 #!/bin/sh
+# Managed by unattended-installer.
 set -eu
 
 if [ -r __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf ]; then

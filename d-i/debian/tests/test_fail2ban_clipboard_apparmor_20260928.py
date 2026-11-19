@@ -174,7 +174,6 @@ class ApparmorEvidenceTests(unittest.TestCase):
         self.assertNotIn("owner /run/user/[0-9]*/** rwk,", compat_child)
         packages = (SEED / "classes/class-select/role/desktop.cfg").read_text()
         self.assertIn(" wl-clipboard xclip wf-recorder ", packages)
-        self.assertIn("  xclip " + "\\", (SEED / "scripts/desktop/verify.sh.tmpl").read_text().splitlines())
 
 
 if __name__ == "__main__":

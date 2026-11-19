@@ -42,8 +42,6 @@ def policy(args: argparse.Namespace) -> None:
         raise Error('the pinned Linux x86-64 release requires an amd64 target')
     if not re.fullmatch(r'[0-9a-f]{64}', args.sha256):
         raise Error('invalid scrcpy archive SHA-256')
-    if not re.fullmatch(r'[0-9a-f]{64}', args.server_sha256):
-        raise Error('invalid scrcpy server SHA-256')
     parsed = urllib.parse.urlsplit(args.url)
     archive_name = Path(parsed.path).name
     if (parsed.scheme != 'https' or not parsed.netloc or parsed.query or parsed.fragment or
@@ -144,9 +142,6 @@ def unpack(args: argparse.Namespace, archive: Path, stage: Path) -> tuple[Path, 
             destination.chmod(0o755 if name == CLIENT else 0o644)
             files[name] = destination
 
-        if digest(files[SERVER]) != args.server_sha256:
-            raise Error('scrcpy server SHA-256 does not match the pinned release')
-
         with files[CLIENT].open('rb') as stream:
             header = stream.read(64)
         if (len(header) != 64 or header[:6] != b'\x7fELF\x02\x01'
@@ -177,12 +172,11 @@ def publish(args: argparse.Namespace, root: Path, files: dict[str, Path]) -> Non
         'tag': args.tag,
         'url': args.url,
         'archive_sha256': args.sha256,
-        'server_sha256': args.server_sha256,
         'architecture': args.architecture,
         'archive_root': root.name,
         'files': {
-            str(BIN_DIR / CLIENT): {'sha256': digest(files[CLIENT]), 'mode': '0755'},
-            str(BIN_DIR / SERVER): {'sha256': digest(files[SERVER]), 'mode': '0644'},
+            str(BIN_DIR / CLIENT): {'bytes': files[CLIENT].stat().st_size, 'mode': '0755'},
+            str(BIN_DIR / SERVER): {'bytes': files[SERVER].stat().st_size, 'mode': '0644'},
         },
     }
     metadata_source = root.parent / 'INSTALLATION.json'
@@ -198,7 +192,7 @@ def publish(args: argparse.Namespace, root: Path, files: dict[str, Path]) -> Non
         if destination.exists() or destination.is_symlink():
             info = destination.lstat()
             if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1
-                    or stat.S_IMODE(info.st_mode) != mode or digest(destination) != digest(source)):
+                    or stat.S_IMODE(info.st_mode) != mode or info.st_size != source.stat().st_size):
                 raise Error(f'refusing to overwrite an unmanaged or changed file: {destination}')
         else:
             pending.append((destination, source, mode))
@@ -230,7 +224,7 @@ def publish(args: argparse.Namespace, root: Path, files: dict[str, Path]) -> Non
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('version', 'tag', 'url', 'sha256', 'server-sha256', 'architecture'):
+    for name in ('version', 'tag', 'url', 'sha256', 'architecture'):
         parser.add_argument('--' + name, required=True)
     for name in ('max-extracted', 'max-members'):
         parser.add_argument('--' + name, type=int, required=True)

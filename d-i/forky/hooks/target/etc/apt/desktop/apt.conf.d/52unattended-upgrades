@@ -25,6 +25,7 @@ Unattended-Upgrade::Origins-Pattern {
         "site=mise.jdx.dev";
         "site=pkg.cloudflare.com";
         "site=pkgs.tailscale.com";
+        "site=repo.mysql.com";
         "site=repo.vivaldi.com";
         "site=repository.mullvad.net";
         "site=repository.spotify.com";

@@ -83,7 +83,6 @@ use APTRepoLocal::Servicing::ArtifactLimits qw(MAX_DEB_BYTES);
             + 'sub directory { return $_[0]->{directory}; }\n'
             + 'sub _capture { return $_[0]->{catalogue}; }\n'
             + method('Repository.pm', 'latest')
-            + method('Repository.pm', 'bitwarden_vendor_digest_matches')
             + '''package main;
 use strict; use warnings; use JSON::PP;
 my ($action, $path, $extra) = @ARGV;
@@ -367,23 +366,17 @@ class RetainedPackageBoundsTests(unittest.TestCase):
         self.assertEqual(record['path'], str(path))
         self.assertEqual(record['metadata']['package'], 'chatgpt')
 
-    def test_bitwarden_retained_digest_also_uses_repository_ceiling(self):
+    def test_bitwarden_retained_candidate_uses_package_metadata_without_rehashing(self):
         root = self.directory / 'bitwarden-catalogue'
         pool = root / 'pool/bitwarden' / ('b' * 64)
         pool.mkdir(parents=True)
         path = pool / 'bitwarden_1.0+localrepo1_amd64.deb'
         sparse_deb(path, OLD_BOUND + 4096, package='bitwarden')
-        with path.open('rb') as source:
-            digest = hashlib.file_digest(source, 'sha256').hexdigest()
-        receipt = Path(str(path) + '.vendor-sha256')
-        receipt.write_text(digest + '\n')
-        receipt.chmod(0o644)
         catalogue = json.dumps({'packages': {'bitwarden:amd64': {
             'package': 'bitwarden', 'filename': str(path.relative_to(root))}}})
         record = result_value(run_perl('latest-bitwarden', root, catalogue))
-        self.assertEqual(record['vendor_sha256'], digest)
-        receipt.write_text('0' * 64 + '\n')
-        self.assertIsNone(result_value(run_perl('latest-bitwarden', root, catalogue)))
+        self.assertEqual(record['metadata']['package'], 'bitwarden')
+        self.assertNotIn('vendor_sha256', record)
 
 
 if __name__ == '__main__':

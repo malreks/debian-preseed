@@ -102,5 +102,5 @@ cuda_legacy_cleanup_target_apt_state() {
   # Retain its scoped key and repository for upgrades, without the temporary
   # installer authentication/date exception.
   installer_cuda_stage_target_source "$(installer_cuda_repository_url)" / "" persistent || return "$?"
-  installer_info "retained signed legacy NVIDIA repository after pkgsel/include repair"
+  installer_info "retained signed legacy NVIDIA repository after pkgsel"
 }

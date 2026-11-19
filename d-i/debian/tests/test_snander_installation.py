@@ -65,8 +65,7 @@ class FirmwareArchivePublication(unittest.TestCase):
         self.archive = gzip.compress(data.getvalue(), mtime=0)
         self.policy = {'format': 1, 'version': '1.2.3.4', 'commit': self.commit,
                        'url': 'https://fixture.invalid/' + self.commit, 'hosts': 'fixture.invalid',
-                       'sha256': hashlib.sha256(self.archive).hexdigest(),
-                       'binary_sha256': hashlib.sha256(self.binary).hexdigest()}
+                       'sha256': hashlib.sha256(self.archive).hexdigest()}
 
     def download(self, _value, destination, _lock):
         # Only external transport is mocked. No vendor program is executed.

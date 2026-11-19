@@ -58,10 +58,12 @@ expect_rejected() {
   label=$1
   candidate=$2
   before=$(cat "$marker")
-  if INSTALLER_TARGET_DIR= TARGET_ROOT="$candidate" target_asset_host_path /etc/fixture; then
-    printf 'fixture failure: accepted invalid target root (%s)\n' "$label" >&2
-    exit 1
-  fi
+  for path_lookup in target_asset_host_path target_asset_entry_host_path; do
+    if INSTALLER_TARGET_DIR= TARGET_ROOT="$candidate" "$path_lookup" /etc/fixture; then
+      printf 'fixture failure: %s accepted invalid target root (%s)\n' "$path_lookup" "$label" >&2
+      exit 1
+    fi
+  done
   [ "$(cat "$marker")" = "$before" ] || {
     printf 'fixture failure: destination changed after rejection (%s)\n' "$label" >&2
     exit 1
@@ -69,10 +71,12 @@ expect_rejected() {
 }
 
 before=$(cat "$marker")
-if (unset TARGET_ROOT INSTALLER_TARGET_DIR; target_asset_host_path /etc/fixture); then
-  printf '%s\n' 'fixture failure: accepted an unset target root' >&2
-  exit 1
-fi
+for path_lookup in target_asset_host_path target_asset_entry_host_path; do
+  if (unset TARGET_ROOT INSTALLER_TARGET_DIR; "$path_lookup" /etc/fixture); then
+    printf 'fixture failure: %s accepted an unset target root\n' "$path_lookup" >&2
+    exit 1
+  fi
+done
 [ "$(cat "$marker")" = "$before" ]
 expect_rejected empty ''
 expect_rejected root /
@@ -82,11 +86,13 @@ expect_rejected installer-root "$installer_root"
 expect_rejected sibling "$sibling_root"
 
 before=$(cat "$marker")
-if INSTALLER_TARGET_DIR="$target_root" TARGET_ROOT="$target_root" \
-    target_asset_host_path "$sibling_root/etc/fixture"; then
-  printf '%s\n' 'fixture failure: accepted a destination outside the target root' >&2
-  exit 1
-fi
+for path_lookup in target_asset_host_path target_asset_entry_host_path; do
+  if INSTALLER_TARGET_DIR="$target_root" TARGET_ROOT="$target_root" \
+      "$path_lookup" "$sibling_root/etc/fixture"; then
+    printf 'fixture failure: %s accepted a destination outside the target root\n' "$path_lookup" >&2
+    exit 1
+  fi
+done
 [ "$(cat "$marker")" = "$before" ]
 
 INSTALLER_TARGET_DIR="$target_root" TARGET_ROOT="$target_root" \

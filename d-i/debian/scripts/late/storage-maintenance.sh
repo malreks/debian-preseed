@@ -2,98 +2,12 @@
 # Shared late_command storage maintenance helpers. This file is sourced, not executed.
 
 
-repair_target_pkgsel_include_packages() {
-  stage_target_apt_login_policy_assets
-  require_in_target "pkgsel/include package repair"
-
-  # shellcheck disable=SC2016
-  missing_packages=$(capture_in_target "detect missing pkgsel/include packages" __INSTALLER_PATH_DIR_BIN__/sh -c '
-set -eu
-packages=$1
-[ -n "$packages" ] || exit 0
-# One checked database read also accounts for virtual packages (for example
-# mesa-utils-extra provided by mesa-utils). Do not call apt for an installed
-# provider merely because the virtual name has no standalone dpkg record.
-installed=$(dpkg-query -W -f="\${Status}\t\${binary:Package}\t\${Provides}\t\${Version}\n")
-printf "%s\n" "$installed" | awk -F "\t" -v requested="$packages" '\''
-$1 == "install ok installed" {
-  present[$2] = 1; versions[$2] = $4
-  name = $2; sub(/:.*/, "", name); present[name] = 1; versions[name] = $4
-  n = split($3, providers, ",")
-  for (i = 1; i <= n; i++) {
-    name = providers[i]; sub(/^[ \t]+/, "", name); sub(/[ \t:(].*$/, "", name)
-    if (name != "") present[name] = 1
-  }
-}
-
-END {
-  n = split(requested, pkgs, /[ \t\n]+/)
-  for (i = 1; i <= n; i++) {
-    name = pkgs[i]; sub(/\/.*/, "", name)
-    count = split(name, wanted, "="); name = wanted[1]
-    if (name != "" && (!(name in present) || (count == 2 && versions[name] != wanted[2]))) print pkgs[i]
-  }
-}'\''
-
-' sh "${INSTALLER_PKGSEL_INCLUDE}")
-
-  legacy_cuda_repair_active=false
+finish_target_pkgsel_apt_state() {
+  # pkgsel owns the complete compiled package list. Only retire its
+  # temporary legacy-CUDA APT exception here; do not rescan/reinstall it.
   if command -v cuda_legacy_target_apt_required >__INSTALLER_PATH_DIR_DEV__/null 2>&1 && cuda_legacy_target_apt_required; then
-    legacy_cuda_repair_active=true
+    cuda_legacy_cleanup_target_apt_state
   fi
-
-  repair_status=0
-  cleanup_status=0
-  if [ -n "$missing_packages" ]; then
-    installer_warn "repairing missing pkgsel/include packages in target:${missing_packages:+ ${missing_packages}}"
-    if [ "$legacy_cuda_repair_active" = true ]; then
-      cuda_legacy_prepare_target_apt_state
-    fi
-    prepare_target_volatile_dirs_for_apt
-    if refresh_non_cuda_target_metadata \
-      env DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
-      apt-get \
-        -o APT::Get::List-Cleanup=0 \
-        -o APT::Update::Error-Mode=any \
-        -o Acquire::Retries=5 \
-        -o Acquire::http::Timeout=45 \
-        -o Acquire::https::Timeout=45 \
-        -o Binary::apt::APT::Keep-Downloaded-Packages=false \
-        -o DPkg::Use-Pty=0 \
-        update
-    then
-      # shellcheck disable=SC2086
-      set -- $missing_packages
-      if ( run_in_target "install missing pkgsel/include packages" \
-          env DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
-          apt-get \
-            -o Acquire::Retries=5 \
-            -o Acquire::http::Timeout=45 \
-            -o Acquire::https::Timeout=45 \
-            -o Binary::apt::APT::Keep-Downloaded-Packages=false \
-            -o DPkg::Use-Pty=0 \
-            -y install --no-install-recommends --no-install-suggests "$@" )
-      then
-        :
-      else
-        repair_status=$?
-      fi
-    else
-      repair_status=$?
-    fi
-  fi
-
-  if [ "$legacy_cuda_repair_active" = true ]; then
-    if cuda_legacy_cleanup_target_apt_state; then
-      :
-    else
-      cleanup_status=$?
-    fi
-  fi
-
-  [ "$repair_status" -eq 0 ] || return "$repair_status"
-  [ "$cleanup_status" -eq 0 ] || return "$cleanup_status"
-  [ -n "$missing_packages" ] || return 0
 }
 
 managed_target_policy_assets() {

@@ -20,17 +20,8 @@ Package: incus incus-base incus-client incus-ui-canonical
 Pin: release o=Debian
 Pin-Priority: -1
 
-# microsoft-visual-studio-code
-Package: code
-Pin: origin packages.microsoft.com
-Pin-Priority: 1001
-
-Package: *
-Pin: origin packages.microsoft.com
-Pin-Priority: -1
-
-# microsoft-edge
-Package: microsoft-edge-stable
+# Microsoft desktop tools share one scoped origin policy.
+Package: code microsoft-edge-stable powershell
 Pin: origin packages.microsoft.com
 Pin-Priority: 1001
 
@@ -45,6 +36,15 @@ Pin-Priority: 1001
 
 Package: *
 Pin: origin repository.mullvad.net
+Pin-Priority: -1
+
+# oracle-mysql-9-7-lts-and-tools-debian-13-trixie
+Package: mysql-shell mysql-community-client mysql-community-client-core mysql-common
+Pin: origin repo.mysql.com
+Pin-Priority: 1001
+
+Package: *
+Pin: origin repo.mysql.com
 Pin-Priority: -1
 
 # spotify

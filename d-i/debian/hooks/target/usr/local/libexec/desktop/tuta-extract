@@ -1,8 +1,8 @@
 #!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
 """Extract Type-2 AppImage/Postman snapshots without executing vendor code.
 
-Input is a root-private artifact and its expected SHA-256. The caller separately
-establishes provenance; this snapshot digest is not a vendor signature. Packaged
+Input is a root-private artifact already authenticated by its acquisition owner.
+The extractor pins its input descriptor and copies it without rehashing. Packaged
 parsers run as a dedicated locked host uid/gid inside a private filesystem, PID,
 IPC, UTS and network namespace. Namespace failure is fatal; no unsafe fallback.
 Publication is to a new root-owned path only; callers own generation rollback.
@@ -11,7 +11,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 import fcntl
 import grp
-import hashlib
 import os
 from pathlib import Path
 import pwd
@@ -303,9 +302,9 @@ def run_parser(argv: list[str], output: Path) -> None:
         raise ValueError(f"isolated packaged extractor exited {status}: {detail or 'no diagnostic output'}")
 
 
-def extract(source: Path, destination: Path, expected: str, uid: int, gid: int, *, postman: bool = False) -> None:
-    if os.geteuid() != 0 or len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
-        raise ValueError("root and an expected SHA-256 are required")
+def extract(source: Path, destination: Path, uid: int, gid: int, *, postman: bool = False) -> None:
+    if os.geteuid() != 0:
+        raise ValueError("root is required")
     trusted_directory(source.parent)
     trusted_directory(destination.parent)
     if destination.exists() or destination.is_symlink():
@@ -317,7 +316,6 @@ def extract(source: Path, destination: Path, expected: str, uid: int, gid: int, 
                 or info.st_mode & 0o022 or info.st_nlink != 1 or not 96 < info.st_size <= MAX_IMAGE):
             raise ValueError("unsafe extraction artifact metadata")
         artifact = private / "image"
-        digest = hashlib.sha256()
         copied = 0
         with artifact.open("xb") as snapshot:
             while block := stream.read(1_048_576):
@@ -325,9 +323,12 @@ def extract(source: Path, destination: Path, expected: str, uid: int, gid: int, 
                 if copied > MAX_IMAGE:
                     raise ValueError("artifact grew while reading")
                 snapshot.write(block)
-                digest.update(block)
-        if copied != info.st_size or digest.hexdigest() != expected:
-            raise ValueError("artifact snapshot does not match verified hash")
+        after = os.fstat(stream.fileno())
+        named = source.lstat()
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_mode, item.st_uid, item.st_gid,
+                                 item.st_nlink, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+        if copied != info.st_size or identity(info) != identity(after) or identity(after) != identity(named):
+            raise ValueError("artifact changed during its private snapshot copy")
         os.chmod(artifact, 0o444)
         with artifact.open("rb") as snapshot:
             offset = None if postman else squashfs_offset(snapshot)
@@ -408,8 +409,8 @@ def main(argv: list[str]) -> int:
         MAX_IMAGE = 2_147_483_648
         MAX_TREE = 2_147_483_648 if postman else 4_294_967_296
         MAX_ENTRIES = 5001 if postman else 30_000
-    if len(argv) != 3:
-        raise ValueError("usage: tuta-extract ARTIFACT NEW_DESTINATION SHA256")
+    if len(argv) != 2:
+        raise ValueError("usage: tuta-extract ARTIFACT NEW_DESTINATION")
     os.umask(0o077)
     if os.geteuid() != 0:
         raise ValueError("root is required")
@@ -438,7 +439,7 @@ def main(argv: list[str]) -> int:
                     raise ValueError('extractor ownership lock remained busy for 30 seconds')
                 time.sleep(min(0.05, remaining))
         uid, gid = extractor_identity()
-        extract(Path(argv[0]), Path(argv[1]), argv[2], uid, gid, postman=postman)
+        extract(Path(argv[0]), Path(argv[1]), uid, gid, postman=postman)
     return 0
 
 

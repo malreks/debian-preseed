@@ -82,7 +82,7 @@ class DocumentationDestinationTests(unittest.TestCase):
 
     def test_all_runtime_verifiers_use_same_protected_destination(self):
         self.assertEqual(base.module().DOC_DIR, Path('/usr/local/share/doc/resctl-bench'))
-        for relative in ('scripts/desktop/verify.sh', 'scripts/firstboot/04-validation.sh'):
+        for relative in ('scripts/firstboot/04-validation.sh',):
             source = payload_read_text(base.SEED / relative)
             self.assertIn('/usr/local/share/doc/resctl-bench/INSTALLATION.json', source)
             self.assertNotIn('/data/docs/resctl-bench/INSTALLATION.json', source)

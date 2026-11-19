@@ -61,7 +61,11 @@ target_asset_is_logical_path() {
   esac
 }
 
-target_asset_host_path() (
+# Locate a directory entry without following its leaf. Parent creation,
+# readlink, link replacement and unlink may use it; all parents still
+# belong to the validated mounted target. File publication uses the stricter
+# target_asset_host_path below.
+target_asset_entry_host_path() (
   set -eu
   target_root=$(target_asset_validate_root_context "${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}") || exit 1
   requested_path=${1:-}
@@ -119,6 +123,12 @@ target_asset_host_path() (
     "$target_root_real/"*) ;;
     *) installer_fatal 'target asset parent escapes the mounted target'; exit 1 ;;
   esac
+  printf '%s\n' "$target_path"
+)
+
+target_asset_host_path() (
+  set -eu
+  target_path=$(target_asset_entry_host_path "${1:-}") || exit "$?"
   if [ -e "$target_path" ] || [ -L "$target_path" ]; then
     [ ! -L "$target_path" ] || {
       installer_fatal 'target asset destination must not be a symlink'; exit 1;
@@ -158,7 +168,8 @@ target_private_stage_dir() (
 ensure_target_asset_parent() (
   target_path=$1
   target_root=$(target_asset_validate_root_context "${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}") || exit 1
-  target_host_path=$(target_asset_host_path "$target_path") || exit 1
+  # Creating the parent never opens or replaces the final directory entry.
+  target_host_path=$(target_asset_entry_host_path "$target_path") || exit 1
   target_parent=$(dirname "$target_host_path")
   canonical_root=$(readlink -f "$target_root") || exit 1
   [ -d "$canonical_root" ] || exit 1
@@ -219,7 +230,7 @@ publish_target_asset() (
   # A failed command substitution can leave an empty source argument while
   # the enclosing command still runs. Reject it before preparing or fetching
   # any target path; stdin publication has its own explicit source contract.
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 223 validate_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 233 validate_target_asset
   if [ "$asset_kind" != stdin ] && [ -z "$asset_source" ]; then
     installer_fatal 'target asset source is empty; repository selector resolution failed'
     exit 1
@@ -232,7 +243,7 @@ publish_target_asset() (
     exit 0
   fi
   target_publish_step=prepare_destination
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 236 prepare_target_asset_destination
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 246 prepare_target_asset_destination
   asset_destination=$(target_asset_host_path "$asset_target") || exit "$?"
   ensure_target_asset_parent "$asset_target" || exit "$?"
   [ ! -d "$asset_destination" ] || { installer_fatal "asset destination is a directory"; exit 1; }
@@ -241,14 +252,14 @@ publish_target_asset() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   target_publish_step=acquire
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 245 acquire_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 255 acquire_target_asset
   if [ "$asset_kind" = stdin ]; then
     cat >"$asset_work/payload" || exit "$?"
   else
     (fetch_hook "$asset_source" "$asset_work/payload") || exit "$?"
   fi
   target_publish_step=render
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 252 render_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 262 render_target_asset
   case "$asset_kind" in
     plain|stdin|template-input|appearance-registry)
       # Canonical fields always use the shared map. Private renderer inputs
@@ -295,7 +306,7 @@ publish_target_asset() (
     *) installer_fatal "invalid target asset operation"; exit 1 ;;
   esac
   target_publish_step=publish
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 299 publish_target_asset
+  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 309 publish_target_asset
   chmod "$asset_mode" "$asset_work/payload" || exit "$?"
   # Named stdin publications come from the typed desktop renderer, which
   # separately captures primary and future-account values before this call.
@@ -344,7 +355,9 @@ write_target_file() {
 }
 
 remove_target_asset() (
-  target_host_path=$(target_asset_host_path "$1") || exit 1
+  # rm unlinks the named entry, including a dangling enablement link; it must
+  # never resolve the link into a destination for file publication.
+  target_host_path=$(target_asset_entry_host_path "$1") || exit 1
   rm -f -- "$target_host_path" || exit "$?"
   installer_target_ownership_forget "${target_host_path#"${INSTALLER_TARGET_DIR:-$TARGET_ROOT}"}"
 )
@@ -495,15 +508,15 @@ stage_target_helper_docs() {
   done
 }
 
-remove_target_asset_and_empty_parent() {
+remove_target_asset_and_empty_parent() (
   target_path=$1
-  target_host_path=$(target_asset_host_path "$target_path")
+  target_host_path=$(target_asset_entry_host_path "$target_path") || exit 1
   target_parent=$(dirname "$target_host_path")
 
-  rm -f "$target_host_path"
-  installer_target_ownership_forget "${target_host_path#"${TARGET_ROOT}"}" || return 1
+  rm -f -- "$target_host_path" || exit "$?"
+  installer_target_ownership_forget "${target_host_path#"${TARGET_ROOT}"}" || exit "$?"
   rmdir "$target_parent" 2>__INSTALLER_PATH_DIR_DEV__/null || true
-}
+)
 
 sysctl_profile_placeholder_map() {
   profiles="BALANCED HARDENED PERFORMANCE"

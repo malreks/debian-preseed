@@ -360,8 +360,6 @@ class ForceUnitConfinementTests(unittest.TestCase):
         publisher = read_text(ROOT / 'd-i/debian/scripts/desktop/components/target-assets.sh')
         self.assertIn('etc/systemd/system/labwc-external-drives-shutdown.service '
                       '/etc/systemd/system/labwc-external-drives-shutdown.service 0644', publisher)
-        self.assertIn('require_mode /etc/systemd/system/labwc-external-drives-shutdown.service 644',
-                      read_text(ROOT / 'd-i/debian/scripts/desktop/verify.sh'))
 
     @unittest.skipUnless(shutil.which('systemd-analyze'), 'native systemd parser unavailable')
     def test_drive_service_passes_native_offline_unit_verification(self):

@@ -95,7 +95,52 @@ class ProxyAPTSourceTests(unittest.TestCase):
             self.assertIn(row, software)
 
 
+class DesktopVendorPackageTests(unittest.TestCase):
+    def test_full_desktop_selects_both_vendor_shells_from_declared_archives(self):
+        archives = (
+            ('powershell', 'https://packages.microsoft.com/debian/13/prod trixie main',
+             'https://packages.microsoft.com/keys/microsoft-2025.asc'),
+            ('mysql-shell', 'https://repo.mysql.com/apt/debian trixie mysql-9.7-lts mysql-tools',
+             'https://repo.mysql.com/RPM-GPG-KEY-mysql-2025'),
+        )
+        for suite in ('forky', 'trixie'):
+            root = FORKY.parent / suite
+            source = (root / 'classes/class-select/role/desktop/full.cfg').read_text(encoding='utf-8')
+            packages = set(re.search(r'^d-i pkgsel/include string (.*)$', source, re.M)[1].split())
+            for package, archive, key in archives:
+                with self.subTest(suite=suite, package=package):
+                    self.assertIn(package, packages)
+                    slot = re.search(r'^d-i apt-setup/(local[0-9]+)/repository string ' +
+                                     re.escape(archive) + r'$', source, re.M)[1]
+                    self.assertIn(f'd-i apt-setup/{slot}/key string {key}', source)
+            preference = (root / 'hooks/target/etc/apt/desktop/preferences.d/20-vendors.pref').read_text(encoding='utf-8')
+            self.assertEqual(preference.count('Pin: origin packages.microsoft.com\n'), 2)
+            self.assertIn('Package: code microsoft-edge-stable powershell\n'
+                          'Pin: origin packages.microsoft.com\nPin-Priority: 1001', preference)
+            self.assertIn('Package: *\nPin: origin packages.microsoft.com\nPin-Priority: -1', preference)
+            self.assertIn('Package: *\nPin: origin repo.mysql.com\nPin-Priority: -1', preference)
+
+    def test_pkgsel_handoff_only_retires_temporary_apt_state(self):
+        source = (FORKY / 'scripts/late/storage-maintenance.sh').read_text(encoding='utf-8')
+        handoff = source.split('finish_target_pkgsel_apt_state() {', 1)[1].split('\n}\n', 1)[0]
+        self.assertIn('cuda_legacy_cleanup_target_apt_state', handoff)
+        for obsolete in ('dpkg-query', 'apt-get', 'capture_in_target', 'missing_packages'):
+            self.assertNotIn(obsolete, handoff)
+
+
 class ManagedAPTRepoLocalTests(unittest.TestCase):
+    def test_same_version_release_metadata_never_rehashes_or_forces_a_download(self):
+        helper = runpy.run_path(str(FORKY / 'hooks/target/usr/local/libexec/common/apt-repo-local.tmpl'))
+        decide = helper['update_decision']
+        candidate = {'kind': 'release', 'source': 'fixture', 'token': 'new',
+                     'version': '1.0', 'sha256': 'b' * 64}
+        record = {'version': '1.0', 'upstream_version': '1.0', 'sha256': 'a' * 64}
+        def no_checksum(*_args, **_options):
+            raise AssertionError('published content must not be rescanned')
+        with mock.patch.dict(decide.__globals__, {'newer': lambda _left, _right: False,
+                                                 'digest_file': no_checksum}):
+            self.assertEqual(decide(candidate, record), 'current')
+
     def run_perl(self, source: str, *arguments: object) -> subprocess.CompletedProcess[str]:
         # A missing validation dependency is not a production assertion failure.
         # Probe file presence only: installed-but-broken modules must still fail.
@@ -338,9 +383,9 @@ attempt_in_target() { run_in_target "$@"; }
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn('fatal: Discord module tar ', result.stderr)
 
-    def test_repository_package_digest_uses_the_512_mib_streaming_bound(self):
+    def test_download_digest_is_bounded_and_retained_package_lookup_does_not_rehash(self):
         repository = payload_read_text(SERVICING / 'Repository.pm')
-        self.assertIn('APTRepoLocal::Servicing::Atomic->sha256_file(', repository)
+        self.assertNotIn('APTRepoLocal::Servicing::Atomic->sha256_file(', repository)
         self.assertNotIn('read_limited($path, 536_870_912)', repository)
 
         with tempfile.TemporaryDirectory(prefix='x-package-digest-') as temporary:

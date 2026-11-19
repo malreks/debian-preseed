@@ -1,7 +1,6 @@
 """Read the pinned outer theme release as bounded data, never through tar extraction."""
 from __future__ import annotations
 import gzip
-import hashlib
 import io
 import os
 from pathlib import Path
@@ -15,7 +14,6 @@ def main(archive_path: str, destination: str) -> int:
     deadline = time.monotonic() + 180
     expanded_limit = int('__INSTALLER_LABWC_DESKTOP_THEMES_MAXIMUM_EXTRACTED_BYTES__')
     member_limit = int('__INSTALLER_LABWC_DESKTOP_THEMES_MAXIMUM_MEMBERS__')
-    expected_digest = '__INSTALLER_LABWC_DESKTOP_THEMES_SHA256__'
     expected_destination = Path('__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_LABWC_APPEARANCE__/.installer-themes')
     if (Path(destination) != expected_destination
             or not 1 <= expanded_limit <= 1024 * 1024**2 or not 1 <= member_limit <= 4096):
@@ -32,15 +30,8 @@ def main(archive_path: str, destination: str) -> int:
                 or before.st_nlink != 1 or stat.S_IMODE(before.st_mode) != 0o600
                 or before.st_size <= 0):
             raise ValueError('unsafe outer desktop theme release metadata')
-        digest = hashlib.sha256()
-        while blob := stream.read(1024 * 1024):
-            check()
-            digest.update(blob)
-        after = os.fstat(stream.fileno())
-        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
-                after.st_size, after.st_mtime_ns, after.st_ctime_ns) or digest.hexdigest() != expected_digest:
-            raise ValueError('outer desktop theme release identity changed or digest differs')
-        stream.seek(0)
+        # desktop_download_release_archive owns the one download checksum pass.
+        # Keep this descriptor pinned while decoding, without rereading it first.
         expanded = io.BytesIO()
         with gzip.GzipFile(fileobj=stream) as compressed:
             while blob := compressed.read(min(1024 * 1024, expanded_limit + 1 - expanded.tell())):

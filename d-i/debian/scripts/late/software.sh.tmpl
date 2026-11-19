@@ -2014,12 +2014,11 @@ trap rollback EXIT HUP INT TERM
 
 rm -rf "$work_dir/squashfs-root" "$new_dir" "$backup_dir"
 # Provenance was verified above with the vendor signature and SHA-512.
-# Bind the private parser snapshot to these exact bytes without executing the
-# AppImage runtime; procfs is supplied by the d-i target executor.
-snapshot_sha256=$(sha256sum "$appimage" | awk "{print \$1}")
+# The parser copies its pinned input without another checksum pass or executing
+# the AppImage runtime; procfs is supplied by the d-i target executor.
 : >"$work_dir/.extraction-active"
 if __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tuta-extract --repository-appimage \
-    "$appimage" "$work_dir/squashfs-root" "$snapshot_sha256"; then
+    "$appimage" "$work_dir/squashfs-root"; then
   rm -f "$work_dir/.extraction-active"
 else
   extraction_status=$?
@@ -2159,7 +2158,7 @@ software_run_selected_app() {
   selected_worker=$3
   selected_result=$4
   installer_class_selected_any $selected_classes || return 0
-  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2168 "install_managed_application:${selected_worker}"
+  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2167 "install_managed_application:${selected_worker}"
   software_info "starting ${selected_label}"
   # A required worker runs outside a conditional context so Dash keeps errexit.
   (
@@ -2559,7 +2558,8 @@ case "$tuta_file_type" in
   *) software_fatal "Tuta Mail AppImage has an unexpected file type: ${tuta_file_type:-unset}" ;;
 esac
 
-tuta_verified_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$tuta_appimage" | awk '{print $1}')
+tuta_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$tuta_appimage" | awk '{print $1}')
+printf '%s\n' "$tuta_sha256" >"${target_root}${work_dir}/tuta.sha256"
 
 # d-i's target executor mounts __INSTALLER_PATH_DIR_PROC__ for bwrap and the dedicated-uid check.
 # shellcheck disable=SC2016
@@ -2581,7 +2581,7 @@ trap rollback EXIT HUP INT TERM
 
 rm -rf "$work_dir/squashfs-root" "$new_dir" "$backup_dir"
 : >"$work_dir/.extraction-active"
-if __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tuta-extract "$appimage" "$work_dir/squashfs-root" "$4"; then
+if __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tuta-extract "$appimage" "$work_dir/squashfs-root"; then
   rm -f "$work_dir/.extraction-active"
 else
   extraction_status=$?
@@ -2608,7 +2608,7 @@ mv "$new_dir" "$install_dir"
 [ -x "$install_dir/AppRun" ]
 rm -rf "$backup_dir"
 trap - EXIT HUP INT TERM
-' sh "$work_dir" "$tuta_appimage" "$tuta_install_dir" "$tuta_verified_sha256"
+' sh "$work_dir" "$tuta_appimage" "$tuta_install_dir"
 
 tuta_icon_source=$(
   # shellcheck disable=SC2016
@@ -2646,7 +2646,6 @@ if [ -x "${target_root}__INSTALLER_PATH_DIR_USR_BIN__/gtk-update-icon-cache" ]; 
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/gtk-update-icon-cache -f -q __INSTALLER_PATH_DIR_USR_SHARE_ICONS_HICOLOR__
 fi
 
-tuta_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$tuta_appimage" | awk '{print $1}')
 [ -n "$tuta_sha256" ] || software_fatal "failed to record Tuta Mail AppImage SHA-256"
 software_store_managed_artifact \
   "Tuta Mail AppImage" \
@@ -2657,7 +2656,7 @@ software_info "installed verified Tuta Mail AppImage sha256=${tuta_sha256}"
 }
 software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Tuta Mail" software_install_tuta_app software_tuta_installed
 if [ "$software_tuta_installed" = true ]; then
-  tuta_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$tuta_appimage" | awk '{print $1}')
+  IFS= read -r tuta_sha256 <"${target_root}${work_dir}/tuta.sha256"
 fi
 
 software_verify_menu_icons \

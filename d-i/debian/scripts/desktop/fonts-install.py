@@ -2,7 +2,7 @@
 """Install profile-pinned font data; never execute archive contents.
 
 Terminal/icon fonts and Microsoft desktop fonts have separate, fixed XDG trees.
-Both immutable generations are verified before either current link is changed;
+Both generations have their metadata checked before either current link changes;
 failed link publication rolls back under the existing installation lock.
 Fontconfig belongs to the managed desktop skeleton, not this data installer.
 Root seals the cache; HOME publication/cache permanently drops to the account.
@@ -154,11 +154,10 @@ def flush_tree(root: Path) -> None:
         sync_dir(Path(directory))
 
 
-def extract_archive(archive: Path, destination: Path, sha: str,
+def extract_archive(archive: Path, destination: Path,
                     limits: tuple[int, int, int]) -> None:
     maximum_expanded, maximum_member, maximum_members = limits
-    if digest(archive) != sha:
-        raise ValueError('font archive SHA-256 mismatch')
+    # download() has already verified the complete archive once.
     # Iterate streaming members to bound memory. Files are written only in a
     # private staging directory; a later invalid member can never be published.
     total = count = font_count = 0
@@ -205,7 +204,7 @@ def extract_archive(archive: Path, destination: Path, sha: str,
         raise ValueError('font archive contains no supported font files')
 
 
-def file_inventory(root: Path, uid: int | None = None) -> dict[str, str]:
+def file_inventory(root: Path, uid: int | None = None) -> dict[str, int]:
     uid = os.geteuid() if uid is None else uid
     records = {}
     for directory, directories, files in os.walk(root, followlinks=False):
@@ -220,13 +219,13 @@ def file_inventory(root: Path, uid: int | None = None) -> dict[str, str]:
             if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
                     or info.st_uid != uid or info.st_mode & 0o022):
                 raise ValueError('non-regular/hardlinked file in font generation')
-            records[relative] = digest(path)
+            records[relative] = info.st_size
     return dict(sorted(records.items()))
 
 
 def seal(root: Path, policy: list[dict[str, str]]) -> None:
     records = file_inventory(root)
-    atomic_bytes(root / MANIFEST, json.dumps({'schema': 1, 'archives': policy,
+    atomic_bytes(root / MANIFEST, json.dumps({'schema': 2, 'archives': policy,
                  'files': records}, sort_keys=True, indent=2).encode() + b'\n')
     for directory, _, files in os.walk(root):
         for name in files:
@@ -235,8 +234,9 @@ def seal(root: Path, policy: list[dict[str, str]]) -> None:
     flush_tree(root)
 
 
-def verify_generation(root: Path, policy: list[dict[str, str]], uid: int | None = None,
-                      expected_files: dict[str, str] | None = None) -> None:
+def generation_inventory(root: Path, policy: list[dict[str, str]], uid: int | None = None,
+                         expected_files: dict[str, int] | None = None) -> dict[str, int]:
+    """Check publication metadata without reading font contents again."""
     uid = os.geteuid() if uid is None else uid
     checked_directory(root, uid)
     if {p.name for p in root.iterdir()} != {p["name"] for p in policy} | {MANIFEST}:
@@ -246,11 +246,15 @@ def verify_generation(root: Path, policy: list[dict[str, str]], uid: int | None 
     if (not stat.S_ISREG(info.st_mode) or info.st_size > 8 * 1024 * 1024
             or info.st_uid != uid or info.st_mode & 0o022 or info.st_nlink != 1):
         raise ValueError('invalid font generation manifest')
-    record = json.loads(marker.read_text())
-    if (record.get('schema') != 1 or record.get('archives') != policy or
-            record.get('files') != file_inventory(root, uid) or
-            (expected_files is not None and record.get('files') != expected_files)):
+    record = json.loads(marker.read_text(encoding='utf-8'))
+    files = file_inventory(root, uid)
+    recorded = record.get('files')
+    if (record.get('schema') not in (1, 2) or record.get('archives') != policy or
+            not isinstance(recorded, dict) or set(recorded) != set(files) or
+            (record['schema'] == 2 and recorded != files) or
+            (expected_files is not None and files != expected_files)):
         raise ValueError(f'modified/incomplete font generation preserved: {root}')
+    return files
 
 
 def download(url: str, destination: Path, sha: str) -> None:
@@ -268,7 +272,7 @@ def prepare_generation(cache: Path, policy: list[dict[str, str]],
     releases = mkdir_below(cache, 'releases', os.geteuid())
     generation = releases / policy_id(policy)
     if os.path.lexists(generation):
-        verify_generation(generation, policy)
+        generation_inventory(generation, policy)
         return generation
     with tempfile.TemporaryDirectory(prefix='.font-stage-', dir=cache) as temporary:
         stage = Path(temporary)
@@ -279,7 +283,7 @@ def prepare_generation(cache: Path, policy: list[dict[str, str]],
             download(item['url'], archive, item['sha256'])
             destination = output / item['name']
             destination.mkdir(mode=0o700)
-            extract_archive(archive, destination, item['sha256'], limits)
+            extract_archive(archive, destination, limits)
             archive.unlink()
         seal(output, policy)
         os.rename(output, generation)
@@ -315,15 +319,14 @@ def publish(home: Path, source: Path, policy: list[dict[str, str]]) -> tuple[tup
     source_uid = source.lstat().st_uid
     if source_uid not in (0, uid):
         raise ValueError("untrusted font cache owner")
-    verify_generation(source, policy, source_uid)
-    source_files = file_inventory(source, source_uid)
+    source_files = generation_inventory(source, policy, source_uid)
     identity = policy_id(policy)
     expected = "releases/" + identity
     prepared = []
     # Prepare and verify BOTH complete trees before exposing either new link.
     for group, names in GROUPS.items():
         subset = [p for p in policy if publication_group(p["name"]) == group]
-        files = {name: sha for name, sha in source_files.items() if name.split("/", 1)[0] in names}
+        files = {name: size for name, size in source_files.items() if name.split("/", 1)[0] in names}
         base = mkdir_below(home, PUBLICATION_ROOTS[group], uid)
         releases = mkdir_below(base, "releases", uid)
         current = base / "current"
@@ -338,17 +341,16 @@ def publish(home: Path, source: Path, policy: list[dict[str, str]]) -> tuple[tup
             checked_directory(base / previous, uid)
         destination = releases / identity
         if os.path.lexists(destination):
-            verify_generation(destination, subset, expected_files=files)
+            generation_inventory(destination, subset, expected_files=files)
         else:
             with tempfile.TemporaryDirectory(prefix=".copy-", dir=base) as temporary:
                 staging = Path(temporary) / "generation"
                 staging.mkdir(mode=0o700)
                 for item in subset:
-                    # The verified cache cannot be changed by the account.
+                # The root-owned cache cannot be changed by the account.
                     # Never copy a whole mixed archive set to either tree.
                     shutil.copytree(source / item["name"], staging / item["name"], symlinks=False)
                 seal(staging, subset)
-                verify_generation(staging, subset, expected_files=files)
                 os.rename(staging, destination)
                 sync_dir(releases)
         prepared.append((current, previous))

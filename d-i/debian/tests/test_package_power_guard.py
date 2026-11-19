@@ -538,13 +538,12 @@ class WiringTests(unittest.TestCase):
     def test_all_new_assets_are_staged_and_verified(self):
         seed=TARGET.parents[1]
         stage=payload_read_text(seed/'scripts/desktop/components.sh')
-        verify=payload_read_text(seed/'scripts/desktop/verify.sh')
         firstboot=payload_read_text(seed/'scripts/firstboot/04-validation.sh')
         for path in ('usr/local/libexec/greetd-power-action-root',
                      'etc/systemd/system/labwc-package-sleep-guard.service',
                      'etc/systemd/system/sleep.target.d/50-package-lock-guard.conf'):
             self.assertTrue(payload_source_is_file(TARGET/path))
-            self.assertIn(path,stage); self.assertIn('/'+path,verify); self.assertIn('/'+path,firstboot)
+            self.assertIn(path,stage); self.assertIn('/'+path,firstboot)
 
     def test_greeter_only_gets_exact_fixed_helper_not_raw_power_or_inhibitor_bypass(self):
         text=payload_read_text(TARGET/'etc/polkit-1/rules.d/10-greetd-power.rules.tmpl')

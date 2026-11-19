@@ -156,7 +156,8 @@ class PublicationFixtures(unittest.TestCase):
         inventory = json.loads((self.registry / theme_install.INVENTORY).read_bytes())
         for path, metadata in inventory['files'].items():
             data = (self.public / path).read_bytes()
-            self.assertEqual(hashlib.sha256(data).hexdigest(), metadata['sha256'])
+            self.assertEqual(len(data), metadata['bytes'])
+            self.assertNotIn('sha256', metadata)
         self.assertFalse(list(self.public.rglob('.labwc-theme-stage-*')))
 
     def test_failure_before_publication_retains_candidate_and_previous_inventory(self):
@@ -254,11 +255,11 @@ class InstalledProviderFixtures(unittest.TestCase):
                         for ext in ('.kvconfig', '.svg')})
         plugins = {'lib/fixture-linux-gnu/qt6/plugins/' + path: b'\x7fELFfixture'
                    for path in ('styles/libkvantum.so', 'platformthemes/libqt6ct.so')}
-        manifest = {'schema': 1, 'variants': dict.fromkeys(themes.VARIANTS, []),
-                    'files': {p: {'bytes': len(b), 'sha256': hashlib.sha256(b).hexdigest()}
+        manifest = {'schema': 2, 'variants': dict.fromkeys(themes.VARIANTS, []),
+                    'files': {p: {'bytes': len(b)}
                               for p, b in payload.items()},
                     'packages': {'multiarch': 'fixture-linux-gnu', 'plugins': {
-                        p: hashlib.sha256(b).hexdigest() for p, b in plugins.items()}}}
+                        p: len(b) for p, b in plugins.items()}}}
         manifest['variants'][theme.identity] = ['themes/' + theme.gtk, 'Kvantum/' + theme.kvantum]
         roots = {'/usr/local/share/labwc-appearance': {'themes.json': json.dumps(manifest).encode()},
                  '/usr/share': payload, '/usr': plugins}
@@ -276,11 +277,20 @@ class InstalledProviderFixtures(unittest.TestCase):
                 blob = roots[self.root][path]
                 if len(blob) > limit: raise ValueError('fixture read exceeds limit')
                 return blob
+            @contextlib.contextmanager
+            def open_read(self, path, *, limit):
+                blob = roots[self.root][path]
+                if len(blob) > limit: raise ValueError('fixture input exceeds limit')
+                reads.append((self.root, path))
+                # Metadata preflight must not consume any installed asset bytes.
+                class Metadata:
+                    st_size = len(blob)
+                yield None, Metadata()
         with mock.patch.object(themes, 'Tree', ReadOnlyFixture):
             themes.require_installed(theme.identity)
             self.assertEqual(set(p for r, p in reads if r == '/usr/share'), set(payload))
             payload[next(iter(payload))] = b'changed asset'
-            with self.assertRaisesRegex(ValueError, 'assets changed'):
+            with self.assertRaisesRegex(ValueError, 'asset length changed'):
                 themes.require_installed(theme.identity)
 
 

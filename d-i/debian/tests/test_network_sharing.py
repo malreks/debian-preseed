@@ -2165,7 +2165,7 @@ class IntegrationWiringTests(unittest.TestCase):
         self.assertIn('labwc-network-sharing 0755', (SEED/'scripts/desktop/components/target-assets.sh').read_text())
         self.assertIn('usr/local/bin/nfsmnt /usr/local/bin/nfsmnt 0755', (SEED/'scripts/desktop/components/target-assets.sh').read_text())
         self.assertFalse((TARGET/'usr/local/bin/nftmnt').exists())
-        for validation in ('scripts/desktop/verify.sh.tmpl', 'scripts/firstboot/04-validation.sh.tmpl'):
+        for validation in ('scripts/firstboot/04-validation.sh.tmpl',):
             source = (SEED/validation).read_text()
             self.assertIn('/usr/local/bin/nfsmnt', source)
             self.assertRegex(source, r'(?m)^\s+nfsmnt \\\s*$')

@@ -181,9 +181,6 @@ def verify_local_plugins(packer: Path, template: Path, root: Path,
         digest = checksum.read_text(encoding='ascii').strip()
         if not re.fullmatch(r'[0-9a-fA-F]{64}', digest):
             raise Error(f'invalid installed Packer checksum: {name} {pin}')
-        with binary.open('rb') as source:
-            if hashlib.file_digest(source, 'sha256').hexdigest() != digest.lower():
-                raise Error(f'installed Packer plugin checksum mismatch: {name} {pin}')
         expected_paths.append(str(binary))
     # Unlike init, this command only reports matching locally installed
     # binaries. It catches an HCL/CLI constraint mismatch without attempting

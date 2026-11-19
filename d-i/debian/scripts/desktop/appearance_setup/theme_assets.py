@@ -2,11 +2,10 @@
 
 No upstream installer, maintainer script, compiler or network client is used.
 Publication is a separate installation step after this complete candidate has
-passed its member, byte, path, source-hash and CSS-reference boundaries.
+passed its member, byte, path and CSS-reference boundaries.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-import hashlib
 import json
 from pathlib import PurePosixPath
 import re
@@ -68,16 +67,12 @@ class Source:
     def read(self, path: str) -> bytes:
         self.check()
         if path not in self.files:
-            raise ValueError('desktop theme asset has no pinned source hash')
+            raise ValueError('desktop theme asset is absent from the source inventory')
         meta = self.files[path]
         blob = self.tree.read(path, limit=meta['bytes'])
-        if len(blob) != meta['bytes'] or hashlib.sha256(blob).hexdigest() != meta['sha256']:
-            raise ValueError('desktop theme source hash/length mismatch: ' + path)
+        if len(blob) != meta['bytes']:
+            raise ValueError('desktop theme source length mismatch: ' + path)
         return blob
-
-    def verify_all(self) -> None:
-        for path in self.files:
-            self.read(path)
 
     def archive(self, filename: str) -> Archive:
         path = 'gtk/' + filename

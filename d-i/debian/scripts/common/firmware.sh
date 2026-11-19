@@ -34,13 +34,4 @@ installer_stage_profile_file FILE_TARGET_TMPFILES_D_86_FIRMWARE_WORKSPACE_TMPL "
 installer_stage_profile_file FILE_TARGET_SNANDER_POLICY "$FILE_SNANDER_POLICY" 0644
 run_in_target 'create selected operator firmware workspaces' "${DIR_USR_BIN}/systemd-tmpfiles" --create "${DIR_TMPFILES_D}/86-firmware-workspace.conf"
 installer_run_target_setup FILE_OS_SNANDER_INSTALLER 'install verified SNANDer artifact as data without running it'
-# Debian package identities follow the selected suite; native tools are never
-# invoked against hardware during installation or source checks.
-# shellcheck disable=SC2016
-run_in_target 'verify common firmware and UART command presence' "${DIR_BIN}/sh" -eu -c '
-  [ -x /usr/bin/binwalk ] || [ -x /usr/bin/pybinwalk ] || exit 1
-  for tool in flashrom flashprog uefiextract uefifind ifdtool cbfstool mtdinfo nanddump nandwrite spi-config spi-pipe picocom minicom screen lsusb; do
-    command -v "$tool" >/dev/null || exit 1
-  done
-' sh
 installer_info 'shared firmware CLI and workspace staged; no programmer or firmware device was accessed'

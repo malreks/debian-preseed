@@ -290,7 +290,7 @@ desktop_stage_target_assets() {
   # Public commands share the managed launcher, including terminal launches.
   for calendar_alias in labwc-agenda labwc-calendar; do
     ensure_target_asset_parent "__INSTALLER_PATH_DIR_USR_LOCAL__/bin/$calendar_alias"
-    calendar_alias_host=$(target_asset_host_path "__INSTALLER_PATH_DIR_USR_LOCAL__/bin/$calendar_alias")
+    calendar_alias_host=$(target_asset_entry_host_path "__INSTALLER_PATH_DIR_USR_LOCAL__/bin/$calendar_alias")
     ln -sfnT labwc-app "$calendar_alias_host"
   done
   unset calendar_alias calendar_alias_host

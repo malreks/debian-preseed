@@ -10540,34 +10540,6 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/appearance_setup/release.py",
-        "source_members": [
-          "scripts/desktop/appearance_setup/release.py"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_LABWC_DESKTOP_THEMES_SHA256",
-      "namespace": "SCALAR",
-      "owner": {
-        "function": "typed-consumer",
-        "module": "scripts/desktop/appearance_setup/release.py",
-        "phase": "desktop-late"
-      },
-      "producer_map": "typed consumer contract",
-      "publication_kind": "plain",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "consumer-defined-validated-scalar-or-block",
-      "token": "__INSTALLER_LABWC_DESKTOP_THEMES_SHA256__"
-    },
-    {
-      "consumer": {
         "module": "hooks/target/etc/labwc/desktop.conf.tmpl",
         "source_members": [
           "hooks/target/etc/labwc/desktop.conf.tmpl"
@@ -23479,7 +23451,6 @@
           "scripts/desktop/satty.sh",
           "scripts/desktop/scrcpy-install.py",
           "scripts/desktop/scrcpy.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/desktop/waypaper.sh",
           "scripts/desktop/xwayland.sh",
           "scripts/firstboot/01-early.sh",
@@ -24074,7 +24045,6 @@
           "scripts/desktop/digital-assets.sh",
           "scripts/desktop/labwc.sh",
           "scripts/desktop/satty.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/desktop/waypaper.sh",
           "scripts/desktop/xwayland.sh",
           "scripts/firstboot/01-early.sh",
@@ -24685,7 +24655,6 @@
           "hooks/target/usr/local/sbin/common/account-create",
           "scripts/common/hardware-tuning-config.py",
           "scripts/desktop/fonts-install.py",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -25096,7 +25065,6 @@
           "scripts/common/network-profile-stage.py.tmpl",
           "scripts/common/scx-scheds.sh",
           "scripts/desktop/appearance_setup/defaults.py",
-          "scripts/desktop/components/appearance.sh",
           "scripts/desktop/components/artifacts-identities.sh",
           "scripts/desktop/components/core-renderers.sh.tmpl",
           "scripts/desktop/components/desktop-config.sh",
@@ -25109,7 +25077,6 @@
           "scripts/desktop/components/user-session.sh",
           "scripts/desktop/detect.sh.tmpl",
           "scripts/desktop/fangfrisch-configure.py",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/01-early.sh",
           "scripts/firstboot/02-collect.sh.tmpl",
           "scripts/firstboot/03-network.sh",
@@ -25539,7 +25506,6 @@
           "scripts/desktop/android-platform-tools.sh",
           "scripts/desktop/digital-assets.sh",
           "scripts/desktop/samloader.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/core.sh",
           "scripts/late/devops/policy-resolution.sh.tmpl",
           "scripts/late/llama.sh",
@@ -25797,9 +25763,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/late/software.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/software.sh.tmpl"
         ]
       },
@@ -25819,7 +25784,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "late-command"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -25883,9 +25847,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/late/software.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/software.sh.tmpl"
         ]
       },
@@ -25905,7 +25868,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "late-command"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -25913,9 +25875,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/late/software.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/software.sh.tmpl"
         ]
       },
@@ -25935,7 +25896,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "late-command"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -25971,9 +25931,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/late/software.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/software.sh.tmpl"
         ]
       },
@@ -25993,7 +25952,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "late-command"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -26039,9 +25997,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/late/software.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/software.sh.tmpl"
         ]
       },
@@ -26061,39 +26018,10 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "late-command"
       ],
       "syntax": "absolute-normalized-target-path",
       "token": "__INSTALLER_PATH_DIR_OPT_TUTA_MAIL__"
-    },
-    {
-      "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
-        "source_members": [
-          "scripts/desktop/verify.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_OPT_VIVALDI",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_OPT_VIVALDI__"
     },
     {
       "consumer": {
@@ -26159,9 +26087,7 @@
           "hooks/target/usr/local/share/desktop/applications/postman.desktop.tmpl",
           "hooks/target/usr/local/share/desktop/applications/sleek.desktop.tmpl",
           "scripts/desktop/calendar-install.py",
-          "scripts/desktop/components/target-assets.sh",
           "scripts/desktop/satty.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/desktop/virtualization.sh",
           "scripts/desktop/waypaper.sh",
           "scripts/desktop/xwayland.sh",
@@ -26481,7 +26407,6 @@
           "hooks/target/usr/local/bin/server/codex.tmpl",
           "hooks/target/usr/local/lib/common/python3/dist-packages/gitbuild/core.py",
           "hooks/target/usr/local/sbin/common/account-create",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/gitbuild-policy.py",
           "scripts/server/setup.py.tmpl"
         ]
@@ -26502,7 +26427,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "late-command",
         "shared-bootstrap",
         "target-asset"
@@ -26746,7 +26670,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-admin-action-worker",
           "hooks/target/usr/local/libexec/desktop/podman-devops-host",
           "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/late/gitbuild-policy.py",
           "scripts/late/network-sharing.py",
@@ -26771,7 +26694,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot",
         "late-command",
         "shared-bootstrap",
@@ -26937,8 +26859,7 @@
           "hooks/target/usr/local/bin/desktop/labwc-wayland-compat-app",
           "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/integrity.py",
           "hooks/target/usr/local/libexec/desktop/labwc-compat-open-uri",
-          "hooks/target/usr/local/libexec/desktop/labwc-zoom-discord-compat-runtime",
-          "scripts/desktop/verify.sh.tmpl"
+          "hooks/target/usr/local/libexec/desktop/labwc-zoom-discord-compat-runtime"
         ]
       },
       "default_policy": "fail-closed",
@@ -26957,7 +26878,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "target-asset"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -27017,9 +26937,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-zoom-discord-compat-runtime",
           "hooks/target/usr/local/libexec/desktop/llama-whisper-coordinate",
           "scripts/desktop/appearance-setup.py",
-          "scripts/desktop/components/appearance.sh",
           "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/gitbuild-policy.py"
         ]
       },
@@ -28443,8 +28361,7 @@
       "consumer": {
         "module": "scripts/desktop/components/target-assets.sh",
         "source_members": [
-          "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/desktop/components/target-assets.sh"
         ]
       },
       "default_policy": "fail-closed",
@@ -28460,7 +28377,7 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
         "desktop-late"
@@ -28554,34 +28471,6 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
-        "source_members": [
-          "scripts/desktop/verify.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_DBUS_BROKER_DROPIN",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_DBUS_BROKER_DROPIN__"
-    },
-    {
-      "consumer": {
         "module": "scripts/late/security.sh",
         "source_members": [
           "scripts/late/security.sh"
@@ -28641,7 +28530,6 @@
         "module": "scripts/desktop/components/target-assets.sh",
         "source_members": [
           "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup"
         ]
       },
@@ -28761,7 +28649,6 @@
         "module": "scripts/desktop/components/logging.sh.tmpl",
         "source_members": [
           "scripts/desktop/components/logging.sh.tmpl",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/security.sh"
         ]
       },
@@ -28786,34 +28673,6 @@
       ],
       "syntax": "absolute-normalized-target-path",
       "token": "__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LOGROTATE_TIMER_DROPIN__"
-    },
-    {
-      "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
-        "source_members": [
-          "scripts/desktop/verify.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LYNIS_DROPIN",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LYNIS_DROPIN__"
     },
     {
       "consumer": {
@@ -28876,9 +28735,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/late/network.sh",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/network.sh"
         ]
       },
@@ -28895,10 +28753,9 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
-        "desktop-late",
         "late-command"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -28906,9 +28763,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/late/network.sh",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/late/network.sh"
         ]
       },
@@ -28925,10 +28781,9 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
-        "desktop-late",
         "late-command"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -29108,7 +28963,6 @@
         "module": "scripts/desktop/components/logging.sh.tmpl",
         "source_members": [
           "scripts/desktop/components/logging.sh.tmpl",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/late/software.sh.tmpl",
           "scripts/late/target-assets.sh"
@@ -29198,7 +29052,6 @@
         "module": "scripts/desktop/components/target-assets.sh",
         "source_members": [
           "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -29374,7 +29227,6 @@
         "module": "scripts/desktop/components/desktop-helpers.sh",
         "source_members": [
           "scripts/desktop/components/desktop-helpers.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -29404,8 +29256,7 @@
       "consumer": {
         "module": "scripts/desktop/components/desktop-helpers.sh",
         "source_members": [
-          "scripts/desktop/components/desktop-helpers.sh",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/desktop/components/desktop-helpers.sh"
         ]
       },
       "default_policy": "fail-closed",
@@ -29421,7 +29272,7 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
         "desktop-late"
@@ -29435,7 +29286,6 @@
         "source_members": [
           "scripts/desktop/components/desktop-helpers.sh",
           "scripts/desktop/components/user-session.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -29465,8 +29315,7 @@
       "consumer": {
         "module": "scripts/desktop/components/desktop-helpers.sh",
         "source_members": [
-          "scripts/desktop/components/desktop-helpers.sh",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/desktop/components/desktop-helpers.sh"
         ]
       },
       "default_policy": "fail-closed",
@@ -29482,7 +29331,7 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
         "desktop-late"
@@ -29526,7 +29375,6 @@
           "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
           "scripts/common/filen-install.py",
           "scripts/common/hardware-tuning-config.py",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
           "scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup",
@@ -29551,7 +29399,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot",
         "late-command",
         "shared-bootstrap",
@@ -29562,37 +29409,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_SYSTEMD_USER_DBUS_BROKER_DROPIN",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_SYSTEMD_USER_DBUS_BROKER_DROPIN__"
-    },
-    {
-      "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
-        "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -29612,7 +29430,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -29620,9 +29437,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -29642,7 +29458,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -29650,9 +29465,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -29672,7 +29486,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -29680,65 +29493,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_SYSTEMD_USER_GVFS_DAEMON_DROPIN",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_SYSTEMD_USER_GVFS_DAEMON_DROPIN__"
-    },
-    {
-      "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
-        "source_members": [
-          "scripts/desktop/verify.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_SYSTEMD_USER_GVFS_UDISKS2_VOLUME_MONITOR_DROPIN",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_SYSTEMD_USER_GVFS_UDISKS2_VOLUME_MONITOR_DROPIN__"
-    },
-    {
-      "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
-        "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -29758,7 +29514,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -29766,67 +29521,10 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
-        "source_members": [
-          "scripts/desktop/verify.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_BITWARDEN_FAMILY_DROPIN",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_BITWARDEN_FAMILY_DROPIN__"
-    },
-    {
-      "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
-        "source_members": [
-          "scripts/desktop/verify.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_COMPAT_FAMILY_DROPIN",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_COMPAT_FAMILY_DROPIN__"
-    },
-    {
-      "consumer": {
         "module": "scripts/common/hardware-tuning-config.py",
         "source_members": [
           "scripts/common/hardware-tuning-config.py",
-          "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/desktop/components/target-assets.sh"
         ]
       },
       "default_policy": "fail-closed",
@@ -29842,7 +29540,7 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
         "desktop-late",
@@ -29855,8 +29553,7 @@
       "consumer": {
         "module": "scripts/common/hardware-tuning-config.py",
         "source_members": [
-          "scripts/common/hardware-tuning-config.py",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/common/hardware-tuning-config.py"
         ]
       },
       "default_policy": "fail-closed",
@@ -29872,10 +29569,9 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
-        "desktop-late",
         "shared-bootstrap"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -29885,8 +29581,7 @@
       "consumer": {
         "module": "scripts/common/hardware-tuning-config.py",
         "source_members": [
-          "scripts/common/hardware-tuning-config.py",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/common/hardware-tuning-config.py"
         ]
       },
       "default_policy": "fail-closed",
@@ -29902,10 +29597,9 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
-        "desktop-late",
         "shared-bootstrap"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -29913,38 +29607,9 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
-        "source_members": [
-          "scripts/desktop/verify.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_QBITTORRENT_FAMILY_DROPIN",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "desktop-late"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_SYSTEMD_USER_LABWC_QBITTORRENT_FAMILY_DROPIN__"
-    },
-    {
-      "consumer": {
         "module": "scripts/common/hardware-tuning-config.py",
         "source_members": [
-          "scripts/common/hardware-tuning-config.py",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/common/hardware-tuning-config.py"
         ]
       },
       "default_policy": "fail-closed",
@@ -29960,10 +29625,9 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
-        "desktop-late",
         "shared-bootstrap"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -29973,8 +29637,7 @@
       "consumer": {
         "module": "scripts/desktop/components/target-assets.sh",
         "source_members": [
-          "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/desktop/components/target-assets.sh"
         ]
       },
       "default_policy": "fail-closed",
@@ -29990,7 +29653,7 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
         "desktop-late"
@@ -30060,9 +29723,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30082,7 +29744,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30090,9 +29751,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30112,7 +29772,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30120,9 +29779,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30142,7 +29800,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30150,9 +29807,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30172,7 +29828,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30180,9 +29835,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30202,7 +29856,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30213,7 +29866,6 @@
         "module": "scripts/desktop/components/target-assets.sh",
         "source_members": [
           "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30244,7 +29896,6 @@
         "module": "scripts/desktop/components/target-assets.sh",
         "source_members": [
           "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30274,8 +29925,7 @@
       "consumer": {
         "module": "scripts/desktop/components/target-assets.sh",
         "source_members": [
-          "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/desktop/components/target-assets.sh"
         ]
       },
       "default_policy": "fail-closed",
@@ -30291,7 +29941,7 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
         "desktop-late"
@@ -30301,9 +29951,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30323,7 +29972,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30334,7 +29982,6 @@
         "module": "scripts/desktop/components/user-session.sh",
         "source_members": [
           "scripts/desktop/components/user-session.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30362,9 +30009,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30384,7 +30030,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30392,9 +30037,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30414,7 +30058,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30422,9 +30065,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30444,7 +30086,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30452,9 +30093,8 @@
     },
     {
       "consumer": {
-        "module": "scripts/desktop/verify.sh.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -30474,7 +30114,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30488,7 +30127,6 @@
           "hooks/target/usr/local/sbin/common/account-create",
           "scripts/desktop/components/desktop-helpers.sh",
           "scripts/desktop/kanshi-policy.py",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/late/software.sh.tmpl"
         ]
@@ -30907,7 +30545,6 @@
           "scripts/desktop/android-platform-tools.sh",
           "scripts/desktop/appearance-setup.py",
           "scripts/desktop/calendar-install.py",
-          "scripts/desktop/components/appearance.sh",
           "scripts/desktop/components/artifacts-identities.sh",
           "scripts/desktop/components/compz.sh",
           "scripts/desktop/components/core-renderers.sh.tmpl",
@@ -30932,7 +30569,6 @@
           "scripts/desktop/satty.sh",
           "scripts/desktop/scrcpy-install.py",
           "scripts/desktop/scrcpy.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/desktop/waypaper.sh",
           "scripts/desktop/xwayland.sh",
           "scripts/firstboot/01-early.sh",
@@ -31034,7 +30670,6 @@
           "hooks/target/usr/local/libexec/common/apt-refresh-lists.tmpl",
           "hooks/target/usr/local/libexec/common/swap-fallback-setup.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-hyprpolkit-agent",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl"
         ]
       },
@@ -31054,7 +30689,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot",
         "target-asset"
       ],
@@ -31187,7 +30821,6 @@
           "hooks/target/usr/local/libexec/common/tpm2-policy-check",
           "scripts/desktop/components/desktop-helpers.sh",
           "scripts/desktop/components/target-assets.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/desktop/xwayland.sh",
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
           "scripts/firstboot/assets/etc/initramfs-tools/scripts/installer-health-common",
@@ -31444,7 +31077,6 @@
           "scripts/desktop/kanshi-policy.py",
           "scripts/desktop/resctl-bench-install.py",
           "scripts/desktop/scrcpy-install.py",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/01-early.sh",
           "scripts/firstboot/02-collect.sh.tmpl",
           "scripts/firstboot/03-network.sh",
@@ -31754,7 +31386,6 @@
           "scripts/common/filen-install.py",
           "scripts/common/snander-install.py.tmpl",
           "scripts/desktop/kanshi-policy.py",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
           "scripts/firstboot/assets/usr/local/sbin/tpm2-enroll.sh",
@@ -31942,8 +31573,7 @@
       "consumer": {
         "module": "scripts/desktop/calendar-install.py",
         "source_members": [
-          "scripts/desktop/calendar-install.py",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/desktop/calendar-install.py"
         ]
       },
       "default_policy": "fail-closed",
@@ -31959,7 +31589,7 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
         "desktop-late"
@@ -32000,7 +31630,6 @@
         "module": "hooks/target/usr/local/bin/desktop/labwc-sync-application-launchers.tmpl",
         "source_members": [
           "hooks/target/usr/local/bin/desktop/labwc-sync-application-launchers.tmpl",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/late/software.sh.tmpl",
           "scripts/late/tor-browser.sh"
@@ -32022,7 +31651,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot",
         "late-command",
         "target-asset"
@@ -32452,7 +32080,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-zoom-discord-compat-runtime",
           "scripts/common/hardware-tuning.sh",
           "scripts/desktop/android-platform-tools.sh",
-          "scripts/desktop/components/appearance.sh",
           "scripts/desktop/components/apps.sh",
           "scripts/desktop/components/compz.sh",
           "scripts/desktop/components/core-renderers.sh.tmpl",
@@ -32472,7 +32099,6 @@
           "scripts/desktop/satty.sh",
           "scripts/desktop/scrcpy.sh",
           "scripts/desktop/templates/recording-whisper.xml.fragment",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/desktop/waypaper.sh",
           "scripts/desktop/xwayland.sh",
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
@@ -32557,7 +32183,6 @@
           "scripts/desktop/satty.sh",
           "scripts/desktop/scrcpy-install.py",
           "scripts/desktop/scrcpy.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/desktop/waypaper.sh",
           "scripts/desktop/xwayland.sh",
           "scripts/firstboot/01-early.sh",
@@ -33200,7 +32825,6 @@
           "scripts/desktop/components/stage-assets.sh",
           "scripts/desktop/components/target-assets.sh",
           "scripts/desktop/satty.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
           "scripts/late/assets/etc/skel-desktop/.bashrc.installer-base",
           "scripts/late/btrfs-family.sh",
@@ -33732,9 +33356,7 @@
           "scripts/desktop/appearance_setup/defaults.py",
           "scripts/desktop/appearance_setup/theme_install.py",
           "scripts/desktop/calendar-install.py",
-          "scripts/desktop/components/appearance.sh",
           "scripts/desktop/components/apps.sh",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
           "scripts/firstboot/assets/etc/initramfs-tools/scripts/installer-health-common",
           "scripts/late/account.sh",
@@ -34884,7 +34506,6 @@
         "module": "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
         "source_members": [
           "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/firstboot/assets/var/lib/firstboot/bin/crowdsec-firstboot.tmpl",
           "scripts/runtime/modules/classes.sh",
@@ -34907,7 +34528,6 @@
       "publication_kind": "firstboot",
       "required": true,
       "source_family": [
-        "desktop-late",
         "firstboot",
         "shared-bootstrap",
         "target-asset"
@@ -35126,7 +34746,6 @@
           "hooks/target/usr/local/libexec/common/network-wifi-configure",
           "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
           "scripts/common/network-profile-stage.py.tmpl",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/server/setup.py.tmpl"
         ]
       },
@@ -35146,7 +34765,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "shared-bootstrap",
         "target-asset"
       ],
@@ -37627,34 +37245,6 @@
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
       "token": "__INSTALLER_SNANDER_ARTIFACT_HOSTS__"
-    },
-    {
-      "consumer": {
-        "module": "hooks/target/etc/snander/install.json.tmpl",
-        "source_members": [
-          "hooks/target/etc/snander/install.json.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_SNANDER_BINARY_SHA256",
-      "namespace": "SCALAR",
-      "owner": {
-        "function": "typed-consumer",
-        "module": "hooks/target/etc/snander/install.json.tmpl",
-        "phase": "target-asset"
-      },
-      "producer_map": "typed consumer contract",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "target-asset"
-      ],
-      "syntax": "consumer-defined-validated-scalar-or-block",
-      "token": "__INSTALLER_SNANDER_BINARY_SHA256__"
     },
     {
       "consumer": {
@@ -77079,7 +76669,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-swaybg.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl",
           "scripts/desktop/detect.sh.tmpl",
-          "scripts/desktop/verify.sh.tmpl",
           "scripts/firstboot/04-validation.sh.tmpl"
         ]
       },
@@ -77114,8 +76703,7 @@
           "hooks/target/etc/skel-desktop/.config/swaylock/config.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-swaylock.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl",
-          "scripts/desktop/detect.sh.tmpl",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/desktop/detect.sh.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -77145,8 +76733,7 @@
         "module": "hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl",
         "source_members": [
           "hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl",
-          "scripts/desktop/detect.sh.tmpl",
-          "scripts/desktop/verify.sh.tmpl"
+          "scripts/desktop/detect.sh.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -108541,6 +108128,7 @@
           "scripts/desktop/kanshi-policy.py",
           "scripts/desktop/resctl-bench-install.py",
           "scripts/desktop/scrcpy-install.py",
+          "scripts/desktop/vivaldi-codecs-install.py",
           "scripts/desktop/waybar_geometry.py",
           "scripts/late/codex-state.py",
           "scripts/late/packer-plugins.py",
@@ -108648,6 +108236,7 @@
           "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
           "scripts/common/filen-install.py",
           "scripts/desktop/appearance-setup.py",
+          "scripts/desktop/vivaldi-codecs-install.py",
           "scripts/late/crypto-bootstrap.py.tmpl",
           "scripts/late/network-sharing.py",
           "scripts/late/ssh/ssh-install.py",
@@ -108890,6 +108479,7 @@
           "scripts/desktop/kanshi-policy.py",
           "scripts/desktop/resctl-bench-install.py",
           "scripts/desktop/scrcpy-install.py",
+          "scripts/desktop/vivaldi-codecs-install.py",
           "scripts/desktop/waybar_geometry.py",
           "scripts/firstboot/import-initramfs.py.tmpl",
           "scripts/firstboot/service-account-processes.py",
@@ -109083,7 +108673,7 @@
           "scripts/desktop/components/target-assets.sh",
           "scripts/desktop/fangfrisch-configure.py",
           "scripts/desktop/fonts-install.py",
-          "scripts/desktop/verify.sh.tmpl",
+          "scripts/desktop/vivaldi-codecs-install.py",
           "scripts/late/devops/gitbuild.sh",
           "scripts/late/podman.sh",
           "scripts/late/tmpfiles-directories.py.tmpl"
@@ -109286,6 +108876,7 @@
           "scripts/desktop/kanshi-policy.py",
           "scripts/desktop/resctl-bench-install.py",
           "scripts/desktop/scrcpy-install.py",
+          "scripts/desktop/vivaldi-codecs-install.py",
           "scripts/desktop/waybar_geometry.py",
           "scripts/firstboot/import-initramfs.py.tmpl",
           "scripts/firstboot/service-account-processes.py",
@@ -109475,6 +109066,7 @@
           "scripts/desktop/kanshi-policy.py",
           "scripts/desktop/resctl-bench-install.py",
           "scripts/desktop/scrcpy-install.py",
+          "scripts/desktop/vivaldi-codecs-install.py",
           "scripts/desktop/waybar_geometry.py",
           "scripts/firstboot/import-initramfs.py.tmpl",
           "scripts/firstboot/service-account-processes.py",
@@ -109608,7 +109200,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "8de43ac1ff391b15630c5116b78c682a32fb363c78bbff10e2d99ad9b0d52476",
+  "source_fingerprint": "82ccd59731fe3414c40f72070a88e4ac40e64be8d8fb1283afbe476100b76fdb",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

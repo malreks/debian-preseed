@@ -1358,7 +1358,7 @@ target_managed_network_link_types
         components = render_theme_defaults(payload_read_text(FORKY / 'scripts/desktop/components.sh'))
         self.assertIn(f'desktop_stage_role_asset {rel} /{rel} 0644', components)
         self.assertIn('.config/wayscriber \\', components)
-        for path in ('scripts/desktop/verify.sh', 'scripts/firstboot/04-validation.sh'):
+        for path in ('scripts/firstboot/04-validation.sh',):
             self.assertIn('.config/wayscriber/config.toml', render_theme_defaults(payload_read_text(FORKY / path)))
 
 

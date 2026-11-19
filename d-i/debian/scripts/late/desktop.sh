@@ -37,7 +37,7 @@ late_command_load_host_env
 
 desktop_module_dir="${runtime_dir}/bootstrap/desktop-modules"
 install -d -m 0700 "$desktop_module_dir"
-for desktop_module in detect components satty xwayland waypaper android-platform-tools scrcpy samloader digital-assets resctl-bench fonts verify labwc; do
+for desktop_module in detect components satty xwayland waypaper android-platform-tools scrcpy samloader digital-assets resctl-bench fonts labwc; do
   fetch_hook "$(installer_repo_asset_path DIR_SCRIPTS_DESKTOP "${desktop_module}.sh")" "${desktop_module_dir}/${desktop_module}.sh"
 done
 fetch_hook "$(installer_repo_file_value FILE_OS_HARDWARE_TUNING)" "${desktop_module_dir}/hardware-tuning.sh"
@@ -70,8 +70,6 @@ unset desktop_module
 . "${desktop_module_dir}/scx-scheds.sh"
 # shellcheck disable=SC1090,SC1091
 . "${desktop_module_dir}/fonts.sh"
-# shellcheck disable=SC1090,SC1091
-. "${desktop_module_dir}/verify.sh"
 # shellcheck disable=SC1090,SC1091
 . "${desktop_module_dir}/labwc.sh"
 

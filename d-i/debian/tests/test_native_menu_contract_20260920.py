@@ -216,14 +216,6 @@ class MenuContractTests(unittest.TestCase):
         self.assertEqual(result.stdout.count('PASS: actual staged GtkMenu'), 3)
 
     def test_installer_checks_every_menu_and_required_gtk_dependency(self):
-        source = payload_read_text(FORKY / 'scripts/desktop/verify.sh')
-        function = source.split('desktop_verify_native_menus() {', 1)[1].split('\ndesktop_verify_target_staging()', 1)[0]
-        for _, name, _ in MODULES:
-            self.assertIn('"' + name + '"', function)
-        for text in ('menus=5', 'unwired native menu leaf', 'bounded Waybar runner',
-                     'optional Whisper menu/service availability differs'):
-            self.assertIn(text, function)
-        self.assertIn('"format-alt" not in entry and "format-alt-click" not in entry', function)
         packages = payload_read_text(FORKY / 'classes/class-select/role/desktop.cfg').split()
         for package in ('python3-gi', 'gir1.2-gtk-3.0', 'gir1.2-gtklayershell-0.1',
                         'mako-notifier', 'libgtk4-layer-shell0'):

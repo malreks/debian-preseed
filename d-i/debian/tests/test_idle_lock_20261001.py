@@ -323,10 +323,6 @@ class WiringTests(unittest.TestCase):
                            ('usr/local/libexec/labwc-swaylock', '0755'),
                            ('etc/systemd/user/labwc-lock.service', '0644')):
             self.assertIn(f'desktop_stage_role_asset {path} /{path} {mode}', staging)
-        verification = (SEED/'scripts/desktop/verify.sh.tmpl').read_text()
-        self.assertEqual(verification.count('/etc/systemd/user/labwc-lock.service \\\n'), 1)
-        self.assertEqual(verification.count('seen_bindings = set()'), 1)
-        self.assertIn('ge 1.8.6', verification)
         self.assertIn('InhibitDelayMaxSec=30s', (TARGET/'etc/systemd/logind.conf.d/70-labwc-lock.conf').read_text())
         session = (TARGET/'usr/local/bin/labwc-session.tmpl').read_text()
         self.assertEqual(session.count('/usr/bin/rm -f -- "$XDG_RUNTIME_DIR/labwc-idle.json"'), 2)
