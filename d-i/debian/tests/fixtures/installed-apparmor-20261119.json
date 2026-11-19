@@ -1,0 +1,32 @@
+{
+  "description": "All distinct denials in the historical browser capture supplied on November 19; replay against the current Bubblewrap payload policy.",
+  "source_path": "todo/apparmor.log",
+  "source_sha256": "fa059b3cf536915eb8809def264f66ec9b1287065ca44e6c96ab7231dc6b6f36",
+  "record_counts": {"DENIED": 158},
+  "file_requests": [
+    {"profile": "labwc-app//app-bwrap", "operation": "open", "name": "/etc/chromium/policies/managed/", "requested_mask": "r", "owner": false, "count": 78},
+    {"profile": "labwc-app//app-bwrap", "operation": "open", "name": "/etc/chromium/policies/recommended/", "requested_mask": "r", "owner": false, "count": 78},
+    {"profile": "labwc-app//app-bwrap", "operation": "open", "name": "/etc/chromium/master_preferences", "requested_mask": "r", "owner": false, "count": 1},
+    {"profile": "labwc-app//app-bwrap", "operation": "exec", "name": "/usr/lib/x86_64-linux-gnu/glib-2.0/gio-launch-desktop", "requested_mask": "x", "owner": false, "count": 1}
+  ],
+  "additional_requests": [
+    {"name": "/etc/chromium/policies/", "requested_mask": "r"},
+    {"name": "/etc/chromium/policies/managed/3proxy.json", "requested_mask": "r"},
+    {"name": "/etc/chromium/policies/managed/security.json", "requested_mask": "r"},
+    {"name": "/etc/chromium/policies/recommended/preferences.json", "requested_mask": "r"},
+    {"name": "/usr/lib/x86_64-linux-gnu/glib-2.0/gio-launch-desktop", "requested_mask": "rx"},
+    {"name": "/usr/lib/aarch64-linux-gnu/glib-2.0/gio-launch-desktop", "requested_mask": "rx"}
+  ],
+  "excluded_requests": [
+    {"name": "/etc/chromium/policies/managed/", "requested_mask": "wx"},
+    {"name": "/etc/chromium/policies/recommended/", "requested_mask": "wx"},
+    {"name": "/etc/chromium/policies/managed/3proxy.json", "requested_mask": "wx"},
+    {"name": "/etc/chromium/policies/recommended/preferences.json", "requested_mask": "wx"},
+    {"name": "/etc/chromium/master_preferences", "requested_mask": "wx"},
+    {"name": "/etc/chromium/unrelated-secret", "requested_mask": "rwx"},
+    {"name": "/etc/chromium/policies/managed/unrelated-secret", "requested_mask": "rwx"},
+    {"name": "/usr/lib/x86_64-linux-gnu/glib-2.0/gio-launch-desktop", "requested_mask": "w"},
+    {"name": "/usr/lib/x86_64-linux-gnu/glib-2.0/untrusted-helper", "requested_mask": "x"},
+    {"name": "/usr/bin/sudo", "requested_mask": "x"}
+  ]
+}

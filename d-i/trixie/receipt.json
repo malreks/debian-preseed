@@ -110,7 +110,7 @@
     "forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia-opt-in.pref": "f0807aa36985641cda05e26f57a17843d10d91937fa1d887b97278bf0935f576",
     "forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref": "53ddaec3db7a22f7f0abb039b06a0bc2b61a47d5eb339547e2ee7554841454b4",
     "forky/hooks/target/etc/apt/server/preferences.d/x11.pref": "f1bf7d0bf738e3c897ca67827fdb54bd174c130c5ab94603e5e1d9e8044cbc7d",
-    "forky/preseed.cfg": "4242f0c285106bec03517940e5ca70ffc27eea3a79fe684f4b8dbc45b12d6ddb",
+    "forky/preseed.cfg": "f5d10540ed63c1e26e27a9eea702e515d189ad50d0a557e8f46dd80df21b2144",
     "trixie/classes/class-auto/arch/amd64.cfg": "ef281a7ab7e72279590ddc47ce2b7841520501e173b503297a810593471e0563",
     "trixie/classes/class-auto/arch/arm64.cfg": "4c3cfb002099fb17b5930ab6c31d1eb6b7f4adcea66ecbaae2c401eb6cc410a4",
     "trixie/classes/class-auto/cpu/amd.cfg": "a118fd164dafc9fc1b2c86d4f9f9ff369d2407e7a1f1ba1ea0768d24f0c624c6",
@@ -214,18 +214,18 @@
     "trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia-opt-in.pref": "f0807aa36985641cda05e26f57a17843d10d91937fa1d887b97278bf0935f576",
     "trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref": "53ddaec3db7a22f7f0abb039b06a0bc2b61a47d5eb339547e2ee7554841454b4",
     "trixie/hooks/target/etc/apt/server/preferences.d/x11.pref": "94baeed7859a83e8e469cac8b91b58e1992e803584a8576215c5a1d89d0e42f5",
-    "trixie/preseed.cfg": "08a936a6f0417bd7bc98d311141ea6a1eb926ab4b14e139605aaa29468450c1b"
+    "trixie/preseed.cfg": "4b7876d48ba9b417c5136d1158c0e10e84035f372b786a0cdd2d5631fb7fc6f0"
   },
   "members": 2433,
   "products": {
-    "payload.manifest": "9e75224077030757e47eab9afbbd9636857197ab48e5850e6950155cdd3c7c29",
-    "payload.tar.gz": "1789a69bdc41e327b23128e5b0b1922d11ff687f8a53fa17f804ba1b26363cec",
+    "payload.manifest": "3a9780049ed44c30e3cd2499d95bf5dab33ec9167a3129cb71a7729f6676b88f",
+    "payload.tar.gz": "acd080febfa3d29fa9d5554d4055f778e45bfd7484f90135dd8cc05b97b594af",
     "source.sh": "93acffbabc0addc077ecd7f7827a2ae5bdb1ec94c5b5dc60283da00dd73dd7fb",
     "support-matrix.json": "d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef"
   },
-  "release": "894ea7d26345a4d257c45e85844747ab9b78af0bc45dca38f60656272a80013c",
+  "release": "ecdc45979c0e25a43b2887658b308666ce8ada3fe37f66dd2a7f0fb5441f25c6",
   "runtime_acceptance": "unverified; no installer, native checks or tests executed",
-  "source_fingerprint": "5d6563d4520d47c69435136d3e8cc6550bb147068e85c9ce6c901f5f5918b917",
+  "source_fingerprint": "50309c8b173555f4fc84438f400ef131d1c3415f6626dd757ad72e2d19e9f822",
   "source_inputs": {
     "catalog/placeholder-registry.tsv": "2f3b32fce3b6b7dfc7bc2745d21790747b5ed97c84862e65db2a5496fd93c6e1",
     "catalog/runtime-paths.tsv": "dc1d9cde145ce8002a98ba646745307cedb2006038dd863ed8825f86c303950b",
@@ -557,7 +557,7 @@
     "hooks/target/etc/apparmor.d/desktop/compz": "a4bc80d43a4e41be64e1b50d72784d3901cc9a6988e7e18093851e036cb9b000",
     "hooks/target/etc/apparmor.d/desktop/desktop-system-wrappers.tmpl": "e2656d117e2d4f6891e65aec42f82205ab68606c85b000461d9e333f75168dd7",
     "hooks/target/etc/apparmor.d/desktop/desktop-utilities": "63200d97aa93022bdc5463100a286fd860c008e40c9f4d8697008ee0a9ad7754",
-    "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl": "667a9b5c2db9ff7cb99591bd80b1f29085d789278244e5eb170790d8b609c9c6",
+    "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl": "5458db1c0cbbf54436fe5f0045f8a4237c6a6db5f6389c41315e662d5fac1fae",
     "hooks/target/etc/apparmor.d/desktop/document-applications": "d170bff8cb3e2e38da2a13213d954d2b61093add1377712451247faf524a0a89",
     "hooks/target/etc/apparmor.d/desktop/gitbuild": "ad454a0f5ca088372739a924ff0e25d700ea324dd7e5ea93c5adddcbf41d3fdf",
     "hooks/target/etc/apparmor.d/desktop/incus-desktop-ui": "8e58035bc7e9606f0714fbb6420e50b5f209bd486f26bbf9af4c575273cb4e45",

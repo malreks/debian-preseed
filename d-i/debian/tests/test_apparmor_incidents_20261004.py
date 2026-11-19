@@ -33,6 +33,7 @@ OCTOBER_12 = json.loads((SEED / 'tests/fixtures/installed-apparmor-20261012.json
 OCTOBER_16 = json.loads((SEED / 'tests/fixtures/installed-apparmor-20261016.json').read_text(encoding='utf-8'))
 OCTOBER_25 = json.loads((SEED / 'tests/fixtures/installed-apparmor-20261025.json').read_text(encoding='utf-8'))
 OCTOBER_25_HARDWARE = json.loads((SEED / 'tests/fixtures/installed-apparmor-20261025-hardware.json').read_text(encoding='utf-8'))
+NOVEMBER_19 = json.loads((SEED / 'tests/fixtures/installed-apparmor-20261119.json').read_text(encoding='utf-8'))
 
 
 def body(file, label):
@@ -136,6 +137,13 @@ class HardwareTuningNvmlDenialsTests(unittest.TestCase):
 
 
 class MullvadLauncherDenialsTests(unittest.TestCase):
+    def test_glib_desktop_trampoline_inherits_the_payload_domain(self):
+        payload = body('desktop-wrappers', 'app-bwrap')
+        rules = [line.strip() for line in payload.splitlines()
+                 if 'gio-launch-desktop' in line and not line.lstrip().startswith('#')]
+        self.assertEqual(rules, ['/usr/lib/@{multiarch}/glib-2.0/gio-launch-desktop rix,'])
+        self.assertEqual(sum(row['count'] for row in NOVEMBER_19['file_requests']), 158)
+
     def test_id_ln_and_wayland_proxy_grants_are_in_the_bubblewrap_payload(self):
         outer = body('desktop-wrappers', 'labwc-app')
         self.assertIn('profile app-bwrap ', outer)
@@ -904,6 +912,23 @@ class SuppliedDenialTests(unittest.TestCase):
                 self.assertTrue(set('rw') <= permissions('desktop-btop', filename))
                 self.assertNotIn('w', permissions('desktop-btop', filename, owned=False))
             payload = 'labwc-app//app-bwrap'
+            # November 19: direct Chromium attachment grants do not apply to
+            # this no_new_privs payload. Replay every distinct supplied denial
+            # and the policy-file reads needed after directory enumeration.
+            for event in NOVEMBER_19['file_requests']:
+                with self.subTest(installed_november_19=event):
+                    self.assertEqual(event['profile'], payload)
+                    self.assertLessEqual(set(event['requested_mask']),
+                                         permissions(payload, event['name'], owned=event['owner']))
+            for event in NOVEMBER_19['additional_requests']:
+                with self.subTest(browser_policy_access=event):
+                    self.assertLessEqual(set(event['requested_mask']),
+                                         permissions(payload, event['name'], owned=False))
+            for event in NOVEMBER_19['excluded_requests']:
+                with self.subTest(browser_policy_exclusion=event):
+                    for owned in (False, True):
+                        self.assertFalse(set(event['requested_mask']) &
+                                         permissions(payload, event['name'], owned=owned))
             # October 16: replay every distinct root-owned RetroArch read,
             # including the hex-encoded filename containing spaces.
             self.assertEqual(OCTOBER_16['profile'], payload)

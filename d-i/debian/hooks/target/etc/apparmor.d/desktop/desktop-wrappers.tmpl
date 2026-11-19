@@ -2663,6 +2663,12 @@ profile labwc-app __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{labwc-app,labwc-agenda,l
     # Browser mkdir probes run against the sandbox's synthetic /etc.
     # Only the probed directories are writable; host policy files stay read-only.
     owner __INSTALLER_PATH_DIR_ETC_OPT__/{,chrome/,chrome/native-messaging-hosts/} rw,
+    # Chromium keeps this child domain after Bubblewrap sets no_new_privs;
+    # local/chromium belongs to the direct attachment and cannot supply these
+    # reads. The sandbox binds system policy read-only in both launch modes.
+    __INSTALLER_PATH_DIR_ETC__/chromium/master_preferences r,
+    __INSTALLER_PATH_DIR_ETC__/chromium/policies/{,managed/,recommended/} r,
+    __INSTALLER_PATH_DIR_ETC__/chromium/policies/{managed,recommended}/*.json r,
     __INSTALLER_PATH_DIR_ETC__/vivaldi/{,**} r,
     # The Vivaldi launcher selects this system-installed H.264/AAC library.
     # The mount is read-only and only libraries in vendor codec directories map.
@@ -2706,6 +2712,9 @@ profile labwc-app __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{labwc-app,labwc-agenda,l
     # Do not add Px/Ux transitions after Bubblewrap has set no_new_privs.
     #include <abstractions/wrapper-python>
     __INSTALLER_PATH_DIR_USR__/bin/{xdg-open,systemd-run} rix,
+    # GLib uses this package-owned trampoline for desktop/URI handlers too.
+    # Inherit the payload domain, including its execution allowlist and denies.
+    __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/glib-2.0/gio-launch-desktop rix,
     # Mullvad Browser's shell launcher keeps these helpers in app-bwrap.
     __INSTALLER_PATH_DIR_USR__/bin/{id,ln} rix,
     # Postman's login-shell probe and CLI/plugin installer inherit this
