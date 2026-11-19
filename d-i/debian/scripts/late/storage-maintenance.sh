@@ -4,10 +4,9 @@
 
 finish_target_pkgsel_apt_state() {
   # pkgsel owns the complete compiled package list. Only retire its
-  # temporary legacy-CUDA APT exception here; do not rescan/reinstall it.
-  if command -v cuda_legacy_target_apt_required >__INSTALLER_PATH_DIR_DEV__/null 2>&1 && cuda_legacy_target_apt_required; then
-    cuda_legacy_cleanup_target_apt_state
-  fi
+  # temporary legacy-NVIDIA/CUDA repository here; do not rescan/reinstall it.
+  # Driver-only selections also publish this source and need the same cleanup.
+  installer_cuda_remove_target_source
 }
 
 managed_target_policy_assets() {

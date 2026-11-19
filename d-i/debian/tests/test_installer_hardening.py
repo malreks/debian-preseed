@@ -1307,6 +1307,9 @@ printf '%s\n' 1
 
     def test_normalization_and_validation_precede_unmount(self):
         text = payload_read_text(ROOT/'hooks/installer/d-i/early.sh')
+        early_apt_hook = '09-cuda-legacy-cleanup)" "${DIR_INSTALLER_FINISH_INSTALL_D}/09-cuda-legacy-cleanup"'
+        self.assertIn(early_apt_hook, text)
+        self.assertTrue('07preseed' < '09-cuda-legacy-cleanup' < '10apt-cdrom-setup')
         finish_hook = '99-normalize-finish)" "/usr/lib/finish-install.d/94zz-10-normalize-finish"'
         apt_hook = '95-normalize-apt)" "/usr/lib/finish-install.d/94zz-20-normalize-apt"'
         self.assertIn(finish_hook, text)

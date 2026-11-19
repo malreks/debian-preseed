@@ -123,7 +123,7 @@ class DesktopVendorPackageTests(unittest.TestCase):
     def test_pkgsel_handoff_only_retires_temporary_apt_state(self):
         source = (FORKY / 'scripts/late/storage-maintenance.sh').read_text(encoding='utf-8')
         handoff = source.split('finish_target_pkgsel_apt_state() {', 1)[1].split('\n}\n', 1)[0]
-        self.assertIn('cuda_legacy_cleanup_target_apt_state', handoff)
+        self.assertIn('installer_cuda_remove_target_source', handoff)
         for obsolete in ('dpkg-query', 'apt-get', 'capture_in_target', 'missing_packages'):
             self.assertNotIn(obsolete, handoff)
 

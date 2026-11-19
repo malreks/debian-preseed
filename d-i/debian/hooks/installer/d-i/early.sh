@@ -139,6 +139,10 @@ family_d_i_early_main() {
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/95-normalize-apt)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt"
   chmod 0755 ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/00-installer-guard)" ${DIR_INSTALLER_FINISH_INSTALL_D}/00-installer-guard
+  # 07preseed runs late_command. Retire the legacy archive again afterwards,
+  # before stock 10apt-cdrom-setup performs an ordinary target APT update.
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/09-cuda-legacy-cleanup)" "${DIR_INSTALLER_FINISH_INSTALL_D}/09-cuda-legacy-cleanup"
+  chmod 0755 "${DIR_INSTALLER_FINISH_INSTALL_D}/09-cuda-legacy-cleanup"
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/94zz-99-validate-target)" ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-99-validate-target
   # Interpose on the first base-installer APT update, not on the later
   # apt-setup generator. The adapter rejects unknown d-i waypoint layouts.

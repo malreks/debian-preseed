@@ -605,37 +605,121 @@ installer_cuda_stage_target_source() (
 installer_cuda_remove_target_source() (
   set -eu
   umask 077
-  installer_cuda_runtime_paths
-  repository=$(installer_cuda_repository_url)
+  installer_cuda_runtime_paths || exit "$?"
+  repository=$(installer_cuda_repository_url) || exit "$?"
+  origin=${repository#https://}
+  origin=${origin%/}
   target=${INSTALLER_TARGET_DIR:-${TARGET_ROOT}}
   case "$target" in
-    /) ;;
+    /) installer_fatal 'refusing to retire CUDA sources in the installer root'; exit 1 ;;
     /*) target=${target%/} ;;
     *) installer_fatal "CUDA target root must be absolute: ${target}"; exit 1 ;;
   esac
   source_dir="$target${DIR_APT}"
-  source="$source_dir/sources.list"
-  [ -f "$source" ] || exit 0
-  installer_apt_safe_path "$source" || exit "$?"
-  [ "$(installer_metadata_value "$source" links)" = 1 ] || exit 1
-  work=$(mktemp "$source_dir/.cuda-legacy.XXXXXX") || exit "$?"
+  parts_dir="$target${DIR_APT_SOURCES_LIST_D}"
+  installer_apt_safe_path "$source_dir" || exit "$?"
+  installer_apt_safe_path "$parts_dir" || exit "$?"
+  work=
+  marker=
   cleanup_cuda_source() {
     original=$?
     trap - 0 HUP INT TERM
-    if rm -f "$work"; then
-      :
-    else
-      cleanup=$?
-      [ "$original" -ne 0 ] || original=$cleanup
-    fi
+    for artifact in "$work" "$marker"; do
+      [ -n "$artifact" ] || continue
+      if rm -f "$artifact"; then :; else
+        cleanup=$?
+        [ "$original" -ne 0 ] || original=$cleanup
+      fi
+    done
     exit "$original"
   }
   trap cleanup_cuda_source 0
   trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
-  awk -v repository="$repository" 'index($0, repository) == 0 {print}' "$source" >"$work" || exit "$?"
-  source_mode=$(installer_metadata_value "$source" mode) || exit "$?"
-  chmod "$source_mode" "$work" || exit "$?"
-  mv -f "$work" "$source" || exit "$?"
+  # apt-setup, modernize-sources and interrupted source suspension can leave
+  # the same archive in different files. Retire active entries and their source
+  # backups together, independently of the current driver/toolkit selection.
+  for source in "$source_dir/sources.list" "$source_dir/sources.list".* "$parts_dir/"*; do
+    # sources.list.d is the canonical directory, not a sources.list backup.
+    [ "$source" != "$parts_dir" ] || continue
+    [ -e "$source" ] || [ -L "$source" ] || continue
+    case "${source##*/}" in
+      *.sources) deb822=1 ;;
+      *.list) deb822=0 ;;
+      *.sources.*) deb822=1 ;;
+      *.list.*|cuda-legacy-temp.*) deb822=0 ;;
+      *) continue ;;
+    esac
+    installer_apt_safe_path "$source" || exit "$?"
+    [ -f "$source" ] && [ "$(installer_metadata_value "$source" links)" = 1 ] || exit 1
+    if grep -Fq "$origin" "$source"; then :; else
+      source_status=$?
+      [ "$source_status" -eq 1 ] && continue
+      exit "$source_status"
+    fi
+    work=$(mktemp "${source%/*}/.cuda-retire.XXXXXX") || exit "$?"
+    marker=$(mktemp "${source%/*}/.cuda-retire-state.XXXXXX") || exit "$?"
+    awk -v origin="$origin" -v deb822="$deb822" -v marker="$marker" '
+      function legacy(uri) {
+        sub(/\r$/, "", uri)
+        if (uri !~ /^https?:\/\//) return 0
+        sub(/^https?:\/\//, "", uri); sub(/\/$/, "", uri)
+        return uri == origin
+      }
+      function flush(    count,i,value,end,tokens,j,kept,removed,drop,stanza) {
+        count=stanza_count; stanza_count=0; drop=0
+        if (!count) return
+        for (i=1; i<=count; i++) {
+          if (tolower(lines[i]) !~ /^uris[ \t]*:/) continue
+          value=lines[i]; sub(/^[^:]*:[ \t]*/, "", value)
+          end=i
+          while (end<count && lines[end+1] ~ /^[ \t#]/) {
+            end++
+            if (lines[end] !~ /^[ \t]*#/) value=value " " lines[end]
+          }
+          tokens=split(value, urls, /[ \t\r\n]+/); kept=""; removed=0
+          for (j=1; j<=tokens; j++) {
+            if (legacy(urls[j])) removed=1
+            else if (urls[j]!="") kept=kept (kept=="" ? "" : " ") urls[j]
+          }
+          if (removed) {
+            changed=1
+            if (kept=="") { drop=1; break }
+            lines[i]="URIs: " kept
+            for (j=i+1; j<=end; j++) lines[j]=""
+          }
+          i=end
+        }
+        if (!drop) {
+          stanza=""
+          for (i=1; i<=count; i++) if (lines[i]!="") stanza=stanza (stanza=="" ? "" : "\n") lines[i]
+          print stanza; print ""
+        }
+      }
+      !deb822 {
+        for (i=1; i<=NF; i++) if (legacy($i)) { changed=1; next }
+        print; next
+      }
+      {
+        sub(/\r$/, "", $0)
+        if ($0 ~ /^[ \t]*$/) flush()
+        else lines[++stanza_count]=$0
+      }
+      # Do not override awk I/O errors with an END exit status. The private
+      # marker distinguishes unchanged input from a successful rewrite.
+      END { if (deb822) flush(); if (changed) print "changed" >marker }
+    ' "$source" >"$work" || exit "$?"
+    if [ -s "$marker" ]; then
+      rm -f "$marker" || exit "$?"
+      marker=
+      source_mode=$(installer_metadata_value "$source" mode) || exit "$?"
+      chmod "$source_mode" "$work" || exit "$?"
+      mv -fT -- "$work" "$source" || exit "$?"
+    else
+      rm -f "$marker" "$work" || exit "$?"
+      marker=
+    fi
+    work=
+  done
 )
 
 installer_cuda_refresh_target_apt() (

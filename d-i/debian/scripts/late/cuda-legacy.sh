@@ -98,9 +98,6 @@ cuda_legacy_prepare_target_apt_state() {
 }
 
 cuda_legacy_cleanup_target_apt_state() {
-  # nvidia-legacy now owns this repository even when no toolkit is selected.
-  # Retain its scoped key and repository for upgrades, without the temporary
-  # installer authentication/date exception.
-  installer_cuda_stage_target_source "$(installer_cuda_repository_url)" / "" persistent || return "$?"
-  installer_info "retained signed legacy NVIDIA repository after pkgsel"
+  installer_cuda_remove_target_source || return "$?"
+  installer_info "removed the installer-only legacy NVIDIA/CUDA repository after pkgsel"
 }

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Run after 07preseed/late_command and before 10apt-cdrom-setup updates APT.
+set -eu
+runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+common_lib="$runtime/bootstrap/common-lib.sh"
+[ -r "$common_lib" ] || {
+  printf '%s\n' 'fatal: installer common library is unavailable for CUDA source cleanup' >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+. "$common_lib"
+installer_operation_context_repo hooks/installer/finish-install.d/09-cuda-legacy-cleanup 12 finish_install_cuda_cleanup
+host_env="${DIR_INSTALLER_ENV}/host.env"
+[ -r "$host_env" ] || installer_fatal 'composed host policy is unavailable for CUDA source cleanup'
+# shellcheck disable=SC1090,SC1091
+installer_load_data_env "$host_env"
+if installer_cuda_remove_target_source; then
+  :
+else
+  cleanup_status=$?
+  installer_fatal_status "$cleanup_status" 'could not retire the legacy NVIDIA/CUDA source before finish-install APT update'
+fi
+installer_info 'removed the installer-only legacy NVIDIA/CUDA repository before finish-install APT update'

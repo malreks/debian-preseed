@@ -294,7 +294,7 @@ refresh_non_cuda_target_metadata apt-get update
             self.assertEqual(payload_read_text(self.source), rendered_source())
             self.assertFalse(payload_source_exists(Path(str(self.source)+'.installer-disabled')))
 
-    def test_cleanup_retains_signed_driver_repository_and_unrelated_sources(self):
+    def test_cleanup_retires_installer_repository_and_preserves_unrelated_sources(self):
         self.source.parent.mkdir(parents=True)
         self.source.write_text(rendered_source())
         other = self.source.parent/'debian.sources'; other.write_text('debian policy\n')
@@ -304,8 +304,7 @@ cuda_legacy_cleanup_target_apt_state
         ''', self.env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(payload_source_exists(self.source))
-        self.assertIn(REPO, payload_read_text(self.source))
-        self.assertIn(f'signed-by={KEY_PATH}', payload_read_text(self.source))
+        self.assertNotIn(REPO, payload_read_text(self.source))
         for option in ('trusted=yes', 'allow-insecure=yes', 'allow-weak=yes',
                        'check-valid-until=no', 'check-date=no'):
             self.assertNotIn(option, payload_read_text(self.source))
@@ -361,11 +360,30 @@ if cuda_legacy_prepare_target_apt_state; then exit 0; else exit "$?"; fi
                 self.assertEqual(payload_read_text(self.source), rendered_source())
 
     def test_late_cleanup_failure_is_not_masked_by_logging(self):
+        self.source.parent.mkdir(parents=True)
+        self.source.write_text(rendered_source())
         result = shell(f'''. {shlex.quote(str(SEED/'scripts/late/cuda-legacy.sh'))}
-rm() {{ return 74; }}
+mv() {{ return 74; }}
 if cuda_legacy_cleanup_target_apt_state; then exit 91; else exit "$?"; fi
 ''', self.env)
         self.assertEqual(result.returncode, 74, result.stdout+result.stderr)
+        self.assertEqual(payload_read_text(self.source), rendered_source())
+
+    @skip_unless_installer_apt_ancestry
+    def test_cleanup_source_formats_and_finish_handoff(self):
+        fixture = SEED/'tests/fixtures/contracts/cuda-finish.sh'
+        cases = ('sources', 'missing', 'driver-only', 'toolkit', 'unselected',
+                 'early-hook', 'early-failure', 'missing-policy', 'late-normalizer', 'publish-failure',
+                 'cleanup-failure', 'filter-io-failure', 'symlink', 'hardlink', 'parts-symlink')
+        for case in cases:
+            with self.subTest(case=case):
+                result = subprocess.run(payload_installed_argv([
+                    '/bin/sh', str(fixture), str(SEED), str(self.root), case,
+                ]), env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
+                         'HOME': str(self.root), 'TMPDIR': str(self.root),
+                         'TMP': str(self.root), 'TEMP': str(self.root)},
+                    capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
 
 
 class QuietHTTP(http.server.SimpleHTTPRequestHandler):

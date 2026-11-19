@@ -1,6 +1,7 @@
 #!/bin/sh
-# Finish-install hook: repair target APT sources before apt reads them, then
-# modernize and normalize generated .sources files and Debian archive stanzas.
+# Late finish-install hook: repair sources before modernize-sources, then
+# normalize generated .sources files and Debian archive stanzas. The early
+# 09-cuda-legacy-cleanup hook already retired CUDA before the stock APT update.
 # The target normalizer groups the exact 3proxy archive into 3proxy.sources,
 # retaining apt-setup's scoped Signed-By key; it does not use global trust.
 set -eu
@@ -12,8 +13,6 @@ CONTEXT_ENV="${RUNTIME_DIR}/state/context.env"
 TARGET=
 ENV_DIR=${INSTALLER_ENV_DIR:-}
 HOST_ENV=
-CUDA_LEGACY_REPO_URL=
-CUDA_LEGACY_REPO_MATCH=
 
 if [ -r "$BOOTSTRAP_LIB" ]; then
   # shellcheck disable=SC1090
@@ -44,8 +43,6 @@ if [ -r "$BOOTSTRAP_LIB" ]; then
   # identity. It carries the target suite selected by the generated frontend.
   # shellcheck disable=SC1090
   . "$CONTEXT_ENV"
-  CUDA_LEGACY_REPO_URL=${CUDA_LEGACY_REPOSITORY_URL%/}
-  CUDA_LEGACY_REPO_MATCH=${CUDA_LEGACY_REPO_URL#https://}
 else
   printf '%s\n' "fatal: installer common library is unavailable: ${BOOTSTRAP_LIB}" >&2
   exit 1
@@ -194,54 +191,8 @@ remove_cdrom_repo_state() {
 }
 
 remove_cuda_legacy_repo_state() {
-  if installer_nvidia_legacy_selected; then
-    if installer_cuda_legacy_selected; then
-      # The source belongs to the driver class. End the temporary CUDA-only
-      # authentication exception before publishing the installed APT policy.
-      installer_cuda_stage_target_source "$(installer_cuda_repository_url)" / "" persistent || return "$?"
-    fi
-    log "retained selected legacy NVIDIA repository with normal signature verification"
-    return 0
-  fi
-  sources_list="${TARGET}${DIR_APT}/sources.list"
-  remaining_source=
-
-  strip_exact_repo_from_list_file "$sources_list" "$CUDA_LEGACY_REPO_MATCH"
-
-  for src in "${TARGET}${DIR_APT_SOURCES_LIST_D}/cuda-legacy-temp".*; do
-    [ -f "$src" ] || continue
-    rm -f "$src"
-  done
-
-  find "${TARGET}${DIR_APT_SOURCES_LIST_D}" -maxdepth 1 -type f | while IFS= read -r src; do
-    case "${src##*/}" in
-      *.list|*.list.*)
-        strip_exact_repo_from_list_file "$src" "$CUDA_LEGACY_REPO_MATCH"
-        dedupe_list_file_lines "$src"
-        ;;
-      *.sources|*.sources.*)
-        strip_exact_repo_from_sources_file "$src" "$CUDA_LEGACY_REPO_MATCH"
-        ;;
-    esac
-  done
-
-  rm -f "${TARGET}${FILE_APT_CUDA_LEGACY_ARCHIVE_KEY}"
-
-  if [ -f "$sources_list" ] && grep -F -q "$CUDA_LEGACY_REPO_MATCH" "$sources_list"; then
-    log "legacy CUDA repository remains in ${sources_list}"
-    return 1
-  fi
-  remaining_source=$(
-    find "${TARGET}${DIR_APT_SOURCES_LIST_D}" -maxdepth 1 -type f \
-      -exec grep -F -l "$CUDA_LEGACY_REPO_MATCH" {} \; |
-      sed -n '1p'
-  )
-  if [ -n "$remaining_source" ]; then
-    log "legacy CUDA repository remains in ${remaining_source}"
-    return 1
-  fi
-
-  log "removed all staged legacy CUDA Debian 12 source artifacts and keyring state"
+  installer_cuda_remove_target_source || return "$?"
+  log "removed staged legacy CUDA Debian 12 sources before modernization"
 }
 
 [ -d "$TARGET" ] || exit 0
@@ -255,9 +206,8 @@ installer_apt_dedupe_source_list "${TARGET}${DIR_APT}/sources.list"
 log "repairing and normalizing apt sources before apt modernize-sources"
 rewrite_apt_http_to_https
 remove_cdrom_repo_state
-# End the installer-only legacy source policy before the normalizer moves
-# sources.list entries into vendor .sources files. Otherwise an old temporary
-# stanza and a new persistent stanza could disagree about authentication.
+# Safety net for any source staged since 09-cuda-legacy-cleanup. Never recreate
+# this installer-only archive while normalizing the installed APT policy.
 remove_cuda_legacy_repo_state
 run_in_target "$FILE_INSTALLER_APT_NORMALIZE_SOURCES"
 log "running apt modernize-sources in target"
