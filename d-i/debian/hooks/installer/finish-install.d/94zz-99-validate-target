@@ -10,6 +10,19 @@ runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
 . "$runtime/bootstrap/common-lib.sh"
 . "$runtime/bootstrap/di.env"
 installer_lifecycle_paths
+# The frozen runtime.env below contains layout decisions, not target roots.
+# Read the same compiled host policy as the preceding finish normalizers.
+installer_operation_context_repo hooks/installer/finish-install.d/94zz-99-validate-target 17 finish_install_validate_target
+host_env="${DIR_INSTALLER_ENV}/host.env"
+[ -r "$host_env" ] || installer_fatal "missing host environment: ${host_env}"
+if installer_load_data_env "$host_env"; then
+  :
+else
+  host_env_status=$?
+  installer_fatal_status "$host_env_status" "finish-install validation host profile data was rejected: ${host_env}"
+fi
+[ -n "${DIR_VAR_LIB_INSTALLER_STATE:-}" ] ||
+  installer_fatal 'finish-install validation host profile is missing DIR_VAR_LIB_INSTALLER_STATE'
 [ -r "${DIR_INSTALLER_ENV}/runtime.env" ] || {
   validate_target_message='installer runtime environment is unavailable'
   printf '[finish-install:validate-target] fatal: %s\n' "$validate_target_message" >&2
@@ -26,7 +39,7 @@ installer_lifecycle_paths
 }
 # shellcheck disable=SC1090,SC1091
 . "${DIR_INSTALLER_ENV}/runtime.env"
-installer_operation_context_repo hooks/installer/finish-install.d/94zz-99-validate-target 25 finish_install_validate_target
+installer_operation_context_repo hooks/installer/finish-install.d/94zz-99-validate-target 42 finish_install_validate_target
 tmp=
 finish_validate_target_exit() {
   finish_validate_target_status=$?

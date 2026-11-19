@@ -33,8 +33,19 @@ if [ -r "$BOOTSTRAP_LIB" ]; then
   ACCOUNT_ENV="${ENV_DIR}/account.env"
   RUNTIME_ENV="${ENV_DIR}/runtime.env"
   STATE_RUNTIME_ENV="${DIR_INSTALLER_RUNTIME_STATE}/runtime.env"
+  installer_operation_context_repo hooks/installer/finish-install.d/99-normalize-finish 36 finish_install_normalize
+  # A finish hook starts in a fresh process. common-lib loads repository and
+  # d-i paths; target paths come from the separately compiled host policy.
+  [ -r "$HOST_ENV" ] || installer_fatal "missing host environment: ${HOST_ENV}"
+  if installer_load_data_env "$HOST_ENV"; then
+    :
+  else
+    host_env_status=$?
+    installer_fatal_status "$host_env_status" "finish-install host profile data was rejected: ${HOST_ENV}"
+  fi
+  [ -n "${DIR_VAR_LIB_INSTALLER_STATE:-}" ] ||
+    installer_fatal 'finish-install host profile is missing DIR_VAR_LIB_INSTALLER_STATE'
   TARGET_LOG_FILE="${TARGET}${DIR_VAR_LIB_INSTALLER_STATE}/installer.log"
-  installer_operation_context_repo hooks/installer/finish-install.d/99-normalize-finish 37 finish_install_normalize
 else
   normalize_finish_message=$(printf '%s' "installer common library is unavailable: ${BOOTSTRAP_LIB}" | tr '\r\n\t' '   ')
   printf '[finish-install:normalize] fatal: %s\n' "$normalize_finish_message" >&2
@@ -339,12 +350,6 @@ trap 'finish_log "$?"' EXIT
 restore_temporary_installer_os_prober
 [ -d "$TARGET" ] || exit 0
 target_is_mounted || exit 0
-restore_temporary_unshare
-restore_temporary_nvidia_initramfs_guard
-[ -r "$HOST_ENV" ] || {
-  log "fatal: missing host env: $HOST_ENV"
-  exit 1
-}
 [ -r "$ACCOUNT_ENV" ] || {
   log "fatal: missing account env: $ACCOUNT_ENV"
   exit 1
@@ -354,13 +359,13 @@ if [ ! -r "$RUNTIME_ENV" ] && [ -r "$STATE_RUNTIME_ENV" ]; then
 fi
 
 # shellcheck disable=SC1090
-installer_load_data_env "$HOST_ENV"
-# shellcheck disable=SC1090
 installer_load_data_env "$ACCOUNT_ENV"
 if [ -r "$RUNTIME_ENV" ]; then
   # shellcheck disable=SC1090
   . "$RUNTIME_ENV"
 fi
+restore_temporary_unshare
+restore_temporary_nvidia_initramfs_guard
 
 bool_is_true() {
   case "${1:-}" in

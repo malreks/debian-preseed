@@ -5225,7 +5225,11 @@ def check_runtime_path_publication(paths: list[Path], errors: list[str], counts:
         'scripts/common/modules/files-logging.sh', 'hosts/installer/runtime.env',
         'scripts/late/tailscale.sh', 'scripts/late/devops.sh.tmpl',
         'scripts/late/devops/main-orchestration.sh', 'scripts/late/whisper.sh',
-        'scripts/late/llama.sh', 'scripts/late/desktop.sh', 'scripts/desktop/waypaper.sh')}
+        'scripts/late/llama.sh', 'scripts/late/desktop.sh', 'scripts/desktop/waypaper.sh',
+        'hooks/installer/finish-install.d/09-cuda-legacy-cleanup',
+        'hooks/installer/finish-install.d/99-normalize-finish',
+        'hooks/installer/finish-install.d/95-normalize-apt',
+        'hooks/installer/finish-install.d/94zz-99-validate-target')}
     if not (owners | {Path(__file__).resolve()}).intersection(paths):
         return
     values = dict(_installer_path_token_values())
@@ -5319,6 +5323,22 @@ def check_runtime_path_publication(paths: list[Path], errors: list[str], counts:
         if loaded < 0 or used < 0 or loaded > used:
             errors.append(member + ': profile paths must load before helper rendering')
     counts['runtime_path_entrypoint_contracts'] = 5
+    # d-i launches each finish hook in a fresh shell. The common library and
+    # frozen layout state supply no target roots. Check the actual policy
+    # handoff before log derivation, source normalization or readiness state.
+    finish_contracts = (
+        ('09-cuda-legacy-cleanup', 'host_env', 'if installer_cuda_remove_target_source;'),
+        ('99-normalize-finish', 'HOST_ENV', 'TARGET_LOG_FILE="${TARGET}${DIR_VAR_LIB_INSTALLER_STATE}/installer.log"'),
+        ('95-normalize-apt', 'HOST_ENV', '\nrewrite_apt_http_to_https\n'),
+        ('94zz-99-validate-target', 'host_env', 'target_state="${target}${DIR_VAR_LIB_INSTALLER_STATE}"'),
+    )
+    for member, variable, consumer in finish_contracts:
+        source = _read_text(DEBIAN_ROOT / 'hooks/installer/finish-install.d' / member)
+        loaded = source.find('installer_load_data_env "$' + variable + '"')
+        used = source.find(consumer)
+        if loaded < 0 or used < 0 or loaded > used:
+            errors.append(member + ': compiled host policy must load before target path use')
+    counts['runtime_path_finish_entrypoint_contracts'] = len(finish_contracts)
 
 
 def check_diff(errors: list[str]) -> None:
