@@ -190,7 +190,7 @@ bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
 bootstrap_source_common_lib ""
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/tailscale}
-installer_operation_context_repo FILE_LATE_TAILSCALE 192 tailscale
+installer_operation_context_repo scripts/late/tailscale.sh 192 tailscale
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target || {
   tailscale_fatal "failed to source installer late support libraries"
@@ -211,8 +211,8 @@ account_runtime=${DIR_INSTALLER_LATE_ENV}/account-runtime.sh
 # target paths. Load the validated composite before fetching path templates.
 installer_load_data_env "$host_env"
 [ -r "$account_env" ] || installer_prepare_late_account_env "$seed_base" "$account_env"
-[ -r "$runtime_common" ] || fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_COMMON)" "$runtime_common"
-[ -r "$account_runtime" ] || fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" "$account_runtime"
+[ -r "$runtime_common" ] || fetch_hook_file "$(installer_repo_file_value scripts/runtime/common.sh)" "$runtime_common"
+[ -r "$account_runtime" ] || fetch_hook_file "$(installer_repo_file_value scripts/runtime/account.sh)" "$account_runtime"
 runtime_env_file=${INSTALLER_RUNTIME_ENV_FILE:-${DIR_INSTALLER_ENV}/runtime.env}
 if [ ! -r "$runtime_env_file" ]; then
   runtime_env_file="${INSTALLER_RUNTIME_STATE_DIR:-$(installer_runtime_state_dir)}/runtime.env"
@@ -221,7 +221,7 @@ fi
 dbus_helper="${tmp_env_dir}/dbus-broker.sh"
 # Reacquire through the authenticated renderer even on a resumed attempt: a
 # readable file left by an older failed render is not a usable module cache.
-fetch_hook_file "$(installer_repo_file_value FILE_LATE_DBUS_BROKER)" "$dbus_helper"
+fetch_hook_file "$(installer_repo_file_value scripts/late/dbus-broker.sh)" "$dbus_helper"
 
 # shellcheck disable=SC1090,SC1091
 unset ACCOUNT_USERNAME ACCOUNT_HOME
@@ -329,17 +329,17 @@ fi
 unset auth_key 2>__INSTALLER_PATH_DIR_DEV__/null || true
 
 tailscale_render_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_DEFAULT_TAILSCALED_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/default/tailscaled.tmpl)" \
   "$FILE_TAILSCALED_DEFAULT" 0644 \
   PORT "$(installer_shell_quote "${TAILSCALE_UDP_PORT:-41641}")" \
   FLAGS "$(installer_shell_quote "--tun=${tailscale_interface} --no-logs-no-support")"
 
 tailscale_stage_target_asset \
-  "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_BIN_TAILSCALE_UP)" \
+  "$(installer_repo_file_value scripts/firstboot/assets/var/lib/firstboot/bin/tailscale-up)" \
   "${FILE_TAILSCALE_MANAGED_HELPER}" \
   0755
 tailscale_render_target_asset \
-  "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_UNIT_TAILSCALE_BOOTSTRAP_SERVICE_TMPL)" \
+  "$(installer_repo_file_value scripts/firstboot/assets/etc/systemd/system/tailscale-bootstrap.service.tmpl)" \
   "${FILE_TAILSCALE_BOOTSTRAP_SERVICE}" \
   0644 --environment \
   TAILSCALE_AUTH_KEY_FILE "$auth_key_file" \
@@ -369,22 +369,22 @@ tailscale_render_target_asset \
   TAILSCALE_TIMEOUT "${TAILSCALE_TIMEOUT:-2m}" \
   TAILSCALE_DAEMON_WAIT_SECONDS "${TAILSCALE_DAEMON_WAIT_SECONDS:-60}"
 tailscale_render_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_UNIT_TAILSCALED_SERVICE_D_OVERRIDE_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/tailscaled.service.d/override.conf.tmpl)" \
   "${FILE_TAILSCALED_SERVICE_OVERRIDE}" \
   0644 \
   TAILSCALE_INTERFACE_REGEX "$tailscale_interface_log_regex"
 tailscale_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_MODULES_LOAD_D_50_TAILSCALE)" \
+  "$(installer_repo_file_value hooks/target/etc/modules-load.d/50-tailscale.conf)" \
   "${FILE_TAILSCALE_TUN_MODULES_LOAD}" \
   0644
 tailscale_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TAILSCALE_NETKIT)" \
+  "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/tailscale-netkit)" \
   "${DIR_USR_LOCAL_LIBEXEC}/tailscale-netkit" 0755
 tailscale_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TAILSCALE_SSH_HOST)" \
+  "$(installer_repo_file_value hooks/target/usr/local/libexec/common/tailscale-ssh-host)" \
   "${DIR_USR_LOCAL_LIBEXEC}/tailscale-ssh-host" 0755
 tailscale_render_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_TAILSCALE_NETKIT_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/tailscale/netkit.json.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/tailscale/netkit.json 0644 \
   TAILSCALE_INTERFACE "$tailscale_interface" \
   ETHERNET_INTERFACE "$tailscale_ethernet_interface" WIFI_INTERFACE "$tailscale_wifi_interface" \
@@ -392,21 +392,21 @@ tailscale_render_target_asset \
   DNS_HOST_ADDRESS "$APP_VETH_DNS_HOST_ADDRESS" DNS_HOST_PORT "$APP_VETH_DNS_HOST_PORT" \
   TAILSCALE_ACCEPT_DNS "${TAILSCALE_ACCEPT_DNS:-false}"
 tailscale_render_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_NETWORKMANAGER_CONF_D_75_TAILSCALE_NETKIT_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/NetworkManager/conf.d/75-tailscale-netkit.conf.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/NetworkManager/conf.d/75-tailscale-netkit.conf 0644 \
   TAILSCALE_INTERFACE "$tailscale_interface"
 tailscale_render_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_92_TAILSCALE_NETKIT_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/sysctl.d/desktop/92-tailscale-netkit.conf.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/sysctl.d/92-tailscale-netkit.conf 0644 \
   ETHERNET_INTERFACE "$tailscale_ethernet_interface" WIFI_INTERFACE "$tailscale_wifi_interface"
 tailscale_run_target_chroot "verify private Tailscale assets without activation" \
   "${DIR_USR_LOCAL_LIBEXEC}/tailscale-netkit" validate-target
 tailscale_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_SYNCTHING_CONFIGURE)" \
+  "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/syncthing-configure)" \
   "${FILE_MANAGED_SYNCTHING_HELPER}" \
   0755
 tailscale_render_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_UNIT_SYNCTHING_SERVICE_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/syncthing.service.tmpl)" \
   "${FILE_MANAGED_SYNCTHING_SERVICE}" \
   0644 \
   ACCOUNT_USERNAME "$ACCOUNT_USERNAME" \
@@ -414,13 +414,13 @@ tailscale_render_target_asset \
   DIR_HOME_SYNCTHING "$DIR_HOME_SYNCTHING" \
   DIR_HOME_SYNCTHING_STATE "$DIR_HOME_SYNCTHING_STATE"
 tailscale_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_UNIT_SYNCTHING_SERVICE_D_60_RESOURCE_CLASS)" \
+  "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/syncthing.service.d/60-resource-class.conf)" \
   __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_SYNCTHING_DROPIN__/60-resource-class.conf 0644
 
 
 
 tailscale_render_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_SYNCTHING_SERVICE_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/syncthing/service.conf.tmpl)" \
   "$FILE_MANAGED_SYNCTHING_DEFAULT" 0644 \
   SYNCTHING_TCP_PORT "$(installer_shell_quote "${SYNCTHING_TCP_PORT:-35000}")" \
   SYNCTHING_USER "$(installer_shell_quote "$ACCOUNT_USERNAME")" \

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 SETUP = r'''
 set -eu
-. "$FIXTURE_SOURCE/scripts/common/lifecycle.sh"
+. "$FIXTURE_SOURCE/scripts/common/source.sh"
 . "$FIXTURE_SOURCE/scripts/common/modules/files-logging.sh"
 . "$FIXTURE_SOURCE/scripts/common/modules/repository-apt.sh"
 . "$FIXTURE_SOURCE/scripts/common/apt-sources.sh"
@@ -27,22 +27,17 @@ installer_fatal() { printf '%s\n' "$*" >&2; exit 1; }
 installer_error() { printf '%s\n' "$*" >&2; }
 installer_info() { :; }
 installer_seed_base() { printf '%s\n' "$FIXTURE_ROOT/assets"; }
-installer_repo_dir_value() {
-  case "$1" in
-    DIR_TARGET_APT_APT_CONF_D) printf '%s\n' "$FIXTURE_ROOT/assets/common" ;;
-    DIR_TARGET_APT_DESKTOP_APT_CONF_D) printf '%s\n' "$FIXTURE_ROOT/assets/desktop" ;;
-    DIR_TARGET_APT_SERVER_APT_CONF_D) printf '%s\n' "$FIXTURE_ROOT/assets/server" ;;
-    *) exit 90 ;;
-  esac
-}
-INSTALLER_REPO_FILE_INDEX=$(cat "$FIXTURE_ROOT/catalog")
-installer_repo_file_value() {
-  printf '%s\n' "$INSTALLER_REPO_FILE_INDEX" | awk -F '|' -v name="$1" '
-    $1==name {print $2; found=1; exit} END {if(!found) exit 1}'
-}
+# Use the real small configuration parser and APT catalog consumer. Only the
+# fixture acquisition boundary maps safe members to the private source copy.
+source_load_repo_env "$FIXTURE_SOURCE/repo.env"
+INSTALLER_REPO_ENV_READY=1
+INSTALLER_REPO_SOURCE_ROOT=$FIXTURE_ROOT/assets
 installer_fetch_file() {
-  case "$2:$3" in "$FIXTURE_ROOT/assets/"*:"$FIXTURE_ROOT/target/"*) ;; *) exit 91 ;; esac
-  cp "$2" "$3"; chmod "$4" "$3"
+  installer_validate_repo_file_value fixture_member "$2"
+  case "$3" in "$FIXTURE_ROOT/target/"*) ;; *) exit 91 ;; esac
+  fixture_input=$INSTALLER_REPO_SOURCE_ROOT/$2
+  [ -f "$fixture_input" ] && [ ! -L "$fixture_input" ] || exit 92
+  cp "$fixture_input" "$3"; chmod "$4" "$3"
 }
 # FHS/package interfaces are rendered into the private target, never accessed
 # on the live host. Every subprocess inherits only this fixture's environment.
@@ -73,23 +68,29 @@ class AptPolicyPublication(unittest.TestCase):
     def prepare(self, root: Path, suite: str, family: str) -> dict[str, str]:
         assets = root / 'assets'
         source = ROOT / 'd-i' / suite / 'hooks/target/etc/apt'
-        rows = []
-        for group in ('common', family):
-            directory = source / ('apt.conf.d' if group == 'common' else group + '/apt.conf.d')
-            destination = assets / group
+        rows = ['format\t1\n']
+        for group in ('common', 'desktop', 'server'):
+            leaf = 'apt.conf.d' if group == 'common' else group + '/apt.conf.d'
+            directory = source / leaf
+            member_root = f'frontends/{suite}/hooks/target/etc/apt/{leaf}'
+            destination = assets / member_root
             destination.mkdir(parents=True, mode=0o700)
-            for index, path in enumerate(sorted(directory.iterdir())):
+            for path in sorted(directory.iterdir()):
                 self.assertTrue(path.is_file() and not path.is_symlink())
                 shutil.copyfile(path, destination / path.name)
-                rows.append(f'FILE_FIXTURE_{group.upper()}_{index}|{destination / path.name}\n')
-        (root / 'catalog').write_text(''.join(rows), encoding='ascii')
+                rows.append('\t'.join((suite, group, 'apt.conf.d', path.name,
+                                       member_root + '/' + path.name)) + '\n')
+        catalog = assets / 'catalog/compiled/apt-assets.tsv'
+        catalog.parent.mkdir(parents=True)
+        catalog.write_text(''.join(rows), encoding='ascii')
         parts = root / 'target/etc/apt/apt.conf.d'
         parts.mkdir(parents=True, mode=0o755)
         (parts / '00trustcdrom').write_text('ORIGINAL MEDIA POLICY\n', encoding='ascii')
         (parts / '.original-hidden').write_text('HIDDEN BACKUP DATA\n', encoding='ascii')
         return {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C',
                 'HOME': str(root), 'FIXTURE_ROOT': str(root),
-                'FIXTURE_SOURCE': str(ROOT / 'd-i/debian'), 'INSTALLER_HOST_VARIANT': family}
+                'FIXTURE_SOURCE': str(ROOT / 'd-i/debian'), 'INSTALLER_HOST_VARIANT': family,
+                'INSTALLER_SUITE': suite, 'TMPDIR': str(root), 'TMP': str(root), 'TEMP': str(root)}
 
     def invoke(self, root: Path, environment: dict[str, str], after: str = '') -> subprocess.CompletedProcess[str]:
         return subprocess.run(['/bin/sh', '-eu', '-c', SETUP + '\n' + after], cwd=root,

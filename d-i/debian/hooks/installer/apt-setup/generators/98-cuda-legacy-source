@@ -26,7 +26,7 @@ cuda_generator_fatal() {
 }
 # shellcheck disable=SC1090
 . "$COMMON_LIB"
-installer_operation_context_repo FILE_INST_APT_98_CUDA_LEGACY_SOURCE 29 cuda_legacy_apt_setup
+installer_operation_context_repo hooks/installer/apt-setup/generators/98-cuda-legacy-source 29 cuda_legacy_apt_setup
 
 installer_cuda_legacy_selected || exit 0
 

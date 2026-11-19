@@ -672,7 +672,7 @@ write_target_managed_network_input() {
     installer_fatal "MANAGED_NETWORK_ETHERNET_IFACE and MANAGED_NETWORK_WIFI_IFACE must differ"
 
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_LATE_TMPL_NETWORK_INPUT_TMPL)" \
+    "$(installer_repo_file_value scripts/late/templates/network-input.env.tmpl)" \
     "$(target_managed_network_input_target_path)" 0600 network_input_placeholder_map
 }
 
@@ -694,8 +694,8 @@ stage_target_managed_network_config() (
 
   # Explicit failure guards are required: this subshell is also called from
   # an || list, where POSIX shells suppress errexit even after set -e.
-  stage_target_asset "$(installer_repo_file_value FILE_LATE_NETWORK_GENERATE)" "$generator_target" 0700 || exit 1
-  fetch_hook "$(installer_repo_file_value FILE_LATE_TMPL_NETWORK_ASSETS)" "$network_stage/assets.list" || exit 1
+  stage_target_asset "$(installer_repo_file_value scripts/late/network-generate.pl)" "$generator_target" 0700 || exit 1
+  fetch_hook "$(installer_repo_file_value scripts/late/templates/network-assets.list)" "$network_stage/assets.list" || exit 1
   while IFS=' ' read -r network_kind network_selector network_asset; do
     case "$network_asset" in ''|*..*|*//*|*[!A-Za-z0-9_./-]*) installer_fatal "invalid network template path"; exit 1 ;; esac
     case "$network_kind" in
@@ -835,7 +835,7 @@ stage_target_networkmanager_dispatcher_activation_if_available() {
   fi
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_NETWORKING_SERVICE_D_20_RESOLVED_SHUTDOWN_ORDER)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/networking.service.d/20-resolved-shutdown-order.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_NETWORKING_DROPIN__/20-resolved-shutdown-order.conf \
     0644
 
@@ -894,11 +894,11 @@ stage_target_networkmanager_dispatcher_activation_if_available() {
   rm -f -- "$networkmanager_override_tmp"
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_NETWORKMANAGER_SERVICE_D_20_DISPATCHER)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/NetworkManager.service.d/20-dispatcher.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_NETWORKMANAGER_DROPIN__/20-dispatcher.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_NETWORKMANAGER_DISPATCHER_SERVICE_D_20_PERSISTENT)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/NetworkManager-dispatcher.service.d/20-persistent.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_NETWORKMANAGER_DISPATCHER_DROPIN__/20-persistent.conf \
     0644
   stage_target_systemd_unit_alias_to_path \
@@ -982,28 +982,28 @@ install_target_managed_network_handoff() {
   generate_target_managed_network_config "$network_mode" "$link_types"
   stage_target_managed_network_perl_modules
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_NETWORK_RUN)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/common/network-run)" \
     "${FILE_MANAGED_NETWORK_HELPER}" \
     0755
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_NETWORK_SERVICE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/network.service)" \
     "${FILE_MANAGED_NETWORK_SERVICE}" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_NETWORK_IFUP_HOTPLUG)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/common/network-ifup-hotplug)" \
     __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/network-ifup-hotplug 0755
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_IFUP_INSTANCE_SERVICE_D_40_DEVICE_LIFECYCLE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/ifup@.service.d/40-device-lifecycle.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_IFUP_TEMPLATE_DROPIN__/40-device-lifecycle.conf 0644
   if network_link_types_has "$link_types" ethernet && network_link_types_has "$link_types" wifi; then
     stage_target_asset \
-      "$(installer_repo_file_value FILE_TARGET_NETWORK_IF_UP_D_90_MANAGED_WIFI_PREFERENCE)" \
+      "$(installer_repo_file_value hooks/target/etc/network/desktop/if-up.d/90-managed-wifi-preference)" \
       __INSTALLER_PATH_DIR_ETC__/network/if-up.d/90-managed-wifi-preference 0755
     stage_target_asset \
-      "$(installer_repo_file_value FILE_TARGET_NETWORK_IF_POST_DOWN_D_90_MANAGED_WIFI_PREFERENCE)" \
+      "$(installer_repo_file_value hooks/target/etc/network/desktop/if-post-down.d/90-managed-wifi-preference)" \
       __INSTALLER_PATH_DIR_ETC__/network/if-post-down.d/90-managed-wifi-preference 0755
     stage_target_asset \
-      "$(installer_repo_file_value FILE_TARGET_UNIT_NETWORK_WIFI_CARRIER_INSTANCE_SERVICE)" \
+      "$(installer_repo_file_value hooks/target/etc/systemd/common/system/network-wifi-carrier@.service)" \
       __INSTALLER_PATH_DIR_ETC__/systemd/system/network-wifi-carrier@.service 0644
     # Reconciliation is event-driven. A periodic timer caused needless
     # start/finish churn while Ethernet remained healthy and also made every
@@ -1011,7 +1011,7 @@ install_target_managed_network_handoff() {
     remove_target_asset __INSTALLER_PATH_DIR_ETC__/systemd/system/network-wifi-carrier.timer
     remove_target_asset __INSTALLER_PATH_DIR_ETC__/systemd/system/timers.target.wants/network-wifi-carrier.timer
     render_target_asset_with_placeholder_map \
-      "$(installer_repo_file_value FILE_TARGET_UDEV_RULES_D_90_MANAGED_WIFI_PREFERENCE_TMPL)" \
+      "$(installer_repo_file_value hooks/target/etc/udev/rules.d/90-managed-wifi-preference.rules.tmpl)" \
       __INSTALLER_PATH_DIR_ETC__/udev/rules.d/90-managed-wifi-preference.rules 0644 \
       managed_network_wifi_udev_placeholder_map
   fi

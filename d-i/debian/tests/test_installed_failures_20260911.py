@@ -422,7 +422,7 @@ ensure_target_asset_parent /private/subdir/data
             'profile ksecretd',
         ):
             self.assertIn(fragment, bitwarden)
-        self.assertRegex(software, r'software_install_deb\s+\\\n\s*"Bitwarden Desktop"\s+\\\n\s*"\$bitwarden_deb"')
+        self.assertRegex(software, r'software_queue_deb\s+\\\n\s*"Bitwarden Desktop"\s+\\\n\s*"\$bitwarden_deb"')
         self.assertFalse(payload_source_exists(TARGET / 'usr/local/libexec/x-bitwarden-package'))
         self.assertNotIn('x-bitwarden-package',
                          payload_read_text(TARGET / 'etc/apparmor.d/desktop-wrappers'))

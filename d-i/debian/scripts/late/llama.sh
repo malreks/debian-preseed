@@ -841,7 +841,7 @@ bootstrap_source_common_lib "" ||
   llama_fatal "failed to source installer common library"
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LLAMA_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/llama}
-installer_operation_context_repo FILE_LATE_LLAMA 883 llama
+installer_operation_context_repo scripts/late/llama.sh 883 llama
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target ||
   llama_fatal "failed to source installer target support libraries"
@@ -878,16 +878,16 @@ target_wrapper_source_host="${target_root}${target_wrapper_source}"
 wrapper_source_tmp="${tmp_env_dir}/llama-launcher.$$"
 
 install -d -m 0700 "$tmp_env_dir"
-bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value FILE_LATE_LLAMA)" "$helper_tmp" 0600 "llama.cpp late helper"
+bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value scripts/late/llama.sh)" "$helper_tmp" 0600 "llama.cpp late helper"
 install -d -m 1777 "${target_root}/tmp"
 install -m 0700 "$helper_tmp" "$target_helper_host"
 chown 0:0 "$target_helper_host"
 rm -f -- "$helper_tmp"
-bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value FILE_LATE_AI_RUNTIME_ARCHIVE)" "$archive_helper_tmp" 0600 "AI runtime archive validator"
+bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value scripts/late/ai-runtime-archive.py)" "$archive_helper_tmp" 0600 "AI runtime archive validator"
 install -m 0700 "$archive_helper_tmp" "$target_archive_helper_host"
 chown 0:0 "$target_archive_helper_host"
 rm -f -- "$archive_helper_tmp"
-bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value FILE_TARGET_LLAMA_LLAMA_TMPL)" "$runtime_template_tmp" 0600 "llama.cpp runtime configuration template"
+bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value hooks/target/etc/llama/llama.conf.tmpl)" "$runtime_template_tmp" 0600 "llama.cpp runtime configuration template"
 installer_apply_scalar_placeholders "$runtime_template_tmp" "$runtime_template_tmp" \
   LLAMA_MODEL "${LLAMA_MODEL_DIR}/${LLAMA_DEFAULT_MODEL}" \
   LLAMA_RUNTIME_CONTEXT "$LLAMA_RUNTIME_CONTEXT" LLAMA_RUNTIME_BATCH "$LLAMA_RUNTIME_BATCH" \
@@ -900,7 +900,7 @@ installer_assert_no_unresolved_installer_placeholders "$runtime_template_tmp" 'L
 install -m 0600 "$runtime_template_tmp" "$target_runtime_template_host"
 chown 0:0 "$target_runtime_template_host"
 rm -f -- "$runtime_template_tmp"
-bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value FILE_TARGET_DATA_LLAMA_LIB_LLAMA)" "$wrapper_source_tmp" 0600 "llama.cpp launcher"
+bootstrap_fetch_seed_file "$seed_base" "$(installer_repo_file_value hooks/target/data/llama/lib/llama)" "$wrapper_source_tmp" 0600 "llama.cpp launcher"
 install -m 0600 "$wrapper_source_tmp" "$target_wrapper_source_host"
 chown 0:0 "$target_wrapper_source_host"
 rm -f -- "$wrapper_source_tmp"

@@ -3,7 +3,7 @@
 # Sourced installer module; edit this file directly.
 
 devops_install_upstream_tools() {
-  helper_repo_path=$(installer_repo_file_value FILE_LATE_DEVOPS_TOOLS)
+  helper_repo_path=$(installer_repo_file_value scripts/late/devops-tools.py)
   helper_target_path=/tmp/installer-devops-tools.py
   helper_host_path="${target_root}${helper_target_path}"
   policy_target_path=/tmp/installer-devops-tools-policy.json
@@ -30,7 +30,7 @@ devops_install_upstream_tools() {
 
   bootstrap_fetch_seed_file \
     "$seed_base" \
-    "$(installer_repo_file_value FILE_LATE_DEVOPS_YT_DLP_PLUGINS)" \
+    "$(installer_repo_file_value scripts/late/devops/yt-dlp-plugins.json)" \
     "$plugins_manifest_source_path" \
     0600 \
     "yt-dlp plugin manifest"
@@ -359,7 +359,7 @@ printf "installed Rustup %s bootstrap at %s\n" "$rustup_version" "$rustup_init_p
 }
 
 devops_install_pinned_rust_cli_binaries() {
-  helper_repo_path=$(installer_repo_file_value FILE_LATE_DEVOPS_RUST_TOOLS)
+  helper_repo_path=$(installer_repo_file_value scripts/late/devops-rust-tools.py)
   helper_target_path=/tmp/installer-devops-rust-tools.py
   helper_host_path="${target_root}${helper_target_path}"
 

@@ -229,54 +229,28 @@ installer_operation_context() {
 # selector only from already-loaded, validated data and fall back to unknown
 # when the selector is unavailable; the operation itself remains authoritative.
 installer_operation_context_repo() {
-  installer_context_repo_var=${1:-}
-  case "$installer_context_repo_var" in
-    FILE_*)
-      installer_context_repo_leaf=
-      installer_context_repo_line=${2:-unknown}
-      installer_context_repo_operation=${3:-unknown}
-      ;;
-    *)
-      installer_context_repo_leaf=${2:-}
+  # Diagnostics use the literal source address, or a loaded shared root plus
+  # leaf. They never fetch configuration or turn a valid operation into failure.
+  installer_context_repo_source=unknown
+  case "${1:-}" in
+    DIR_[ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]* )
       installer_context_repo_line=${3:-unknown}
       installer_context_repo_operation=${4:-unknown}
-      ;;
-  esac
-  installer_context_repo_source=unknown
-  case "$installer_context_repo_var" in
-    DIR_[ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]* )
-      case "$installer_context_repo_var" in
-        *[!ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*) ;;
-        *)
-          installer_context_repo_base=
-          if command -v installer_loaded_repo_dir_value >/dev/null 2>&1; then
-            installer_context_repo_base=$(installer_loaded_repo_dir_value "$installer_context_repo_var" 2>/dev/null || true)
-          fi
-          case "$installer_context_repo_base" in
-            ''|/*|*..*|*//*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-]*) ;;
-            *)
-              case "$installer_context_repo_leaf" in
-                ''|/*|*..*|*//*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/@+-]*) ;;
-                *) installer_context_repo_source=${installer_context_repo_base%/}/$installer_context_repo_leaf ;;
-              esac
-              ;;
-          esac
-          ;;
+      installer_context_repo_base=
+      if command -v installer_loaded_repo_dir_value >/dev/null 2>&1; then
+        installer_context_repo_base=$(installer_loaded_repo_dir_value "$1" 2>/dev/null || true)
+      fi
+      case "$installer_context_repo_base:${2:-}" in
+        :*|/*|*..*|*//*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/@+:-]*) ;;
+        *) installer_context_repo_source=${installer_context_repo_base%/}/${2:-} ;;
       esac
       ;;
-    FILE_[ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]* )
-      case "$installer_context_repo_var" in
-        *[!ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*) ;;
-        *)
-          if command -v installer_loaded_repo_file_value >/dev/null 2>&1; then
-            installer_context_repo_source=$(installer_loaded_repo_file_value "$installer_context_repo_var" 2>/dev/null || true)
-          fi
-          case "$installer_context_repo_source" in
-            ''|/*|*..*|*//*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/@+-]*)
-              installer_context_repo_source=unknown
-              ;;
-          esac
-          ;;
+    *)
+      installer_context_repo_line=${2:-unknown}
+      installer_context_repo_operation=${3:-unknown}
+      case "${1:-}" in
+        ''|/*|*..*|*//*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/@+-]*) ;;
+        *) installer_context_repo_source=$1 ;;
       esac
       ;;
   esac

@@ -243,7 +243,7 @@
     "hooks/target/usr/local/bin/labwc-greeter-output": "hooks/target/usr/local/bin/desktop/labwc-greeter-output",
     "hooks/target/usr/local/bin/labwc-greeter-power": "hooks/target/usr/local/bin/desktop/labwc-greeter-power",
     "hooks/target/usr/local/bin/labwc-greeter-session.tmpl": "hooks/target/usr/local/bin/desktop/labwc-greeter-session.tmpl",
-    "hooks/target/usr/local/bin/labwc-hardware-tuning": "hooks/target/usr/local/bin/desktop/labwc-hardware-tuning",
+    "hooks/target/usr/local/bin/labwc-hardware-tuning": "hooks/target/usr/local/bin/common/labwc-hardware-tuning",
     "hooks/target/usr/local/bin/labwc-health-notify.tmpl": "hooks/target/usr/local/bin/desktop/labwc-health-notify.tmpl",
     "hooks/target/usr/local/bin/labwc-help": "hooks/target/usr/local/bin/desktop/labwc-help",
     "hooks/target/usr/local/bin/labwc-idle-toggle": "hooks/target/usr/local/bin/desktop/labwc-idle-toggle",

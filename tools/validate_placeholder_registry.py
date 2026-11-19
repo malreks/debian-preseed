@@ -3,8 +3,10 @@
 
 The checker deliberately reads bytes and text only.  It never imports installer
 modules, sources shell, executes Perl/AWK, or inspects a live target.  The
-registry is authored under ``d-i/debian/catalog`` so the normal payload capture
-and receipt machinery binds it to the same source identity as the renderer.
+JSON registry remains authored under ``d-i/debian/catalog`` for full-checkout
+validation. Its validated TSV projection is runtime data: normal payload
+capture and receipts bind that index to the same source identity as the
+renderer. The developer JSON is intentionally excluded from runtime payloads.
 """
 from __future__ import annotations
 

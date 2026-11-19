@@ -45,7 +45,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / 'tools'))
 import build as installer_build
-from class_compiler import assignment_data
+from class_compiler import assignment_data, repository_data
 from publication import BuildOwnership, FILE_LIMIT, PublicationOutcomeUnknown, atomic_write
 
 SUITES = ('forky', 'trixie')
@@ -126,16 +126,8 @@ def compile_snapshot(sources: dict[str, bytes], compiler: dict[str, bytes]
         if name in snapshot:
             raise ValueError('compiled source collides with an authored member')
         snapshot[name] = data
-    selectors = set()
-    for name in sorted(compiled):
-        token = re.sub(r'[^A-Z0-9]+', '_', name.removeprefix('catalog/compiled/').upper()).strip('_')
-        selector = 'FILE_COMPILED_' + token
-        if selector in selectors:
-            raise ValueError('compiled selector collision')
-        selectors.add(selector)
-        path = ('${DIR_FRONTENDS}/' + name.removeprefix('frontends/')) if name.startswith('frontends/') else (
-            '${DIR_CATALOG_COMPILED}/' + name.removeprefix('catalog/compiled/'))
-        snapshot['repo.env'] += f'{selector}="{path}"\n'.encode()
+    # The same compiled membership catalogs serve online and offline payloads;
+    # generated FILE aliases are not appended to operator configuration.
     identities = [f'{installer_build.sha(data)}  source/{name}\n' for name, data in sorted(sources.items())]
     identities += [f'{installer_build.sha(data)}  compiler/{name}\n' for name, data in sorted(compiler.items())]
     fingerprint = installer_build.sha(''.join(sorted(identities)).encode())
@@ -975,19 +967,16 @@ class AptPolicy:
                     'conflicts': cells[4].split(',') if cells[4] else [],
                     'architectures': cells[5].split(','), 'family': cells[6]}
         for suite in SUITES:
-            selectors = {'INSTALLER_SUITE': suite}
-            if 'repo.env' in sources:
-                assignment_data(sources['repo.env'].decode(), selectors, {}, 'repo.env')
-            registered = {value for key, value in selectors.items() if key.startswith('FILE_')}
+            schema = re.search(r"source_repo_supported='([^']+)'", sources['scripts/common/source.sh'].decode())
+            if schema is None:
+                raise ValueError('offline source lacks repository configuration vocabulary')
+            selectors = repository_data(sources['repo.env'].decode(), suite, set(schema[1].split()))
             for family in ('desktop', 'server'):
-                prefix = selectors.get('DIR_TARGET_APT_' + family.upper() + '_PREFERENCES_D',
-                    f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d') + '/'
+                prefix = selectors['DIR_TARGET_APT_' + family.upper()] + '/preferences.d/'
                 files = {}
                 for name, data in sorted(sources.items()):
                     if not name.startswith(prefix) or not name.endswith('.pref'):
                         continue
-                    if registered and name not in registered:
-                        continue  # The installer enumerates the authenticated FILE catalog.
                     leaf = name.removeprefix(prefix)
                     records, block, start = [], [], 0
                     for number, line in enumerate(data.decode().splitlines() + [''], 1):
@@ -1660,12 +1649,6 @@ def acquisition_inventory(snapshot: dict[str, bytes], external: list[dict], offi
 def local_bootstrap(source: bytes) -> bytes:
     """Adapt only the bundled copy's acquisition step to an authenticated flat tree."""
     text = source.decode()
-    # Strip the leading slash before wrapping an absolute frontend for the
-    # traversal guard; otherwise every file= path appears to contain '//'.
-    guard = 'case "/$file/" in */../*|*//*)'
-    if text.count(guard) != 1:
-        raise ValueError('local frontend traversal guard changed; review the offline adapter')
-    text = text.replace(guard, 'case "/${file#/}/" in */../*|*//*)')
     start = text.index('  source_transfer "$base" payload.manifest "$work/payload.manifest" || exit 1\n',
                        text.index('source_prepare_payload() ('))
     last = '  tar -xzf "$work/payload.tar.gz" -C "$work/tree" || { source_error \'cannot extract payload archive\'; exit 1; }\n'
@@ -1679,15 +1662,14 @@ def local_bootstrap(source: bytes) -> bytes:
   head -c 4194305 "$candidate" >"$work/payload.manifest" || exit 1
   manifest_size=$(wc -c <"$work/payload.manifest") || exit 1
   [ "$manifest_size" -le 4194304 ] || { source_error 'offline manifest exceeds byte limit'; exit 1; }
-  actual=$(source_hash <"$work/payload.manifest"); [ "${actual%% *}" = "$expected_manifest" ] || { source_error 'offline manifest differs from preseed pin'; exit 1; }
-  actual=$({ printf 'offline-tree-v1\n'; cat "$work/payload.manifest"; } | source_hash) || exit 1
+  source_verify_sha256 "$work/payload.manifest" "$expected_manifest" 'offline manifest' || exit 1
+  actual=$({ printf 'offline-tree-v1\n'; cat "$work/payload.manifest"; } | source_sha256) || exit 1
   [ "${actual%% *}" = "$expected_archive" ] || { source_error 'offline tree identity differs from preseed pin'; exit 1; }
   # The sibling Debian directory is the fixed flat offline archive layout.
   tree=${base%/*}/debian
   [ -d "$tree" ] && [ ! -L "$tree" ] || { source_error 'missing flat offline source tree'; exit 1; }
   tree=$(readlink -f "$tree") || exit 1
   awk -F '\t' 'NR==1 {if($0!="format=3") exit 1; next} NF!=3 || $1 !~ /^[0-9]+$/ || $1>16777216 || length($2)!=64 || $2 ~ /[^a-f0-9]/ {exit 1} {count++;total+=$1;if(count>10000 || total>268435456)exit 1; print $3}' "$work/payload.manifest" >"$work/expected" || { source_error 'malformed or excessive offline manifest'; exit 1; }
-  awk -F '\t' 'NR>1 {print $2 "  " $3}' "$work/payload.manifest" >"$work/checksums" || exit 1
   sort "$work/expected" >"$work/expected.sorted" || exit 1
   sort -u "$work/expected" >"$work/expected.unique" || exit 1
   cmp -s "$work/expected.sorted" "$work/expected.unique" || { source_error 'duplicate offline manifest member'; exit 1; }
@@ -1705,6 +1687,9 @@ def local_bootstrap(source: bytes) -> bytes:
     head -c "$((size + 1))" "$candidate" >"$destination" || exit 1
     actual_size=$(wc -c <"$destination") || exit 1
     [ "$actual_size" -eq "$size" ] || { source_error 'offline source size differs from manifest'; exit 1; }
+    # A flat tree has no authenticated archive byte stream. Validate each
+    # protected copy against the trusted manifest before marking it ready.
+    source_verify_sha256 "$destination" "$digest" 'offline source member' || exit 1
   done <"$work/payload.manifest"
 '''
     return (text[:start] + replacement + text[end:]).encode()
@@ -1741,8 +1726,12 @@ def serialize_bundle(files: dict[str, bytes]) -> bytes:
 def work_directory(requested: Path | None) -> Path:
     """Choose ordinary owned disk space; never consult the system temp default."""
     if requested is None:
-        values = {'INSTALLER_SUITE': SUITES[0]}
-        assignment_data((installer_build.SEED / 'repo.env').read_text(), values, {}, 'repo.env')
+        schema = re.search(r"source_repo_supported='([^']+)'",
+                           (installer_build.SEED / 'scripts/common/source.sh').read_text())
+        if schema is None:
+            raise ValueError('offline source lacks repository configuration vocabulary')
+        values = repository_data((installer_build.SEED / 'repo.env').read_text(),
+                                 SUITES[0], set(schema[1].split()))
         relative = values['DIR_OFFLINE_WORK']
         safe_relative(relative)
         requested = ROOT / relative
@@ -1875,7 +1864,7 @@ Only the selected Depends/Pre-Depends closure is exported. Recommends/Suggests
 are retained as metadata but not followed: this checkout disables them.
 Authored suite/family APT preferences, explicit suite/version requests and Debian
 version ordering choose records. Immediate preference files follow the
-installer FILE catalog and installed filename order. NVIDIA opt-out, current
+captured source membership and installed filename order. NVIDIA opt-out, current
 and legacy NVIDIA/CUDA policy sets remain separate. Only contexts compatible
 with each request's authored class architecture/family are traversed. Base and
 udeb requests use their earlier native-suite phase, before target pins exist.

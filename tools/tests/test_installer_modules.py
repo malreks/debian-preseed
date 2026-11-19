@@ -12,6 +12,7 @@ _require_test_isolation()
 
 from pathlib import Path
 import importlib.util
+import json
 import os
 import shlex
 import shutil
@@ -61,6 +62,11 @@ class RepositoryFileModes(unittest.TestCase):
             self.assertIn('trixie/preseed.cfg', frontends)
             self.assertIn(b'scripts/not-a-valid-shell.sh', products['payload.manifest'])
             self.assertNotIn(b'preseed.env', products['payload.manifest'])
+            self.assertNotIn(b'catalog/placeholder-registry.json', products['payload.manifest'])
+            self.assertIn(b'catalog/placeholder-registry.tsv', products['payload.manifest'])
+            source_inputs = json.loads(products['receipt.json'])['source_inputs']
+            self.assertNotIn('catalog/placeholder-registry.json', source_inputs)
+            self.assertIn('catalog/placeholder-registry.tsv', source_inputs)
             self.assertEqual(before, {path: path.read_bytes() for path in before})
 
     def test_every_python_test_and_fixture_checks_isolation_before_runtime_imports(self):
@@ -115,6 +121,45 @@ class RepositoryFileModes(unittest.TestCase):
                                   '__DESKTOP_APPARMOR_STATE__ required new-policy -\n')
                 build_checks.validate_apparmor_modes()
 
+class SourceMembershipContracts(unittest.TestCase):
+    """A compiled member index must remain complete, unique and suite-correct."""
+
+    def members(self, rows=None):
+        table = 'catalog/compiled/source-members.tsv'
+        payload = {'scripts/fixture.sh': b'# source fixture\n',
+                   'frontends/forky/common.cfg': b'# frontend fixture\n', table: b''}
+        if rows is None:
+            rows = [(table, 'any', 'any'),
+                    ('frontends/forky/common.cfg', 'any', 'forky'),
+                    ('scripts/fixture.sh', 'any', 'any')]
+        payload[table] = ('format\t1\n' + ''.join('\t'.join(row) + '\n' for row in rows)).encode()
+        return payload
+
+    def test_inventory_matches_every_payload_member(self):
+        build_checks.validate_source_members(self.members())
+
+    def test_missing_duplicate_and_nonexistent_members_are_rejected(self):
+        table = 'catalog/compiled/source-members.tsv'
+        valid = [(table, 'any', 'any'),
+                 ('frontends/forky/common.cfg', 'any', 'forky'),
+                 ('scripts/fixture.sh', 'any', 'any')]
+        for rows in (valid[:-1], valid + [valid[-1]],
+                     valid + [('scripts/absent.sh', 'any', 'any')]):
+            with self.subTest(rows=rows), self.assertRaises(ValueError):
+                build_checks.validate_source_members(self.members(rows))
+
+    def test_wrong_suite_and_noncanonical_members_are_rejected(self):
+        for row in (('frontends/forky/common.cfg', 'any', 'trixie'),
+                    ('scripts/fixture.sh', 'unknown', 'any'),
+                    ('../scripts/fixture.sh', 'any', 'any')):
+            rows = [('catalog/compiled/source-members.tsv', 'any', 'any'),
+                    ('frontends/forky/common.cfg', 'any', 'forky'),
+                    ('scripts/fixture.sh', 'any', 'any')]
+            rows[1 if row[0].startswith('frontends/') else 2] = row
+            with self.subTest(row=row), self.assertRaises(ValueError):
+                build_checks.validate_source_members(self.members(rows))
+
+
 class SourceCaptureContracts(unittest.TestCase):
     """Unexecuted failure fixtures; every mutation stays in the owned tree."""
 
@@ -148,6 +193,33 @@ class SourceCaptureContracts(unittest.TestCase):
         self.assertEqual(set(compiler), set(builder.COMPILER_INPUTS))
         self.assertNotIn('preseed.env', contents)
         self.assertFalse(any(name.startswith('releases/') for name in contents))
+
+    def test_only_developer_placeholder_json_is_excluded_from_runtime_capture(self):
+        seed = self.source.parent
+        developer = seed / 'catalog/placeholder-registry.json'
+        runtime = seed / 'catalog/placeholder-registry.tsv'
+        other_json = seed / 'catalog/selection-fixture.json'
+        same_leaf = seed / 'hooks/target/usr/local/share/placeholder-registry.json'
+        fixtures = {developer: b'{"developer_metadata": true}\n',
+                    runtime: b'format\t2\tfixture\n',
+                    other_json: b'{"runtime_catalog": true}\n',
+                    same_leaf: b'{"runtime_asset": true}\n'}
+        for path, data in fixtures.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        with builder.SourceCapture(self.root) as capture:
+            contents, compiler = capture.read()
+            capture.verify()
+        self.assertEqual(set(contents), {
+            'source.txt', 'frontends/forky/common.cfg', 'frontends/trixie/common.cfg',
+            runtime.relative_to(seed).as_posix(), other_json.relative_to(seed).as_posix(),
+            same_leaf.relative_to(seed).as_posix(),
+        })
+        self.assertEqual(set(compiler), set(builder.COMPILER_INPUTS))
+        for path, data in fixtures.items():
+            self.assertEqual(path.read_bytes(), data, 'capture modified authored metadata')
+            if path != developer:
+                self.assertEqual(contents[path.relative_to(seed).as_posix()], data)
 
     def test_symlink_hardlink_fifo_and_executable_sources_are_rejected(self):
         safe = self.root / 'owned-other-file'
@@ -253,14 +325,14 @@ class ModuleContracts(unittest.TestCase):
         self.assertFalse((ROOT / 'tools/generate_installer.py').exists())
 
     def test_typed_parser_inventory_keeps_awk_out_of_shell_loader(self):
-        self.assertEqual(checker.check_data_assets(self.seed, checker.repository_selectors(self.seed)), 2)
+        self.assertEqual(checker.check_data_assets(self.seed), 2)
         bootstrap = (self.seed / 'scripts/common/bootstrap.sh').read_text()
         profiles = (self.seed / 'scripts/common/modules/profiles.sh').read_text()
         credentials = (self.seed / 'scripts/common/credentials.sh').read_text()
         self.assertIn('bootstrap_parser_asset_path', bootstrap)
         self.assertIn('bootstrap_parser_asset_path', profiles)
         self.assertIn('bootstrap_parser_asset_path', credentials)
-        self.assertNotIn('bootstrap_module_path "$(bootstrap_repo_file_value FILE_COMMON_CREDENTIAL_DATA)"', profiles + credentials)
+        self.assertNotIn('bootstrap_module_path "$(bootstrap_repo_file_value scripts/common/credential-data.awk)"', profiles + credentials)
 
     def test_module_edit_remains_authoritative_and_is_not_repaired(self):
         path = self.seed / 'scripts/common/modules/files-logging.sh'

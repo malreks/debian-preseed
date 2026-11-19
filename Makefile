@@ -1,13 +1,13 @@
 PYTHON ?= python3
 .DEFAULT_GOAL := build
 
-.PHONY: build offline profile check test test-bootstrap test-debconf test-cuda audit validate themes test-isolation post-change-check static-check
+.PHONY: build offline profile check check-perl test test-bootstrap test-debconf test-cuda audit validate themes test-isolation post-change-check static-check
 
 # Check before unittest discovery, including newly added test modules.
 test-isolation:
 	$(PYTHON) -I -B tools/isolation.py
 
-check test test-bootstrap test-debconf test-cuda audit validate: test-isolation
+check check-perl test test-bootstrap test-debconf test-cuda audit validate: test-isolation
 build:
 	$(PYTHON) -B tools/build.py
 
@@ -19,10 +19,12 @@ offline:
 profile:
 	$(PYTHON) -I -B tools/profile.py
 
-check:
+check: check-perl
 	$(PYTHON) -B tools/check_build.py
 	$(PYTHON) -B tools/check_shells.py
 	$(PYTHON) -B tools/validate_placeholder_registry.py --report .build/validation/placeholder-registry-coverage.json
+check-perl:
+	$(PYTHON) -B d-i/debian/tests/audit_codebase.py --perl-only --prepare-suite forky --prepare-family desktop --output .build/validation/perl-syntax.json
 test:
 	$(PYTHON) -B -m unittest discover -s d-i/debian/tests -p "test_*.py"
 test-bootstrap:
@@ -32,7 +34,7 @@ test-debconf:
 test-cuda:
 	$(PYTHON) -B -m unittest discover -s d-i/debian/tests -p "test_cuda_legacy_apt.py" -v
 audit:
-	$(PYTHON) -B d-i/debian/tests/audit_codebase.py --output .build/validation/audit.json
+	$(PYTHON) -B d-i/debian/tests/audit_codebase.py --source-only --output .build/validation/audit.json
 validate:
 	$(PYTHON) -B tools/validate.py
 

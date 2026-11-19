@@ -67,7 +67,7 @@ runtime_apply_account_from_credentials() {
     "${INSTALLER_FAILURE_LINE+x}" "${INSTALLER_FAILURE_LINE-}" \
     "${INSTALLER_FAILURE_OPERATION+x}" "${INSTALLER_FAILURE_OPERATION-}"
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_RUNTIME_ACCOUNT 75 runtime_apply_account_from_credentials
+    installer_operation_context_repo scripts/runtime/account.sh 75 runtime_apply_account_from_credentials
   fi
 
   # Resolve root first and preserve loader errors. The former stderr/status

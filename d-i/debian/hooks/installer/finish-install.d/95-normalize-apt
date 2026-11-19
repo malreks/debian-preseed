@@ -24,7 +24,7 @@ if [ -r "$BOOTSTRAP_LIB" ]; then
   TARGET=${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}
   ENV_DIR=${DIR_INSTALLER_ENV}
   HOST_ENV="${ENV_DIR}/host.env"
-  installer_operation_context_repo FILE_INST_FINISH_95_NORMALIZE_APT 26 finish_install_apt_normalizer
+  installer_operation_context_repo hooks/installer/finish-install.d/95-normalize-apt 26 finish_install_apt_normalizer
   [ -r "$HOST_ENV" ] || {
     printf '%s\n' "fatal: missing host environment: ${HOST_ENV}" >&2
     exit 1

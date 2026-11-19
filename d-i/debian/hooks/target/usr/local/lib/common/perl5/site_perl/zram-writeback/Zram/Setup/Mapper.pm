@@ -8,7 +8,7 @@ use MooX::StrictConstructor;
 use MooX::Types::MooseLike::Base qw(Str);
 
 use lib '__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/runtime';
-use Managed::Process qw(capture_command);
+use Managed::Process qw(capture_command status_from_wait);
 use Time::HiRes qw(sleep);
 use Zram::Config qw(cfg);
 use Zram::Error qw(fatal);
@@ -21,9 +21,7 @@ has raw_path    => (is => 'ro', isa => Str, default => sub { cfg('ZRAM_BACKING_R
 sub _capture {
     my ($self, @command) = @_;
     my $result = capture_command(argv => \@command, timeout => 25, limit => 1_048_576);
-    my $raw = $result->{status};
-    # A signal is failure, not the zero exit code produced by shifting alone.
-    my $status = ($raw & 127) ? 128 + ($raw & 127) : $raw >> 8;
+    my $status = status_from_wait($result->{status});
     return ($status, $result->{stdout}, $result->{stderr});
 }
 

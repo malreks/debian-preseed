@@ -5,6 +5,27 @@ installer_class_plan_path() {
   printf '%s/installation-plan.tsv\n' "$(installer_runtime_state_dir)"
 }
 
+# Stage providers are physical repository members, not environment selectors.
+# Validate every stage before a caller can claim ownership or execute a child.
+# The compiler uses the same ID/path grammar and forbids duplicate providers.
+installer_plan_stage_records() {
+  case "${1:-}" in pre-pkgsel|late) ;; *) return 2 ;; esac
+  LC_ALL=C awk -F '\t' -v wanted="$1" '
+    $1 == "stage" {
+      if (NF != 2 || split($2, fields, /[|]/) != 3 ||
+          fields[1] !~ /^[a-z][a-z0-9-]*([.][a-z0-9][a-z0-9-]*)*$/ ||
+          fields[2] !~ /^(preseed|early|partman|pre-pkgsel|late|firstboot)$/ ||
+          fields[3] !~ /^[A-Za-z0-9_.\/@+-]+$/ || length(fields[3]) > 240 ||
+          fields[3] ~ /__INSTALLER_/ ||
+          fields[3] ~ /^\// || fields[3] ~ /\/$/ || fields[3] ~ /\/\// ||
+          fields[3] ~ /(^|\/)[.][.]?(\/|$)/) exit 2
+      if (++count > 1000 || seen_id[fields[1]]++ ||
+          seen_provider[fields[2], fields[3]]++) exit 2
+      if (fields[2] == wanted) print $2
+    }
+  ' "$(installer_class_plan_path)"
+}
+
 # A selected pre-pkgsel provider is published once by the frozen-plan dispatcher.
 # Late consumers must address that same stage instead of a retired d-i hook name.
 installer_pre_pkgsel_stage_path() {
@@ -70,7 +91,7 @@ installer_prepare_class_plan() (
   umask 077
   plan_seed=$1
   case "${INSTALLER_SUITE:-}" in forky|trixie) ;; *) installer_fatal 'invalid suite identity' ;; esac
-  plan_qualification_file=$(installer_class_metadata_read_path FILE_SUITE_QUALIFICATION) || exit "$?"
+  plan_qualification_file=$(installer_class_metadata_read_path catalog/compiled/suite-qualification.tsv) || exit "$?"
   plan_qualification=$(awk -F '\t' -v suite="$INSTALLER_SUITE" -v family="$INSTALLER_HOST_VARIANT" '
     $1==suite && $2==family {if(NF!=5) bad=1; count++; status=$3; reason=$4 ": " $5}
     END {if(bad || count!=1) exit 2; print status "|" reason}
@@ -107,8 +128,8 @@ installer_prepare_class_plan() (
       ;;
     *) installer_fatal 'snapshot policy conflicts with the selected filesystem' ;;
   esac
-  plan_graph=$(installer_class_metadata_read_path FILE_PLAN_GRAPH) || exit "$?"
-  plan_resolver=$(installer_class_metadata_read_path FILE_PLAN_RESOLVER) || exit "$?"
+  plan_graph=$(installer_class_metadata_read_path catalog/compiled/class-plan.tsv) || exit "$?"
+  plan_resolver=$(installer_class_metadata_read_path scripts/common/resolve-plan.awk) || exit "$?"
   plan_path=$(installer_class_plan_path)
   plan_crypto_root=${INSTALLER_PROFILE_CRYPTO_LUKS2_ROOT:?explicit root crypto boolean required}
   plan_crypto_home=${INSTALLER_PROFILE_CRYPTO_LUKS2_HOME:?explicit home crypto boolean required}

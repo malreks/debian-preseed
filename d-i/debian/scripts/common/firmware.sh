@@ -28,10 +28,10 @@ run_in_target 'prepare firmware authorization groups for the explicit human oper
   getent group dialout >/dev/null
   usermod -a -G usbadmin,dialout -- "$1"
 ' sh "$ACCOUNT_USERNAME"
-installer_stage_profile_file FILE_TARGET_UDEV_RULES_D_61_CH341A_PROGRAMMERS "${DIR_ETC}/udev/rules.d/61-ch341a-programmers.rules" 0644
-installer_stage_profile_file FILE_TARGET_SBIN_FWOPS_MODE "${DIR_USR_LOCAL_SBIN}/fwops-mode" 0755
-installer_stage_profile_file FILE_TARGET_TMPFILES_D_86_FIRMWARE_WORKSPACE_TMPL "${DIR_TMPFILES_D}/86-firmware-workspace.conf" 0644
-installer_stage_profile_file FILE_TARGET_SNANDER_POLICY "$FILE_SNANDER_POLICY" 0644
+installer_stage_profile_file hooks/target/etc/udev/rules.d/61-ch341a-programmers.rules "${DIR_ETC}/udev/rules.d/61-ch341a-programmers.rules" 0644
+installer_stage_profile_file hooks/target/usr/local/sbin/common/fwops-mode "${DIR_USR_LOCAL_SBIN}/fwops-mode" 0755
+installer_stage_profile_file hooks/target/etc/tmpfiles.d/common/86-firmware-workspace.conf.tmpl "${DIR_TMPFILES_D}/86-firmware-workspace.conf" 0644
+installer_stage_profile_file hooks/target/etc/snander/install.json.tmpl "$FILE_SNANDER_POLICY" 0644
 run_in_target 'create selected operator firmware workspaces' "${DIR_USR_BIN}/systemd-tmpfiles" --create "${DIR_TMPFILES_D}/86-firmware-workspace.conf"
-installer_run_target_setup FILE_OS_SNANDER_INSTALLER 'install verified SNANDer artifact as data without running it'
+installer_run_target_setup scripts/common/snander-install.py.tmpl 'install verified SNANDer artifact as data without running it'
 installer_info 'shared firmware CLI and workspace staged; no programmer or firmware device was accessed'

@@ -68,6 +68,7 @@ installer_metadata_value() {
   esac
 }
 installer_target_ownership_record "$2" "$3" "$4" 0644
+installer_target_ownership_snapshot >"$HOME/owned-snapshot.tsv"
 '''
         return subprocess.run(
             [*shell, '-eu', '-c', script, 'owned-record',
@@ -87,7 +88,7 @@ installer_target_ownership_record "$2" "$3" "$4" 0644
                 self.assertEqual(result.returncode, 0, result.stderr)
                 records = list((self.root / 'records').glob('*.tsv'))
                 self.assertEqual(len(records), 1)
-                data = records[0].read_bytes()
+                data = (self.root / 'owned-snapshot.tsv').read_bytes()
                 self.assertEqual(data.decode().splitlines(), [
                     f'{destination}\t{source}\tplain\tlate-command\t0644'])
                 self.inventory.write_bytes(data)
@@ -128,7 +129,7 @@ installer_target_ownership_record "$2" "$3" "$4" 0644
                 result = self.record(shell, '-', '/etc/fixture', 'stdin')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 record, = (self.root / 'records').glob('*.tsv')
-                self.assertEqual(record.read_text().split('\t')[1:4],
+                self.assertEqual((self.root / 'owned-snapshot.tsv').read_text().split('\t')[1:4],
                                  ['generated', 'stdin', 'late-command'])
 
     def test_invalid_replacement_preserves_previous_record_and_target(self):
@@ -146,6 +147,32 @@ installer_target_ownership_record "$2" "$3" "$4" 0644
                 self.assertEqual(record.read_bytes(), before)
                 self.assertEqual(target.read_text(), 'previous target\n')
                 self.assertEqual(list((self.root / 'records').glob('.record.*')), [])
+
+    def test_journal_updates_and_removal_use_exact_destination_keys(self):
+        shell = ['/bin/dash']
+        first = self.record(shell, 'one', '/etc/fixture')
+        self.assertEqual(first.returncode, 0, first.stderr)
+        second = self.record(shell, 'two', '/etc/fixture')
+        self.assertEqual(second.returncode, 0, second.stderr)
+        snapshot = (self.root / 'owned-snapshot.tsv').read_text().splitlines()
+        self.assertEqual(snapshot, ['/etc/fixture\ttwo\tplain\tlate-command\t0644'])
+        removed = self.record(shell, 'generated', '/etc/fixture', 'deleted')
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual((self.root / 'owned-snapshot.tsv').read_bytes(), b'')
+        self.assertEqual(len((self.root / 'records/journal.tsv').read_text().splitlines()), 3)
+        self.assertEqual(sorted(path.name for path in (self.root / 'records').iterdir()), ['journal.tsv'])
+
+    def test_interrupted_journal_is_retained_and_cannot_become_a_snapshot(self):
+        shell = ['/bin/dash']
+        result = self.record(shell, 'one', '/etc/fixture')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        journal = self.root / 'records/journal.tsv'
+        with journal.open('ab') as stream:
+            stream.write(b'/etc/incomplete\t')
+        result = self.record(shell, 'two', '/etc/other')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b'/etc/incomplete\t', journal.read_bytes())
+        self.assertEqual((self.root / 'owned-snapshot.tsv').read_bytes(), b'')
 
     def test_unknown_tokens_in_perl_share_and_generated_state_fail(self):
         for destination in ('/usr/local/lib/perl5/site_perl/fixture.pm',

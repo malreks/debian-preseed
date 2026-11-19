@@ -78,13 +78,27 @@ installer_lifecycle_paths() {
   [ "$(installer_metadata_value "$LC_ROOT" mode)" = 700 ] || return 1;
   [ "$(installer_metadata_value "$LC_STATE" mode)" = 700 ] || return 1;
 };
+installer_failure_component() (
+  # Log contexts are prose, while the frontend accepts bounded identifiers.
+  # Keep descriptive/private diagnostics in the log; never sanitize their text
+  # into public UI data. Prefer a supplied identifier, then the owning log tag
+  # or supervised phase, without weakening the frontend's validation.
+  for lc_component_candidate in "${1:-}" "${INSTALLER_LOG_TAG:-}" "${INSTALLER_PHASE:-}"; do
+    case "$lc_component_candidate" in
+      ''|unknown|unavailable|*://*|*[!A-Za-z0-9_./:+-]*) continue ;;
+    esac;
+    [ "${#lc_component_candidate}" -le 240 ] || continue;
+    printf '%s\n' "$lc_component_candidate"; exit 0;
+  done;
+  printf '%s\n' unknown;
+);
 installer_record_failure() (
   # Atomic first-writer-wins publication, never replaced by cleanup errors.
   set +e; umask 077;
   installer_lifecycle_paths || exit 1;
-  lc_status=${1:-1}; lc_component=${2:-unknown}; lc_detail=${3:-unspecified};
+  lc_status=${1:-1}; lc_detail=${3:-unspecified};
   case "$lc_status" in ''|*[!0-9]*|0) lc_status=1 ;; esac;
-  lc_component=$(printf '%s' "$lc_component" | tr '\r\n\t' '   ');
+  lc_component=$(installer_failure_component "${2:-}") || lc_component=unknown;
   lc_detail=$(printf '%s' "$lc_detail" | tr '\r\n\t' '   ');
   lc_source=${INSTALLER_FAILURE_SOURCE:-unknown};
   lc_line=${INSTALLER_FAILURE_LINE:-unknown};

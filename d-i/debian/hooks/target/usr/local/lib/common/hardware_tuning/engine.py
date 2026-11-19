@@ -406,11 +406,28 @@ class Engine:
     def report(self, settings: dict) -> dict:
         installed = self.policy["profiles"]
         supported = {k.setting for k in self.backend.knobs.values()}
+        observations: dict[str, tuple[Any, Exception | None]] = {}
+
+        def current(knob: Knob) -> Any:
+            # Count/display evidence belongs to this report only. Preserve an
+            # unavailable observation as an error, never as a numeric value.
+            # Do not replace knob.read: plan's pair/ownership checks and later
+            # apply/reset/health operations must continue to read fresh state.
+            if knob.id not in observations:
+                try:
+                    observations[knob.id] = (knob.read(), None)
+                except (OSError, TuningError, ValueError) as exc:
+                    observations[knob.id] = (None, exc)
+            value, error = observations[knob.id]
+            if error is not None:
+                raise error
+            return value
+
         preflight = {}
         for name in PROFILES:
             try:
                 values, skipped = self.plan(name, settings)
-                preflight[name] = {"valid": True, "planned_changes": sum(not self.backend.knobs[k].restorable or self.backend.knobs[k].read() != v for k, v in values.items()), "skipped": skipped}
+                preflight[name] = {"valid": True, "planned_changes": sum(not self.backend.knobs[k].restorable or current(self.backend.knobs[k]) != v for k, v in values.items()), "skipped": skipped}
             except (OSError, TuningError, ValueError) as exc:
                 preflight[name] = {"valid": False, "error": str(exc)}
         return {"generated_utc": datetime.now(timezone.utc).isoformat(),
@@ -419,7 +436,8 @@ class Engine:
                 "policy": self.policy, "telemetry": self.backend.telemetry,
                 "platform": getattr(self.backend, "platform_report", lambda: {})(),
                 "temperature_c": self.backend.temperature(),
-                "controls": [k.report(installed, self.policy) for k in self.backend.knobs.values()],
+                "controls": [k.report(installed, self.policy, read_current=lambda knob=k: current(knob))
+                             for k in self.backend.knobs.values()],
                 "unavailable_settings": sorted(set(settings) - supported),
                 "limitations": self.backend.unavailable,
                 "recovery_entries": self.journal["entries"],

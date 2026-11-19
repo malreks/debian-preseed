@@ -156,6 +156,10 @@ target_exec_available() {
 }
 
 target_exec() (
+  # Every target-command wrapper crosses this one publication barrier, including
+  # quiet, capture, test and interactive consumers. The publisher uses its own
+  # bounded chroot invocation, so this cannot recursively flush a batch.
+  [ -z "${INSTALLER_ASSET_BATCH_WORK:-}" ] || installer_asset_batch_flush || exit $?
   # Scope normalization to this call: do not alter the live installer's locale.
   # Clear individual categories as well as LC_ALL so a target tool that unsets
   # LC_ALL cannot reactivate stale installer settings. Use shell builtins here;

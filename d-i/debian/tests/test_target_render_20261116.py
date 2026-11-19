@@ -62,7 +62,7 @@ class PreparedBootstrapTests(unittest.TestCase):
 
     def test_fresh_shell_loads_lifecycle_before_prepared_payload_checks(self):
         common = RENDERER.parent
-        with tempfile.TemporaryDirectory(prefix='prepared-bootstrap-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='prepared-bootstrap-', dir='/workspace') as temporary:
             root = Path(temporary)
             runtime = root / 'runtime'
             stage = root / 'target/stage'
@@ -73,7 +73,7 @@ class PreparedBootstrapTests(unittest.TestCase):
             marker = runtime / 'ready'
             archive = 'a' * 64
             manifest = 'b' * 64
-            identity = f'{archive} {manifest} /fixture-seed\n'
+            identity = f'verified-v1 {archive} {manifest} /fixture-seed\n'
             for path in (marker, stage / 'identity', runtime / 'bootstrap/payload.ready'):
                 path.write_text(identity, encoding='ascii')
                 path.chmod(0o600)
@@ -109,7 +109,7 @@ class PreparedBootstrapTests(unittest.TestCase):
 
     def test_prepared_seed_identity_must_match_authenticated_request(self):
         common = RENDERER.parent
-        with tempfile.TemporaryDirectory(prefix='prepared-seed-mismatch-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='prepared-seed-mismatch-', dir='/workspace') as temporary:
             root = Path(temporary)
             runtime = root / 'runtime'
             stage = root / 'target/stage'
@@ -120,7 +120,7 @@ class PreparedBootstrapTests(unittest.TestCase):
             marker = runtime / 'ready'
             archive = 'c' * 64
             manifest = 'd' * 64
-            identity = f'{archive} {manifest} /other-seed\n'
+            identity = f'verified-v1 {archive} {manifest} /other-seed\n'
             for path in (marker, stage / 'identity', runtime / 'bootstrap/payload.ready'):
                 path.write_text(identity, encoding='ascii')
                 path.chmod(0o600)
@@ -146,7 +146,7 @@ class PreparedBootstrapTests(unittest.TestCase):
     def test_prepared_mutations_fail_without_fetching_or_replacing_destination(self):
         common = RENDERER.parent
         for mutation in ('symlink', 'hardlink', 'sentinel', 'ready', 'receipt', 'index'):
-            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(prefix='prepared-identity-') as temporary:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(prefix='prepared-identity-', dir='/workspace') as temporary:
                 root = Path(temporary)
                 runtime = root / 'runtime'
                 stage = root / 'target/stage'
@@ -157,7 +157,7 @@ class PreparedBootstrapTests(unittest.TestCase):
                 marker = runtime / 'ready'
                 archive = 'a' * 64
                 manifest = 'b' * 64
-                identity = f'{archive} {manifest} /fixture-seed\n'
+                identity = f'verified-v1 {archive} {manifest} /fixture-seed\n'
                 for path in (marker, stage / 'identity', runtime / 'bootstrap/payload.ready'):
                     path.write_text(identity, encoding='ascii')
                     path.chmod(0o600)
@@ -273,7 +273,7 @@ class PreparedPerlReuseTests(unittest.TestCase):
         for suite in self.catalogs:
             for shell in shells:
                 with self.subTest(suite=suite, shell=shell), tempfile.TemporaryDirectory(
-                        prefix='prepared-perl-reuse-') as temporary:
+                        prefix='prepared-perl-reuse-', dir='/workspace') as temporary:
                     root = Path(temporary)
                     target, env = self.fixture(root, suite)
                     code = '\n'.join((
@@ -304,7 +304,7 @@ class PreparedPerlReuseTests(unittest.TestCase):
     def test_unsafe_published_members_fail_without_touching_previous_bytes(self):
         for mutation in ('symlink', 'dangling-symlink', 'hardlink', 'directory', 'mode'):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(
-                    prefix='prepared-perl-unsafe-') as temporary:
+                    prefix='prepared-perl-unsafe-', dir='/workspace') as temporary:
                 root = Path(temporary)
                 target, env = self.fixture(root, 'forky')
                 source, relative, _family = next(row for row in self.catalogs['forky']
@@ -339,7 +339,7 @@ class PreparedPerlReuseTests(unittest.TestCase):
     def test_restoration_requires_the_prepared_member_without_remote_fallback(self):
         for mutation in ('missing', 'symlink', 'hardlink'):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(
-                    prefix='prepared-perl-source-') as temporary:
+                    prefix='prepared-perl-source-', dir='/workspace') as temporary:
                 root = Path(temporary)
                 target, env = self.fixture(root, 'forky')
                 source, relative, _family = next(row for row in self.catalogs['forky']
@@ -365,7 +365,7 @@ class PreparedPerlReuseTests(unittest.TestCase):
                 self.assertEqual(protected.read_bytes(), b'previous\n')
 
     def test_network_cleanup_preserves_base_stage_perl_libraries(self):
-        with tempfile.TemporaryDirectory(prefix='prepared-network-cleanup-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='prepared-network-cleanup-', dir='/workspace') as temporary:
             root = Path(temporary)
             _target, env = self.fixture(root, 'forky')
             removals = root / 'removals'
@@ -385,8 +385,10 @@ class PreparedPerlReuseTests(unittest.TestCase):
 
 
 class BatchRenderTests(unittest.TestCase):
+    # The guest image root is read-only; /workspace is the owned writable
+    # fixture mount and also satisfies the renderer's strict ancestry checks.
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='target-render-')
+        self.temporary = tempfile.TemporaryDirectory(prefix='target-render-', dir='/workspace')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / 'work'
         self.root.mkdir(mode=0o700)
@@ -399,7 +401,7 @@ class BatchRenderTests(unittest.TestCase):
 
     def candidate(self, assets, paths=None, logging=None, themes=None, templates=None, resources=None, modules=None):
         assets = dict(assets)
-        assets['catalog/perl.tsv'] = b'assets/Fixture.pm\tfixture/Fixture.pm\tcommon\n'
+        assets.setdefault('catalog/perl.tsv', b'assets/Fixture.pm\tfixture/Fixture.pm\tcommon\n')
         assets.setdefault('catalog/profile.tsv', b'')
         assets['assets/Fixture.pm'] = b'package Fixture; 1;\n'
         rows = ['format=3\n']
@@ -416,9 +418,9 @@ class BatchRenderTests(unittest.TestCase):
         for snapshot in ('host', 'layout', 'account'):
             (self.root / f'inputs/{snapshot}.records').write_bytes(b'__INSTALLER_DATA_END__\n')
 
-    def run_render(self, *, succeeds=True, filesize_limit=None):
+    def run_render(self, *, succeeds=True, filesize_limit=None, family='desktop'):
         argv = ['/usr/bin/perl', '-f', str(RENDERER), str(self.root)]
-        options = dict(SELECTORS, **{'perl-root': str(self.destination), 'family': 'desktop',
+        options = dict(SELECTORS, **{'perl-root': str(self.destination), 'family': family,
                                    'snapshots': 'false'})
         for key, value in options.items():
             argv += ['--' + key, value]
@@ -432,6 +434,30 @@ class BatchRenderTests(unittest.TestCase):
         self.assertFalse((self.root / 'receipt.json').exists())
         self.assertTrue(self.root.is_dir())
         return result
+
+    def test_complete_renderer_compiles_before_any_entrypoint_inputs(self):
+        result = subprocess.run(['/usr/bin/perl', '-f', '-c', str(RENDERER)],
+                                capture_output=True, env=self.env, timeout=15, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertEqual(result.stdout, b'')
+        self.assertIn(b'syntax OK', result.stderr)
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(list((self.root / 'inputs').iterdir()), [])
+
+    def test_literal_at_and_plus_survive_source_workspace_and_canonical_paths(self):
+        renamed = self.root.with_name('work@+fixture')
+        self.root.rename(renamed)
+        self.root = renamed
+        self.source = renamed / 'source'
+        self.destination = renamed.parent / 'published@+fixture'
+        self.env.update({name: str(renamed) for name in ('HOME', 'TMPDIR', 'TMP', 'TEMP')})
+        member = 'assets/unit@+fixture/config@+.tmpl'
+        self.candidate({member: b'path=__INSTALLER_PATH_DIR_FIXTURE__\n'},
+                       paths={b'PATH_DIR_FIXTURE': b'/etc/unit@+fixture'})
+        report = self.run_render()
+        self.assertEqual(report['rendered_files'], 1)
+        self.assertEqual((self.source / member).read_bytes(), b'path=/etc/unit@+fixture\n')
+        self.assertEqual((self.destination / 'fixture/Fixture.pm').read_bytes(), b'package Fixture; 1;\n')
 
     def test_paths_logging_theme_and_literal_replacements_preserve_typed_inputs(self):
         self.candidate({'assets/config.tmpl': b'__INSTALLER_PATH_A____INSTALLER_PATH_B__\n'
@@ -613,33 +639,27 @@ class BatchRenderTests(unittest.TestCase):
 
     def test_literal_plain_staging_calls_have_no_deferred_scalar_fields(self):
         seed = RENDERER.parents[2]
-        selectors = {'INSTALLER_SUITE': 'forky'}
-        for line in (seed / 'repo.env').read_text(encoding='utf-8').splitlines():
-            if not line or line.startswith('#'):
-                continue
-            name, separator, raw = line.partition('=')
-            self.assertTrue(separator)
-            words = shlex.split(raw)
-            self.assertEqual(len(words), 1)
-            selectors[name] = re.sub(r'\$\{([A-Z0-9_]+)\}', lambda match: selectors[match[1]], words[0])
         canonical = set(RUNTIME_FIELDS)
-        call = re.compile(r'^\s*(?:desktop_stage_role_asset\s+(FILE_[A-Z0-9_]+)|'
-                          r'(?:stage_target_asset|devops_stage_target_asset)\s+"\$\('
-                          r'installer_repo_file_value\s+(FILE_[A-Z0-9_]+)\))', re.M)
+        source_word = (r'(?:"(?:hooks|scripts|frontends)/[^"\n$]+"|'
+                       r"'(?:hooks|scripts|frontends)/[^'\n$]+'|"
+                       r'''(?:hooks|scripts|frontends)/[^\s;)'"$]+)''')
+        call = re.compile(
+            r'^\s*(?:desktop_stage_role_asset|stage_target_asset|devops_stage_target_asset)\s+'
+            r'(?:"\$\(\s*installer_repo_file_value\s+)?(' + source_word + r')', re.M)
         count = 0
         for source in sorted((seed / 'scripts').rglob('*.sh*')):
             records = re.sub(r'\\\n[ \t]*', ' ', source.read_text(encoding='utf-8'))
             for match in call.finditer(records):
-                selector = match[1] or match[2]
-                asset = seed / selectors[selector]
+                member = shlex.split(match[1])[0]
+                asset = seed / member
                 count += 1
-                self.assertTrue(asset.is_file(), f'missing staging source: {selector} ({asset})')
+                self.assertTrue(asset.is_file() and not asset.is_symlink(), f'missing staging source: {member} ({asset})')
                 data = asset.read_bytes()
                 if b'\0' in data:
                     continue
                 names = {name.decode() for name in re.findall(
                     rb'__INSTALLER_([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)__', data)}
-                with self.subTest(caller=str(source.relative_to(seed)), selector=selector):
+                with self.subTest(caller=str(source.relative_to(seed)), member=member):
                     self.assertFalse({name for name in names - canonical if not name.startswith('LOG_')})
         self.assertGreater(count, 500)
         print(f'PLAIN_STAGING_PASS checked_sources={count}')
@@ -654,9 +674,15 @@ class BatchRenderTests(unittest.TestCase):
             selectors[key] = re.sub(r'\$\{([A-Z0-9_]+)\}', lambda match: selectors[match[1]], shlex.split(value)[0])
         canonical = set(RUNTIME_FIELDS)
         aliases = {}
-        for key, relative in selectors.items():
-            if not key.startswith('FILE_') or not (seed / relative).is_file():
+        # Both target assets and staged firstboot scripts are explicit fixture
+        # data. Runtime selection resolves exact members in the captured source
+        # snapshot, including the existing .tmpl convention.
+        source_roots = ('DIR_HOOKS_TARGET', 'DIR_REPO_SCRIPTS')
+        for asset in sorted(asset for name in source_roots
+                            for asset in (seed / selectors[name]).rglob('*')):
+            if not asset.is_file() or asset.is_symlink():
                 continue
+            relative = asset.relative_to(seed).as_posix()
             logical = relative
             for group in ('DIR_TARGET_AA', 'DIR_TARGET_APPARMOR', 'DIR_TARGET_TMPFILES_D',
                           'DIR_TARGET_SYSCTL_D', 'DIR_TARGET_BIN', 'DIR_TARGET_SBIN',
@@ -718,7 +744,8 @@ class BatchRenderTests(unittest.TestCase):
                             callers.add(source.relative_to(seed).as_posix())
                             checked += 1
         self.assertGreater(checked, 100)
-        self.assertTrue({'scripts/common/hardware-tuning.sh', 'scripts/late/devops/gitbuild.sh',
+        self.assertTrue({'scripts/common/hardware-tuning.sh', 'scripts/late/core.sh',
+                         'scripts/late/devops/gitbuild.sh',
                          'scripts/late/podman.sh', 'scripts/late/security.sh'} <= callers)
         print(f'DYNAMIC_STAGING_PASS checked_sources={checked}')
 
@@ -803,6 +830,26 @@ class BatchRenderTests(unittest.TestCase):
         self.run_render()
         self.assertEqual((self.source / 'assets/icon.png').read_bytes(), b'\x89PNG\0__THEME_COLOR__')
 
+    def test_server_preparation_classifies_desktop_registry_without_publishing_desktop_perl(self):
+        self.candidate({
+            'assets/appearance/fields.json.tmpl':
+                b'"key": "COLOR",\n"default": "__THEME_COLOR__",\n'
+                b'"tokens": ["__THEME_COLOR__"]\n',
+            'assets/python/labwc_appearance/fields.py': b'TOKEN = "__THEME_COLOR__"\n',
+            'assets/Desktop.pm': b'package Desktop; 1;\n',
+            'catalog/perl.tsv': b'assets/Fixture.pm\tfixture/Fixture.pm\tcommon\n'
+                b'assets/Desktop.pm\tdesktop/Desktop.pm\tdesktop\n',
+        }, themes={b'COLOR': b'#abcdef'})
+        report = self.run_render(family='server')
+        registry = (self.source / 'assets/appearance/fields.json.tmpl').read_bytes()
+        self.assertIn(b'"default": "#abcdef"', registry)
+        self.assertIn(b'"tokens": ["__THEME_COLOR__"]', registry)
+        self.assertEqual((self.source / 'assets/python/labwc_appearance/fields.py').read_bytes(),
+                         b'TOKEN = "__THEME_COLOR__"\n')
+        self.assertEqual(report['published_perl_files'], 1)
+        self.assertTrue((self.destination / 'fixture/Fixture.pm').is_file())
+        self.assertFalse((self.destination / 'desktop').exists())
+
     def test_cleanup_retains_incomplete_candidate(self):
         self.candidate({'assets/data': b'fixture'})
         result = subprocess.run(['/usr/bin/perl', '-f', str(RENDERER), str(self.root), '--cleanup'],
@@ -829,7 +876,7 @@ class TypedPublicationTests(unittest.TestCase):
     """Exercise publication and its typed consumers inside the private guest."""
 
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='typed-publication-')
+        self.temporary = tempfile.TemporaryDirectory(prefix='typed-publication-', dir='/workspace')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.target = self.root / 'target'
@@ -843,7 +890,9 @@ class TypedPublicationTests(unittest.TestCase):
             key + '=' + value + '\n' for key, value in self.paths.items()), encoding='utf-8')
         self.env = {'PATH': '/usr/bin:/bin', 'HOME': str(self.root), 'LC_ALL': 'C',
                     'TMPDIR': str(self.root), 'TMP': str(self.root), 'TEMP': str(self.root),
-                    'BOOTSTRAP_PREPARED_SOURCE_ROOT': str(self.prepared / 'source')}
+                    'BOOTSTRAP_PREPARED_SOURCE_ROOT': str(self.prepared / 'source'),
+                    'FIXTURE_PYTHON': sys.executable,
+                    'FIXTURE_PUBLISHER': str(Path(__file__).with_name('fixture_publication.py'))}
         self.modules = [self.prepare(name) for name in (
             'scripts/common/modules/files-logging.sh', 'scripts/common/lifecycle.sh',
             'scripts/late/target-assets.sh', 'scripts/desktop/components/appearance.sh',
@@ -862,7 +911,12 @@ class TypedPublicationTests(unittest.TestCase):
             'installer_capture_primary_default() { :; }',
             'installer_target_ownership_record() { :; }',
             'installer_mounts_find_record() { [ "$1" = "$TARGET_ROOT" ] || return 1; INSTALLER_MOUNT_POINT=$TARGET_ROOT; }',
-            'fetch_hook() { cp "$SEED/$1" "$2"; }'))
+            'fetch_hook() { cp "$SEED/$1" "$2"; }',
+            'publish_target_asset() {',
+            ' case "$4" in helper-doc) publish_target_typed_asset "$@"; return $? ;; esac',
+            ' "$FIXTURE_PYTHON" -I -B "$FIXTURE_PUBLISHER" "$HOME" "${SEED%/source}" "$TARGET_ROOT" "$1" "$2" "$3" "$4" || return $?',
+            ' installer_target_ownership_record "$1" "$2" "$4" "$3";',
+            '}'))
 
     def prepare(self, relative):
         data = (self.seed / relative).read_text(encoding='utf-8')
@@ -892,7 +946,7 @@ class TypedPublicationTests(unittest.TestCase):
                 result = self.shell('target_asset_entry_host_path /etc/fixture')
                 self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
                 self.assertEqual(result.stdout.decode().strip(), str(link))
-                result = self.shell('stage_target_asset unused /etc/fixture 0644')
+                result = self.shell('target_asset_host_path /etc/fixture')
                 self.assertEqual(result.returncode, 93, result.stderr.decode(errors='replace'))
                 self.assertIn(b'destination must not be a symlink', result.stderr)
                 self.assertEqual(link.lstat().st_ino, before.st_ino)
@@ -1020,7 +1074,8 @@ desktop_install_codex_standalone
                     link.unlink()
 
     def test_temporary_program_cleanup_removes_ownership_and_preserves_status(self):
-        source = self.prepared / 'source/cleanup-fixture'
+        source = self.prepared / 'source/hooks/target/cleanup-fixture'
+        source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text('#!/bin/sh\nexit 0\n', encoding='ascii')
         helper = self.target / 'usr/local/libexec/installer-fixture'
         ledger = self.root / 'owned-helper'
@@ -1033,7 +1088,7 @@ installer_target_ownership_forget() { rm -f -- "$HOME/owned-helper"; }
 installer_error() { printf '%s\\n' "$*" >&2; }
 helper=/usr/local/libexec/installer-fixture
 trap 'cleanup_target_assets "$?" "$helper"' 0
-stage_target_asset cleanup-fixture "$helper" 0700
+stage_target_asset hooks/target/cleanup-fixture "$helper" 0700
 exit "$8"
 '''
         for shell in shells:
@@ -1044,8 +1099,66 @@ exit "$8"
                     self.assertFalse(helper.exists())
                     self.assertFalse(ledger.exists())
 
+    def test_helper_docs_keep_the_existing_user_owned_publication_boundary(self):
+        directory = self.target / 'data/docs'
+        directory.mkdir(parents=True)
+        os.chown(directory, 12345, 12346)
+        directory.chmod(0o2750)
+        for name in ('README.md', 'fixture.md'):
+            source = self.prepared / 'source/hooks/target/data/docs' / name
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text('prepared documentation ' + name + '\n', encoding='ascii')
+        code = '''
+DIR_TARGET_DOCS=hooks/target/data/docs
+DIR_DATA_DOCS=/data/docs
+TARGET_HELPER_DOC_OWNER_IDS=12345:12346
+installer_repo_file_value() { printf '%s\\n' "$1"; }
+installer_repo_asset_path() { printf '%s/%s\\n' "$DIR_TARGET_DOCS" "$2"; }
+stage_target_docs_index
+stage_target_helper_doc_file fixture.md fixture.md
+'''
+        for attempt in range(2):
+            with self.subTest(attempt=attempt):
+                result = self.shell(code)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for name in ('README.md', 'fixture.md'):
+                    path = directory / name
+                    self.assertEqual(path.read_text(), 'prepared documentation ' + name + '\n')
+                    info = path.stat()
+                    self.assertEqual((info.st_uid, info.st_gid, info.st_mode & 0o7777, info.st_nlink),
+                                     (12345, 12346, 0o644, 1))
+                self.assertEqual(directory.stat().st_mode & 0o7777, 0o2750)
+                self.assertFalse(list(directory.glob('.installer-asset.*')))
+
+    def test_helper_doc_scope_and_indirect_destination_fail_without_modifying_sibling(self):
+        directory = self.target / 'data/docs'
+        directory.mkdir(parents=True)
+        source = self.prepared / 'source/hooks/target/data/docs/README.md'
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text('prepared documentation\n', encoding='ascii')
+        sibling = self.root / 'sibling-document'
+        sibling.write_bytes(b'preserved\n')
+        output = directory / 'README.md'
+        code = '''
+DIR_TARGET_DOCS=hooks/target/data/docs
+DIR_DATA_DOCS=/data/docs
+publish_target_asset hooks/target/data/docs/README.md /data/docs/README.md 0644 helper-doc
+'''
+        for kind in ('symlink', 'hardlink'):
+            with self.subTest(kind=kind):
+                if kind == 'symlink': output.symlink_to(sibling)
+                else: os.link(sibling, output)
+                result = self.shell(code)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(sibling.read_bytes(), b'preserved\n')
+                output.unlink()
+        result = self.shell(code.replace('/data/docs/README.md 0644', '/etc/escaped.md 0644'))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.target / 'etc/escaped.md').exists())
+
     def test_temporary_program_removal_failure_retains_ownership_and_fails(self):
-        source = self.prepared / 'source/cleanup-fixture'
+        source = self.prepared / 'source/hooks/target/cleanup-fixture'
+        source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text('#!/bin/sh\nexit 0\n', encoding='ascii')
         code = '''
 installer_target_ownership_record() { printf '%s\\n' "$2" >"$HOME/owned-helper"; }
@@ -1053,7 +1166,7 @@ installer_target_ownership_forget() { rm -f -- "$HOME/owned-helper"; }
 installer_error() { printf '%s\\n' "$*" >&2; }
 helper=/usr/local/libexec/installer-fixture
 trap 'cleanup_target_assets "$?" "$helper"' 0
-stage_target_asset cleanup-fixture "$helper" 0700
+stage_target_asset hooks/target/cleanup-fixture "$helper" 0700
 rm() {
   case "$3" in "$TARGET_ROOT$helper") return 23 ;; esac
   command rm "$@"
@@ -1143,8 +1256,8 @@ raise SystemExit(module['main']([str(paths[1]), str(paths[2]), sys.argv[5]]))
         code = '\n'.join((
             'require_in_target() { :; }',
             'installer_repo_file_value() { case "$1" in',
-            ' FILE_LATE_STUBBY_CONFIG) printf "%s\\n" scripts/late/stubby-config.py ;;',
-            ' FILE_TARGET_STUBBY_STUBBY_TMPL) printf "%s\\n" hooks/target/etc/stubby/stubby.yml.tmpl ;;',
+            ' scripts/late/stubby-config.py) printf "%s\\n" scripts/late/stubby-config.py ;;',
+            ' hooks/target/etc/stubby/stubby.yml.tmpl) printf "%s\\n" hooks/target/etc/stubby/stubby.yml.tmpl ;;',
             ' *) exit 94 ;; esac; }',
             'policy=$8; runner=$9; fixture_python=${10}',
             'app_veth_dns_placeholder_map() { cat "$policy"; }',
@@ -1193,7 +1306,7 @@ class ScalarPublicationTests(unittest.TestCase):
 
     def test_complete_resource_assets_avoid_an_interpreter_and_a_rewrite(self):
         templates = RENDERER.parent.parent / 'late/templates.sh'
-        with tempfile.TemporaryDirectory(prefix='resource-copy-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='resource-copy-', dir='/workspace') as temporary:
             root = Path(temporary)
             source = root / 'asset'
             env = {'PATH': '/usr/bin:/bin', 'HOME': str(root), 'TMPDIR': str(root),
@@ -1226,7 +1339,7 @@ class ScalarPublicationTests(unittest.TestCase):
                   'WARNING', 'error', 'ERROR', 'fatal', 'FATAL', 'none', 'NONE', 'unexpected']
         ranks = {'debug': 10, 'info': 20, 'warn': 30, 'warning': 30,
                  'error': 40, 'fatal': 40, 'none': 99}
-        with tempfile.TemporaryDirectory(prefix='log-threshold-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='log-threshold-', dir='/workspace') as temporary:
             env = {'PATH': '/usr/bin:/bin', 'HOME': temporary, 'TMPDIR': temporary,
                    'TMP': temporary, 'TEMP': temporary, 'LC_ALL': 'C'}
             for owner, prefix, variable, default in (
@@ -1257,7 +1370,7 @@ class ScalarPublicationTests(unittest.TestCase):
 
     def test_shared_gpu_helpers_reject_missing_policy_before_any_publication(self):
         seed = RENDERER.parents[2]
-        with tempfile.TemporaryDirectory(prefix='gpu-policy-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='gpu-policy-', dir='/workspace') as temporary:
             marker = Path(temporary) / 'published'
             env = {'PATH': '/usr/bin:/bin', 'HOME': temporary, 'TMPDIR': temporary,
                    'TMP': temporary, 'TEMP': temporary, 'LC_ALL': 'C'}
@@ -1279,7 +1392,7 @@ class ScalarPublicationTests(unittest.TestCase):
                     self.assertFalse(marker.exists())
 
     def test_failed_scalar_render_keeps_previous_bytes_mode_and_cleans_stage(self):
-        with tempfile.TemporaryDirectory(prefix='scalar-atomic-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='scalar-atomic-', dir='/workspace') as temporary:
             root = Path(temporary)
             source = root / 'source'
             destination = root / 'output'
@@ -1317,7 +1430,7 @@ class ScalarPublicationTests(unittest.TestCase):
                         {name: b'/canonical/' + name.lower() for name in fields})
         batch.run_render()
         publications = (PUBLICATION, batch.source / 'scripts/publication.sh')
-        with tempfile.TemporaryDirectory(prefix='scalar-publication-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='scalar-publication-', dir='/workspace') as temporary:
             root = Path(temporary)
             source = root / 'input'
             output = root / 'output'
@@ -1344,46 +1457,35 @@ class ScalarPublicationTests(unittest.TestCase):
                             self.assertEqual(output.read_text(encoding='ascii'), suite)
 
     def test_plain_publication_renders_suite_and_rejects_unknown_scalar_before_replacement(self):
-        publication = RENDERER.parents[1] / 'late/target-assets.sh'
-        with tempfile.TemporaryDirectory(prefix='plain-publication-') as temporary:
+        from fixture_publication import plan_fixture, run_fixture
+        with tempfile.TemporaryDirectory(prefix='plain-publication-', dir='/workspace') as temporary:
             root = Path(temporary)
-            source = root / 'input'
+            prepared = root / 'prepared'
+            source = prepared / 'source/hooks/target/policy'
+            source.parent.mkdir(parents=True)
             target = root / 'target'
-            target.mkdir()
-            output = target / 'output'
-            env = {'PATH': '/usr/bin:/bin', 'HOME': str(root), 'TMPDIR': str(root),
-                   'TMP': str(root), 'TEMP': str(root), 'LC_ALL': 'C'}
-            code = '\n'.join((
-                '. "$1"', '. "$2"', '. "$5"', 'TARGET_ROOT=$3', 'GITBUILD_DISTRIBUTION=forky',
-                'installer_fatal() { printf "%s\\n" "$*" >&2; exit 93; }',
-                'installer_fatal_status() { exit "$1"; }',
-                'installer_operation_context_repo() { :; }',
-                'bootstrap_prepared_asset_published() { return 1; }',
-                'installer_target_context_init() { :; }',
-                'target_asset_host_path() { printf "%s%s\\n" "$TARGET_ROOT" "$1"; }',
-                'ensure_target_asset_parent() { [ "$1" = /output ]; }',
-                'fetch_hook() { cp "$1" "$2"; }',
-                'installer_capture_primary_default() { :; }',
-                'installer_target_ownership_record() { :; }',
-                'publish_target_asset "$4" /output 0644 plain'))
-            for token, expected_status, expected_output in (
-                    ('__INSTALLER_UNKNOWN_SCALAR__', 93, 'original'),
-                    ('__INSTALLER_GITBUILD_DISTRIBUTION__', 0, 'forky')):
+            output = target / 'etc/output'
+            output.parent.mkdir(parents=True)
+            for token, success, expected in (
+                    ('__INSTALLER_UNKNOWN_SCALAR__', False, 'original'),
+                    ('__INSTALLER_GITBUILD_DISTRIBUTION__', True, 'forky')):
                 with self.subTest(token=token):
                     source.write_text(token, encoding='ascii')
                     output.write_text('original', encoding='ascii')
-                    result = subprocess.run(
-                        ['/bin/dash', '-eu', '-c', code, 'plain-publication-fixture',
-                         str(PUBLICATION), str(publication), str(target), str(source),
-                         str(RENDERER.parent / 'modules/target-publication.sh')],
-                        env=env, capture_output=True, timeout=10, check=False)
-                    self.assertEqual(result.returncode, expected_status, result.stderr.decode(errors='replace'))
-                    self.assertEqual(output.read_text(encoding='ascii'), expected_output)
-                    self.assertFalse(list(target.glob('.installer-asset.*')))
+                    output.chmod(0o644)
+                    work = plan_fixture(prepared, target, [
+                        ('plain', 'hooks/target/policy', '/etc/output', '0644', ())])
+                    result = run_fixture(prepared, work)
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
+                    self.assertEqual(output.read_text(encoding='ascii'), expected)
+                    self.assertEqual(output.stat().st_mode & 0o777, 0o644)
+                    if not success:
+                        self.assertTrue((work / 'plan').is_file())
+                        self.assertFalse((work / 'ownership.tsv').exists())
 
     def test_devops_shell_profile_renders_policy_with_the_cached_canonical_map(self):
         profile = RENDERER.parents[2] / 'hooks/target/etc/skel-desktop/.profile.d/71-devops-de.sh'
-        with tempfile.TemporaryDirectory(prefix='devops-profile-render-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='devops-profile-render-', dir='/workspace') as temporary:
             root = Path(temporary)
             prepared = root / 'prepared'
             (prepared / 'source').mkdir(parents=True)

@@ -30,7 +30,7 @@ runtime_recipe_name_is_declared() {
 runtime_render_recipe() (
   set -eu
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_RUNTIME_MOD_RECIPES 30 runtime_render_recipe
+    installer_operation_context_repo scripts/runtime/modules/recipes.sh 30 runtime_render_recipe
   fi
   recipe_name=$1; shift
   runtime_recipe_name_is_declared "$recipe_name" || runtime_fatal "invalid recipe template: $recipe_name"

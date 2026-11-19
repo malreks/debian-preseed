@@ -25,7 +25,7 @@ fi
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib "${2:-}"
 installer_init_stderr_log_file "$(installer_runtime_log_file)" "" "preseed answers (${1:-unset})" preseed-answers preseed_loaded
-installer_operation_context_repo FILE_PRESEED_ANSWERS 28 "preseed_answers:${1:-unset}"
+installer_operation_context_repo scripts/preseed/answers.sh 28 "preseed_answers:${1:-unset}"
 trap 'installer_finalize_log "$?"' EXIT
 
 apply_answers_file() {

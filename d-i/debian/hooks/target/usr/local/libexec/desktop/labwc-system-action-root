@@ -341,7 +341,7 @@ inspect_service() {
   require_command systemctl
 
   print_heading "Service status"
-  systemctl status --no-pager --full "$service_name" || true
+  systemctl status --no-pager --full -- "$service_name" || true
   print_heading "Recent service journal"
   journalctl --unit "$service_name" --boot --no-pager --lines 200
 }

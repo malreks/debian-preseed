@@ -2,8 +2,8 @@
 # Shared late_command account helpers. This file is sourced, not executed.
 
 provision_target_identity() {
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_HOSTNAME_TMPL)" __INSTALLER_PATH_DIR_ETC__/hostname 0644
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_HOSTS_TMPL)" __INSTALLER_PATH_DIR_ETC__/hosts 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/hostname.tmpl)" __INSTALLER_PATH_DIR_ETC__/hostname 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/hosts.tmpl)" __INSTALLER_PATH_DIR_ETC__/hosts 0644
 }
 
 stage_target_account_shell_assets() {
@@ -16,11 +16,11 @@ stage_target_account_shell_assets() {
   chown root:root ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP} ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d
   chmod 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}
   chmod 0755 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile.d
-  stage_target_asset "$(installer_repo_file_value FILE_LATE_ASSET_ETC_SKEL_DESKTOP_PROFILE_INSTALLER_BASE)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile 0644
-  stage_target_asset "$(installer_repo_file_value FILE_LATE_ASSET_ETC_SKEL_DESKTOP_BASH_PROFILE_INSTALLER_BASE)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bash_profile 0644
-  stage_target_asset "$(installer_repo_file_value FILE_LATE_ASSET_ETC_SKEL_DESKTOP_BASHRC_INSTALLER_BASE)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bashrc 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SKEL_DIRCOLORS)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.dircolors 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SKEL_VIMRC)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.vimrc 0644
+  stage_target_asset "$(installer_repo_file_value scripts/late/assets/etc/skel-desktop/.profile.installer-base)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.profile 0644
+  stage_target_asset "$(installer_repo_file_value scripts/late/assets/etc/skel-desktop/.bash_profile.installer-base)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bash_profile 0644
+  stage_target_asset "$(installer_repo_file_value scripts/late/assets/etc/skel-desktop/.bashrc.installer-base)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.bashrc 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/skel-desktop/.dircolors)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.dircolors 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/skel-desktop/.vimrc)" __INSTALLER_PATH_DIR_ETC__/skel-desktop/.vimrc 0644
   chown root:root ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.profile ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.bash_profile ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.bashrc
   chown root:root \
     ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/.dircolors \
@@ -329,5 +329,5 @@ printf "account_access user=%s uid=%s gid=%s groups=%s\n" \
 ' sh "$ACCOUNT_USERNAME" "$ACCOUNT_DEFAULT_GROUPS"
 
   install -d -m 0755 "${TARGET_ROOT}${DIR_UDEV_CONF_D}" "${TARGET_ROOT}${DIR_UDEV_RULES}"
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UDEV_UDEV_CONF_D_90_HARDENING)" "${FILE_UDEV_HARDENING_CONF}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/udev/udev.conf.d/90-hardening.conf)" "${FILE_UDEV_HARDENING_CONF}" 0644
 }

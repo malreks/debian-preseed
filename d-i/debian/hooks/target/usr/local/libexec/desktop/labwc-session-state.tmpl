@@ -81,7 +81,7 @@ def clear_clipboard() -> None:
     watchers = [line.split()[0] for line in names.splitlines() if line.split()]
     for unit in watchers:
         if re.fullmatch(r"[A-Za-z0-9_.@-]+\.service", unit):
-            ctl("stop", unit)
+            ctl("stop", "--", unit)
     run(["__INSTALLER_PATH_DIR_USR__/bin/wl-copy", "--clear"], timeout=5)
     run(["__INSTALLER_PATH_DIR_USR__/bin/wl-copy", "--primary", "--clear"], timeout=5)
     if Path("__INSTALLER_PATH_DIR_USR__/bin/cliphist").is_file():

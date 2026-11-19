@@ -22,7 +22,7 @@ bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/upl
 # Reuse the authenticated hardware/address reader. It defines functions only;
 # canonical paths pass through the same publication renderer as other assets.
 u_reader="${DIR_INSTALLER_LATE_ENV}/uplinks-reader.sh"
-installer_fetch_file "$seed_base" "$(installer_repo_file_value FILE_LATE_NETWORK)" "$u_reader.source" 0600
+installer_fetch_file "$seed_base" "$(installer_repo_file_value scripts/late/network.sh)" "$u_reader.source" 0600
 installer_apply_scalar_placeholders "$u_reader.source" "$u_reader"
 installer_assert_no_unresolved_path_placeholders "$u_reader" "$u_reader.source"
 # shellcheck disable=SC1090
@@ -77,12 +77,12 @@ u_input=$(mktemp "${TARGET_ROOT}${DIR_VAR_LIB_INSTALLER_STATE}/.network-input-XX
 } >"$u_input"
 unset u_passphrase u_ssid
 trap 'rm -f "$u_input"' 0
-installer_run_target_setup FILE_OS_NETWORK_PROFILE_STAGE 'publish physical network policy without activating adapters' "${u_input#"$TARGET_ROOT"}"
+installer_run_target_setup scripts/common/network-profile-stage.py.tmpl 'publish physical network policy without activating adapters' "${u_input#"$TARGET_ROOT"}"
 rm -f "$u_input"
-installer_stage_profile_file FILE_TARGET_LIBEXEC_NETWORK_WIFI_CONFIGURE "${DIR_USR_LOCAL_LIBEXEC}/network-wifi-configure" 0755
-installer_stage_profile_file FILE_TARGET_NETWORKMANAGER_DISPATCHER_D_90_MANAGED_WIFI_PREFERENCE \
+installer_stage_profile_file hooks/target/usr/local/libexec/common/network-wifi-configure "${DIR_USR_LOCAL_LIBEXEC}/network-wifi-configure" 0755
+installer_stage_profile_file hooks/target/etc/NetworkManager/dispatcher.d/90-managed-wifi-preference \
   "${DIR_NETWORKMANAGER}/dispatcher.d/90-managed-wifi-preference" 0755
-installer_stage_profile_file FILE_TARGET_UNIT_WIFI_FIRSTBOOT_SERVICE "${DIR_SYSTEMD_SYSTEM}/wifi-firstboot.service" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/wifi-firstboot.service "${DIR_SYSTEMD_SYSTEM}/wifi-firstboot.service" 0644
 installer_stage_offline_unit_link "${DIR_SYSTEMD_SYSTEM}/wifi-firstboot.service"
 # Native systemd package interface. Only create offline activation links; no
 # service manager, adapter or resolver is contacted by this installer stage.

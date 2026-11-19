@@ -24,7 +24,7 @@ import re
 import sys
 import tarfile
 
-from source_layout import profile_paths, profile_values, repository_selectors
+from source_layout import profile_paths, profile_values, repository_configuration
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED = ROOT / 'd-i/debian'
@@ -64,12 +64,8 @@ def verify_lifecycle_helpers() -> None:
 
 
 def validate(paths: list[Path]) -> None:
-    selectors = repository_selectors(SEED)
-    for name, value in selectors.items():
-        if name.startswith('FILE_') and not value.startswith(('frontends/', 'catalog/compiled/')):
-            path = SEED / value
-            if path.is_symlink() or not path.is_file():
-                raise ValueError('missing source selector: ' + name)
+    for suite in ('forky', 'trixie'):
+        repository_configuration(SEED, suite)
     for path in paths:
         if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o111:
             raise ValueError('installer source must be a nonexecutable regular file')
@@ -80,6 +76,35 @@ def validate(paths: list[Path]) -> None:
             profile_values(SEED, profile, suite)
     validate_apparmor_modes()
     verify_lifecycle_helpers()
+
+
+def validate_source_members(members: dict[str, bytes]) -> None:
+    """The compiled inventory must describe the actual captured payload once."""
+    data = members.get('catalog/compiled/source-members.tsv', b'')
+    if len(data) > 4 * 1024 * 1024:
+        raise ValueError('source membership table exceeds its bound')
+    lines = data.decode('utf-8').splitlines()
+    if not lines or lines[0] != 'format\t1' or len(lines) > 10001:
+        raise ValueError('invalid source membership header or count')
+    seen = set()
+    for line in lines[1:]:
+        fields = line.split('\t')
+        if len(fields) != 3:
+            raise ValueError('invalid source membership row')
+        member, family, suite = fields
+        if (not re.fullmatch(r'[A-Za-z0-9_./@+ -]+', member)
+                or member.startswith('/') or len(member) > 240
+                or any(part in {'', '.', '..'} for part in member.split('/'))
+                or member in seen or member not in members
+                or family not in {'any', 'common', 'desktop', 'server'}
+                or suite not in {'any', 'forky', 'trixie'}):
+            raise ValueError('unsafe, duplicate or absent source member: ' + member)
+        selected_suite = re.match(r'frontends/(forky|trixie)/', member)
+        if suite != (selected_suite[1] if selected_suite else 'any'):
+            raise ValueError('source member has the wrong suite: ' + member)
+        seen.add(member)
+    if seen != set(members):
+        raise ValueError('source membership table omits captured members')
 
 
 def current_products() -> tuple[str, dict[str, bytes]]:
@@ -119,7 +144,7 @@ def current_products() -> tuple[str, dict[str, bytes]]:
         else:
             source = SEED / name
         data = source.read_bytes()
-        if digest(data) != expected or name != 'repo.env' and members.get(name) != data:
+        if digest(data) != expected or members.get(name) != data:
             raise ValueError('stale captured source: ' + name)
     for name, expected in receipt['products'].items():
         for suite in ('forky', 'trixie'):
@@ -128,6 +153,7 @@ def current_products() -> tuple[str, dict[str, bytes]]:
     for name, expected in receipt['frontends'].items():
         if digest((ROOT / 'd-i' / name).read_bytes()) != expected:
             raise ValueError('stale frontend product: ' + name)
+    validate_source_members(members)
     return release_id, members
 
 

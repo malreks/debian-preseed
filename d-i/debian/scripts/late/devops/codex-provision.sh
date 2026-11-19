@@ -36,33 +36,33 @@ devops_stage_target_asset \
   codex-wrapper
 chown root:root "${target_root}${DEVOPS_CODEX_WRAPPER_PATH}"
 devops_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_CODEX_APP_SERVER_WAIT_READY)" \
+  "$(installer_repo_file_value hooks/target/usr/local/libexec/common/codex-app-server-wait-ready)" \
   "$DEVOPS_CODEX_APP_SERVER_READY_HELPER" \
   0755 \
   codex-app-server-ready-helper
 chown root:root "${target_root}${DEVOPS_CODEX_APP_SERVER_READY_HELPER}"
 if [ "$INSTALLER_HOST_VARIANT" = desktop ]; then
 devops_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_BIN_CODEX_STANDALONE_INSTALL)" \
+  "$(installer_repo_file_value hooks/target/usr/local/bin/desktop/codex-standalone-install)" \
   "$DEVOPS_CODEX_STANDALONE_INSTALLER_HELPER" \
   0755 \
   codex-standalone-installer
 chown root:root "${target_root}${DEVOPS_CODEX_STANDALONE_INSTALLER_HELPER}"
 devops_stage_target_asset \
-  "$(installer_repo_file_value FILE_LATE_CODEX_INSTALLER_SESSION)" \
+  "$(installer_repo_file_value scripts/late/codex-installer-session.py)" \
   "$DEVOPS_CODEX_INSTALLER_SESSION_HELPER" \
   0700 \
   codex-installer-session
 chown root:root "${target_root}${DEVOPS_CODEX_INSTALLER_SESSION_HELPER}"
 fi
 devops_stage_target_asset \
-  "$(installer_repo_file_value FILE_LATE_CODEX_ARCHIVE)" \
+  "$(installer_repo_file_value scripts/late/codex-archive.py)" \
   "$devops_codex_archive_helper_path" \
   0700 \
   codex-archive-helper
 chown root:root "${target_root}${devops_codex_archive_helper_path}"
 devops_stage_target_asset \
-  "$(installer_repo_file_value FILE_LATE_CODEX_STATE)" \
+  "$(installer_repo_file_value scripts/late/codex-state.py)" \
   "$devops_codex_state_helper_path" \
   0700 \
   codex-state-verifier

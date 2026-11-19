@@ -51,11 +51,14 @@ def main() -> int:
     stages = {
         'test': [[python, '-B', '-m', 'unittest', 'discover', '-v', '-s', 'd-i/debian/tests', '-p', args.pattern]],
         'tools-test': [[python, '-B', '-m', 'unittest', 'discover', '-v', '-s', 'tools/tests', '-p', args.pattern]],
-        'check': [[python, '-I', '-B', 'tools/check_build.py'],
+        'check': [[python, '-I', '-B', 'd-i/debian/tests/audit_codebase.py',
+                   '--perl-only', '--prepare-suite', 'forky', '--prepare-family', 'desktop',
+                   '--output', '.build/validation/perl-syntax.json'],
+                  [python, '-I', '-B', 'tools/check_build.py'],
                   [python, '-I', '-B', 'tools/check_shells.py']],
         'build': [[python, '-I', '-B', 'tools/build.py']],
         'audit': [[python, '-I', '-B', 'd-i/debian/tests/audit_codebase.py',
-                   '--output', '.build/validation/audit.json']],
+                   '--source-only', '--output', '.build/validation/audit.json']],
         'validate': [[python, '-I', '-B', 'tools/validate.py']],
     }
     environment = fixture_environment(home)

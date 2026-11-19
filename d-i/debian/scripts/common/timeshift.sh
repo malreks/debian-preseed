@@ -34,35 +34,35 @@ TIMESHIFT_BACKUP_DEVICE_UUID=$(blkid -s UUID -o value "$root_device")
 TIMESHIFT_PARENT_DEVICE_UUID=
 if [ "$CRYPTO_LUKS2_ROOT" = true ]; then TIMESHIFT_PARENT_DEVICE_UUID=$(blkid -s UUID -o value "$DEV_PART_ROOT"); fi
 case "$TIMESHIFT_BACKUP_DEVICE_UUID" in ''|*[!a-fA-F0-9-]*) installer_fatal 'invalid snapshot device UUID' ;; esac
-installer_stage_profile_file FILE_TARGET_AA_ABSTRACTIONS_TIMESHIFT_RUNTIME "${DIR_APPARMOR}/abstractions/timeshift-runtime" 0644
-installer_stage_profile_file FILE_TARGET_AA_TIMESHIFT "${DIR_APPARMOR}/timeshift" 0644
+installer_stage_profile_file hooks/target/etc/apparmor.d/common/abstractions/timeshift-runtime "${DIR_APPARMOR}/abstractions/timeshift-runtime" 0644
+installer_stage_profile_file hooks/target/etc/apparmor.d/common/timeshift "${DIR_APPARMOR}/timeshift" 0644
 if [ "$INSTALLER_HOST_VARIANT" = server ]; then
   timeshift_modes="${TARGET_ROOT}${DIR_ETC}/apparmor/modes.conf"
   installer_apt_safe_path "$timeshift_modes" || installer_fatal 'unsafe Timeshift mode policy ancestry'
   [ -f "$timeshift_modes" ] && [ ! -L "$timeshift_modes" ] || installer_fatal 'shared AppArmor mode policy is missing'
   printf 'enforce required timeshift -\n' >>"$timeshift_modes"
 fi
-installer_stage_profile_file FILE_TARGET_TIMESHIFT_TIMESHIFT_TMPL "$FILE_TIMESHIFT_CONFIG" 0600
-installer_stage_profile_file FILE_TARGET_LIBEXEC_TIMESHIFT_SNAPSHOT "$FILE_TIMESHIFT_SNAPSHOT_HELPER" 0755
-installer_stage_profile_file FILE_TARGET_LIBEXEC_TIMESHIFT_NOTIFY_SEND "$FILE_TIMESHIFT_NOTIFY_SHIM" 0755
-installer_stage_profile_file FILE_TARGET_RSYSLOG_D_38_TIMESHIFT_TMPL "${DIR_RSYSLOG_D}/38-timeshift.conf" 0644
-installer_stage_profile_file FILE_TARGET_LOGROTATE_D_TIMESHIFT_TMPL "${DIR_LOGROTATE_D}/timeshift" 0644
-installer_stage_profile_file FILE_TARGET_TMPFILES_D_61_TIMESHIFT_TMPL "${DIR_TMPFILES_D}/61-timeshift.conf" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_TIMESHIFT_DAILY_SERVICE "$FILE_TIMESHIFT_DAILY_SERVICE" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_TIMESHIFT_DAILY_TIMER "$FILE_TIMESHIFT_DAILY_TIMER" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_TIMESHIFT_WEEKLY_SERVICE "$FILE_TIMESHIFT_WEEKLY_SERVICE" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_TIMESHIFT_WEEKLY_TIMER "$FILE_TIMESHIFT_WEEKLY_TIMER" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_TIMESHIFT_MONTHLY_SERVICE "$FILE_TIMESHIFT_MONTHLY_SERVICE" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_TIMESHIFT_MONTHLY_TIMER "$FILE_TIMESHIFT_MONTHLY_TIMER" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_TIMESHIFT_FAMILY_SERVICE_D_60_RESOURCE_CLASS \
+installer_stage_profile_file hooks/target/etc/timeshift/timeshift.json.tmpl "$FILE_TIMESHIFT_CONFIG" 0600
+installer_stage_profile_file hooks/target/usr/local/libexec/common/timeshift-snapshot "$FILE_TIMESHIFT_SNAPSHOT_HELPER" 0755
+installer_stage_profile_file hooks/target/usr/local/libexec/common/timeshift/notify-send "$FILE_TIMESHIFT_NOTIFY_SHIM" 0755
+installer_stage_profile_file hooks/target/etc/rsyslog.d/38-timeshift.conf.tmpl "${DIR_RSYSLOG_D}/38-timeshift.conf" 0644
+installer_stage_profile_file hooks/target/etc/logrotate.d/timeshift.tmpl "${DIR_LOGROTATE_D}/timeshift" 0644
+installer_stage_profile_file hooks/target/etc/tmpfiles.d/common/61-timeshift.conf.tmpl "${DIR_TMPFILES_D}/61-timeshift.conf" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/timeshift-daily.service "$FILE_TIMESHIFT_DAILY_SERVICE" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/timeshift-daily.timer "$FILE_TIMESHIFT_DAILY_TIMER" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/timeshift-weekly.service "$FILE_TIMESHIFT_WEEKLY_SERVICE" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/timeshift-weekly.timer "$FILE_TIMESHIFT_WEEKLY_TIMER" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/timeshift-monthly.service "$FILE_TIMESHIFT_MONTHLY_SERVICE" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/timeshift-monthly.timer "$FILE_TIMESHIFT_MONTHLY_TIMER" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/timeshift-.service.d/60-resource-class.conf \
   "${DIR_SYSTEMD_SYSTEM_TIMESHIFT_FAMILY_DROPIN}/60-resource-class.conf" 0644
 # One profile switch owns snapshots and the managed GRUB Btrfs menu.
-installer_stage_profile_file FILE_TARGET_DEFAULT_GRUB_BTRFS_CONFIG_TMPL "$FILE_GRUB_BTRFS_CONFIG" 0644
-installer_stage_profile_file FILE_TARGET_LIBEXEC_GRUB_BTRFS_REFRESH "$FILE_GRUB_BTRFS_REFRESH_HELPER" 0755
-installer_stage_profile_file FILE_TARGET_TIMESHIFT_BACKUP_HOOKS_D_90_GRUB_BTRFS_REFRESH "$FILE_TIMESHIFT_GRUB_REFRESH_HOOK" 0755
-installer_stage_profile_file FILE_TARGET_UNIT_GRUB_BTRFS_REFRESH_SERVICE "$FILE_GRUB_BTRFS_REFRESH_SERVICE" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_GRUB_BTRFS_REFRESH_PATH "$FILE_GRUB_BTRFS_REFRESH_PATH" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_GRUB_BTRFS_REFRESH_TIMER "$FILE_GRUB_BTRFS_REFRESH_TIMER" 0644
+installer_stage_profile_file hooks/target/etc/default/grub-btrfs/config.tmpl "$FILE_GRUB_BTRFS_CONFIG" 0644
+installer_stage_profile_file hooks/target/usr/local/libexec/common/grub-btrfs-refresh "$FILE_GRUB_BTRFS_REFRESH_HELPER" 0755
+installer_stage_profile_file hooks/target/etc/timeshift/backup-hooks.d/90-grub-btrfs-refresh "$FILE_TIMESHIFT_GRUB_REFRESH_HOOK" 0755
+installer_stage_profile_file hooks/target/etc/systemd/common/system/grub-btrfs-refresh.service "$FILE_GRUB_BTRFS_REFRESH_SERVICE" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/grub-btrfs-refresh.path "$FILE_GRUB_BTRFS_REFRESH_PATH" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/grub-btrfs-refresh.timer "$FILE_GRUB_BTRFS_REFRESH_TIMER" 0644
 installer_stage_offline_unit_link "$FILE_GRUB_BTRFS_REFRESH_PATH"
 installer_stage_offline_unit_link "$FILE_GRUB_BTRFS_REFRESH_TIMER"
 # Storage/GRUB stages have completed, and the helper now exists in target.

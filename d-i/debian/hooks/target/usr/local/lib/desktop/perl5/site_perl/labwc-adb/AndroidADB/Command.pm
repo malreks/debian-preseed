@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 use lib '__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/runtime';
-use Managed::Process ();
+use Managed::Process qw(status_from_wait);
 
 use Errno qw(EINTR);
 use Fcntl qw(O_CREAT O_EXCL O_NOFOLLOW O_TRUNC O_WRONLY);
@@ -211,7 +211,7 @@ sub _capture {
     my ($grace) = $argv[2] =~ /\A--kill-after=([1-9][0-9]*)s\z/;
     defined($seconds) && defined($grace) or fail('invalid bounded capture invocation');
     my $result = run_command($seconds + $grace + 2, $self->capture_limit_bytes, @argv);
-    $result->{status} = _normalize_status($result->{status});
+    $result->{status} = status_from_wait($result->{status});
     return $result;
 }
 
@@ -281,7 +281,7 @@ sub _fork_exec {
         fail("unable to wait for Android command: $!") if $waited < 0 && $! != EINTR;
         Time::HiRes::sleep(0.05);
     }
-    return _normalize_status($status);
+    return status_from_wait($status);
 }
 
 sub _redirect_handle {
@@ -316,13 +316,6 @@ sub _redirect_handle {
         open STDERR, '>&', $file
             or POSIX::_exit(127);
     }
-}
-
-sub _normalize_status {
-    my ($status) = @_;
-    return 255 if !defined($status) || $status == -1;
-    return 128 + ($status & 127) if $status & 127;
-    return $status >> 8;
 }
 
 1;

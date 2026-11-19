@@ -286,26 +286,7 @@ validate_repo_file_value() {
   esac
 }
 
-repo_env_selector_vars() {
-  bootstrap_entry_repo_env_vars_path=$1
-  sed -n 's/^\(DIR_[A-Z0-9_]*\|FILE_[A-Z0-9_]*\)=.*/\1/p' "$bootstrap_entry_repo_env_vars_path"
-}
 
-validate_repo_env() {
-  bootstrap_entry_repo_env_vars_path=$1
-  while IFS= read -r bootstrap_entry_repo_env_var || [ -n "$bootstrap_entry_repo_env_var" ]; do
-    [ -n "$bootstrap_entry_repo_env_var" ] || continue
-    bootstrap_entry_repo_env_value=
-    eval "bootstrap_entry_repo_env_value=\${$bootstrap_entry_repo_env_var:-}"
-    case "$bootstrap_entry_repo_env_var" in
-      DIR_*) validate_repo_dir_value "$bootstrap_entry_repo_env_var" "$bootstrap_entry_repo_env_value" ;;
-      FILE_*) validate_repo_file_value "$bootstrap_entry_repo_env_var" "$bootstrap_entry_repo_env_value" ;;
-      *) fatal "unsupported repository selector: $bootstrap_entry_repo_env_var" ;;
-    esac
-  done <<EOF
-$(repo_env_selector_vars "$bootstrap_entry_repo_env_vars_path")
-EOF
-}
 
 repo_dir_input_is_var() {
   case "${1:-}" in
@@ -330,11 +311,12 @@ ensure_repo_env() {
   if [ ! -s "$bootstrap_entry_repo_env" ]; then
     fetch_seed_file "$bootstrap_entry_repo_seed_base" repo.env "$bootstrap_entry_repo_env" 0600 "repository path environment"
   fi
+  # The verified transport module owns the shared data-only parser.
   # shellcheck disable=SC1090
-  . "$bootstrap_entry_repo_env"
-  validate_repo_env "$bootstrap_entry_repo_env"
+  . "$BOOTSTRAP_DIR/source.sh"
+  source_load_repo_env "$bootstrap_entry_repo_env" || return $?
   validate_repo_dir_value DIR_SCRIPTS_COMMON "${DIR_SCRIPTS_COMMON:-}"
-  validate_relative_seed_path "${FILE_HOOKS_INSTALLER_DI_ENV:-}"
+  validate_relative_seed_path "hooks/installer/di.env"
   ensure_di_env_file "$bootstrap_entry_repo_seed_base"
   BOOTSTRAP_ENTRY_REPO_ENV_READY=1
 }
@@ -342,10 +324,8 @@ ensure_repo_env() {
 ensure_di_env_file() {
   bootstrap_entry_di_seed_base=$1
   bootstrap_entry_di_env=$(di_env_path)
-  [ -n "${FILE_HOOKS_INSTALLER_DI_ENV:-}" ] ||
-    fatal 'FILE_HOOKS_INSTALLER_DI_ENV is unset in repo.env'
   if [ ! -s "$bootstrap_entry_di_env" ]; then
-    fetch_seed_file "$bootstrap_entry_di_seed_base" "$FILE_HOOKS_INSTALLER_DI_ENV" "$bootstrap_entry_di_env" 0600 "installer path environment"
+    fetch_seed_file "$bootstrap_entry_di_seed_base" "hooks/installer/di.env" "$bootstrap_entry_di_env" 0600 "installer path environment"
   fi
   /bin/sh -n "$bootstrap_entry_di_env" ||
     fatal "installer path environment has invalid shell syntax: $bootstrap_entry_di_env"
@@ -384,22 +364,8 @@ repo_join_var() {
 }
 
 repo_file_value() {
-  bootstrap_entry_repo_file_name=$1
-  case "$bootstrap_entry_repo_file_name" in
-    FILE_[A-Z0-9_]*) ;;
-    *) fatal "repository file selector is invalid: ${bootstrap_entry_repo_file_name:-unset}" ;;
-  esac
-  case "$bootstrap_entry_repo_file_name" in
-    *[!ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*)
-      fatal "repository file selector is invalid: $bootstrap_entry_repo_file_name"
-      ;;
-  esac
-  bootstrap_entry_repo_file_value_result=
-  eval "bootstrap_entry_repo_file_value_result=\${$bootstrap_entry_repo_file_name:-}"
-  [ -n "$bootstrap_entry_repo_file_value_result" ] ||
-    fatal "repository file variable is unset: $bootstrap_entry_repo_file_name"
-  validate_repo_file_value "$bootstrap_entry_repo_file_name" "$bootstrap_entry_repo_file_value_result"
-  printf '%s\n' "$bootstrap_entry_repo_file_value_result"
+  validate_repo_file_value source_member "$1"
+  printf '%s\n' "$1"
 }
 
 fetch_seed_file() (
@@ -423,7 +389,7 @@ refresh_bootstrap_lib() {
     return 0
   fi
   ensure_repo_env "$seed_base"
-  bootstrap_src=$(repo_file_value FILE_COMMON_BOOTSTRAP)
+  bootstrap_src=$(repo_file_value scripts/common/bootstrap.sh)
   fetch_seed_file "$seed_base" "$bootstrap_src" "$BOOTSTRAP_LIB" 0600 "common bootstrap helper"
   printf '%s\n' "$seed_base" >"$BOOTSTRAP_SEED_META"
   chmod 0600 "$BOOTSTRAP_SEED_META" 2>/dev/null || true
@@ -451,7 +417,7 @@ run_phase() {
   if command -v installer_operation_context >/dev/null 2>&1; then
     bootstrap_entry_context_source=unknown
     if [ -n "${DIR_SCRIPTS_PRESEED:-}" ]; then
-      bootstrap_entry_context_source=$(repo_file_value FILE_PRESEED_BOOTSTRAP_ENTRY 2>/dev/null) ||
+      bootstrap_entry_context_source=$(repo_file_value scripts/preseed/bootstrap-entry.sh 2>/dev/null) ||
         bootstrap_entry_context_source=unknown
     fi
     installer_operation_context "$bootstrap_entry_context_source" 446 "bootstrap_run_preseed_phase:${phase}"

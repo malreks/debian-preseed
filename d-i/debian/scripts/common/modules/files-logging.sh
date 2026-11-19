@@ -160,6 +160,7 @@ installer_validate_placeholder_map() {
 # No target interpreter is executed before the prepared receipt is adopted.
 installer_target_perl_render() (
   set -eu
+  [ -z "${INSTALLER_ASSET_BATCH_WORK:-}" ] || installer_asset_batch_flush || exit $?
   umask 077
   render_input=$1; render_destination=$2; render_map=$3
   render_kind=${4:-scalar}; render_value=${5:-}
@@ -221,9 +222,9 @@ installer_target_perl_render() (
 installer_runtime_path_placeholder_schema() {
   [ -z "${INSTALLER_RUNTIME_PATH_SCHEMA:-}" ] || return 0
   if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ]; then
-    installer_schema_path="$BOOTSTRAP_PREPARED_SOURCE_ROOT/$(installer_repo_file_value FILE_COMMON_RUNTIME_PATHS)" || return "$?"
+    installer_schema_path="$BOOTSTRAP_PREPARED_SOURCE_ROOT/$(installer_repo_file_value catalog/runtime-paths.tsv)" || return "$?"
   else
-    installer_schema_path=$(installer_class_metadata_read_path FILE_COMMON_RUNTIME_PATHS) || return "$?"
+    installer_schema_path=$(installer_class_metadata_read_path catalog/runtime-paths.tsv) || return "$?"
   fi
   [ -f "$installer_schema_path" ] && [ ! -L "$installer_schema_path" ] || return 1
   INSTALLER_RUNTIME_PATH_SCHEMA=$(cat "$installer_schema_path") || return "$?"
@@ -587,7 +588,7 @@ installer_init_log_file() {
 
   if command -v installer_operation_context_repo >/dev/null 2>&1 &&
      [ -z "${INSTALLER_FAILURE_SOURCE:-}" ]; then
-    installer_operation_context_repo FILE_COMMON_MOD_FILES_LOGGING 936 "$log_context"
+    installer_operation_context_repo scripts/common/modules/files-logging.sh 936 "$log_context"
   fi
 
   installer_export_logging_policy
@@ -644,7 +645,7 @@ installer_init_stderr_log_file() {
 
   if command -v installer_operation_context_repo >/dev/null 2>&1 &&
      [ -z "${INSTALLER_FAILURE_SOURCE:-}" ]; then
-    installer_operation_context_repo FILE_COMMON_MOD_FILES_LOGGING 993 "$log_context"
+    installer_operation_context_repo scripts/common/modules/files-logging.sh 993 "$log_context"
   fi
 
   installer_export_logging_policy

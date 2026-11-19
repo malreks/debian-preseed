@@ -62,19 +62,19 @@ devops_stage_gitbuild() (
   done
   if [ "$INSTALLER_HOST_VARIANT" = server ]; then
     # os.codex already owns the shared bwrap mechanics for server DevOps.
-    installer_stage_profile_file FILE_TARGET_AA_ABSTRACTIONS_WORKFLOW_AUTH "${DIR_APPARMOR}/abstractions/workflow-auth" 0644
-    installer_stage_profile_file FILE_TARGET_AA_GITBUILD_WORKER "${DIR_APPARMOR}/gitbuild-worker" 0644
-    installer_stage_profile_file FILE_SERVER_AA_GITBUILD "${DIR_APPARMOR}/gitbuild" 0644
+    installer_stage_profile_file hooks/target/etc/apparmor.d/common/abstractions/workflow-auth "${DIR_APPARMOR}/abstractions/workflow-auth" 0644
+    installer_stage_profile_file hooks/target/etc/apparmor.d/common/gitbuild-worker "${DIR_APPARMOR}/gitbuild-worker" 0644
+    installer_stage_profile_file hooks/target/etc/apparmor.d/server/gitbuild "${DIR_APPARMOR}/gitbuild" 0644
   fi
   helper="${DIR_USR_LOCAL_LIBEXEC}/installer-gitbuild-policy"
-  devops_stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_POOL_BUILD_TMP)" \
+  devops_stage_target_asset "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/11-build-pool-tmp.conf.tmpl)" \
     "${DIR_TMPFILES_D}/11-build-pool-tmp.conf" 0644 gitbuild-temporary-pool-policy
   trap 'rm -f -- "${target_root}${helper}"' EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
   devops_stage_target_asset \
-    "$(installer_repo_file_value FILE_LATE_GITBUILD_POLICY)" "$helper" 0700 gitbuild-installer-policy
+    "$(installer_repo_file_value scripts/late/gitbuild-policy.py)" "$helper" 0700 gitbuild-installer-policy
   run_in_target "configure private gitbuild storage and subordinate IDs" \
     __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "$helper" "$ACCOUNT_USERNAME"
   run_in_target "apply selected AppArmor mode to staged gitbuild workers" \

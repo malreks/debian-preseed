@@ -109,9 +109,11 @@ def main(argv: list[str]) -> int:
             return 0
         defaults = load()
         colors = None if profile == 'reset' else palette(profile, mode)
-        updates = {name: css(config.read(name).decode(), defaults['greeter'][name], colors, glow=True).encode()
+        expected = {name: config.read(name, limit=transaction.MAX_IMAGE_BYTES)
+                    for name in GREETER_FILES}
+        updates = {name: css(expected[name].decode(), defaults['greeter'][name], colors, glow=True).encode()
                    for name in GREETER_FILES}
-        journal = transaction.plan(config, updates, token)
+        journal = transaction.plan(config, updates, token, expected=expected)
         journal.update(caller=uid, kind='theme')
         state.put_json('pending.json', journal)
         try:

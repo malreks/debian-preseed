@@ -12,14 +12,14 @@ devops_install_youtube_policy() (
     install -d -m 0755 -- "$host_directory"
     chown root:root "$host_directory"
   done
-  for entry in "FILE_TARGET_YT_DLP_CONFIG|${DIR_ETC}/yt-dlp/config" \
-    "FILE_TARGET_SKEL_YT_DLP_CONFIG|${DEVOPS_SKEL_DIR}/.config/yt-dlp/config" \
-    "FILE_TARGET_SHARE_DOC_YT_DLP_CONFIGURATION|${DIR_USR_LOCAL_SHARE}/doc/yt-dlp/CONFIGURATION.md"; do
+  for entry in "hooks/target/etc/yt-dlp/config|${DIR_ETC}/yt-dlp/config" \
+    "hooks/target/usr/local/share/common/devops/config/yt-dlp.conf|${DEVOPS_SKEL_DIR}/.config/yt-dlp/config" \
+    "hooks/target/usr/local/share/desktop/doc/yt-dlp/CONFIGURATION.md|${DIR_USR_LOCAL_SHARE}/doc/yt-dlp/CONFIGURATION.md"; do
     selector=${entry%%|*}; path=${entry#*|}
     [ ! -e "${target_root}$path" ] && [ ! -L "${target_root}$path" ] ||
       devops_fatal "fresh-install downloader policy path already exists: $path"
     set --
-    if [ "$selector" = FILE_TARGET_SKEL_YT_DLP_CONFIG ]; then
+    if [ "$selector" = hooks/target/usr/local/share/common/devops/config/yt-dlp.conf ]; then
       set -- "stage downloader user configuration and plugin directory" \
         .config/yt-dlp/config 0600 .config/yt-dlp/plugins
     fi
@@ -29,7 +29,7 @@ devops_install_youtube_policy() (
 )
 
 devops_install_llama_runtime() {
-  llama_repo_path=$(installer_repo_file_value FILE_LATE_LLAMA)
+  llama_repo_path=$(installer_repo_file_value scripts/late/llama.sh)
   llama_installer="${tmp_env_dir}/installer-llama-entry.$$"
 
   bootstrap_fetch_seed_file \
@@ -53,7 +53,7 @@ devops_install_llama_runtime() {
 }
 
 devops_render_cargo_config() {
-  template_repo_path=$(installer_repo_file_value FILE_TARGET_SKEL_CARGO_CONFIG_TMPL)
+  template_repo_path=$(installer_repo_file_value hooks/target/usr/local/share/common/devops/config/cargo.toml.tmpl)
   template_tmp="${tmp_env_dir}/cargo-config.toml.tmpl.$$"
   rendered_tmp="${tmp_env_dir}/cargo-config.toml.rendered.$$"
   target_cargo_dir="${target_root}${CARGO_HOME}"
@@ -184,7 +184,7 @@ devops_render_codex_logrotate() {
 }
 
 devops_render_bazelrc() {
-  template_repo_path=$(installer_repo_file_value FILE_TARGET_SKEL_BAZEL_BAZELRC_TMPL)
+  template_repo_path=$(installer_repo_file_value hooks/target/usr/local/share/common/devops/config/bazelrc.tmpl)
   template_tmp="${tmp_env_dir}/bazelrc.tmpl.$$"
   rendered_tmp="${tmp_env_dir}/bazelrc.rendered.$$"
   target_bazel_dir="${target_root}${DEVOPS_SKEL_DIR}/.config/bazel"
@@ -251,7 +251,7 @@ devops_render_bazelrc() {
 }
 
 devops_render_packer_template() {
-  template_repo_path=$(installer_repo_file_value FILE_TARGET_SKEL_PACKER_TEMPLATE_PKR_HCL_TMPL)
+  template_repo_path=$(installer_repo_file_value hooks/target/usr/local/share/common/devops/config/template.pkr.hcl.tmpl)
   template_tmp="${tmp_env_dir}/packer-template.pkr.hcl.tmpl.$$"
   rendered_tmp="${tmp_env_dir}/packer-template.pkr.hcl.rendered.$$"
   target_skel_dir="${target_root}${DEVOPS_SKEL_DIR}/.config/packer"
@@ -310,7 +310,7 @@ devops_initialize_packer_plugins() (
   trap 'exit 129' HUP
   bootstrap_fetch_seed_file \
     "$seed_base" \
-    "$(installer_repo_file_value FILE_LATE_PACKER_PLUGINS)" \
+    "$(installer_repo_file_value scripts/late/packer-plugins.py)" \
     "$packer_helper_host" 0644 "signed Packer plugin initializer"
   chown root:root "$packer_helper_host"
   packer_init_status=0

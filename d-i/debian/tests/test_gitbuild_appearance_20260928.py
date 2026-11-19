@@ -602,6 +602,23 @@ class AppearanceCoordinatorTests(Temporary):
         self.assertEqual(other.read_bytes(), before)
         self.privileged.assert_not_called()
 
+    def test_state_created_after_render_is_preserved_before_journal(self):
+        path = self.root / '.config/fuzzel/fuzzel.ini'
+        before = path.read_bytes()
+        original_plan = transaction.plan
+
+        def concurrent_state(home, updates, token, **options):
+            home.write(engine.CONFIG, b'concurrent preferences')
+            return original_plan(home, updates, token, **options)
+
+        with mock.patch.object(transaction, 'plan', side_effect=concurrent_state), \
+                self.assertRaisesRegex(RuntimeError, 'changed during preparation'):
+            engine.apply_choice(['apply', 'fuzzel', 'mocha-rose'])
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual((self.root / engine.CONFIG).read_bytes(), b'concurrent preferences')
+        self.assertFalse((self.root / engine.JOURNAL).exists())
+        self.privileged.assert_not_called()
+
     def test_unavailable_provider_is_rejected_before_any_desktop_write(self):
         before = {p: p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
         self.preflight.side_effect = ValueError('fixture: provider missing')
@@ -1037,6 +1054,38 @@ class PaletteTests(unittest.TestCase):
 
 
 class TransactionTests(Temporary):
+    def test_prepared_bytes_cannot_adopt_a_concurrent_rollback_baseline(self):
+        with Tree(self.root) as tree:
+            tree.write('config', b'old')
+            before = tree.read('config')
+            tree.write('config', b'user-change')
+            with self.assertRaisesRegex(RuntimeError, 'changed during preparation'):
+                transaction.plan(tree, {'config': b'new'}, TOKEN, expected={'config': before})
+            self.assertEqual(tree.read('config'), b'user-change')
+
+    def test_prepared_absence_and_noop_images_are_checked(self):
+        with Tree(self.root) as tree:
+            tree.write('config', b'user-change')
+            for expected in (None, b'old'):
+                with self.subTest(expected=expected), \
+                        self.assertRaisesRegex(RuntimeError, 'changed during preparation'):
+                    transaction.plan(tree, {'config': b'user-change'}, TOKEN,
+                                     expected={'config': expected})
+            with self.assertRaisesRegex(ValueError, 'every candidate'):
+                transaction.plan(tree, {'config': b'new'}, TOKEN, expected={})
+            self.assertEqual(tree.read('config'), b'user-change')
+
+    def test_prepared_snapshot_keeps_apply_and_rollback_checks(self):
+        with Tree(self.root) as tree:
+            tree.write('config', b'old')
+            journal = transaction.plan(tree, {'config': b'new'}, TOKEN,
+                                       expected={'config': b'old'})
+            tree.write('config', b'later-edit')
+            for operation in (transaction.apply, transaction.rollback):
+                with self.subTest(operation=operation.__name__), self.assertRaises(RuntimeError):
+                    operation(tree, journal)
+            self.assertEqual(tree.read('config'), b'later-edit')
+
     def test_complete_palette_candidates_fit_recoverable_journal_limits(self):
         with Tree(self.root) as tree:
             tree.write('native.ini', b'original')

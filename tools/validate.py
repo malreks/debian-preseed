@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Guarded aggregate validation source, prohibited under repository guidance.
+"""Aggregate checks inside a reviewed disposable validation image only.
 
-Do not execute this runner, create an environment for it, or bypass its guard.
-Use the explicitly permitted generation and changed-file static audit instead.
+Review each stage and its fixtures before execution. The mandatory image guard
+does not provision a boundary or authorize host execution or a host fallback.
 """
 from __future__ import annotations
 
@@ -75,13 +75,16 @@ def main() -> int:
     output = Path(tempfile.mkdtemp(prefix='run-', dir=output))
     interpreter = resolve_python_interpreter()
     stages = [
+        ('perl-check', [interpreter, '-B', 'd-i/debian/tests/audit_codebase.py',
+                        '--perl-only', '--prepare-suite', 'forky', '--prepare-family', 'desktop',
+                        '--output', str(output / 'perl-syntax.json')], 300),
         ('browser-check', [interpreter,'-B','tools/check_browser_policies.py'],30),
         ('build-check', [interpreter,'-B','tools/check_build.py'],90),
         ('preseed-check', [interpreter,'-B','tools/check_preseeds.py'],90),
         ('shell-check', [interpreter,'-B','tools/check_shells.py','--output',str(output/'shell-check.json')],120),
         ('tests', [interpreter,'-B','-m','unittest','discover','-v','-s','d-i/debian/tests','-p','test_*.py'],args.test_timeout),
         ('tools-tests', [interpreter,'-B','-m','unittest','discover','-v','-s','tools/tests','-p','test_*.py'],args.test_timeout),
-        ('audit', [interpreter,'-B','d-i/debian/tests/audit_codebase.py','--output',str(output/'audit.json')],120),
+        ('audit', [interpreter,'-B','d-i/debian/tests/audit_codebase.py','--source-only','--output',str(output/'audit.json')],300),
     ]
     child_environment = validation_environment()
     results=[]
@@ -116,14 +119,16 @@ def main() -> int:
     if len(set(release_ids)) != 1:
         raise ValueError('suite frontends do not bind one complete release')
     release_id = release_ids[0]
-    report={'repository':ROOT.name,'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    report={'repository':ROOT.name,'release_id':release_id,
+            'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'stages':results,'not_run':[name for name, _, _ in stages[len(results):]],
             'success':len(results)==len(stages) and all(r['returncode']==0 for r in results),
             'audit_check_counts':audit.get('check_counts',{}),
             'runtime_product_sha256': {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in [*(ROOT / 'd-i' / suite / 'preseed.cfg' for suite in ('forky', 'trixie')),
-                             *(ROOT / 'd-i/debian/releases' / release_id / name
-                               for name in ('payload.manifest', 'payload.tar.gz'))]},
+                for path in (ROOT / 'd-i' / suite / name
+                             for suite in ('forky', 'trixie')
+                             for name in ('preseed.cfg', 'payload.manifest', 'payload.tar.gz',
+                                          'source.sh', 'receipt.json', 'support-matrix.json'))},
             'limits':['Offline/loopback checks, not a booted Debian installer.',
                       'Systemd unit checks are lexical structure only.',
                       'Blocked dependencies, inventory-only files and unrendered templates are not passing runtime tests.',

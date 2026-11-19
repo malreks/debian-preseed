@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / 'hooks/target'
-HELPER = TARGET / 'usr/local/sbin/nvme-pcie-status'
+HELPER = TARGET / 'usr/local/sbin/common/nvme-pcie-status'
 RULE = TARGET / 'etc/udev/rules.d/74-nvme-link-idle.rules'
 
 
@@ -86,6 +86,49 @@ class NVMeStatusTests(unittest.TestCase):
         self.assertIn('RxErr 6', record['aer_correctable'])
         self.assertEqual(record['current_link_width'], '4')
         self.assertEqual(before, {p: p.read_bytes() for p in before})
+
+    def test_compatibility_fields_share_one_observation_and_next_snapshot_is_fresh(self):
+        dev = self.device()
+        values = {'aer_dev_correctable': 'RxErr 6', 'aer_dev_nonfatal': '0',
+                  'aer_dev_fatal': '0', 'current_link_speed': '8.0 GT/s PCIe',
+                  'current_link_width': '4', 'max_link_speed': '16.0 GT/s PCIe',
+                  'max_link_width': '4'}
+        for name, value in values.items():
+            (dev / name).write_text(value + '\n')
+        read = self.m.read_attribute
+
+        def observed(path):
+            value = read(path)
+            if path.parent == dev and path.name in values:
+                # Model counters/link state changing after an observation.
+                # Only this private fixture writes; the reporter remains read-only.
+                path.write_text('next observation\n')
+            return value
+
+        with patch.object(self.m, 'read_attribute', side_effect=observed) as reads:
+            record, = self.m.snapshot()
+        self.assertEqual(record['link_evidence'], values)
+        self.assertEqual(record['aer_correctable'], values['aer_dev_correctable'])
+        self.assertEqual(record['current_link_speed'], values['current_link_speed'])
+        self.assertEqual(record['current_link_width'], values['current_link_width'])
+        observed_paths = [call.args[0] for call in reads.call_args_list]
+        for name in values:
+            self.assertEqual(observed_paths.count(dev / name), 1, name)
+        refreshed, = self.m.snapshot()
+        self.assertEqual(refreshed['link_evidence'], dict.fromkeys(values, 'next observation'))
+        self.assertEqual(refreshed['aer_correctable'], 'next observation')
+
+    def test_unavailable_compatibility_fields_do_not_trigger_a_second_read(self):
+        dev = self.device()
+        with patch.object(self.m, 'read_attribute', wraps=self.m.read_attribute) as reads:
+            record, = self.m.snapshot()
+        observed_paths = [call.args[0] for call in reads.call_args_list]
+        for compatibility, attribute in (('aer_correctable', 'aer_dev_correctable'),
+                                          ('current_link_speed', 'current_link_speed'),
+                                          ('current_link_width', 'current_link_width')):
+            self.assertIsNone(record[compatibility])
+            self.assertIsNone(record['link_evidence'][attribute])
+            self.assertEqual(observed_paths.count(dev / attribute), 1, attribute)
 
     def test_partial_controls_do_not_invent_missing_capabilities(self):
         dev = self.device(); (dev / 'link').mkdir()
@@ -229,11 +272,12 @@ class NVMeRuleTests(unittest.TestCase):
     def test_shared_staging_covers_both_filesystem_families(self):
         stage = (ROOT / 'scripts/late/storage-maintenance.sh').read_text()
         self.assertIn('etc/udev/rules.d/74-nvme-link-idle.rules', stage)
-        self.assertIn('usr/local/sbin/nvme-pcie-status', stage)
+        self.assertIn('hooks/target/usr/local/sbin/common/nvme-pcie-status', stage)
+        self.assertIn('__INSTALLER_PATH_DIR_USR_LOCAL__/sbin/nvme-pcie-status', stage)
         self.assertIn('etc/initramfs-tools/hooks/nvme-link-idle', stage)
         hook = (TARGET / 'etc/initramfs-tools/hooks/nvme-link-idle').read_text()
         self.assertNotIn('setpci', hook)
-        self.assertIn('copy_file config /etc/udev/rules.d/74-nvme-link-idle.rules', hook)
+        self.assertIn('copy_file config __INSTALLER_PATH_DIR_ETC__/udev/rules.d/74-nvme-link-idle.rules', hook)
         for family in ('btrfs', 'f2fs'):
             source = (ROOT / f'scripts/late/{family}-family.sh').read_text()
             self.assertIn('stage_target_common_storage_maintenance_assets', source)
@@ -245,9 +289,9 @@ class NVMeRuleTests(unittest.TestCase):
 fail_at=$2
 calls=0
 advanced=0
-installer_repo_join_var() { printf '%s\n' "$2"; }
+installer_repo_file_value() { printf '%s\n' "$1"; }
 stage_target_asset() { calls=$((calls + 1)); [ "$calls" -ne "$fail_at" ]; }
-stage_target_systemd_resource_policy_assets() { advanced=1; return 1; }
+stage_target_runtime_storage_root_policy() { advanced=1; return 1; }
 if stage_target_common_storage_maintenance_assets; then exit 80; fi
 [ "$calls" -eq "$fail_at" ] && [ "$advanced" -eq 0 ]
 """
@@ -257,7 +301,7 @@ if stage_target_common_storage_maintenance_assets; then exit 80; fi
         if shutil.which('busybox'):
             shells.append([shutil.which('busybox'), 'ash'])
         for shell in shells:
-            for fail_at in (1, 2, 3):
+            for fail_at in (1, 2, 3, 4):
                 with self.subTest(shell=shell, fail_at=fail_at):
                     result = subprocess.run(shell + ['-c', script, 'nvme-staging-fixture',
                         str(ROOT / 'scripts/late/storage-maintenance.sh'), str(fail_at)],

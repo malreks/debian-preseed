@@ -347,32 +347,32 @@ install_target_tmpfs_pre_clean_assets() {
   [ -n "$tmpfs_pre_clean_targets" ] ||
     installer_fatal "tmpfs-pre-clean helper has no configured cleanup targets"
 
-  render_target_pre_clean_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TMPFS_PRE_CLEAN_TMPL)" "$FILE_TMPFS_PRE_CLEAN_HELPER" 0755
-  render_target_pre_clean_asset "$(installer_repo_file_value FILE_TARGET_UNIT_TMPFS_PRE_CLEAN_SERVICE_TMPL)" "$FILE_TMPFS_PRE_CLEAN_SERVICE" 0644
+  render_target_pre_clean_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/tmpfs-pre-clean.tmpl)" "$FILE_TMPFS_PRE_CLEAN_HELPER" 0755
+  render_target_pre_clean_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/tmpfs-pre-clean.service.tmpl)" "$FILE_TMPFS_PRE_CLEAN_SERVICE" 0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_TMP_MOUNT_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/tmp.mount.d/override.conf)" \
     "${FILE_TMPFS_PRE_CLEAN_TMP_MOUNT_OVERRIDE}" \
     0644
   stage_target_tmpfs_pre_clean_mount_override_if_enabled TMPFS_DEV_SHM \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_DEV_SHM_MOUNT_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/dev-shm.mount.d/override.conf)" \
     "${FILE_TMPFS_PRE_CLEAN_DEV_SHM_MOUNT_OVERRIDE}"
   stage_target_tmpfs_pre_clean_mount_override_if_enabled TMPFS_VAR_SPOOL_RSYSLOG \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_VAR_SPOOL_RSYSLOG_MOUNT_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/var-spool-rsyslog.mount.d/override.conf)" \
     "${FILE_TMPFS_PRE_CLEAN_VAR_SPOOL_RSYSLOG_MOUNT_OVERRIDE}"
   stage_target_tmpfs_pre_clean_mount_override_if_enabled TMPFS_VAR_LOG \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_VAR_LOG_MOUNT_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/var-log.mount.d/override.conf)" \
     "${FILE_TMPFS_PRE_CLEAN_VAR_LOG_MOUNT_OVERRIDE}"
   stage_target_tmpfs_pre_clean_mount_override_if_enabled TMPFS_VAR_CACHE \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_VAR_CACHE_MOUNT_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/var-cache.mount.d/override.conf)" \
     "${FILE_TMPFS_PRE_CLEAN_VAR_CACHE_MOUNT_OVERRIDE}"
   stage_target_tmpfs_pre_clean_mount_override_if_enabled TMPFS_VAR_LIB_APT_LISTS \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_VAR_LIB_APT_LISTS_MOUNT_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/var-lib-apt-lists.mount.d/override.conf)" \
     "${FILE_TMPFS_PRE_CLEAN_APT_LISTS_MOUNT_OVERRIDE}"
   stage_target_tmpfs_pre_clean_mount_override_if_enabled TMPFS_SYSTEMD_COREDUMP \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_VAR_LIB_SYSTEMD_COREDUMP_MOUNT_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/var-lib-systemd-coredump.mount.d/override.conf)" \
     "${FILE_TMPFS_PRE_CLEAN_COREDUMP_MOUNT_OVERRIDE}"
   stage_target_tmpfs_pre_clean_mount_override_if_enabled TMPFS_DATA_RUN \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_DATA_RUN_MOUNT_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/data-run.mount.d/override.conf)" \
     "${FILE_TMPFS_PRE_CLEAN_DATA_RUN_MOUNT_OVERRIDE}"
 
   remove_target_asset "__INSTALLER_PATH_DIR_USR_LOCAL__/sbin/storage-tmpfiles-refresh"
@@ -391,16 +391,16 @@ install_target_tmpfs_pre_clean_assets() {
 
 install_target_tmpfs_tmpfiles_assets() {
   render_target_tmpfiles_if_tmpfs_enabled TMPFS_VAR_LOG \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_30_VAR_LOG_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/30-var-log.conf.tmpl)" \
     "${FILE_TMPFILES_VAR_LOG_GENERATED}"
   render_target_tmpfiles_if_tmpfs_enabled TMPFS_VAR_LIB_APT_LISTS \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_40_APT_LISTS_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/40-apt-lists.conf.tmpl)" \
     "${FILE_TMPFILES_APT_LISTS_GENERATED}"
   render_target_tmpfiles_if_tmpfs_enabled TMPFS_VAR_CACHE \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_50_VAR_CACHE_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/50-var-cache.conf.tmpl)" \
     "${FILE_TMPFILES_VAR_CACHE_GENERATED}"
   render_target_tmpfiles_if_tmpfs_enabled TMPFS_DATA_RUN \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_20_DATA_RUN_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/20-data-run.conf.tmpl)" \
     "${FILE_DATA_RUN_TMPFILES}"
 
   remove_target_asset "${FILE_TMPFILES_VOLATILE_BASE}"

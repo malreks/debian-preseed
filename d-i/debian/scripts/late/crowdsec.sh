@@ -135,7 +135,7 @@ crowdsec_stage_logging_overlay() {
         if (kind=="bouncer" && $0 !~ /^[a-z_]+: /) exit 1
         key=$0; sub(/^[ ]*/,"",key); sub(/:.*/,"",key)
         value=$0; sub(/^[^:]*:[ ]*/,"",value)
-        if (seen[key]++ || value !~ /^[A-Za-z0-9_./:-]+$/) exit 1
+        if (seen[key]++ || value !~ /^[A-Za-z0-9_.\/:-]+$/) exit 1
         if (kind=="engine") {
           if (key !~ /^(log_media|log_dir|log_level|log_max_size|log_max_age|log_max_files|compress_logs)$/) exit 1
         } else {
@@ -165,7 +165,7 @@ bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
 bootstrap_source_common_lib ""
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/crowdsec}
-installer_operation_context_repo FILE_LATE_CROWDSEC 167 crowdsec
+installer_operation_context_repo scripts/late/crowdsec.sh 167 crowdsec
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target
 installer_ensure_context_loaded "$seed_base"
@@ -199,31 +199,31 @@ fi
 
 # Reject unsafe existing native output paths before any tmpfiles or daemon use.
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_NATIVE_LOGGING_TMPL)" \
+  "$(installer_repo_file_value hooks/target/usr/local/libexec/common/native-logging.tmpl)" \
   "${DIR_USR_LOCAL_LIBEXEC}/native-logging" 0755
 run_in_target "validate existing native log paths" \
   "${DIR_USR_LOCAL_LIBEXEC}/native-logging" --preflight
 
 # Native logging must be in place before cscli validates the engine.
 crowdsec_stage_logging_overlay \
-  "$(installer_repo_file_value FILE_TARGET_CROWDSEC_CONFIG_YAML_LOCAL_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/crowdsec/common/config.yaml.local.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/crowdsec/config.yaml.local engine
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_57_CROWDSEC_LOGS_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/57-crowdsec-logs.conf.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/57-crowdsec-logs.conf 0644
 run_in_target "create native CrowdSec log directory before configuration validation" \
   __INSTALLER_PATH_DIR_USR_BIN__/systemd-tmpfiles --create __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/57-crowdsec-logs.conf
 for logging_unit in crowdsec crowdsec-firewall-bouncer; do
   case "$logging_unit" in
-    crowdsec) logging_selector=FILE_TARGET_UNIT_CROWDSEC_SERVICE_D_40_LOGGING_TMPL ;;
-    crowdsec-firewall-bouncer) logging_selector=FILE_TARGET_UNIT_CROWDSEC_FIREWALL_BOUNCER_SERVICE_D_40_LOGGING_TMPL ;;
+    crowdsec) logging_selector=hooks/target/etc/systemd/common/system/crowdsec.service.d/40-logging.conf.tmpl ;;
+    crowdsec-firewall-bouncer) logging_selector=hooks/target/etc/systemd/common/system/crowdsec-firewall-bouncer.service.d/40-logging.conf.tmpl ;;
   esac
   crowdsec_stage_target_asset \
     "$(installer_repo_file_value "$logging_selector")" \
     "$(installer_systemd_dropin_dir system "${logging_unit}.service")/40-logging.conf" 0644
 done
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_UNIT_CROWDSEC_SERVICE_D_20_CAPI_RETRY)" \
+  "$(installer_repo_file_value hooks/target/etc/systemd/common/system/crowdsec.service.d/20-capi-retry.conf)" \
   __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_CROWDSEC_DROPIN__/20-capi-retry.conf 0644
 
 # dpkg may configure packages in dependency order rather than pkgsel text order.
@@ -282,35 +282,35 @@ install -d -m 0700 \
   "${target_root}$(dirname "$complete_file")" \
   "${target_root}$(dirname "$status_file")"
 
-crowdsec_auth_selector=FILE_TARGET_CROWDSEC_ACQUIS_D_20_SSHD_TMPL
-if [ "$INSTALLER_HOST_VARIANT" = server ]; then crowdsec_auth_selector=FILE_SERVER_CROWDSEC_AUTH; fi
+crowdsec_auth_selector=hooks/target/etc/crowdsec/common/acquis.d/20-sshd.yaml.tmpl
+if [ "$INSTALLER_HOST_VARIANT" = server ]; then crowdsec_auth_selector=hooks/target/etc/crowdsec/server/acquis.d/20-server-sshd.yaml.tmpl; fi
 crowdsec_stage_target_asset \
   "$(installer_repo_file_value "$crowdsec_auth_selector")" \
   __INSTALLER_PATH_DIR_ETC__/crowdsec/acquis.d/20-sshd.yaml \
   0644
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_CROWDSEC_ACQUIS_D_21_AUDITD_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/crowdsec/common/acquis.d/21-auditd.yaml.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/crowdsec/acquis.d/21-auditd.yaml \
   0644
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_CROWDSEC_ACQUIS_D_22_NFTABLES_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/crowdsec/common/acquis.d/22-nftables.yaml.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/crowdsec/acquis.d/22-nftables.yaml \
   0644
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_CROWDSEC_ACQUIS_D_23_SYSTEM_SYSLOG_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/crowdsec/common/acquis.d/23-system-syslog.yaml.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/crowdsec/acquis.d/23-system-syslog.yaml \
   0644
 crowdsec_remove_target_asset __INSTALLER_PATH_DIR_ETC__/crowdsec/acquis.d/22-server-syslog.yaml
 if installer_class_selected_any role/desktop/medium role/desktop/full; then
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_CROWDSEC_ACQUIS_D_24_QBITTORRENT_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/crowdsec/desktop/acquis.d/24-qbittorrent.yaml.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/crowdsec/acquis.d/24-qbittorrent.yaml 0644 \
   ACCOUNT_USERNAME "$ACCOUNT_USERNAME"
 fi
 # No HTTP access-log or AppSec bouncer integration is configured. Keep the
 # requested qBittorrent source without loading unrelated web/container parsers.
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_CROWDSEC_PARSERS_S01_PARSE_00_AUDITD_DAEMON)" \
+  "$(installer_repo_file_value hooks/target/etc/crowdsec/common/parsers/s01-parse/00-auditd-daemon.yaml)" \
   __INSTALLER_PATH_DIR_ETC__/crowdsec/parsers/s01-parse/00-auditd-daemon.yaml 0644
 # Local rules match the managed producers and retain the existing log budget.
 # JSON documents are valid YAML and keep complex expressions unambiguously quoted.
@@ -330,23 +330,23 @@ unset crowdsec_detection_asset
 crowdsec_remove_target_asset __INSTALLER_PATH_DIR_ETC__/crowdsec/acquis.d/setup.auditd.yaml
 crowdsec_remove_target_asset __INSTALLER_PATH_DIR_ETC__/crowdsec/acquis.d/setup.linux.yaml
 crowdsec_stage_logging_overlay \
-  "$(installer_repo_file_value FILE_TARGET_CROWDSEC_BOUNCERS_CROWDSEC_FIREWALL_BOUNCER_YAML_LOCAL_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/crowdsec/common/bouncers/crowdsec-firewall-bouncer.yaml.local.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml.local bouncer
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_UNIT_CROWDSEC_FIREWALL_BOUNCER_SERVICE_D_OVERRIDE)" \
+  "$(installer_repo_file_value hooks/target/etc/systemd/common/system/crowdsec-firewall-bouncer.service.d/override.conf)" \
   __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_CROWDSEC_FIREWALL_BOUNCER_DROPIN__/override.conf \
   0644
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_AUDIT_CROWDSEC_COMMON)" \
+  "$(installer_repo_file_value hooks/target/etc/audit/crowdsec/common.rules)" \
   __INSTALLER_PATH_DIR_ETC__/audit/rules.d/zz-crowdsec.rules \
   0640
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_BIN_CROWDSEC_FIRSTBOOT_TMPL)" \
+  "$(installer_repo_file_value scripts/firstboot/assets/var/lib/firstboot/bin/crowdsec-firstboot.tmpl)" \
   __INSTALLER_PATH_DIR_VAR__/lib/firstboot/bin/crowdsec-firstboot \
   0755 SSH_SERVER_ENABLE "$SSH_SERVER_ENABLE" CROWDSEC_HOST_VARIANT "$INSTALLER_HOST_VARIANT" \
   CROWDSEC_RELEASE_ID "$INSTALLER_RELEASE_ID"
-crowdsec_unit_selector=FILE_FIRSTBOOT_ASSET_UNIT_CROWDSEC_FIRSTBOOT_SERVICE_TMPL
-if [ "$INSTALLER_HOST_VARIANT" = server ]; then crowdsec_unit_selector=FILE_SERVER_CROWDSEC_UNIT; fi
+crowdsec_unit_selector=scripts/firstboot/assets/etc/systemd/system/crowdsec-firstboot.service.tmpl
+if [ "$INSTALLER_HOST_VARIANT" = server ]; then crowdsec_unit_selector=hooks/target/etc/systemd/server/system/crowdsec-firstboot.service.tmpl; fi
 crowdsec_stage_target_asset \
   "$(installer_repo_file_value "$crowdsec_unit_selector")" \
   __INSTALLER_PATH_DIR_ETC__/systemd/system/crowdsec-firstboot.service \
@@ -357,7 +357,7 @@ crowdsec_stage_target_asset \
   CROWDSEC_STATUS_FILE "$status_file"
 
 crowdsec_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_CROWDSEC_BOUNCER_VERIFY)" \
+  "$(installer_repo_file_value hooks/target/usr/local/libexec/common/crowdsec-bouncer-verify)" \
   "${DIR_USR_LOCAL_LIBEXEC}/crowdsec-bouncer-verify" \
   0755
 run_in_target "validate CrowdSec enrollment without activating target services" \

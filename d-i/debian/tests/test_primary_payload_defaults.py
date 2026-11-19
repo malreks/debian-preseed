@@ -46,11 +46,11 @@ class PrimaryPayloadPublication(unittest.TestCase):
         self.input.write_bytes(b'rendered authenticated payload\n')
         self.input.chmod(0o600)
 
-    def publish(self):
+    def publish(self, selected=None):
         source = os.open(self.source, self.program.FLAGS)
         destination = os.open(self.home, self.program.FLAGS)
         try:
-            self.program.publish(source, destination, self.account, [0, 0])
+            self.program.publish(source, destination, self.account, [0, 0], selected=selected)
         finally:
             os.close(destination)
             os.close(source)
@@ -86,6 +86,48 @@ class PrimaryPayloadPublication(unittest.TestCase):
         self.assertEqual(target.read_bytes(), b'previous account bytes\n')
         self.assertEqual(self.input.read_bytes(), b'rendered authenticated payload\n')
         self.assert_no_candidates()
+
+    def test_exact_selected_file_preserves_other_primary_defaults_and_uses_account_ownership(self):
+        previous = self.previous()
+        before = previous.stat()
+        relative = '.local/share/applications/waypaper.desktop'
+        launcher = self.source / relative
+        launcher.parent.mkdir(mode=0o700, parents=True)
+        launcher.write_bytes(b'independent rendered Waypaper launcher\n')
+        launcher.chmod(0o644)
+        (launcher.parent / 'unselected.desktop').write_bytes(b'must not be copied\n')
+        self.publish(selected=tuple(relative.split('/')))
+        target = self.home / relative
+        self.assertEqual(target.read_bytes(), launcher.read_bytes())
+        info = target.stat()
+        self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)),
+                         (self.account.pw_uid, self.account.pw_gid, 0o600))
+        self.assertEqual(previous.read_bytes(), b'previous account bytes\n')
+        self.assertEqual(previous.stat().st_ino, before.st_ino)
+        self.assertFalse((target.parent / 'unselected.desktop').exists())
+
+    def test_selected_missing_file_or_directory_fails_without_copying_other_defaults(self):
+        previous = self.previous()
+        (self.source / 'directory').mkdir(mode=0o700)
+        (self.source / 'directory/child').write_bytes(b'not a selected file\n')
+        for selected in (('absent',), ('directory',), ('config', 'child')):
+            with self.subTest(selected=selected):
+                with self.assertRaises(ValueError):
+                    self.publish(selected=selected)
+                self.assertEqual(previous.read_bytes(), b'previous account bytes\n')
+                self.assertFalse((self.home / 'directory/child').exists())
+
+    def test_selected_file_cannot_follow_a_home_directory_symlink(self):
+        relative = '.local/share/applications/waypaper.desktop'
+        launcher = self.source / relative
+        launcher.parent.mkdir(mode=0o700, parents=True)
+        launcher.write_bytes(b'new launcher\n')
+        sibling = self.root / 'sibling'
+        sibling.mkdir()
+        (self.home / '.local').symlink_to(sibling, target_is_directory=True)
+        with self.assertRaises(OSError):
+            self.publish(selected=tuple(relative.split('/')))
+        self.assertEqual(list(sibling.iterdir()), [])
 
     def test_destination_symlink_and_hardlink_cannot_modify_other_fixture_files(self):
         outside = self.root / 'other-account-file'

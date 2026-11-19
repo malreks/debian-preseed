@@ -9,9 +9,9 @@ managed_ssh_context() {
   case "$HOME" in __INSTALLER_PATH_DIR_HOME__/*) ;; *) return 1 ;; esac
   for directory in "$HOME" "$HOME/.local" "$HOME/.local/share" "$HOME/.local/share/ssh" "$HOME/.local/share/ssh/private" "$HOME/.ssh" "$HOME/.gnupg"; do
     [ -d "$directory" ] && [ ! -L "$directory" ] || return 1
-    [ "$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$directory" -maxdepth 0 -printf '%U')" = "$uid" ] || return 1
-    mode=$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$directory" -maxdepth 0 -printf '%m')
-    case "$mode" in 700|750|755) ;; *) return 1 ;; esac
+    meta=$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$directory" -maxdepth 0 -printf '%U:%m') || return 1
+    case "$meta" in "$uid:700"|"$uid:750"|"$uid:755") ;; *) return 1 ;; esac
+    mode=${meta#*:}
     case "$directory" in
       "$HOME/.local/share/ssh"|"$HOME/.local/share/ssh/private"|"$HOME/.ssh"|"$HOME/.gnupg")
         [ "$mode" = 700 ] || return 1 ;;

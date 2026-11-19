@@ -30,6 +30,35 @@ desktop_enable_unit_if_available() {
   desktop_log "staged_${scope}_unit_enabled unit=${unit} unit_path=${unit_path}"
 }
 
+# These project-owned boot services are required, unlike optional package
+# units. Check enablement only after the link writer has completed. Absolute
+# symlink targets name the installed filesystem, so never test their readability
+# through the installer's host namespace.
+desktop_enable_required_system_unit() (
+  set -eu
+  required_unit=$1
+  validate_systemd_unit_name "$required_unit" || exit 1
+  required_source="${DIR_SYSTEMD_SYSTEM}/${required_unit}"
+  required_host=$(target_asset_host_path "$required_source") || exit 1
+  [ -f "$required_host" ] && [ -r "$required_host" ] &&
+    [ "$(installer_metadata_value "$required_host" uid_gid_mode_links)" = '0:0:644:1' ] || {
+      installer_fatal "required desktop system unit is absent or unsafe: $required_unit"
+      exit 1
+    }
+  required_link="${DIR_SYSTEMD_SYSTEM}/multi-user.target.wants/${required_unit}"
+  # Validate destination ancestry before creation and again after mutation.
+  target_asset_entry_host_path "$required_link" >/dev/null || exit 1
+  stage_target_systemd_unit_enabled "$required_unit" system || exit 1
+  required_link_host=$(target_asset_entry_host_path "$required_link") || exit 1
+  [ -L "$required_link_host" ] &&
+    [ "$(readlink -- "$required_link_host")" = "$required_source" ] &&
+    [ "$(installer_metadata_value "$required_link_host" uid_gid)" = '0:0' ] || {
+      installer_fatal "required desktop system unit enablement is absent or incorrect: $required_unit"
+      exit 1
+    }
+  desktop_log "staged_system_unit_enabled unit=${required_unit} unit_path=${required_source} required=true"
+)
+
 desktop_disable_unit_if_available() {
   unit=$1
   scope=$2
@@ -92,8 +121,8 @@ desktop_configure_obsidian_git_timer() {
 desktop_enable_target_services() {
   # Boot reconciliation handles inputs that predate path activation. The same
   # helper already runs synchronously during desktop installation.
-  desktop_enable_unit_if_available labwc-system-desktop-overrides.service system
-  desktop_enable_unit_if_available labwc-system-desktop-overrides.path system
+  desktop_enable_required_system_unit labwc-system-desktop-overrides.service
+  desktop_enable_required_system_unit labwc-system-desktop-overrides.path
   desktop_enable_unit_if_available greetd.service system
   desktop_enable_unit_if_available fruux-firstboot.service system
   desktop_enable_unit_if_available seatd.service system

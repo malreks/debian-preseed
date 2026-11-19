@@ -65,7 +65,7 @@ installer_repo_file_value() { printf '%s\n' "$1"; }
 software_stage_seed_asset() {
   case "$2" in "$work"/*) ;; *) exit 125 ;; esac
   mkdir -p "$(dirname "$2")"
-  if [ "$1" = FILE_TARGET_SHARE_SOFTWARE_TOR_BROWSER_DEVELOPERS_ASC ]; then
+  if [ "$1" = hooks/target/usr/local/share/desktop/software/tor-browser/developers.asc ]; then
     if [ "$mode" = key ]; then printf bad-key >"$2"; else printf fixture-key >"$2"; fi
   else
     : >"$2"

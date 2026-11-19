@@ -1,8 +1,7 @@
-"""Source and failure-injection fixtures for selectors and late diagnostics.
+"""Physical source members, shared roots and advisory late diagnostics.
 
-These fixtures remain unexecuted under the repository's static-only policy.
-The shell snippets extract narrowly scoped functions, stub their dependencies,
-and never invoke an installer, renderer, host service, or management helper.
+Execution requires the reviewed disposable image. The shell snippets extract
+narrowly scoped functions and use explicit private fixture dependencies.
 """
 from __future__ import annotations
 
@@ -20,7 +19,8 @@ import subprocess
 import tempfile
 import unittest
 
-from payload_fixture import module_source_paths, repository_selectors
+from payload_fixture import module_source_paths
+from source_layout import repository_configuration
 
 SEED = Path(__file__).resolve().parents[1]
 
@@ -102,7 +102,7 @@ installer_class_selected_any() { return 0; }
 installer_operation_context_repo() { printf 'context:%s\n' "$3"; }
 software_info() { printf '%s\n' "$*"; }
 software_warn() { printf '%s\n' "$*" >&2; }
-software_fatal() { printf '%s\n' "$*" >&2; exit 1; }
+software_fatal_status() { status=$1; shift; printf '%s\n' "$*" >&2; exit "$status"; }
 fixture_worker() { return ''' + str(status) + '''; }
 target_root=$PWD
 work_dir=/unused-private-fixture-state
@@ -116,7 +116,7 @@ installed=false
                     self.assertIn('completed Fixture', result.stdout)
                     self.assertIn('installed:true', result.stdout)
                 else:
-                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(result.returncode, 37, result.stderr)
                     self.assertNotIn('completed Fixture', result.stdout)
                     self.assertIn('status=37', result.stderr)
 
@@ -135,19 +135,17 @@ installer_warn() { printf 'warning:%s\n' "$*"; }
         function = function_source('scripts/common/modules/runtime-console.sh',
                                    'installer_operation_context_repo')
         result = self.shell('''
-installer_loaded_repo_file_value() { printf '%s\n' fixture.sh; }
 installer_operation_context() { printf '%s|%s|%s\n' "$1" "$2" "$3"; }
-''' + function + '\ninstaller_operation_context_repo FILE_FIXTURE 37 fetch_fixture\n')
+''' + function + '\ninstaller_operation_context_repo fixture.sh 37 fetch_fixture\n')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'fixture.sh|37|fetch_fixture\n')
 
-    def test_missing_diagnostic_selector_does_not_fail_operation(self) -> None:
+    def test_unsafe_diagnostic_member_does_not_fail_operation(self) -> None:
         function = function_source('scripts/common/modules/runtime-console.sh',
                                    'installer_operation_context_repo')
         result = self.shell('''
-installer_loaded_repo_file_value() { return 43; }
 installer_operation_context() { printf '%s|%s|%s\n' "$1" "$2" "$3"; }
-''' + function + '\ninstaller_operation_context_repo FILE_MISSING 38 continue_fixture\n')
+''' + function + '\ninstaller_operation_context_repo ../unsafe.sh 38 continue_fixture\n')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'unknown|38|continue_fixture\n')
 
@@ -247,21 +245,22 @@ target_asset_host_path() { printf '%s\n' unexpected-target-preparation >&2; exit
     def firewall_seed_program(self) -> str:
         source = (SEED / 'scripts/late/security.sh').read_text(encoding='utf-8')
         start = source.index('  # These are administrator state, not disposable generated policy.')
-        end = source.index('\n  stage_target_asset \\\n    "$(installer_repo_file_value FILE_TARGET_UNIT_NFTABLES_SERVICE_D_OVERRIDE)"', start)
+        end = source.index('\n  stage_target_asset \\\n    "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/nftables.service.d/override.conf)"', start)
         block = source[start:end].replace('__INSTALLER_PATH_DIR_ETC__', '/etc')
-        values = repository_selectors()
-        keys = ('FILE_TARGET_NFTABLES_FIREWALL_SECURITY',
-                'FILE_TARGET_NFTABLES_D_95_FIREWALL_SECURITY_NFT')
-        catalog_path = self.path / 'selectors.tsv'
-        catalog_path.write_text(''.join(key + '\t' + values[key] + '\n' for key in keys))
+        keys = ('hooks/target/etc/nftables/desktop/firewall-security.rules',
+                'hooks/target/etc/nftables.d/95-firewall-security.nft')
+        for member in keys:
+            self.assertTrue((SEED / member).is_file(), member)
+        (self.path / 'members').write_text(''.join(member + '\n' for member in keys))
         return '''
 TARGET_ROOT=$PWD
 installer_operation_context_repo() { :; }
 installer_fatal() { printf '%s\n' "$*" >&2; exit 43; }
 installer_metadata_value() { printf '%s\n' 0:0:644:1; }
 installer_repo_file_value() {
-  [ "${FIXTURE_MISSING_SELECTOR:-false}" = false ] || return 44
-  awk -F '\t' -v key="$1" '$1==key {print $2; found=1; exit} END {if(!found) exit 44}' selectors.tsv
+  [ "${FIXTURE_MISSING_MEMBER:-false}" = false ] || return 44
+  grep -Fx -- "$1" members >/dev/null || return 44
+  printf '%s\n' "$1"
 }
 stage_target_asset() {
   case "$2" in /etc/nftables/firewall-security.rules|/etc/nftables.d/95-firewall-security.nft) ;; *) exit 92 ;; esac
@@ -270,15 +269,14 @@ stage_target_asset() {
 seed_firewall_state() {
 ''' + block + '\n}\nseed_firewall_state\n'
 
-    def test_firewall_state_uses_both_physical_source_selectors(self) -> None:
+    def test_firewall_state_uses_both_physical_source_members(self) -> None:
         result = self.shell(self.firewall_seed_program())
         self.assertEqual(result.returncode, 0, result.stderr)
         rows = (self.path / 'published.tsv').read_text().splitlines()
-        values = repository_selectors()
         self.assertEqual(rows, [
-            values['FILE_TARGET_NFTABLES_FIREWALL_SECURITY'] +
+            'hooks/target/etc/nftables/desktop/firewall-security.rules' +
             '|/etc/nftables/firewall-security.rules|0644',
-            values['FILE_TARGET_NFTABLES_D_95_FIREWALL_SECURITY_NFT'] +
+            'hooks/target/etc/nftables.d/95-firewall-security.nft' +
             '|/etc/nftables.d/95-firewall-security.nft|0644',
         ])
 
@@ -301,8 +299,8 @@ seed_firewall_state() {
         self.assertEqual(first.read_text(), 'existing administrator state\n')
         self.assertFalse((self.path / 'published.tsv').exists())
 
-    def test_missing_firewall_selector_stops_before_publication(self) -> None:
-        result = self.shell('FIXTURE_MISSING_SELECTOR=true\n' + self.firewall_seed_program())
+    def test_missing_firewall_member_stops_before_publication(self) -> None:
+        result = self.shell('FIXTURE_MISSING_MEMBER=true\n' + self.firewall_seed_program())
         self.assertEqual(result.returncode, 44, result.stderr)
         self.assertFalse((self.path / 'published.tsv').exists())
 
@@ -320,21 +318,21 @@ installer_fatal_status() { fixture_status=$1; shift; printf '%s\n' "$*" >&2; exi
     def test_payload_heredoc_is_not_embedded_in_single_line_preseed_command(self) -> None:
         source = (SEED / 'scripts/common/source.sh').read_text(encoding='utf-8')
         core, payload = source.split('# END BOOTSTRAP CORE', 1)
-        self.assertNotIn('source_validate_repo_env_selectors() {', core)
+        self.assertNotIn('source_load_repo_env() {', core)
         self.assertNotIn('<<EOF', core)
-        self.assertIn('source_validate_repo_env_selectors() {', payload)
+        self.assertIn('source_load_repo_env() {', payload)
 
-    def test_catalog_names_physical_files_and_module_templates(self) -> None:
-        values = repository_selectors()
-        source_files = [value for key, value in values.items()
-                        if key.startswith('FILE_') and not key.startswith('FILE_REPO_')]
-        self.assertEqual(len(source_files), len(set(source_files)))
-        for relative in source_files:
-            self.assertTrue((SEED / relative).is_file(), relative)
+    def test_member_calls_name_physical_files_and_module_templates(self) -> None:
+        values = repository_configuration(SEED)
+        self.assertFalse(any(key.startswith('FILE_') for key in values))
         modules = list(module_source_paths(
             (SEED / 'scripts/desktop/components.sh').read_text(encoding='utf-8')))
-        self.assertIn(values['FILE_DESKTOP_COMP_CORE_RENDERERS_TMPL'], modules)
-        self.assertIn(values['FILE_DESKTOP_COMP_LOGGING_TMPL'], modules)
+        self.assertGreater(len(modules), 5)
+        self.assertEqual(len(modules), len(set(modules)))
+        for relative in modules:
+            self.assertTrue((SEED / relative).is_file(), relative)
+        self.assertIn('scripts/desktop/components/core-renderers.sh.tmpl', modules)
+        self.assertIn('scripts/desktop/components/logging.sh.tmpl', modules)
 
 
 if __name__ == '__main__':

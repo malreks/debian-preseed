@@ -132,12 +132,12 @@ devops_stage_publishing_entrypoints() {
     "${target_root}${aptly_publishing_bin_dir}" \
     "${target_root}${obs_publishing_bin_dir}"
   devops_stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APTLY_PUBLISHING)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/common/aptly-publishing)" \
     "$aptly_publishing_program" \
     0755 \
     aptly-publishing
   devops_stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_OBS_PUBLISHING)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/common/obs-publishing)" \
     "$obs_publishing_program" \
     0755 \
     obs-publishing

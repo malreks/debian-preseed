@@ -43,7 +43,7 @@ crypto_disk_digest=${crypto_disk_identity%"  -"}
   installer_fatal 'invalid selected disk identity receipt'
 case "$crypto_disk_digest" in *[!0-9a-f]*) installer_fatal 'invalid selected disk identity digest' ;; esac
 crypto_detector="${DIR_INSTALLER_LATE_ENV}/crypto-detect-disk.sh"
-installer_fetch_file "$seed_base" "$(installer_repo_file_value FILE_PARTMAN_DETECT_DISK)" "$crypto_detector" 0700
+installer_fetch_file "$seed_base" "$(installer_repo_file_value scripts/partman/detect-disk.sh)" "$crypto_detector" 0700
 "$crypto_detector" --verify-identity "$DEV_INSTALL_DISK" "$crypto_disk_record" ||
   installer_fatal 'selected physical disk changed before crypto enrollment'
 # Keep the key and selected devices open through the target bridge. Its private
@@ -85,9 +85,9 @@ CRYPTO_HOME_CRYPT_NAME_VALUE=$(installer_shell_quote "$HOME_CRYPT_NAME")
 CRYPTO_BOOTSTRAP_CREDENTIAL_VALUE=$(installer_shell_quote "$FILE_CRYPTO_BOOTSTRAP_CREDENTIAL")
 CRYPTO_TPM2_FINAL_PCRS_VALUE=$(installer_shell_quote 7+8+9+14)
 install -d -m 0700 "${TARGET_ROOT}${DIR_CRYPTO_STATE}"
-installer_stage_profile_file FILE_FIRSTBOOT_ASSET_TPM_CONFIG_TMPL "$FILE_CRYPTO_STATE_CONFIG" 0600
-installer_stage_profile_file FILE_TARGET_LIBEXEC_TPM2_POLICY_CHECK "${DIR_USR_LOCAL_LIBEXEC}/tpm2-policy-check" 0755
-installer_run_target_setup FILE_LATE_CRYPTO_BOOTSTRAP 'verify selected-device temporary TPM enrollment and sealed recovery' \
+installer_stage_profile_file scripts/firstboot/assets/var/lib/tpm2-enrollment/config.env.tmpl "$FILE_CRYPTO_STATE_CONFIG" 0600
+installer_stage_profile_file hooks/target/usr/local/libexec/common/tpm2-policy-check "${DIR_USR_LOCAL_LIBEXEC}/tpm2-policy-check" 0755
+installer_run_target_setup scripts/late/crypto-bootstrap.py.tmpl 'verify selected-device temporary TPM enrollment and sealed recovery' \
   "$DEV_INSTALL_DISK" "$crypto_disk_digest" "$crypto_root_slot" "$crypto_home_slot"
 exec 4<&- 5<&- 6<&- 7<&-
 
@@ -113,7 +113,7 @@ for crypto_volume in root home; do
       CRYPTO_MAPPER_NAME=$HOME_CRYPT_NAME; CRYPTO_LUKS_UUID=$crypto_home_uuid; CRYPTO_OPTIONS=luks,tpm2-device=auto ;;
   esac
   crypto_row=$(mktemp "${DIR_INSTALLER_LATE_ENV}/crypto-row.XXXXXX")
-  installer_fetch_file "$seed_base" "$(installer_repo_file_value FILE_TARGET_CRYPTTAB_TMPL)" "$crypto_row" 0600
+  installer_fetch_file "$seed_base" "$(installer_repo_file_value hooks/target/etc/crypttab.tmpl)" "$crypto_row" 0600
   installer_apply_scalar_placeholders "$crypto_row" "$crypto_records/$crypto_volume" \
     CRYPTO_MAPPER_NAME "$CRYPTO_MAPPER_NAME" CRYPTO_LUKS_UUID "$CRYPTO_LUKS_UUID" CRYPTO_OPTIONS "$CRYPTO_OPTIONS"
   installer_assert_no_unresolved_installer_placeholders "$crypto_records/$crypto_volume" crypttab
@@ -125,21 +125,21 @@ mv "$crypto_candidate" "$crypto_crypttab"
 if [ "$CRYPTO_LUKS2_ROOT" = true ]; then
   TPM2_CRYPTROOT_NAME_VALUE=$(installer_shell_quote "$ROOT_CRYPT_NAME")
   TPM2_CRYPTROOT_UUID_VALUE=$(installer_shell_quote "$crypto_root_uuid")
-  installer_stage_profile_file FILE_TARGET_TPM2_CRYPTROOT_TMPL "$FILE_TPM2_CRYPTROOT_CONFIG" 0600
-  installer_stage_profile_file FILE_TARGET_CRYPTSETUP_INITRAMFS_CONF_HOOK "${DIR_ETC}/cryptsetup-initramfs/conf-hook" 0644
-  installer_stage_profile_file FILE_TARGET_INITRAMFS_HOOKS_TPM2_CRYPTROOT "${DIR_ETC}/initramfs-tools/hooks/tpm2-cryptroot" 0755
-  installer_stage_profile_file FILE_TARGET_INITRAMFS_SCRIPTS_LOCAL_TOP_00_TPM2_CRYPTROOT "${DIR_ETC}/initramfs-tools/scripts/local-top/00-tpm2-cryptroot" 0755
+  installer_stage_profile_file hooks/target/etc/tpm2-cryptroot.conf.tmpl "$FILE_TPM2_CRYPTROOT_CONFIG" 0600
+  installer_stage_profile_file hooks/target/etc/cryptsetup-initramfs/conf-hook "${DIR_ETC}/cryptsetup-initramfs/conf-hook" 0644
+  installer_stage_profile_file hooks/target/etc/initramfs-tools/hooks/tpm2-cryptroot "${DIR_ETC}/initramfs-tools/hooks/tpm2-cryptroot" 0755
+  installer_stage_profile_file hooks/target/etc/initramfs-tools/scripts/local-top/00-tpm2-cryptroot "${DIR_ETC}/initramfs-tools/scripts/local-top/00-tpm2-cryptroot" 0755
 fi
-installer_stage_profile_file FILE_TARGET_DEFAULT_GRUB_D_45_TPM2_MEASURED_BOOT "${DIR_ETC}/default/grub.d/45-tpm2-measured-boot.cfg" 0644
-installer_stage_profile_file FILE_TARGET_AA_USR_LOCAL_SBIN_TPM2_ENROLL "${DIR_APPARMOR}/usr.local.sbin.tpm2-enroll.sh" 0644
-installer_stage_profile_file FILE_FIRSTBOOT_ASSET_SBIN_TPM2_ENROLL "${DIR_USR_LOCAL_SBIN}/tpm2-enroll.sh" 0755
-installer_stage_profile_file FILE_TARGET_TPM2_ENROLLMENT_SERVICE "$FILE_CRYPTO_SETUP_SERVICE" 0644
+installer_stage_profile_file hooks/target/etc/default/grub.d/45-tpm2-measured-boot.cfg "${DIR_ETC}/default/grub.d/45-tpm2-measured-boot.cfg" 0644
+installer_stage_profile_file hooks/target/etc/apparmor.d/common/usr.local.sbin.tpm2-enroll.sh "${DIR_APPARMOR}/usr.local.sbin.tpm2-enroll.sh" 0644
+installer_stage_profile_file scripts/firstboot/assets/usr/local/sbin/tpm2-enroll.sh "${DIR_USR_LOCAL_SBIN}/tpm2-enroll.sh" 0755
+installer_stage_profile_file hooks/target/etc/systemd/common/system/tpm2-enrollment.service.tmpl "$FILE_CRYPTO_SETUP_SERVICE" 0644
 installer_stage_offline_unit_link "$FILE_CRYPTO_SETUP_SERVICE"
 # The console unit owns first-setup prompting for both families. Keep only the
 # existing desktop launcher as a convenient explicit retry after boot cleanup.
 if installer_desktop_class_selected; then
-  installer_stage_profile_file FILE_FIRSTBOOT_ASSET_BIN_TPM2_ENROLL_LAUNCH "${DIR_USR_LOCAL_BIN}/tpm2-enroll-launch" 0755
-  installer_stage_profile_file FILE_FIRSTBOOT_ASSET_PROFILE_TPM2_ENROLL_PROMPT "${DIR_ETC}/profile.d/tpm2-enroll-prompt.sh" 0644
+  installer_stage_profile_file scripts/firstboot/assets/usr/local/bin/tpm2-enroll-launch "${DIR_USR_LOCAL_BIN}/tpm2-enroll-launch" 0755
+  installer_stage_profile_file scripts/firstboot/assets/etc/profile.d/tpm2-enroll-prompt.sh "${DIR_ETC}/profile.d/tpm2-enroll-prompt.sh" 0644
 fi
 install -d -m 0700 "${TARGET_ROOT}${DIR_CRYPTO_STATE}"
 printf '%s\n' "$crypto_operator" >"${TARGET_ROOT}${FILE_CRYPTO_PENDING}"

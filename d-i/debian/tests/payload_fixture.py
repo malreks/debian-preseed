@@ -98,32 +98,14 @@ def logging_text(text):
 MODULE_ENTRYPOINTS = {'scripts/common/lib.sh', 'scripts/runtime/common.sh',
                       'scripts/desktop/components.sh', 'scripts/late/devops.sh'}
 MODULE_CALL = re.compile(
-    r'''^bootstrap_source_module (?:'([^']+)'|"\$\((?:bootstrap|installer)_repo_file_value (FILE_[A-Z0-9_]+)\)")''',
+    r'''^bootstrap_source_module (?:'([^']+)'|"\$\((?:bootstrap|installer)_repo_file_value ([A-Za-z0-9_./@+-]+)\)")''',
     re.M,
 )
 
 
-@lru_cache(maxsize=1)
-def repository_selectors():
-    """Expand only quoted, parent-first assignments as fixture data."""
-    values = {}
-    for line in (SEED / 'repo.env').read_text(encoding='utf-8').splitlines():
-        if not re.match(r'^(?:DIR|FILE)_', line):
-            continue
-        match = re.fullmatch(r'((?:DIR|FILE)_[A-Z0-9_]+)="([^"`\\]*)"', line)
-        if match is None or match[1] in values:
-            raise ValueError('invalid or duplicate repository selector')
-        value = re.sub(r'\$\{([A-Z][A-Z0-9_]*)\}',
-                       lambda parent: values[parent[1]], match[2])
-        if '$' in value:
-            raise ValueError('repository selector is not literal data')
-        values[match[1]] = value
-    return values
-
-
 def module_source_paths(entry):
-    for relative, selector in MODULE_CALL.findall(entry):
-        yield repository_selectors()[selector] if selector else relative
+    for relative, member in MODULE_CALL.findall(entry):
+        yield member or relative
 
 def is_module_entrypoint(path):
     try:

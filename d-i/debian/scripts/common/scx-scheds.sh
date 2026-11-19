@@ -61,13 +61,13 @@ profile_install_scx_scheduler() (
     profile_require_scx_file "$scx_asset"
   done
 
-  installer_stage_profile_file FILE_TARGET_DEFAULT_SCX_TMPL __INSTALLER_PATH_DIR_ETC__/default/scx 0644
-  installer_stage_profile_file FILE_TARGET_SCX_LOADER_CONFIG_TMPL __INSTALLER_PATH_DIR_ETC__/scx_loader/config.toml 0644
+  installer_stage_profile_file hooks/target/etc/default/scx.tmpl __INSTALLER_PATH_DIR_ETC__/default/scx 0644
+  installer_stage_profile_file hooks/target/etc/scx_loader/config.toml.tmpl __INSTALLER_PATH_DIR_ETC__/scx_loader/config.toml 0644
   installer_stage_profile_file \
-    FILE_TARGET_UNIT_SCX_SERVICE_D_50_SCHED_EXT \
+    hooks/target/etc/systemd/common/system/scx.service.d/50-sched-ext.conf \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_SCX_DROPIN__/50-sched-ext.conf 0644
   installer_stage_profile_file \
-    FILE_TARGET_UNIT_SCX_LOADER_SERVICE_D_50_SCHED_EXT \
+    hooks/target/etc/systemd/common/system/scx_loader.service.d/50-sched-ext.conf \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_SCX_LOADER_DROPIN__/50-sched-ext.conf 0644
 
   # Never enable both package backends: each can load a sched_ext scheduler.

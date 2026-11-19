@@ -5,7 +5,7 @@ desktop_render_labwc_environment_assets() {
   gsk_renderer_line=$(desktop_optional_env_assignment_line GSK_RENDERER "${LABWC_GSK_RENDERER:-opengl}")
 
   desktop_render_role_target_template \
-    FILE_TARGET_SKEL_LABWC_ENVIRONMENT_TMPL \
+    hooks/target/etc/skel-desktop/.config/labwc/environment.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/environment" \
     0644 \
     LABWC_WLR_RENDERER "${LABWC_WLR_RENDERER:-gles2}" \
@@ -17,7 +17,7 @@ desktop_render_labwc_environment_assets() {
     LABWC_GSK_RENDERER_LINE "$gsk_renderer_line"
 
   desktop_render_role_target_template \
-    FILE_TARGET_SKEL_LABWC_ENVIRONMENT_D_10_WAYLAND_TMPL \
+    hooks/target/etc/skel-desktop/.config/labwc/environment.d/10-wayland.env.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/environment.d/10-wayland.env" \
     0644 \
     LABWC_WLR_RENDERER "${LABWC_WLR_RENDERER:-gles2}" \
@@ -36,7 +36,7 @@ desktop_render_labwc_environment_assets() {
 
 desktop_render_labwc_session_wrappers() {
   desktop_render_role_target_template \
-    FILE_TARGET_BIN_LABWC_GREETER_SESSION_TMPL \
+    hooks/target/usr/local/bin/desktop/labwc-greeter-session.tmpl \
     "__INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-greeter-session" \
     0755 \
     LABWC_GREETER_WLR_RENDERER "${LABWC_GREETER_WLR_RENDERER:-gles2}" \
@@ -46,7 +46,7 @@ desktop_render_labwc_session_wrappers() {
     LABWC_DESKTOP_SESSION_COMMAND "${LABWC_DESKTOP_SESSION_COMMAND:-__INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-session}"
 
   desktop_render_role_target_template \
-    FILE_TARGET_BIN_LABWC_SESSION_TMPL \
+    hooks/target/usr/local/bin/desktop/labwc-session.tmpl \
     "__INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-session" \
     0755 \
     LABWC_QT_QPA_PLATFORM "${LABWC_QT_QPA_PLATFORM:-wayland}" \
@@ -70,12 +70,12 @@ desktop_configure_local_mail_delivery() {
   : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set for desktop local mail delivery}"
   mailname_value=$(desktop_mailname_value)
 
-  desktop_render_shared_target_template FILE_TARGET_MAILNAME_TMPL "__INSTALLER_PATH_DIR_ETC__/mailname" 0644 \
+  desktop_render_shared_target_template hooks/target/etc/mailname.tmpl "__INSTALLER_PATH_DIR_ETC__/mailname" 0644 \
     MAILNAME "$mailname_value"
-  desktop_render_role_target_template FILE_TARGET_ALIASES_TMPL "__INSTALLER_PATH_DIR_ETC__/aliases" 0644 \
+  desktop_render_role_target_template hooks/target/etc/aliases.tmpl "__INSTALLER_PATH_DIR_ETC__/aliases" 0644 \
     ACCOUNT_USERNAME "$ACCOUNT_USERNAME"
-  desktop_stage_role_asset "$(installer_repo_apt_selector LISTCHANGES)" __INSTALLER_PATH_DIR_ETC__/apt/listchanges.conf 0644
-  desktop_stage_role_asset "$(installer_repo_apt_selector APT_CONF_D_60DESKTOP_LOCAL_MAIL)" __INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/60desktop-local-mail.conf 0644
+  desktop_stage_role_asset "$(installer_repo_apt_file listchanges.conf)" __INSTALLER_PATH_DIR_ETC__/apt/listchanges.conf 0644
+  desktop_stage_role_asset "$(installer_repo_apt_file apt.conf.d/60desktop-local-mail.conf)" __INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/60desktop-local-mail.conf 0644
 
   desktop_log "configured_desktop_local_mail account=${ACCOUNT_USERNAME} mailname=${mailname_value}"
 }
@@ -83,7 +83,7 @@ desktop_configure_local_mail_delivery() {
 desktop_render_kanshi_config() {
   desktop_kanshi_enabled || return 0
   desktop_render_role_target_template \
-    FILE_TARGET_SKEL_KANSHI_CONFIG_TMPL \
+    hooks/target/etc/skel-desktop/.config/kanshi/config.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/kanshi/config" \
     0644 \
     LABWC_OUTPUT_EXTERNAL_PREFERRED_WIDTH "${LABWC_OUTPUT_EXTERNAL_PREFERRED_WIDTH:-1920}" \
@@ -101,7 +101,7 @@ desktop_render_terminal_configs() {
   terminal_font_size=${LABWC_TERMINAL_FONT_SIZE:-12}
 
   desktop_render_role_target_template \
-    FILE_TARGET_SKEL_FOOT_FOOT_TMPL \
+    hooks/target/etc/skel-desktop/.config/foot/foot.ini.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/foot/foot.ini" \
     0644 \
     LABWC_TERMINAL_FONT_FAMILY "$terminal_font_family" \
@@ -110,7 +110,7 @@ desktop_render_terminal_configs() {
     LABWC_TERMINAL_WINDOW_COLUMNS "${LABWC_TERMINAL_WINDOW_COLUMNS:-96}" \
     LABWC_TERMINAL_WINDOW_ROWS "${LABWC_TERMINAL_WINDOW_ROWS:-26}"
   desktop_render_role_target_template \
-    FILE_TARGET_SKEL_KITTY_KITTY_TMPL \
+    hooks/target/etc/skel-desktop/.config/kitty/kitty.conf.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/kitty/kitty.conf" \
     0644 \
     LABWC_TERMINAL_FONT_FAMILY "$terminal_font_family" \
@@ -156,7 +156,7 @@ desktop_render_qt6ct_config() {
     __INSTALLER_PATH_DIR_ETC__/xdg/qt6ct/qt6ct.conf
   do
     desktop_render_role_target_template \
-      FILE_TARGET_SKEL_QT6CT_QT6CT_TMPL \
+      hooks/target/etc/skel-desktop/.config/qt6ct/qt6ct.conf.tmpl \
       "$target_path" \
       0644 \
       LABWC_QT_FONT_SIZE "${LABWC_QT_FONT_SIZE:-11}" \
@@ -181,7 +181,7 @@ desktop_render_crystal_dock_appearance() {
     __INSTALLER_PATH_DIR_ETC__/xdg/crystal-dock/labwc/appearance.conf
   do
     desktop_render_role_target_template \
-      FILE_TARGET_SKEL_CRYSTAL_DOCK_LABWC_APPEARANCE_TMPL \
+      hooks/target/etc/skel-desktop/.config/crystal-dock/labwc/appearance.conf.tmpl \
       "$target_path" \
       0644 \
       LABWC_CRYSTAL_DOCK_MINIMUM_ICON_SIZE "${LABWC_CRYSTAL_DOCK_MINIMUM_ICON_SIZE:-54}" \
@@ -196,7 +196,7 @@ desktop_render_crystal_dock_appearance() {
 
 desktop_render_chromium_flags() {
   desktop_render_role_target_template \
-    FILE_TARGET_CHROMIUM_D_90_PERFORMANCE_FLAGS_TMPL \
+    hooks/target/etc/chromium.d/90-performance-flags.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/chromium.d/90-performance-flags" \
     0644
   desktop_log "rendered_chromium_flags gpu_wayland_defaults=managed"
@@ -209,32 +209,32 @@ desktop_render_note_app_defaults() {
   gtk_font_size=${LABWC_GTK_FONT_SIZE:-12}
 
   desktop_render_role_target_template \
-    FILE_TARGET_SKEL_XOURNALPP_SETTINGS_TMPL \
+    hooks/target/etc/skel-desktop/.config/xournalpp/settings.xml.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/xournalpp/settings.xml" \
     0644 \
     DIR_HOME_DOCUMENTS "$DIR_HOME_DOCUMENTS" \
     DIR_HOME_PICTURES "$DIR_HOME_PICTURES" \
     LABWC_GTK_FONT_SIZE "$gtk_font_size"
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_GNOTE_ADDINS_GLOBAL \
+    hooks/target/etc/skel-desktop/.config/gnote/addins/global.ini \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/gnote/addins/global.ini \
     0644
   desktop_render_role_target_template \
-    FILE_TARGET_USR_SHARE_GLIB_2_0_SCHEMAS_90_DESKTOP_GNOTE_GSCHEMA_OVERRIDE_TMPL \
+    hooks/target/usr/share/glib-2.0/schemas/90-desktop-gnote.gschema.override.tmpl \
     "__INSTALLER_PATH_DIR_USR_SHARE__/glib-2.0/schemas/90-desktop-gnote.gschema.override" \
     0644 \
     DIR_HOME_DOCUMENTS "$DIR_HOME_DOCUMENTS" \
     LABWC_GTK_FONT_SIZE "$gtk_font_size"
   desktop_stage_role_asset \
-    FILE_TARGET_USR_SHARE_GLIB_2_0_SCHEMAS_90_DESKTOP_WINDOW_BUTTONS_GSCHEMA_OVERRIDE \
+    hooks/target/usr/share/glib-2.0/schemas/90-desktop-window-buttons.gschema.override \
     __INSTALLER_PATH_DIR_USR_SHARE__/glib-2.0/schemas/90-desktop-window-buttons.gschema.override \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_USR_SHARE_GLIB_2_0_SCHEMAS_90_DESKTOP_APPEARANCE_GSCHEMA_OVERRIDE \
+    hooks/target/usr/share/glib-2.0/schemas/90-desktop-appearance.gschema.override \
     __INSTALLER_PATH_DIR_USR_SHARE__/glib-2.0/schemas/90-desktop-appearance.gschema.override \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_USR_SHARE_GLIB_2_0_SCHEMAS_90_DESKTOP_LIFEREA_GSCHEMA_OVERRIDE \
+    hooks/target/usr/share/glib-2.0/schemas/90-desktop-liferea.gschema.override \
     __INSTALLER_PATH_DIR_USR_SHARE__/glib-2.0/schemas/90-desktop-liferea.gschema.override \
     0644
   desktop_log "rendered_note_app_defaults documents=${DIR_HOME_DOCUMENTS} pictures=${DIR_HOME_PICTURES} gtk_font_size=${gtk_font_size}"
@@ -242,7 +242,7 @@ desktop_render_note_app_defaults() {
 
 desktop_stage_syncthing_ignore() {
   install -d -m 0700 ${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/Syncthing
-  desktop_stage_role_asset FILE_TARGET_SKEL_SYNCTHING_STIGNORE __INSTALLER_PATH_DIR_ETC__/skel-desktop/Syncthing/.stignore 0600
+  desktop_stage_role_asset hooks/target/etc/skel-desktop/Syncthing/.stignore __INSTALLER_PATH_DIR_ETC__/skel-desktop/Syncthing/.stignore 0600
   desktop_log "staged_syncthing_ignore path=__INSTALLER_PATH_DIR_ETC__/skel-desktop/Syncthing/.stignore"
 }
 
@@ -278,26 +278,26 @@ desktop_install_user_resource_policy() {
   user_manager_config=__INSTALLER_PATH_DIR_ETC__/systemd/user.conf.d/50-resource-defaults.conf
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_USER_1000_SLICE_D_50_RESOURCE_ACCOUNTING)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/user-1000.slice.d/50-resource-accounting.conf)" \
     "$user_slice_dropin" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_SYSTEMD_USER_CONF_D_50_RESOURCE_DEFAULTS)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/desktop/user.conf.d/50-resource-defaults.conf)" \
     "$user_manager_config" \
     0644
 
   # Render before desktop_install_user_config copies .config/systemd into
   # ACCOUNT_HOME. Only existing repository-owned units get class assignments.
   systemd_resource_placeholder_map >__INSTALLER_PATH_DIR_DEV__/null || return 1
-  desktop_stage_role_asset FILE_TARGET_BIN_LABWC_BUILD \
+  desktop_stage_role_asset hooks/target/usr/local/bin/desktop/labwc-build \
     __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-build 0755
-  render_target_resource_asset "$(installer_repo_file_value FILE_TARGET_USER_BUILD_SLICE_TMPL)" \
+  render_target_resource_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/user/build.slice.tmpl)" \
     __INSTALLER_PATH_DIR_SYSTEMD_USER__/build.slice 0644 || return 1
-  render_target_resource_asset "$(installer_repo_file_value FILE_TARGET_UNIT_USER_SLICE_MEMORY_TMPL)" \
+  render_target_resource_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/user.slice.d/60-desktop-memory.conf.tmpl)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_USER_SLICE_DROPIN__/60-desktop-memory.conf 0644 || return 1
-  render_target_resource_asset "$(installer_repo_file_value FILE_TARGET_UNIT_USER_FAMILY_SLICE_MEMORY_TMPL)" \
+  render_target_resource_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/user-.slice.d/60-desktop-memory.conf.tmpl)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_USER_FAMILY_SLICE_DROPIN__/60-desktop-memory.conf 0644 || return 1
-  render_target_resource_asset "$(installer_repo_file_value FILE_TARGET_UNIT_USER_MANAGER_MEMORY_TMPL)" \
+  render_target_resource_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/user@.service.d/60-desktop-memory.conf.tmpl)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_USER_MANAGER_DROPIN__/60-desktop-memory.conf 0644 || return 1
   for resource_asset in \
     etc/skel-desktop/.config/systemd/user/session.slice.d/60-resources.conf \

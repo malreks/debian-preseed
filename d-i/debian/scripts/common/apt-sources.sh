@@ -255,7 +255,7 @@ installer_apt_strip_cdrom() (
   set -eu
   umask 077
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_APT_SOURCES 30 apt_strip_cdrom
+    installer_operation_context_repo scripts/common/apt-sources.sh 30 apt_strip_cdrom
   fi
   target=$1
   installer_apt_load_runtime_paths
@@ -352,7 +352,7 @@ installer_apt_bootstrap_source() (
   set -eu
   umask 077
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_APT_SOURCES 66 apt_bootstrap_source
+    installer_operation_context_repo scripts/common/apt-sources.sh 66 apt_bootstrap_source
   fi
   target=$1; protocol=$2; host=$3; directory=$4; suite=$5
   installer_apt_load_runtime_paths

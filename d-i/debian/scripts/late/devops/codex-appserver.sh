@@ -3,15 +3,15 @@
 # Sourced installer module; edit this file directly.
 
 devops_stage_codex_app_server() {
-  environment_source_repo=$(installer_repo_file_value FILE_TARGET_CODEX_APP_SERVER)
-  service_source_repo=$(installer_repo_file_value FILE_TARGET_SKEL_USER_UNIT_CODEX_APP_SERVER_SERVICE)
+  environment_source_repo=$(installer_repo_file_value hooks/target/etc/codex/app-server.env)
+  service_source_repo=$(installer_repo_file_value hooks/target/etc/systemd/desktop/user/codex-app-server.service)
   codex_service_prefix='__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-app-run codex-app-server -- '
   if [ "$INSTALLER_HOST_VARIANT" = server ]; then
-    service_source_repo=$(installer_repo_file_value FILE_SERVER_CODEX_USER_UNIT)
+    service_source_repo=$(installer_repo_file_value hooks/target/etc/systemd/server/user/codex-app-server.service)
     codex_service_prefix=
   fi
-  proxy_source_repo=$(installer_repo_file_value FILE_TARGET_SKEL_USER_UNIT_CODEX_APP_SERVER_PROXY_SERVICE)
-  socket_source_repo=$(installer_repo_file_value FILE_TARGET_SKEL_USER_UNIT_CODEX_APP_SERVER_SOCKET)
+  proxy_source_repo=$(installer_repo_file_value hooks/target/etc/systemd/common/user/codex-app-server-proxy.service)
+  socket_source_repo=$(installer_repo_file_value hooks/target/etc/systemd/common/user/codex-app-server.socket)
   environment_tmp="${tmp_env_dir}/codex-app-server.env.$$"
   service_tmp="${tmp_env_dir}/codex-app-server.service.$$"
   proxy_tmp="${tmp_env_dir}/codex-app-server-proxy.service.$$"

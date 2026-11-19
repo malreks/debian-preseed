@@ -25,13 +25,26 @@ def decoded(value: str | None) -> bytes | None:
     return raw
 
 
-def plan(tree: Tree, updates: dict[str, bytes | None], token: str) -> dict:
+def plan(tree: Tree, updates: dict[str, bytes | None], token: str, *,
+         expected: dict[str, bytes | None] | None = None) -> dict:
+    """Capture rollback images, checking the bytes used to prepare candidates.
+
+    Renderers pass their operation-local input snapshots. The fresh read here
+    must still agree with those snapshots; it must never silently adopt an
+    intervening writer's bytes as the baseline for an older candidate.
+    """
+    if expected is not None and set(expected) != set(updates):
+        raise ValueError('appearance preparation does not cover every candidate')
     old, new = {}, {}
     size = 0
     for name, data in updates.items():
         if data is not None and (not isinstance(data, bytes) or len(data) > MAX_IMAGE_BYTES):
             raise ValueError('appearance candidate exceeds the file size limit')
+        if expected is not None and expected[name] is not None and not isinstance(expected[name], bytes):
+            raise ValueError('invalid appearance preparation image')
         before = tree.read(name, limit=MAX_IMAGE_BYTES, missing=True)
+        if expected is not None and before != expected[name]:
+            raise RuntimeError('appearance file changed during preparation: ' + name)
         if before != data:
             size += len(before or b'') + len(data or b'')
             if size > MAX_TOTAL_IMAGE_BYTES:

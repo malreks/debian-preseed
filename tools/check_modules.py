@@ -20,11 +20,11 @@ import subprocess
 import sys
 import tarfile
 
-from source_layout import profile_paths, profile_values, repository_selectors
+from source_layout import profile_paths, profile_values
 
 SEED = Path(__file__).resolve().parents[1] / 'd-i/debian'
 # Written plainly so shell quoting and validation are easy to review together.
-CALL = re.compile(r'^bootstrap_source_module "\$\((?:installer|bootstrap)_repo_file_value (FILE_[A-Z0-9_]+)\)" \|\| (?:return|exit) "\$\?"$', re.M)
+CALL = re.compile(r'^bootstrap_source_module "\$\((?:installer|bootstrap)_repo_file_value ([A-Za-z0-9_./@+-]+)\)" \|\| (?:return|exit) "\$\?"$', re.M)
 MODULE_DIRS = ('scripts/common/modules', 'scripts/runtime/modules',
                'scripts/desktop/components', 'scripts/late/devops')
 ENTRYPOINTS = ('scripts/common/lib.sh', 'scripts/runtime/common.sh',
@@ -32,7 +32,7 @@ ENTRYPOINTS = ('scripts/common/lib.sh', 'scripts/runtime/common.sh',
 SHARED = {'scripts/common/debconf.sh', 'scripts/common/lifecycle.sh',
           'scripts/common/apt-sources.sh', 'scripts/common/credentials.sh'}
 PARSER_ASSETS = {'scripts/common/credential-data.awk': 'awk'}
-PARSER_CALL = re.compile(r'bootstrap_parser_asset_path\s+"?\$\((?:installer|bootstrap)_repo_file_value\s+(FILE_[A-Z0-9_]+)\)"?')
+PARSER_CALL = re.compile(r'bootstrap_parser_asset_path\s+"?\$\((?:installer|bootstrap)_repo_file_value\s+([A-Za-z0-9_./@+-]+)\)"?')
 
 
 def module_file(seed: Path, relative: str) -> Path:
@@ -52,10 +52,9 @@ def module_file(seed: Path, relative: str) -> Path:
     return path
 
 
-def check_data_assets(seed: Path, selectors: dict[str, str]) -> int:
+def check_data_assets(seed: Path) -> int:
     """Inventory typed parser consumers and verify both suite closures as data."""
-    declared = selectors.get('FILE_COMMON_CREDENTIAL_DATA', '')
-    parser_relative = declared.replace('${DIR_SCRIPTS_COMMON}/', 'scripts/common/', 1)
+    parser_relative = 'scripts/common/credential-data.awk'
     if parser_relative not in PARSER_ASSETS or PARSER_ASSETS[parser_relative] != 'awk':
         raise ValueError('credential parser selector must be the declared AWK asset')
     asset = seed / parser_relative
@@ -75,7 +74,7 @@ def check_data_assets(seed: Path, selectors: dict[str, str]) -> int:
             parser_consumers.append((path.relative_to(seed).as_posix(), match.group(1)))
         if 'bootstrap_parser_asset_path' in text and parser_relative not in text:
             raise ValueError(f'non-AWK parser asset uses the typed parser resolver: {path.relative_to(seed)}')
-    expected = {'FILE_COMMON_CREDENTIAL_DATA'}
+    expected = {'scripts/common/credential-data.awk'}
     if not parser_consumers or {selector for _, selector in parser_consumers} != expected:
         raise ValueError('typed parser resolver has missing or undeclared consumers')
 
@@ -137,7 +136,6 @@ def check(seed: Path = SEED) -> int:
     if (seed.parents[1] / 'src').exists():
         raise ValueError('root src/ is not an installer input; keep editable code in the shared Debian subtree')
     used = set()
-    selectors = repository_selectors(seed)
     for relative in ENTRYPOINTS:
         path = seed / relative
         text = path.read_text()
@@ -145,10 +143,8 @@ def check(seed: Path = SEED) -> int:
         lines = [line for line in text.splitlines() if line.startswith('bootstrap_source_module ')]
         if not names or len(names) != len(lines) or len(set(names)) != len(names):
             raise ValueError(f'invalid, empty or repeated module list: {relative}')
-        for selector in names:
-            if selector not in selectors:
-                raise ValueError('undeclared module selector: ' + selector)
-            name = selectors[selector].removesuffix('.tmpl')
+        for member in names:
+            name = member.removesuffix('.tmpl')
             module = module_file(seed, name)
             if name not in SHARED and name in used:
                 raise ValueError(f'module has multiple owners: {name}')

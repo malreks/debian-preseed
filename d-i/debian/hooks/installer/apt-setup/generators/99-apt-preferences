@@ -17,7 +17,7 @@ DEBUG_LOGS=1
 if [ -r "$COMMON_LIB" ]; then
   # shellcheck disable=SC1090
   . "$COMMON_LIB"
-  installer_operation_context_repo FILE_INST_APT_99_APT_PREFERENCES 21 apt_preferences_setup
+  installer_operation_context_repo hooks/installer/apt-setup/generators/99-apt-preferences 21 apt_preferences_setup
   LOG=$(installer_runtime_log_file)
   if command -v installer_export_logging_policy >/dev/null 2>&1; then
     installer_export_logging_policy

@@ -1,0 +1,91 @@
+{
+  "date": "2026-11-19",
+  "native_execution_by_reviewer": false,
+  "log_sha256": "20a78faa1b068171f59b5a4c833e34b7a40aa8d35549800f0866eafaf8f5c1e7",
+  "image_manifest_sha256": "5c514aa557f4f21e44c39e74916cf14dbcbc56e7710b40f036c0253c34dab3c8",
+  "release": "a8b81c64382235d5af48d0d86b0958b4415c17738a7698f3601e1c901d0a1d35",
+  "payload_sha256": "91735463de4fb13a58f56f4c371e745ea20927d2217e170b937253c93e4423b9",
+  "manifest_sha256": "0159f53cb792c87733187984a982f013b29de454a81f7cbd1f0a893e4a8fdeb8",
+  "positive_methods": 113,
+  "positive_groups": [
+    77,
+    36
+  ],
+  "busybox_method_failed_missing_tool": 1,
+  "strict_default_preparation_failed_missing_tool": true,
+  "nonzero_stages": {
+    "complete-production-perl": 1,
+    "canonical-prepared-perl-inventory": 1,
+    "mandatory-busybox-ownership-gate": 1,
+    "default-preparation-requires-busybox": 1
+  },
+  "all11stages_no_timeout_or_cancellation_and_cleanup_complete": true,
+  "outer_reaped_and_namespace_ended": true,
+  "ownership_rows": [
+    160,
+    102,
+    160,
+    102
+  ],
+  "ownership_total": 524,
+  "busybox_native_acceptance": false,
+  "ownership_source_hashes_current": {
+    "hooks/installer/base-stage.d/00rendertarget": "41bf76c398782a45daca67bc466d1fac705a7c9f3ebb2d693e2ed2897e488d91",
+    "scripts/common/lifecycle.sh": "eecb3ffb2f5485e10b403e9d7f49430d171e8d7cfd5e8f6759dc6f018e998c0b",
+    "scripts/common/modules/target-publication.sh": "821d8a4191c1334add3b9696055fb219b436fca1f2f5631b772b46eb541fc92e"
+  },
+  "typed_scenarios": [
+    {
+      "scenario": "/workspace/full-payload-render/forky-desktop",
+      "family": "desktop",
+      "statuses": {
+        "passed": 13
+      },
+      "commands": 22
+    },
+    {
+      "scenario": "/workspace/full-payload-render/forky-server",
+      "family": "server",
+      "statuses": {
+        "passed": 2,
+        "not-selected": 10
+      },
+      "commands": 2
+    },
+    {
+      "scenario": "/workspace/full-payload-render/trixie-desktop",
+      "family": "desktop",
+      "statuses": {
+        "passed": 13
+      },
+      "commands": 22
+    },
+    {
+      "scenario": "/workspace/full-payload-render/trixie-server",
+      "family": "server",
+      "statuses": {
+        "passed": 2,
+        "not-selected": 10
+      },
+      "commands": 2
+    }
+  ],
+  "full_perl_counts": {
+    "BLOCKED_MISSING_DEPENDENCY": 170,
+    "PASS": 30
+  },
+  "canonical_counts": {
+    "blocked-dependency": 161,
+    "pass": 29
+  },
+  "full_perl_syntax_error_text_hits": [],
+  "current_standalone_source_hashes_verified": 190,
+  "native_owner_image_hashes_verified": 6,
+  "findings": [],
+  "limits": [
+    "BusyBox runtime validation remains blocked by the absent binary; POSIX handoffs are explicit reduced-dialect evidence.",
+    "170 full-inventory programs, including161 standalone programs, remain dependency-blocked; their full syntax is unproven.",
+    "Server typed scenarios include unselected desktop consumers; do not count these as parsed outputs.",
+    "No booted installer, live target-service or hardware acceptance follows from these fixtures."
+  ]
+}

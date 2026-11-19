@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-from class_compiler import assignment_data
+from class_compiler import assignment_data, repository_data
 
 ROOT = Path(__file__).resolve().parents[1]
 SHARED = ROOT / 'd-i/debian'
@@ -48,10 +48,16 @@ def profile_values(seed: Path, profile: Path, suite: str = 'forky') -> dict[str,
     return values
 
 
-def repository_selectors(seed: Path) -> dict[str, str]:
-    values = {'INSTALLER_SUITE': 'forky'}
-    assignment_data((seed / 'repo.env').read_text(encoding='utf-8'), values, {}, 'repo.env')
-    return {name: value for name, value in values.items() if name.startswith(('DIR_', 'FILE_'))}
+def repository_configuration(seed: Path, suite: str = 'forky') -> dict[str, str]:
+    """Validate the small contract with the build's early-loader data grammar."""
+    source = (seed / 'scripts/common/source.sh').read_text(encoding='utf-8')
+    declarations = re.findall(r"^  source_repo_supported='([^']+)'$", source, re.M)
+    if len(declarations) != 1:
+        raise ValueError('repository configuration has no unique supported vocabulary')
+    names = declarations[0].split()
+    if len(names) != len(set(names)) or any(name.startswith('FILE_') for name in names):
+        raise ValueError('repository configuration vocabulary is duplicated or contains source inventory')
+    return repository_data((seed / 'repo.env').read_text(encoding='utf-8'), suite, set(names))
 
 
 def target_source(seed: Path, relative: str, family: str = 'desktop') -> Path:

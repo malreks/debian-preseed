@@ -78,20 +78,20 @@ configure_target_rootless_podman() (
       "$(installer_repo_asset_path DIR_TARGET_CONFIG_PODMAN_TEMPLATES_DEVOPS "$asset")" \
       "__INSTALLER_PATH_DIR_USR_LOCAL__/share/podman-devops/$asset" 0644
   done
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_PODMAN_DEVOPS_HOST)" __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/podman-devops-host 0755
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_PODMAN_DEVOPS_CLIENT)" __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/podman-devops-client 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/podman-devops-host)" __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/podman-devops-host 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/podman-devops-client)" __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/podman-devops-client 0755
   # The desktop role publishes the complete managed-app package later in its
   # own atomic staging step. Server-only Podman targets still need the small
   # network-client import surface here because they do not run that role.
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APP_VETH_PODMAN)" __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/app-veth-podman 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/app-veth-podman)" __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/app-veth-podman 0755
   podman_target_host_variant=${INSTALLER_HOST_VARIANT:-}
   if [ -z "$podman_target_host_variant" ]; then
     podman_target_host_variant=$(installer_selected_class_for_purpose host-variant 2>__INSTALLER_PATH_DIR_DEV__/null || printf '%s\n' server)
   fi
   if [ "$podman_target_host_variant" != desktop ]; then
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_PY_LABWC_MANAGED_APP_INIT)" "${DIR_PYTHON3_SITE_PACKAGES}/labwc_managed_app/__init__.py" 0644
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_PY_LABWC_MANAGED_APP_INTEGRITY)" "${DIR_PYTHON3_SITE_PACKAGES}/labwc_managed_app/integrity.py" 0644
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_PY_LABWC_MANAGED_APP_NETWORK_CLIENT)" "${DIR_PYTHON3_SITE_PACKAGES}/labwc_managed_app/network_client.py" 0644
+    stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/__init__.py)" "${DIR_PYTHON3_SITE_PACKAGES}/labwc_managed_app/__init__.py" 0644
+    stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/integrity.py)" "${DIR_PYTHON3_SITE_PACKAGES}/labwc_managed_app/integrity.py" 0644
+    stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/network_client.py)" "${DIR_PYTHON3_SITE_PACKAGES}/labwc_managed_app/network_client.py" 0644
   fi
   unset podman_target_host_variant
   run_in_target 'validate staged kernel Podman network adapter' \
@@ -99,13 +99,13 @@ configure_target_rootless_podman() (
   for client in podman docker docker-compose; do
     stage_target_asset "$(installer_repo_asset_path DIR_TARGET_BIN "$client")" "__INSTALLER_PATH_DIR_USR_LOCAL__/bin/$client" 0755
   done
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_PODMAN_DEVOPS_BOOTSTRAP_SERVICE)" __INSTALLER_PATH_DIR_ETC__/systemd/system/podman-devops-bootstrap.service 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_55_PODMAN_DEVOPS)" __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/55-podman-devops.conf 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SSH_SSHD_CONFIG_D_00_DEVOPS_NOLOGIN)" __INSTALLER_PATH_DIR_ETC__/ssh/sshd_config.d/00-devops-nologin.conf 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_90_PODMAN_ROOTLESS)" __INSTALLER_PATH_DIR_ETC__/sysctl.d/90-podman-rootless.conf 0644
-  installer_stage_profile_file FILE_TARGET_SKEL_PROFILE_71_DEVOPS_DE \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/podman-devops-bootstrap.service)" __INSTALLER_PATH_DIR_ETC__/systemd/system/podman-devops-bootstrap.service 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/desktop/55-podman-devops.conf)" __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/55-podman-devops.conf 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/ssh/sshd_config.d/00-devops-nologin.conf)" __INSTALLER_PATH_DIR_ETC__/ssh/sshd_config.d/00-devops-nologin.conf 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/sysctl.d/common/90-podman-rootless.conf)" __INSTALLER_PATH_DIR_ETC__/sysctl.d/90-podman-rootless.conf 0644
+  installer_stage_profile_file hooks/target/etc/skel-desktop/.profile.d/71-devops-de.sh \
     "${DIR_ETC_SKEL_DESKTOP}/.profile.d/71-devops-de.sh" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_BIN_LABWC_PODMAN_MENU)" __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-podman-menu 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/bin/desktop/labwc-podman-menu)" __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-podman-menu 0755
   stage_target_helper_docs podman-devops.md podbin.md podbin-service-bridge.md
 
   run_in_target 'provision locked devops rootless engine' \

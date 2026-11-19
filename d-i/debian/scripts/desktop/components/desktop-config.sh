@@ -298,7 +298,7 @@ desktop_write_labwc_plans_config() {
   (
     umask 077
     desktop_render_role_target_template \
-      FILE_TARGET_LABWC_PLANS_TMPL \
+      hooks/target/etc/labwc/plans.conf.tmpl \
       __INSTALLER_PATH_DIR_ETC__/labwc/plans.conf \
       0640 \
       LABWC_PLANS_ENABLED "$(desktop_shell_config_value "$LABWC_PLANS_ENABLED")" \
@@ -327,7 +327,7 @@ desktop_install_primary_account_calendar_stack() (
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  stage_target_asset "$(installer_repo_file_value FILE_DESKTOP_CALENDAR_INSTALL)" \
+  stage_target_asset "$(installer_repo_file_value scripts/desktop/calendar-install.py)" \
     "${calendar_stage}/install.py" 0600
   (umask 077; printf '%s' "$DESKTOP_FRUUX_USERNAME" >"$calendar_stage_host/username")
   (umask 077; printf '%s' "$DESKTOP_FRUUX_PASSWORD" >"$calendar_stage_host/password")

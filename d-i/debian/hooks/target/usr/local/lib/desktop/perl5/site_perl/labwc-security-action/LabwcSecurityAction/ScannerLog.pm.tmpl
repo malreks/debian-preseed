@@ -3,6 +3,9 @@ package LabwcSecurityAction::ScannerLog;
 use strict;
 use warnings;
 
+use lib '__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/runtime';
+use Managed::Process qw(status_from_wait);
+
 use Errno qw(EINTR);
 use IO::Select;
 use IPC::Open3 qw(open3);
@@ -32,14 +35,6 @@ sub _validate_socket_path {
         =~ m{\A/run/rsyslog/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+[.]sock\z}
         or die "managed scanner log socket path is invalid\n";
     return;
-}
-
-sub _status {
-    my ($status) = @_;
-
-    return 255 if !defined($status) || $status == -1;
-    return 128 + ($status & 127) if $status & 127;
-    return $status >> 8;
 }
 
 sub _validate_run {
@@ -208,7 +203,7 @@ sub run {
 
         _wait_child($pid);
         $pid = undef;
-        $status = _status($?);
+        $status = status_from_wait($?);
         syslog(
             $status == 0 ? LOG_INFO : LOG_WARNING,
             '%s',

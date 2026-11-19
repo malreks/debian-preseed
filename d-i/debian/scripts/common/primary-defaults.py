@@ -57,15 +57,22 @@ def identity(info: os.stat_result) -> tuple[int, ...]:
             info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
-def publish(source: int, destination: int, account, budget: list[int], depth: int = 0) -> None:
+def publish(source: int, destination: int, account, budget: list[int], depth: int = 0,
+            selected: tuple[str, ...] | None = None) -> None:
     require(depth <= 32, 'payload defaults nesting exceeds the supported depth')
+    found = selected is None
     for name in entries(source):
+        if selected is not None and name != selected[0]:
+            continue
+        found = True
         budget[0] += 1
         require(budget[0] <= MAX_MEMBERS, 'too many primary payload defaults')
         info = os.stat(name, dir_fd=source, follow_symlinks=False)
         require(info.st_uid == info.st_gid == 0 and not info.st_mode & 0o022,
                 'untrusted payload default metadata')
         if stat.S_ISDIR(info.st_mode):
+            require(selected is None or len(selected) > 1,
+                    'selected payload default must name a regular file')
             input_dir = os.open(name, FLAGS, dir_fd=source)
             try:
                 require(identity(os.fstat(input_dir)) == identity(info), 'payload directory identity changed')
@@ -80,13 +87,16 @@ def publish(source: int, destination: int, account, budget: list[int], depth: in
                             'unsafe primary account directory')
                     os.fchown(output_dir, account.pw_uid, account.pw_gid)
                     os.fchmod(output_dir, 0o700)
-                    publish(input_dir, output_dir, account, budget, depth + 1)
+                    publish(input_dir, output_dir, account, budget, depth + 1,
+                            selected[1:] if selected is not None else None)
                     os.fsync(output_dir)
                 finally:
                     os.close(output_dir)
             finally:
                 os.close(input_dir)
             continue
+        require(selected is None or len(selected) == 1,
+                'selected payload default has a nondirectory ancestor')
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, 'nonregular payload default')
         input_file = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=source)
         candidate = '.primary-default-' + os.urandom(16).hex()
@@ -124,6 +134,7 @@ def publish(source: int, destination: int, account, budget: list[int], depth: in
                     pass
         finally:
             os.close(input_file)
+    require(found, 'selected payload default is absent')
 
 
 def cleanup(source: int, device: int, depth: int = 0, budget: list[int] | None = None) -> None:
@@ -154,8 +165,15 @@ def main() -> None:
     parser.add_argument('source', type=Path)
     parser.add_argument('username', nargs='?')
     parser.add_argument('home', type=Path, nargs='?')
+    parser.add_argument('--relative', help='publish one exact file below the independent payload defaults root')
     args = parser.parse_args()
     require(os.geteuid() == 0, 'primary defaults require the installer root context')
+    selected = None
+    if args.relative is not None:
+        selected = tuple(args.relative.split('/'))
+        require(args.operation == 'publish' and 0 < len(selected) <= 32
+                and all(name not in ('', '.', '..') for name in selected),
+                'selected payload default must be a normalized relative file')
     source = open_source(args.source)
     try:
         if args.operation == 'cleanup':
@@ -182,7 +200,7 @@ def main() -> None:
                     'primary account home has unsafe ownership or permissions')
             os.fchown(home, account.pw_uid, account.pw_gid)
             os.fchmod(home, 0o700)
-            publish(source, home, account, [0, 0])
+            publish(source, home, account, [0, 0], selected=selected)
             os.fsync(home)
         finally:
             os.close(home)

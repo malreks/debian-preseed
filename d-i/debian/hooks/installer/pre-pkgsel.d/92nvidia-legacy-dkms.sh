@@ -33,7 +33,7 @@ INSTALLER_DEBUG_LOGS=1
 INSTALLER_LOG_LEVEL=debug
 export INSTALLER_DEBUG_LOGS INSTALLER_LOG_LEVEL
 installer_init_log_file "$LOG" "" "nvidia legacy pre-pkgsel" nvidia-legacy package_install
-installer_operation_context_repo FILE_INST_PREPKG_92NVIDIA_LEGACY_DKMS 36 nvidia_legacy_prepkgsel
+installer_operation_context_repo hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh 36 nvidia_legacy_prepkgsel
 trap 'installer_finalize_log "$?"' 0
 trap 'exit 129' HUP
 trap 'exit 130' INT

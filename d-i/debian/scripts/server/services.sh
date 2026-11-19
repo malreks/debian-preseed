@@ -37,14 +37,14 @@ configure_private_runner() (
   printf '%s' "$private_token" >"$private_input"
   unset private_token
   chmod 0600 "$private_input"
-  installer_run_target_setup FILE_SERVER_SETUP 'configure the selected runner from private initrd credentials' \
+  installer_run_target_setup scripts/server/setup.py.tmpl 'configure the selected runner from private initrd credentials' \
     configure-runner "$private_role" "${private_input#"$TARGET_ROOT"}"
 )
 server_roles=$(installer_plan_roles) || exit "$?"
 while IFS= read -r server_role; do
   case "$server_role" in
     server/github-actions|server/gitlab-cicd|server/technitium)
-      installer_run_target_setup FILE_SERVER_SETUP 'install pinned headless service artifacts' \
+      installer_run_target_setup scripts/server/setup.py.tmpl 'install pinned headless service artifacts' \
         install "$server_role" "$INSTALLER_ARCH_CLASS"
       case "$server_role" in
         server/github-actions|server/gitlab-cicd) configure_private_runner "$server_role" ;;

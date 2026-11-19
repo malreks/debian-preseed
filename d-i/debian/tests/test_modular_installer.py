@@ -102,10 +102,10 @@ printf 'standalone-hook-loaded\\n'
             with self.subTest(shell=shell):
                 result = self.run_shell('''
 bootstrap_source_common_lib "$INSTALLER_SOURCE_ROOT"
-bootstrap_source_module "$(bootstrap_repo_file_value FILE_RUNTIME_COMMON)"
-bootstrap_source_module "$(bootstrap_repo_file_value FILE_RUNTIME_ACCOUNT)"
+bootstrap_source_module "$(bootstrap_repo_file_value scripts/runtime/common.sh)"
+bootstrap_source_module "$(bootstrap_repo_file_value scripts/runtime/account.sh)"
 command -v runtime_write_effective_account_env >/dev/null
-for selector in FILE_RUNTIME_BTRFS FILE_RUNTIME_F2FS; do
+for selector in scripts/runtime/btrfs.sh scripts/runtime/f2fs.sh; do
   if bootstrap_source_module "$(bootstrap_repo_file_value "$selector")"; then exit 88; fi
 done
 printf 'account-entrypoints-loaded\\n'
@@ -183,11 +183,11 @@ installer_load_data_env "$FIXTURE_ENV_DIR/account.env"
 bootstrap_source_common_lib "$INSTALLER_SOURCE_ROOT"
 TMP_ENV_DIR=$FIXTURE_ENV_DIR
 install -d -m 0700 "$TMP_ENV_DIR"
-for selector in FILE_LATE_CORE FILE_RUNTIME_COMMON FILE_RUNTIME_ACCOUNT; do
+for selector in scripts/late/core.sh scripts/runtime/common.sh scripts/runtime/account.sh; do
   case "$selector" in
-    FILE_LATE_CORE) leaf=core.sh ;;
-    FILE_RUNTIME_COMMON) leaf=runtime-common.sh ;;
-    FILE_RUNTIME_ACCOUNT) leaf=account-runtime.sh ;;
+    scripts/late/core.sh) leaf=core.sh ;;
+    scripts/runtime/common.sh) leaf=runtime-common.sh ;;
+    scripts/runtime/account.sh) leaf=account-runtime.sh ;;
   esac
   bootstrap_fetch_seed_file "$INSTALLER_SOURCE_ROOT" "$(bootstrap_repo_file_value "$selector")" "$TMP_ENV_DIR/$leaf" 0600
 done
@@ -220,11 +220,11 @@ late_command_load_host_env
         result = self.run_shell('''
 bootstrap_source_common_lib "$INSTALLER_SOURCE_ROOT"
 cache=$(source_cache_root "$INSTALLER_SOURCE_ROOT")
-rm "$cache/$(bootstrap_repo_file_value FILE_RUNTIME_ACCOUNT)"
+rm "$cache/$(bootstrap_repo_file_value scripts/runtime/account.sh)"
 installer_prepare_late_account_env "$INSTALLER_SOURCE_ROOT" "$FIXTURE_ENV_DIR/account.env"
 ''')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('selector=FILE_RUNTIME_ACCOUNT', result.stderr)
+        self.assertIn('selector=scripts/runtime/account.sh', result.stderr)
         self.assertIn('resolved account runtime could not be loaded', result.stderr)
         self.assertEqual(snapshot.read_bytes(), previous)
         self.assertFalse(list(snapshot.parent.glob('.account-env*')))

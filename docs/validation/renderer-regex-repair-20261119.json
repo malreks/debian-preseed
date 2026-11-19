@@ -1,0 +1,229 @@
+{
+  "date": "2026-11-19",
+  "evidence_kind": "log-confirmed defect and source review; native results are owned by the final delivery validation record",
+  "failed_release": "b4de1b60b6be8c7bae263af79a19f931c1d63eb7673eef35540b5c7feb1f3e42",
+  "selected_suite": "forky",
+  "selected_role": "desktop/full",
+  "selected_profile": "desktop/btrfs-de-p15s",
+  "reported_status": 255,
+  "reported_source": "scripts/common/render.pl",
+  "reported_line": 828,
+  "diagnostic": "Unmatched [ in regex; slash delimiter occurred within the PHASE character class",
+  "supplied_log_sha256": {
+    "installer.log": "7763d44a81846e4756442368d8734d8c9d056acaa886fef7ee6802dba4b08906",
+    "syslog": "66a7410334bcc305d0b313977276f22e7c29165a21f07b88830a7cd3064619e2"
+  },
+  "repair": {
+    "confirmed_compile_defects": 1,
+    "phase_delimiter": "paired m{...}",
+    "explicit_literal_at_classes": 4,
+    "intended_grammars_unchanged": true,
+    "at_plus_was_not_an_interpolation_defect": true
+  },
+  "source_review": {
+    "scope": "Renderer source and connected entrypoints; no Perl or fixture execution in this agent",
+    "renderer_lines": 1084,
+    "new_fixture_methods": 4,
+    "python_ast": [
+      {
+        "path": "d-i/debian/tests/test_target_render_20261116.py",
+        "test_methods": 63
+      },
+      {
+        "path": "d-i/debian/tests/fixture_publication.py",
+        "test_methods": 0
+      },
+      {
+        "path": "d-i/debian/tests/test_publication_batch_20261119.py",
+        "test_methods": 14
+      }
+    ],
+    "source_sha256": {
+      "d-i/debian/scripts/common/render.pl": "04baa6387169c0d0fbedcbb4a8360504eaae8b53361931a5d0d57c2c93fb6898",
+      "d-i/debian/tests/test_target_render_20261116.py": "b11ea666bd1ca6985d673d11c8377f5f3516f058acebd59123985586ca30cc71",
+      "d-i/debian/tests/fixture_publication.py": "eb7f81b81b209753782d97bd93e815361758a34885edc73ff40ae5d314df45e4",
+      "d-i/debian/tests/test_publication_batch_20261119.py": "2bf1c685721240408e333d58a6e10e21db04c489b4598211fcf95dda61856d95"
+    },
+    "native_execution": false,
+    "explicit_literal_at_classes": 4,
+    "confirmed_renderer_syntax_defects": 1,
+    "at_plus_note": "Perl regexes exempt @+/@- from interpolation; explicit escaping preserves semantics and is not a second demonstrated renderer defect.",
+    "dynamic_staging_fixture": {
+      "correction": "Index scripts as well as target assets; require late/core.sh caller coverage.",
+      "firstboot_members_match_both_suite_manifests": [
+        "scripts/firstboot/01-early.sh",
+        "scripts/firstboot/02-collect.sh.tmpl",
+        "scripts/firstboot/03-network.sh",
+        "scripts/firstboot/04-validation.sh.tmpl",
+        "scripts/firstboot/05-cleanup.sh"
+      ]
+    }
+  },
+  "entrypoints": [
+    {
+      "mode": "prepare",
+      "owner": "d-i/debian/hooks/installer/base-stage.d/00rendertarget"
+    },
+    {
+      "mode": "--file",
+      "owner": "d-i/debian/scripts/common/modules/files-logging.sh"
+    },
+    {
+      "mode": "--publish",
+      "owner": "d-i/debian/scripts/common/modules/target-publication.sh"
+    },
+    {
+      "mode": "--cleanup",
+      "owner": "d-i/debian/scripts/late/dispatch.sh"
+    }
+  ],
+  "reviewed_initial_isolated_selection": {
+    "test_target_render_20261116.BatchRenderTests": 37,
+    "test_base_render_boundary_20261119.BaseRenderSelectorTests": 4,
+    "test_publication_batch_20261119.PublicationPhaseValidationTests": 2
+  },
+  "reviewed_additional_isolated_selection": {
+    "test_target_render_20261116.PreparedBootstrapTests": 3,
+    "test_target_render_20261116.PreparedPerlReuseTests": 4
+  },
+  "fixture_constraints": [
+    "Full PublicationBatchTests currently requires writable /var/lib; the established guarded image provides writable /workspace instead.",
+    "TypedPublicationTests and ScalarPublicationTests.test_plain_publication... relocate real publication destinations beneath /workspace; that is outside the production destination namespace.",
+    "TypedPublicationTests helper-document ownership coverage additionally requires mapped uid/gid 12345/12346."
+  ],
+  "native_execution_by_this_review_agent": false,
+  "followup_phase_spelling_hardening": {
+    "classification": "Equivalent spelling hardening of already-valid round4 PHASE expression; not a newly demonstrated renderer syntax defect.",
+    "prior_valid_renderer_sha256": "04baa6387169c0d0fbedcbb4a8360504eaae8b53361931a5d0d57c2c93fb6898",
+    "current_renderer_sha256": "e2402d0c03e4b3cf1323b925fce74409670f6ace170f20dbe4b9aaed9ecbffe3",
+    "current_renderer_bytes": 54926,
+    "old_failure_renderer_sha256": "2cdb1db8733bb3bde5e71b34314dd670598f8440cb5b8a5494300eaff18eb2c3",
+    "previous_expression": "m{\\A[A-Za-z0-9_./\\@+:-]+\\z}",
+    "current_expression": "m{\\A[-A-Za-z0-9_.\\x2f\\x40+:]+\\z}",
+    "ascii_alphabet_bytes": [
+      43,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      95,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119,
+      120,
+      121,
+      122
+    ],
+    "ascii_alphabet_count": 69,
+    "empty_rejected": true,
+    "complete_string_anchors_preserved": true,
+    "other_path_classes_changed": false,
+    "test_source": {
+      "bytes": 22854,
+      "sha256": "044e50b11fbcc8a1506d5cfb4cead53cc61c310183d252640895f312fbd38993"
+    },
+    "added_guarded_methods": 3,
+    "phase_class_methods": 5,
+    "exhaustive_byte_cases": 512,
+    "explicit_multichar_cases": 18,
+    "complete_compilation_sources": [
+      "authored source",
+      "forky scripts/common/render.pl",
+      "trixie scripts/common/render.pl"
+    ],
+    "native_execution_by_review_agent": false,
+    "native_status": "Release owner records actual isolated execution after rebuild; no native result claimed here.",
+    "repeated_failure_attribution": "Available current source/archive identity is not sufficient to identify the renderer bytes executed by the repeated user failure."
+  },
+  "followup_ownership_handoff": {
+    "failure_operation": "commit_target_ownership",
+    "renderer_schema_fields": [
+      "physical_source_member",
+      "absolute_target",
+      "mode"
+    ],
+    "ownership_schema_fields": [
+      "absolute_target",
+      "physical_source_member",
+      "plain",
+      "installer_phase",
+      "mode"
+    ],
+    "schema_mismatch_found": false,
+    "previous_preparation_coverage_gap": "Prepared real source and Perl publication but did not execute shell ownership import.",
+    "helper": "tools/prepare_syntax_fixture.py",
+    "helper_sha256": "42b4dcd420184b27211565ecb93a330552a7837725332781661ce8909a0a25cc",
+    "tests": "tools/tests/test_prepare_syntax_fixture.py",
+    "tests_sha256": "98ba741b26da53f4bebb50d6550df55b26a49c75fe2fed8ca129848d84db1d3c",
+    "test_methods": 9,
+    "added_test_methods": [
+      "test_self_consistent_stale_ownership_importer_is_rejected_at_capture",
+      "test_complete_desktop_payload_commits_all_publications_with_explicit_posix_runtime"
+    ],
+    "default_ownership_runtime": "busybox",
+    "explicit_reduced_dialect_runtime": "posix",
+    "implicit_runtime_fallback": false,
+    "real_metadata_and_ancestry_helpers": true,
+    "exact_hook_conversion_bytes": 272,
+    "exact_hook_conversion_sha256": "dc6eea17e1a757fcaac0f7e65a1a385cca1f74b6a8ce64a91a93a391d29ab465",
+    "native_execution_by_review_agent": false,
+    "native_status": "Release owner records actual isolated execution after rebuild; no native result claimed here."
+  }
+}

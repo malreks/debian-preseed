@@ -38,7 +38,7 @@ import xml.etree.ElementTree as ET
 from unittest.mock import AsyncMock, Mock, patch
 
 FORKY = Path(__file__).resolve().parents[1]
-LIB = FORKY / "hooks/target/usr/local/lib/hardware_tuning"
+LIB = FORKY / "hooks/target/usr/local/lib/common/hardware_tuning"
 sys.path.insert(0, str(LIB))
 import common
 import engine

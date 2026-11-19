@@ -32,10 +32,10 @@ def load(name, path):
     return module
 
 
-management = load('management_hardware_visibility', TARGET/'usr/local/bin/labwc-computer-management')
-common = load('management_hardware_common', TARGET/'usr/local/lib/hardware_tuning/common.py')
+management = load('management_hardware_visibility', TARGET/'usr/local/bin/desktop/labwc-computer-management')
+common = load('management_hardware_common', TARGET/'usr/local/lib/common/hardware_tuning/common.py')
 with mock.patch.dict(sys.modules, {'common': common}):
-    client = load('management_hardware_client', TARGET/'usr/local/lib/hardware_tuning/client.py')
+    client = load('management_hardware_client', TARGET/'usr/local/lib/common/hardware_tuning/client.py')
 
 
 class HardwareVisibilityTests(unittest.TestCase):

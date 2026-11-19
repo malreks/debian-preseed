@@ -123,7 +123,7 @@ desktop_stage_wireplumber_user_conditions() {
   fi
 
   desktop_render_role_target_template \
-    FILE_TARGET_USER_UNIT_WIREPLUMBER_SERVICE_D_20_NO_ROOT_TMPL \
+    hooks/target/etc/systemd/desktop/user/wireplumber.service.d/20-no-root.conf.tmpl \
     __INSTALLER_PATH_DIR_SYSTEMD_USER_WIREPLUMBER_DROPIN__/20-no-root.conf \
     0644 \
     LABWC_GREETER_USER "$LABWC_GREETER_USER"
@@ -184,49 +184,49 @@ desktop_stage_kwallet_dbus_activation_assets() {
   # Debian already owns the portal, compatibility, and kwalletd6 service names.
   # Add only the Secret Service alias that the package does not provide.
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_LOCAL_SHARE_DBUS_1_SERVICES_ORG_FREEDESKTOP_SECRETS_SERVICE \
+    hooks/target/etc/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_LOCAL_SHARE_DBUS_1_SERVICES_ORG_FREEDESKTOP_SECRETS_SERVICE \
+    hooks/target/etc/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service \
     "${DIR_USR_LOCAL_SHARE}/labwc-app/defaults/org.freedesktop.secrets.service" 0644
   desktop_log "staged_account_local_kwallet_secret_service_activation path=__INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service"
 }
 
 desktop_stage_labwc_user_session_assets() {
   desktop_stage_role_asset \
-    FILE_TARGET_UNIT_USER_INSTANCE_SERVICE_D_20_LABWC_SEATD \
+    hooks/target/etc/systemd/desktop/system/user@.service.d/20-labwc-seatd.conf \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_USER_MANAGER_DROPIN__/20-labwc-seatd.conf \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_USER_UNIT_LABWC_COMPOSITOR_SERVICE \
+    hooks/target/etc/skel-desktop/.config/systemd/user/labwc-compositor.service \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-compositor.service \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_USER_UNIT_LABWC_SESSION_TARGET \
+    hooks/target/etc/skel-desktop/.config/systemd/user/labwc-session.target \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-session.target \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_USER_UNIT_LABWC_HEALTH_NOTIFY_SERVICE \
+    hooks/target/etc/skel-desktop/.config/systemd/user/labwc-health-notify.service \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-health-notify.service \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_USER_UNIT_LABWC_HEALTH_NOTIFY_PATH \
+    hooks/target/etc/skel-desktop/.config/systemd/user/labwc-health-notify.path \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-health-notify.path \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_USER_UNIT_LABWC_HEALTH_NOTIFY_TIMER \
+    hooks/target/etc/skel-desktop/.config/systemd/user/labwc-health-notify.timer \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-health-notify.timer \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_USER_UNIT_LABWC_PLANS_SERVICE \
+    hooks/target/etc/skel-desktop/.config/systemd/user/labwc-plans.service \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-plans.service \
     0644
 
   # All app- scopes share the Labwc session lifetime, including new vendors.
   # This prefix drop-in does not apply to unrelated scopes or services.
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_USER_UNIT_APP_SCOPE_D_50_SESSION_LABWC \
+    hooks/target/etc/skel-desktop/.config/systemd/user/app-.scope.d/50-session-labwc.conf \
     "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/app-.scope.d/50-session-labwc.conf" \
     0644
 
@@ -236,6 +236,9 @@ desktop_stage_labwc_user_session_assets() {
   desktop_stage_wayscriber_service
   desktop_stage_kwallet_dbus_activation_assets
 
+  # These shell globs and mode changes consume the directories created by the
+  # queued drop-ins, including scopes that do not exist on a fresh target.
+  installer_asset_batch_flush || return $?
   for global_user_systemd_dir in \
     ${TARGET_ROOT}${DIR_SYSTEMD_USER} \
     ${TARGET_ROOT}${DIR_SYSTEMD_USER}/*.d

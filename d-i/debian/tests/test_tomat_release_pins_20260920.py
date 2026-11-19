@@ -219,7 +219,7 @@ set -eu
 target_root=/target; work_dir=/tmp/installer-software; tomat_deb=$work_dir/tomat.deb
 software_fatal() { printf 'FATAL:%s\n' "$*"; exit 1; }
 chroot() { printf 'CHROOT\n'; return 9; }
-software_install_deb() { printf 'UNREACHABLE_INSTALL\n'; }
+software_queue_deb() { printf 'UNREACHABLE_INSTALL\n'; }
 ''' + block
         result = subprocess.run(payload_installed_argv(['/bin/sh', '-c', code, 'r4', str(PROFILES / 'btrfs-de.env')]),
                                 capture_output=True, text=True, timeout=10)

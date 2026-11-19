@@ -90,8 +90,8 @@ installer_classes_plan_field_value() {
 installer_generate_class_plan() {
   plan_path=$(installer_classes_plan_path)
   state_path=$(installer_classes_conf_cache_path)
-  registry_source=$(installer_class_metadata_read_path FILE_CLASS_REGISTRY) || return "$?"
-  state_source=$(installer_class_metadata_read_path FILE_CLASS_STATE) || return "$?"
+  registry_source=$(installer_class_metadata_read_path catalog/compiled/class-registry.tsv) || return "$?"
+  state_source=$(installer_class_metadata_read_path catalog/compiled/class-registry.conf) || return "$?"
   install -d -m 0700 "$(dirname "$plan_path")" "$(dirname "$state_path")" || return "$?"
   cp "$registry_source" "$plan_path" && cp "$state_source" "$state_path" || return "$?"
   chmod 0600 "$plan_path" "$state_path"

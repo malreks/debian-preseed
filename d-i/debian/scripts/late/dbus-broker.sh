@@ -521,9 +521,9 @@ stage_target_dbus_broker_stop_policy() {
   validate_dbus_broker_stop_timeout || return 1
   # Follow the configured broker override directories without altering aliases
   # or enabling/restarting a message bus during target staging.
-  render_dbus_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_DBUS_BROKER_SERVICE_D_60_STOP_TIMEOUT_TMPL)" \
+  render_dbus_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/dbus-broker.service.d/60-stop-timeout.conf.tmpl)" \
     "${FILE_DBUS_SYSTEM_BROKER_SERVICE_OVERRIDE%/*}/60-stop-timeout.conf" 0644 || return 1
-  render_dbus_target_asset "$(installer_repo_file_value FILE_TARGET_USER_UNIT_DBUS_BROKER_SERVICE_D_60_STOP_TIMEOUT_TMPL)" \
+  render_dbus_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/user/dbus-broker.service.d/60-stop-timeout.conf.tmpl)" \
     "${FILE_DBUS_USER_BROKER_SERVICE_OVERRIDE%/*}/60-stop-timeout.conf" 0644 || return 1
 }
 
@@ -537,14 +537,14 @@ configure_target_dbus_broker() {
   # late_command runs against a chrooted target, not a live booted system:
   # stage files and validate metadata only, without assuming services are running.
   repair_target_dbus_broker_packages
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_DBUS_BROKER_MAINTAIN)" "${DIR_USR_LOCAL_LIBEXEC}/dbus-broker-maintain" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_DBUS_BROKER_CHECK)" "${DIR_USR_LOCAL_LIBEXEC}/dbus-broker-check" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/dbus-broker-maintain)" "${DIR_USR_LOCAL_LIBEXEC}/dbus-broker-maintain" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/dbus-broker-check)" "${DIR_USR_LOCAL_LIBEXEC}/dbus-broker-check" 0755
   stage_target_dbus_session_service_aliases
   # Install the hook only AFTER the initial successful configuration.
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_DPKG_DPKG_CFG_D_90_DBUS_BROKER)" __INSTALLER_PATH_DIR_ETC__/dpkg/dpkg.cfg.d/90-dbus-broker 0644
-  render_dbus_target_asset "$(installer_repo_file_value FILE_TARGET_DBUS_1_SYSTEM_LOCAL_TMPL)" "${FILE_DBUS_SYSTEM_LOCAL_CONF}" 0644
-  render_dbus_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_DBUS_BROKER_SERVICE_D_10_BROKER_HARDENING_TMPL)" "${FILE_DBUS_SYSTEM_BROKER_SERVICE_OVERRIDE}" 0644
-  render_dbus_target_asset "$(installer_repo_file_value FILE_TARGET_USER_UNIT_DBUS_BROKER_SERVICE_D_10_BROKER_HARDENING_TMPL)" "${FILE_DBUS_USER_BROKER_SERVICE_OVERRIDE}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/dpkg/dpkg.cfg.d/90-dbus-broker)" __INSTALLER_PATH_DIR_ETC__/dpkg/dpkg.cfg.d/90-dbus-broker 0644
+  render_dbus_target_asset "$(installer_repo_file_value hooks/target/etc/dbus-1/system-local.conf.tmpl)" "${FILE_DBUS_SYSTEM_LOCAL_CONF}" 0644
+  render_dbus_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/dbus-broker.service.d/10-broker-hardening.conf.tmpl)" "${FILE_DBUS_SYSTEM_BROKER_SERVICE_OVERRIDE}" 0644
+  render_dbus_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/user/dbus-broker.service.d/10-broker-hardening.conf.tmpl)" "${FILE_DBUS_USER_BROKER_SERVICE_OVERRIDE}" 0644
 
   stage_target_dbus_broker_stop_policy || return 1
 

@@ -7,13 +7,17 @@ runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
 . "$runtime/bootstrap/bootstrap.sh"
 bootstrap_source_common_lib ""
 installer_init_log_file "$(installer_runtime_log_file)" "" 'prepare target payload before all other base hooks' target-render base_install_start
-installer_operation_context_repo FILE_INST_BASE_RENDER_TARGET 10 prepare_target_payload
+prepare_context() {
+  installer_operation_context_repo hooks/installer/base-stage.d/00rendertarget "$1" "$2"
+}
+prepare_context 13 validate_base_installer_phase
 trap 'installer_finalize_log "$?"' 0
 # This runs inside bootstrap-base, immediately after debootstrap. Waiting for
 # that component's completion here would deadlock its own running postinst.
 base_running=${DIR_INSTALLER_RUNTIME_STATE}/hook-component-bootstrap-base.postinst.running
 [ -d "$base_running" ] && [ ! -L "$base_running" ] ||
   installer_fatal 'target preparation requires the supervised base-installer phase'
+prepare_context 20 load_selected_profile
 seed_base=$(installer_seed_base "")
 installer_ensure_context_loaded "$seed_base"
 installer_assert_class_plan
@@ -22,13 +26,16 @@ install -d -m 0700 "$TMP_ENV_DIR"
 host_env=$TMP_ENV_DIR/host.env
 installer_fetch_host_env "$seed_base" "$(installer_resolve_host_profile "")" "$host_env" 0600
 installer_load_data_env "$host_env"
+prepare_context 29 prepare_account_snapshot
 installer_prepare_late_account_env "$seed_base" "$TMP_ENV_DIR/account.env"
 installer_load_data_env "$TMP_ENV_DIR/account.env"
 # Partman has already frozen device identities and generated names. Reuse that
 # private data here so zram, system policy and boot templates need no late pass.
+prepare_context 34 load_frozen_storage_layout
 layout_env="$(installer_runtime_state_dir)/runtime.env"
 if [ -f "${DIR_INSTALLER_ENV}/runtime.env" ]; then layout_env="${DIR_INSTALLER_ENV}/runtime.env"; fi
 installer_load_data_env "$layout_env" || installer_fatal 'frozen partman layout is unavailable at base-stage'
+prepare_context 38 validate_target_workspace
 installer_target_context_init
 bootstrap_source_common_support_libs "$seed_base" "$TMP_ENV_DIR/render-support" fetch target
 stage=${TARGET_ROOT}${DIR_INSTALLER_TARGET_STAGE}
@@ -38,6 +45,7 @@ install -d -m 0700 "${stage%/*}"
 work=$(mktemp -d "${stage}.XXXXXX")
 # Retain a failed candidate for diagnosis. Only a completed, fully rendered
 # candidate may receive the ready marker; late dispatch requires that marker.
+prepare_context 48 copy_selected_payload
 installer_info "copying selected payload into target workspace=${work#"$TARGET_ROOT"}"
 install -d -m 0700 "$work/source" "$work/inputs"
 source_root=$(source_cache_root "$seed_base")
@@ -45,38 +53,45 @@ cp -a "$source_root/." "$work/source/"
 cp "$host_env" "$work/inputs/host.env"
 cp "$TMP_ENV_DIR/account.env" "$work/inputs/account.env"
 cp "$layout_env" "$work/inputs/layout.env"
-data_parser=$(bootstrap_parser_asset_path "$(installer_repo_file_value FILE_COMMON_CREDENTIAL_DATA)")
+prepare_context 56 compile_private_input_records
+data_parser=$(bootstrap_parser_asset_path "$(installer_repo_file_value scripts/common/credential-data.awk)")
 for snapshot in host account layout; do
   LC_ALL=C awk -v mode=snapshot -f "$data_parser" "$work/inputs/$snapshot.env" >"$work/inputs/$snapshot.records"
 done
 cp "$runtime/bootstrap/payload.ready" "$work/identity"
 cp "$runtime/bootstrap/payload.manifest" "$work/inputs/payload.manifest"
-cp "$source_root/$(installer_repo_file_value FILE_COMMON_RENDER)" "$work/render.pl"
+cp "$source_root/$(installer_repo_file_value scripts/common/render.pl)" "$work/render.pl"
 # Keep the selected placeholder ownership index in installer-only
 # bootstrap state.  finish-install uses it for exact owner/source/phase
 # diagnostics; it is never copied into the installed target.
-placeholder_registry_source="$source_root/$(installer_repo_file_value FILE_COMMON_PLACEHOLDER_REGISTRY)"
+prepare_context 67 prepare_placeholder_ownership
+placeholder_registry_source="$source_root/$(installer_repo_file_value catalog/placeholder-registry.tsv)"
 [ -f "$placeholder_registry_source" ] && [ ! -L "$placeholder_registry_source" ] ||
   installer_fatal 'selected payload is missing the placeholder ownership registry'
 install -m 0600 "$placeholder_registry_source" "$runtime/bootstrap/placeholder-registry.tsv"
-install -m 0600 "$source_root/$(installer_repo_file_value FILE_COMMON_TARGET_OWNED_SCAN)" \
+install -m 0600 "$source_root/$(installer_repo_file_value scripts/common/target-owned-scan.awk)" \
   "$runtime/bootstrap/target-owned-scan.awk"
+prepare_context 74 prepare_runtime_path_map
 installer_runtime_path_placeholder_map >"$work/inputs/paths.map"
 # These files contain definitions and map producers only. Perl consumes their
 # data once for the complete target source tree; no shell template substitution
 # runs here. Runtime configuration/environment references are left intact.
-for render_selector in FILE_LATE_CORE FILE_LATE_TEMPLATES; do
+prepare_context 79 load_render_map_producers
+for render_selector in scripts/late/core.sh scripts/late/templates.sh; do
   render_support="$TMP_ENV_DIR/$render_selector.sh"
   fetch_hook_file "$(installer_repo_file_value "$render_selector")" "$render_support"
   . "$render_support" || installer_fatal 'cannot load base-stage render map producer'
 done
+prepare_context 85 prepare_system_template_map
 late_command_set_grub_arch_policy
 render_target_template_placeholder_map >"$work/inputs/templates.map" ||
   installer_fatal 'cannot prepare system-template values'
+prepare_context 89 prepare_systemd_resource_map
 systemd_resource_placeholder_map >"$work/inputs/resources.map" ||
   installer_fatal 'cannot prepare systemd resource values'
 printf 'SYSTEMD_IOWEIGHT_ENABLE=%s\nSYSTEMD_CPUWEIGHT_ENABLE=%s\n' \
   "$SYSTEMD_IOWEIGHT_ENABLE" "$SYSTEMD_CPUWEIGHT_ENABLE" >>"$work/inputs/resources.map"
+prepare_context 94 prepare_deferred_module_map
 {
   # Hardware-derived lists are normally absent here. Absence defers the exact
   # block to the late Perl consumer; an explicitly produced empty list is data.
@@ -86,14 +101,17 @@ printf 'SYSTEMD_IOWEIGHT_ENABLE=%s\nSYSTEMD_CPUWEIGHT_ENABLE=%s\n' \
     [ "$render_module_present" != x ] || printf '%s=%s\n' "$render_module_name" "$render_module_value"
   done
 } >"$work/inputs/modules.map"
+prepare_context 104 prepare_logging_map
 installer_load_logging_helpers "$seed_base"
 installer_validate_logging_data "$seed_base" \
-  "$source_root/$(installer_repo_file_value FILE_HOST_LOG_OBSERVABILITY)" "$work/inputs"
+  "$source_root/$(installer_repo_file_value hosts/logging/observability.env)" "$work/inputs"
 mv "$work/inputs/values.map" "$work/inputs/logging.map"
-fetch_hook_file "$(installer_repo_file_value FILE_LATE_THEMES)" "$TMP_ENV_DIR/themes.sh"
+prepare_context 109 prepare_theme_map
+fetch_hook_file "$(installer_repo_file_value scripts/late/themes.sh)" "$TMP_ENV_DIR/themes.sh"
 . "$TMP_ENV_DIR/themes.sh"
 installer_load_themes
 cp "$INSTALLER_THEME_MAP" "$work/inputs/themes.map"
+prepare_context 114 prepare_shared_perl_map
 printf 'ACCOUNT_USERNAME=%s\nSOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES=%s\n' \
   "$ACCOUNT_USERNAME" "$SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES" >"$work/inputs/perl.map"
 snapshots=false
@@ -111,12 +129,76 @@ prepare_run_logged() {
     installer_fatal_status "$prepare_status" "$prepare_label failed; private candidate retained"
   fi
 }
+prepare_log_renderer_provenance() (
+  # Advisory identifiers distinguish copied renderer bytes from an older seed.
+  # Never print the identity's source URL, account data or map values. A failed
+  # diagnostic must leave the renderer's normal execution/status owner intact.
+  prepare_provenance_work=${1:-}
+  prepare_provenance_release=unavailable
+  prepare_provenance_archive=unavailable
+  prepare_provenance_manifest=unavailable
+  prepare_provenance_renderer=unavailable
+  case "${INSTALLER_RELEASE_ID:-}" in
+    ''|*[!a-f0-9]*) ;;
+    *) [ "${#INSTALLER_RELEASE_ID}" -ne 64 ] || prepare_provenance_release=$INSTALLER_RELEASE_ID ;;
+  esac
+  prepare_provenance_identity=
+  prepare_provenance_extra=
+  if [ -n "$prepare_provenance_work" ] &&
+     [ -f "$prepare_provenance_work/identity" ] && [ ! -L "$prepare_provenance_work/identity" ]; then
+    if {
+      IFS= read -r prepare_provenance_identity &&
+      [ "${#prepare_provenance_identity}" -le 8191 ] &&
+      ! IFS= read -r prepare_provenance_extra && [ -z "$prepare_provenance_extra" ]
+    } <"$prepare_provenance_work/identity" 2>/dev/null; then
+      case "$prepare_provenance_identity" in
+        'verified-v1 '*)
+          prepare_provenance_fields=${prepare_provenance_identity#verified-v1 }
+          prepare_provenance_a=${prepare_provenance_fields%% *}
+          prepare_provenance_fields=${prepare_provenance_fields#* }
+          prepare_provenance_m=${prepare_provenance_fields%% *}
+          prepare_provenance_origin=${prepare_provenance_fields#* }
+          if [ "$prepare_provenance_identity" = "verified-v1 $prepare_provenance_a $prepare_provenance_m $prepare_provenance_origin" ] &&
+             [ "${#prepare_provenance_a}" -eq 64 ] && [ "${#prepare_provenance_m}" -eq 64 ]; then
+            case "$prepare_provenance_a$prepare_provenance_m" in
+              *[!a-f0-9]*) ;;
+              *)
+                case "$prepare_provenance_origin" in
+                  ''|*[!A-Za-z0-9:/._+?%#@\ -]*) ;;
+                  *) prepare_provenance_archive=$prepare_provenance_a
+                     prepare_provenance_manifest=$prepare_provenance_m ;;
+                esac ;;
+            esac
+          fi ;;
+      esac
+    fi
+  fi
+  if [ -n "$prepare_provenance_work" ] &&
+     [ -f "$prepare_provenance_work/render.pl" ] && [ ! -L "$prepare_provenance_work/render.pl" ]; then
+    if prepare_provenance_sum=$(source_sha256 <"$prepare_provenance_work/render.pl" 2>/dev/null); then
+      prepare_provenance_digest=${prepare_provenance_sum%% *}
+      case "$prepare_provenance_digest" in
+        ''|*[!a-f0-9]*) ;;
+        *) [ "${#prepare_provenance_digest}" -ne 64 ] || prepare_provenance_renderer=$prepare_provenance_digest ;;
+      esac
+    fi
+  fi
+  installer_info "target renderer provenance release=$prepare_provenance_release archive_sha256=$prepare_provenance_archive manifest_sha256=$prepare_provenance_manifest renderer_sha256=$prepare_provenance_renderer" || :
+  return 0
+) 2>/dev/null
 # perl-base is part of Debian's base system. Target APT is deliberately
 # unavailable here; no additional interpreter package transaction is needed.
+prepare_context 191 require_base_perl_interpreter
 [ -x "${TARGET_ROOT}${DIR_USR_BIN}/perl" ] || installer_fatal 'base installation did not provide its Perl interpreter'
 # The shared target logger streams redacted stdout/stderr to tty4 and captures
 # exact child status without relying on pipeline status or an optional tee.
 # Rendering uses plain chroot: it needs no debconf frontend or in-target bridge.
+# Appearance selectors classify captured source bytes for marker preservation;
+# they do not select an installed asset. The captured tree includes both role
+# families, so a server preparation must also identify the desktop registry.
+# Actual target publication retains the selected-family guard.
+prepare_log_renderer_provenance "$work" || :
+prepare_context 201 render_target_source_snapshot
 prepare_run_logged 'payload copied; rendering target assets with base-system Perl' \
   "$work/inputs/render.log" 180 chroot "$TARGET_ROOT" "${DIR_USR_BIN}/env" -i \
   HOME="$DIR_ROOT_HOME" PATH="${DIR_USR_BIN}:${DIR_BIN}" LC_ALL=C.UTF-8 \
@@ -125,14 +207,20 @@ prepare_run_logged 'payload copied; rendering target assets with base-system Per
   --scripts "$DIR_REPO_SCRIPTS" --target "$DIR_HOOKS_TARGET" --installer "$DIR_HOOKS_INSTALLER" \
   --late "$DIR_SCRIPTS_LATE" --desktop "$DIR_SCRIPTS_DESKTOP" \
   --firstboot "$DIR_SCRIPTS_FIRSTBOOT" --appearance-python "$DIR_TARGET_PY/labwc_appearance" \
-  --appearance-registry "$(installer_repo_file_value FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL)" \
-  --perl-assets "$(installer_repo_file_value FILE_SHARED_PERL_ASSETS)" \
-  --profile-assets "$(installer_repo_file_value FILE_SHARED_PROFILE_ASSETS)" \
+  --appearance-registry "$DIR_TARGET_SHARE_LABWC_APPEARANCE/fields.json.tmpl" \
+  --perl-assets "$(installer_repo_file_value catalog/compiled/shared-perl-assets.tsv)" \
+  --profile-assets "$(installer_repo_file_value catalog/compiled/profile-assets.tsv)" \
   --perl-root "$DIR_PERL5_SITE_PERL" --family "$INSTALLER_HOST_VARIANT" --snapshots "$snapshots"
+prepare_context 214 verify_target_render_receipt
 [ -s "$work/receipt.json" ] && [ ! -L "$work/receipt.json" ] || installer_fatal 'target renderer did not produce a receipt'
-while IFS="$(printf '\t')" read -r published_source published_target published_mode; do
-  installer_target_ownership_record "$published_source" "$published_target" plain "$published_mode"
-done <"$work/inputs/published-assets.tsv"
+LC_ALL=C awk -F '\t' -v phase="${INSTALLER_PHASE:-base-stage}" '
+  NF != 3 { exit 1 }
+  { printf "%s\t%s\tplain\t%s\t%s\n", $2, $1, phase, $3 }
+' "$work/inputs/published-assets.tsv" >"$work/inputs/published-ownership.tsv"
+chmod 0600 "$work/inputs/published-ownership.tsv"
+prepare_context 221 commit_target_ownership
+installer_target_ownership_import "$work/inputs/published-ownership.tsv"
+prepare_context 223 publish_target_render_ready
 mv -T -- "$work" "$stage"
 cp "$stage/identity" "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"
 chmod 0600 "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"

@@ -10,12 +10,12 @@ import fcntl
 import os
 from pathlib import Path
 import stat
-import socket
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = Path('/workspace')
 _verified_pid: int | None = None
 NS_GET_USERNS = 0xB701
+NETWORK_INVENTORY_LIMIT = 8192
 
 
 def _refuse(reason: str) -> None:
@@ -36,6 +36,37 @@ def _mounts() -> dict[str, tuple[str, str, set[str]]]:
             _refuse('ambiguous mount inventory')
         mounts[target] = (root, filesystem, set(options.split(',')))
     return mounts
+
+
+def _has_only_loopback(data: bytes) -> bool:
+    """Validate bounded kernel interface data without opening a network socket."""
+    if (not data or len(data) > NETWORK_INVENTORY_LIMIT or not data.endswith(b'\n')
+            or any(value > 126 or (value < 32 and value not in (9, 10)) for value in data)):
+        return False
+    lines = data.splitlines()
+    if len(lines) != 3:
+        return False
+    if [field.strip() for field in lines[0].split(b'|')] != [b'Inter-', b'Receive', b'Transmit']:
+        return False
+    headers = [field.split() for field in lines[1].split(b'|')]
+    if headers != [[b'face'],
+                   b'bytes packets errs drop fifo frame compressed multicast'.split(),
+                   b'bytes packets errs drop fifo colls carrier compressed'.split()]:
+        return False
+    name, separator, counters = lines[2].partition(b':')
+    values = counters.split()
+    return (separator == b':' and name.strip() == b'lo' and len(values) == 16
+            and all(value and all(48 <= char <= 57 for char in value) for value in values))
+
+
+def _private_network_is_loopback() -> bool:
+    descriptor = os.open('/proc/self/net/dev', os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, 'rb') as inventory:
+        # The mount checks also require /proc itself to be the private procfs.
+        # An allowed private tmpfs must not be able to spoof its net/dev file.
+        if os.fstat(inventory.fileno()).st_dev != os.stat('/proc').st_dev:
+            _refuse('network inventory must belong to the private procfs')
+        return _has_only_loopback(inventory.read(NETWORK_INVENTORY_LIMIT + 1))
 
 
 def verify_disposable_image() -> Path:
@@ -67,7 +98,11 @@ def verify_disposable_image() -> Path:
                     os.close(owner)
             finally:
                 os.close(descriptor)
-        if {name for index, name in socket.if_nameindex()} != {'lo'}:
+        # Namespace ownership and the private proc PID were checked above.
+        # This fixed proc entry describes our own network namespace. Reading
+        # it requires no socket syscall, so an outer no-network policy remains
+        # in force while the same loopback-only condition is checked strictly.
+        if not _private_network_is_loopback():
             _refuse('the private network must contain loopback only')
         if status.get('NoNewPrivs', '').strip() != '1' or any(
                 int(status[name].strip(), 16) for name in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd')):
@@ -88,6 +123,8 @@ def verify_disposable_image() -> Path:
         for target, (root, filesystem, options) in mounts.items():
             if target == '/':
                 continue
+            if target.startswith('/proc/'):
+                _refuse('submounts below the private procfs are forbidden')
             # Reject host files, host sockets, devices, sysfs, cgroups, and all
             # persistent/bind-mounted filesystems, including /etc/hosts binds.
             if root != '/' or filesystem not in {'tmpfs', 'proc', 'devpts', 'mqueue'}:

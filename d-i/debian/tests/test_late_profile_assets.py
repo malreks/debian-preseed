@@ -20,6 +20,8 @@ import tarfile
 import tempfile
 import unittest
 
+from class_compiler import repository_data
+
 ROOT = Path(__file__).resolve().parents[3]
 TOKEN = re.compile(r'__INSTALLER_([A-Z][A-Z0-9_]*?)__')
 
@@ -27,7 +29,7 @@ FOUNDATION_ALL = r'''
 set -eu
 case "$FIXTURE_ROOT" in "$FIXTURE_BOUNDARY"/*) ;; *) exit 90 ;; esac
 case "$FIXTURE_ROOT" in */../*|*/./*|*//*) exit 90 ;; esac
-. "$FIXTURE_SOURCE/scripts/common/lifecycle.sh"
+. "$FIXTURE_SOURCE/scripts/common/source.sh"
 . "$FIXTURE_SOURCE/scripts/common/credentials.sh"
 . "$FIXTURE_SOURCE/scripts/common/modules/credentials-probes.sh"
 . "$FIXTURE_SOURCE/scripts/common/modules/files-logging.sh"
@@ -44,22 +46,31 @@ installer_apt_safe_path() {
   case "$1" in */../*|*/./*|*//*) return 1 ;; esac
   [ ! -L "$1" ]
 }
-installer_repo_assert_asset_family() {
-  case "$1" in "$FIXTURE_SOURCE"/*) ;; *) exit 91 ;; esac
-}
+# Configuration, member validation and dynamic family selection use the real
+# implementations. Acquisition alone maps exact members into this private copy.
+source_load_repo_env "$FIXTURE_SOURCE/repo.env"
+INSTALLER_REPO_ENV_READY=1
+INSTALLER_REPO_SOURCE_ROOT=$FIXTURE_SOURCE
 installer_seed_base() { printf '%s\n' "$FIXTURE_SOURCE"; }
-installer_repo_file_value() {
-  awk -F '\t' -v key="$1" '$1==key {print $2; found=1; exit} END {if(!found) exit 1}' "$FIXTURE_ROOT/selectors.tsv"
-}
 bootstrap_repo_file_value() { installer_repo_file_value "$@"; }
-installer_repo_dir_value() { installer_repo_file_value "$@"; }
-bootstrap_parser_asset_path() { printf '%s\n' "$1"; }
-installer_repo_asset_path() { printf '%s/%s\n' "$(installer_repo_file_value "$1")" "$2"; }
-INSTALLER_REPO_FILE_INDEX=$(awk -F '\t' '$1 ~ /^FILE_/ {print $1 "|" $2}' "$FIXTURE_ROOT/selectors.tsv")
+bootstrap_parser_asset_path() { printf '%s/%s\n' "$FIXTURE_SOURCE" "$(installer_repo_file_value "$1")"; }
+bootstrap_prepared_asset_published() { return 1; }
 installer_fetch_file() {
+  installer_validate_repo_file_value fixture_member "$2"
   installer_repo_assert_asset_family "$2"
   installer_apt_safe_path "$3" || exit 92
-  cp "$2" "$3"; chmod "$4" "$3"
+  fixture_input=$FIXTURE_SOURCE/$2
+  [ -f "$fixture_input" ] && [ ! -L "$fixture_input" ] || exit 91
+  cp "$fixture_input" "$3"; chmod "$4" "$3"
+}
+# The real target-context code checks the private directory and its ancestry.
+# This exact fixture record replaces only the unavailable installation mount.
+installer_mounts_find_record() {
+  [ "$1" = "$FIXTURE_ROOT/target" ] || return 1
+  INSTALLER_MOUNT_POINT=$1
+  INSTALLER_MOUNT_SOURCE=private-fixture
+  INSTALLER_MOUNT_FSTYPE=fixture
+  INSTALLER_MOUNT_OPTIONS=rw
 }
 bootstrap_source_common_lib() { :; }
 bootstrap_source_common_support_libs() { :; }
@@ -68,15 +79,13 @@ installer_fetch_host_env() { cp "$FIXTURE_ROOT/profile.env" "$3"; }
 installer_assert_class_plan() { :; }
 installer_runtime_state_dir() { printf '%s/state\n' "$FIXTURE_ROOT"; }
 installer_class_metadata_read_path() {
-  awk -F '\t' -v base="$FIXTURE_SOURCE/" 'BEGIN {OFS="\t"} NF==3 {$1=base $1} {print}' \
-    "$(installer_repo_file_value "$1")" >"$FIXTURE_ROOT/perl-assets.tsv"
-  printf '%s/perl-assets.tsv\n' "$FIXTURE_ROOT"
+  printf '%s/%s\n' "$FIXTURE_SOURCE" "$(installer_repo_file_value "$1")"
 }
 installer_snapshots_enabled() { [ "$TIMESHIFT_ENABLE" = true ]; }
 installer_publish_class_receipt() { : >"$FIXTURE_ROOT/receipt-published"; }
 sync() { :; } # The isolated fixture checks publication, not storage durability.
-# Device discovery is the sole native foundation dependency replaced here.
-# No actual device or target management command is used by this fixture.
+# Device identity and the mount record are private fixture data. No actual
+# device discovery or target management command is used by this fixture.
 blkid() { printf '%s\n' 00000000-0000-0000-0000-000000000001; }
 . "$FIXTURE_SOURCE/scripts/common/system-foundation.sh"
 [ -f "$FIXTURE_ROOT/receipt-published" ]
@@ -94,10 +103,12 @@ BOOT_ASSETS = r'''
 # Signing, device mounts and in-target execution remain explicit fixture seams.
 . "$FIXTURE_SOURCE/scripts/common/target.sh"
 installer_fetch_file() {
+  installer_validate_repo_file_value fixture_member "$2"
   installer_repo_assert_asset_family "$2"
   installer_apt_safe_path "$3" || exit 92
-  cp "$2" "$3"; chmod "$4" "$3"
-  if [ "$2" = "$FIXTURE_SOURCE/scripts/late/grub.sh" ]; then
+  [ -f "$FIXTURE_SOURCE/$2" ] && [ ! -L "$FIXTURE_SOURCE/$2" ] || exit 91
+  cp "$FIXTURE_SOURCE/$2" "$3"; chmod "$4" "$3"
+  if [ "$2" = scripts/late/grub.sh ]; then
     cat >>"$3" <<'FIXTURE_SEAMS'
 stage_target_secure_boot_runtime_assets() { :; }
 prepare_target_secure_boot_runtime() { :; }
@@ -142,15 +153,13 @@ printf 'RENDER_EDGE_CASE_PASS literal=true adjacent=true invalid_map_rejected=tr
 '''
 
 
-def selectors(data: bytes, suite: str) -> dict[str, str]:
-    """Expand the parent-first repository selector data without shell execution."""
-    result = {'INSTALLER_SUITE': suite}
-    for line in data.decode().splitlines():
-        match = re.fullmatch(r'([A-Z][A-Z0-9_]*)="(.*)"', line)
-        if match:
-            result[match[1]] = re.sub(r'\$\{([A-Z][A-Z0-9_]*)\}',
-                                    lambda item: result[item[1]], match[2])
-    return result
+def repository_values(members: dict[str, bytes], suite: str) -> dict[str, str]:
+    """Use the build parser and the vocabulary from this exact captured source."""
+    schemas = re.findall(r"^  source_repo_supported='([^']+)'$",
+                         members['scripts/common/source.sh'].decode(), re.M)
+    if len(schemas) != 1:
+        raise ValueError('fixture has no unique repository configuration schema')
+    return repository_data(members['repo.env'].decode(), suite, set(schemas[0].split()))
 
 
 def profile_assets(source: str, catalog: dict[str, str], members: dict[str, bytes],
@@ -172,8 +181,11 @@ def profile_assets(source: str, catalog: dict[str, str], members: dict[str, byte
         return candidates.pop()
 
     text = source.replace('\\\n', ' ')
-    result = {catalog[key] for key in re.findall(
-        r'installer_stage_profile_file\s+"?(FILE_[A-Z0-9_]+)', text)}
+    result = set(re.findall(
+        r'installer_stage_profile_file\s+["\']?([A-Za-z0-9_./@+-]+)', text))
+    for member in result:
+        if member not in members:
+            raise AssertionError('fixed profile source is absent: ' + member)
     if 'installer_apt_install_target_policy' in source:
         roots = (catalog['DIR_TARGET_APT_APT_CONF_D'],
                  catalog[f'DIR_TARGET_APT_{family.upper()}_APT_CONF_D'])
@@ -192,8 +204,8 @@ def profile_assets(source: str, catalog: dict[str, str], members: dict[str, byte
                     raise AssertionError('dynamic loop requires an explicit asset contract')
                 resolved = leaf.replace('${' + variable + '}', value).replace('$' + variable, value)
                 result.add(locate(directory, resolved))
-    if 'FILE_SHARED_PERL_ASSETS' in source:
-        for line in members[catalog['FILE_SHARED_PERL_ASSETS']].decode().splitlines():
+    if 'catalog/compiled/shared-perl-assets.tsv' in source:
+        for line in members['catalog/compiled/shared-perl-assets.tsv'].decode().splitlines():
             fields = line.split('\t')
             if len(fields) == 3 and fields[2] in {'common', family}:
                 result.add(fields[0])
@@ -249,7 +261,7 @@ esac
             with tarfile.open(ROOT / f'd-i/{suite}/payload.tar.gz') as archive:
                 members = {item.name: archive.extractfile(item).read() for item in archive
                            if item.isfile() and item.size <= 16 * 1024 * 1024}
-            catalog = selectors(members['repo.env'], suite)
+            catalog = repository_values(members, suite)
             layout = '\n'.join(members[f'scripts/runtime/{kind}.sh'].decode()
                                for kind in ('btrfs', 'f2fs'))
             layout_fields = set(re.findall(r"printf '([A-Z][A-Z0-9_]*)=", layout))
@@ -274,7 +286,8 @@ esac
                         continue
                     if stage == 'os.timeshift' and b"TIMESHIFT_ENABLE='true'\n" not in data:
                         continue
-                    source = members[catalog[row[4]]].decode()
+                    self.assertIn(row[4], members, 'phase provider must name a physical member')
+                    source = members[row[4]].decode()
                     produced = set(re.findall(r'\b([A-Z][A-Z0-9_]*)(?::)?=', source))
                     if 'installer_load_primary_account' in source:
                         produced |= account_fields
@@ -295,7 +308,7 @@ esac
                 boundary = Path(temporary)
                 root = boundary / 'fixture'
                 root.mkdir(mode=0o700)
-                for leaf in ('target', 'state', 'env', 'late', 'home'):
+                for leaf in ('target', 'state', 'env', 'late', 'home', 'ownership'):
                     (root / leaf).mkdir(mode=0o700)
                 (root / 'target/etc/apt').mkdir(parents=True, mode=0o755)
                 source = root / 'source'
@@ -311,10 +324,6 @@ esac
                         destination = source / member.name
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         destination.write_bytes(archive.extractfile(member).read())
-                catalog = selectors((source / 'repo.env').read_bytes(), 'forky')
-                (root / 'selectors.tsv').write_text(''.join(
-                    f'{key}\t{source}/{value}\n' for key, value in catalog.items()
-                    if key.startswith(('DIR_', 'FILE_'))), encoding='utf-8')
                 (root / 'profile.env').write_bytes((source / f'catalog/compiled/forky/profiles/{family}/{profile}.env').read_bytes())
                 (root / 'bootstrap.sh').write_text('# fixture bootstrap\n', encoding='ascii')
                 (root / 'state/runtime.env').write_text(
@@ -330,7 +339,9 @@ esac
                     'HOME': str(root / 'home'), 'FIXTURE_BOUNDARY': str(boundary),
                     'FIXTURE_ROOT': str(root), 'FIXTURE_SOURCE': str(source),
                     'FIXTURE_FAMILY_UPPER': family.upper(), 'INSTALLER_HOST_VARIANT': family,
-                    'INSTALLER_ARCH_CLASS': 'amd64',
+                    'INSTALLER_ARCH_CLASS': 'amd64', 'INSTALLER_SUITE': 'forky',
+                    'TMPDIR': str(root), 'TMP': str(root), 'TEMP': str(root),
+                    'DIR_INSTALLER_TARGET_OWNERSHIP': str(root / 'ownership'),
                     'INSTALLER_HOST_PROFILE': profile, 'INSTALLER_CMDLINE': 'quiet',
                     'INSTALLER_PRESEED_ENV_FILE': str(root / 'preseed.env'),
                     'INSTALLER_BOOTSTRAP_LIB': str(root / 'bootstrap.sh'),

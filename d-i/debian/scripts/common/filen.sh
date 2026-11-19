@@ -26,7 +26,7 @@ install_profile_filen() (
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  stage_target_asset "$(installer_repo_file_value FILE_OS_FILEN_INSTALL)" "${filen_stage}/install.py" 0600
+  stage_target_asset "$(installer_repo_file_value scripts/common/filen-install.py)" "${filen_stage}/install.py" 0600
   for filen_asset in \
     usr/local/libexec/filen-sync \
     usr/local/lib/perl5/site_perl/filen/FilenSync/Config.pm \

@@ -26,7 +26,7 @@ temporary_os_prober_fatal() {
 # shellcheck disable=SC1090,SC1091
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib ""
-installer_operation_context_repo FILE_INST_PREPKG_88TEMPORARY_OS_PROBER 29 temporary_os_prober
+installer_operation_context_repo hooks/installer/pre-pkgsel.d/88temporary-os-prober.sh 29 temporary_os_prober
 SEED_BASE=$(installer_seed_base "")
 installer_persist_seed_source "$SEED_BASE"
 installer_ensure_context_loaded "$SEED_BASE"

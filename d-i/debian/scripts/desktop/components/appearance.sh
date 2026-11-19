@@ -39,11 +39,11 @@ desktop_stage_appearance() (
   done
   state_host=$(target_asset_host_path "${DIR_VAR_LIB}/labwc-appearance")
   chmod 0700 "$state_host"
-  desktop_stage_role_asset FILE_TARGET_BIN_LABWC_DESKTOP_APPEARANCE "${DIR_USR_LOCAL_BIN}/labwc-desktop-appearance" 0755
+  desktop_stage_role_asset hooks/target/usr/local/bin/desktop/labwc-desktop-appearance "${DIR_USR_LOCAL_BIN}/labwc-desktop-appearance" 0755
   desktop_render_role_target_template \
-    FILE_TARGET_SHARE_LABWC_APPEARANCE_MENU_ICONS_TMPL \
+    hooks/target/usr/local/share/desktop/labwc-appearance/menu-icons.json.tmpl \
     "${DIR_USR_LOCAL_SHARE_LABWC_APPEARANCE}/menu-icons.json" 0644
-  desktop_stage_role_asset FILE_TARGET_LIBEXEC_LABWC_APPEARANCE_GREETER \
+  desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-appearance-greeter \
     "${DIR_USR_LOCAL_LIBEXEC}/labwc-appearance-greeter" 0755
   for path in \
     usr/local/lib/python3/dist-packages/managed_workflows/__init__.py \
@@ -70,10 +70,10 @@ desktop_stage_appearance() (
   # fetch_hook renders only field defaults before atomic publication. Keep
   # the mapping markers literal for the later native-defaults capture.
   if desktop_role_owns_target "${DIR_USR_LOCAL_SHARE_LABWC_APPEARANCE}/fields.json"; then
-    publish_target_asset "$(installer_repo_file_value FILE_TARGET_SHARE_LABWC_APPEARANCE_FIELDS_TMPL)" \
+    publish_target_asset "$(installer_repo_file_value hooks/target/usr/local/share/desktop/labwc-appearance/fields.json.tmpl)" \
       "${DIR_USR_LOCAL_SHARE_LABWC_APPEARANCE}/fields.json" 0644 appearance-registry
   fi
-  desktop_stage_role_asset FILE_TARGET_USR_SHARE_POLKIT_1_ACTIONS_ORG_LABWC_DESKTOP_APPEARANCE_POLICY \
+  desktop_stage_role_asset hooks/target/usr/share/polkit-1/actions/org.labwc.desktop-appearance.policy \
     __INSTALLER_PATH_DIR_USR_SHARE__/polkit-1/actions/org.labwc.desktop-appearance.policy 0644
 )
 
@@ -106,17 +106,17 @@ desktop_run_appearance_setup() (
   trap setup_cleanup 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   install -d -m 0700 "$setup_package"
-  installer_stage_profile_file FILE_DESKTOP_APPEARANCE_SETUP "$setup_target/setup.py" 0600
+  installer_stage_profile_file scripts/desktop/appearance-setup.py "$setup_target/setup.py" 0600
   while IFS='|' read -r selector leaf; do
     installer_stage_profile_file "$selector" "$setup_target/appearance_setup/$leaf" 0600
   done <<'EOF'
-FILE_DESKTOP_APPEARANCE_INIT|__init__.py
-FILE_DESKTOP_APPEARANCE_DEFAULTS|defaults.py
-FILE_DESKTOP_APPEARANCE_RELEASE|release.py
-FILE_DESKTOP_APPEARANCE_THEME_ARCHIVE|theme_archive.py
-FILE_DESKTOP_APPEARANCE_THEME_ASSETS|theme_assets.py
-FILE_DESKTOP_APPEARANCE_THEME_RESOURCES|theme_resources.py
-FILE_DESKTOP_APPEARANCE_THEME_INSTALL|theme_install.py
+scripts/desktop/appearance_setup/__init__.py|__init__.py
+scripts/desktop/appearance_setup/defaults.py|defaults.py
+scripts/desktop/appearance_setup/release.py|release.py
+scripts/desktop/appearance_setup/theme_archive.py|theme_archive.py
+scripts/desktop/appearance_setup/theme_assets.py|theme_assets.py
+scripts/desktop/appearance_setup/theme_resources.py|theme_resources.py
+scripts/desktop/appearance_setup/theme_install.py|theme_install.py
 EOF
   run_in_target "prepare native desktop appearance: $setup_action" \
     "${DIR_USR_BIN}/python3" -I -B "$setup_target/setup.py" "$setup_action" "$@"

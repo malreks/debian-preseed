@@ -633,10 +633,10 @@ stage_target_nftables_mullvad_lan_policy() {
     *" lan-share "*)
       if [ -x ${TARGET_ROOT}${DIR_USR_BIN}/mullvad ]; then
         stage_target_asset \
-          "$(installer_repo_file_value FILE_TARGET_LIBEXEC_MULLVAD_LAN_ALLOW)" \
+          "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/mullvad-lan-allow)" \
           __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/mullvad-lan-allow 0755
         stage_target_asset \
-          "$(installer_repo_file_value FILE_TARGET_UNIT_MULLVAD_DAEMON_SERVICE_D_25_LAN_SHARING)" \
+          "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/25-lan-sharing.conf)" \
           __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_MULLVAD_DAEMON_DROPIN__/25-lan-sharing.conf 0644
         return 0
       fi
@@ -1060,41 +1060,41 @@ apparmor_disable_superseded_edge_profile() {
 
 stage_target_system_apparmor_profiles() {
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_FONTS_D_LABWC_TERMINAL_FONTS)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/fonts.d/labwc-terminal-fonts)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/fonts.d/labwc-terminal-fonts" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_WRAPPER_TERMINAL)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/wrapper-terminal)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/wrapper-terminal" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_WRAPPER_BASE)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/wrapper-base)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/wrapper-base" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_WRAPPER_PERL)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/wrapper-perl)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/wrapper-perl" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_CRUN_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/crun-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/crun-runtime" \
     0644
   if installer_snapshots_enabled; then
     stage_target_asset \
-      "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_TIMESHIFT_RUNTIME)" \
+      "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/timeshift-runtime)" \
       "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/timeshift-runtime" \
       0644
   fi
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_WRAPPER_PYTHON)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/wrapper-python)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/wrapper-python" \
     0644
 
   for apparmor_profile in $(apparmor_managed_system_profile_files); do
     if [ "$apparmor_profile" = app-veth ]; then
       render_target_asset_with_placeholder_map \
-        "$(installer_repo_file_value FILE_TARGET_AA_APP_VETH_TMPL)" \
+        "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/app-veth.tmpl)" \
         __INSTALLER_PATH_DIR_ETC__/apparmor.d/app-veth 0644 app_veth_identity_placeholder_map
       continue
     fi
@@ -1119,118 +1119,118 @@ apparmor_document_media_placeholder_map() {
 
 stage_target_desktop_apparmor_profiles() {
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_LLAMA_WHISPER_COORDINATION)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/llama-whisper-coordination)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/llama-whisper-coordination" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_DEVOPS_TOOLCHAIN_DATA)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/devops-toolchain-data)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/devops-toolchain-data" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_USER_DOCUMENTS)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/user-documents)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/user-documents" \
     0644
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_AA_LOCAL_ABSTRACTIONS_DESKTOP_USER_MEDIA_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/local/abstractions/desktop-user-media.tmpl)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/local/abstractions/desktop-user-media" \
     0644 \
     apparmor_document_media_placeholder_map
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_AA_LOCAL_ABSTRACTIONS_CODEX_USER_MEDIA_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/local/abstractions/codex-user-media.tmpl)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/local/abstractions/codex-user-media" \
     0644 \
     apparmor_document_media_placeholder_map
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_DOCUMENT_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/document-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/document-runtime" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_SESSION_CLIENT)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/session-client)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/session-client" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_WRAPPER_DESKTOP)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/wrapper-desktop)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/wrapper-desktop" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_WRAPPER_GUI)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/wrapper-gui)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/wrapper-gui" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_WRAPPER_WAYLAND)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/wrapper-wayland)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/wrapper-wayland" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_AUDIO_D_NO_RAW_AUDIO)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/audio.d/no-raw-audio)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/audio.d/no-raw-audio" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_PIPEWIRE_AUDIO)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/pipewire-audio)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/pipewire-audio" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_BWRAP_COMMON)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/bwrap-common)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/bwrap-common" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_TOR_BROWSER_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/tor-browser-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/tor-browser-runtime" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_BWRAP_COMPAT_PREPARATION)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/bwrap-compat-preparation)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/bwrap-compat-preparation" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_BWRAP_DESKTOP_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/bwrap-desktop-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/bwrap-desktop-runtime" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_DEVOPS_TOOLCHAIN_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/devops-toolchain-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/devops-toolchain-runtime" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_CODEX_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/codex-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/codex-runtime" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_ELECTRON_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/electron-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/electron-runtime" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_ELECTRON_APPLICATION)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/electron-application)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/electron-application" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_WEBKIT_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/webkit-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/webkit-runtime" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_DESKTOP_GRAPHICS)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/desktop-graphics)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/desktop-graphics" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_NATIVE_GPU_SELECTION)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/native-gpu-selection)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/native-gpu-selection" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_DESKTOP_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/desktop-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/desktop-runtime" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_APP_CONFIG)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/app-config)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/app-config" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_DESKTOP_APPLICATION)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/desktop-application)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/desktop-application" \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_QBITTORRENT_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/qbittorrent-runtime)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/qbittorrent-runtime" \
     0644
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_WORKFLOW_AUTH)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/workflow-auth)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/workflow-auth" \
     0644
 
@@ -1242,7 +1242,7 @@ stage_target_desktop_apparmor_profiles() {
   done
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_LOCAL_DESKTOP_APPLICATION)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/local/desktop-application)" \
     "__INSTALLER_PATH_DIR_ETC__/apparmor.d/local/desktop-application" \
     0644
   if security_nvidia_acceleration_enabled; then
@@ -1326,7 +1326,7 @@ stage_target_desktop_apparmor_profiles() {
   fi
   for apparmor_local_include in $(apparmor_compat_desktop_local_include_files); do
     stage_target_asset \
-      "$(installer_repo_file_value FILE_TARGET_AA_LOCAL_DESKTOP_APPLICATION)" \
+      "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/local/desktop-application)" \
       "__INSTALLER_PATH_DIR_ETC__/apparmor.d/local/${apparmor_local_include}" \
       0644
   done
@@ -1396,7 +1396,7 @@ write_target_nftables_default_config() {
   NFTABLES_DEFAULT_RUNTIME_CIDRS=$runtime_cidrs
 
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_NFTABLES_POLICY_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/nftables/desktop/policy.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/nftables/policy.conf \
     0644 \
     nftables_default_placeholder_map
@@ -1410,7 +1410,7 @@ write_target_nftables_default_config() {
 }
 
 configure_target_nftables() {
-  installer_operation_context_repo FILE_LATE_SECURITY 1458 configure_target_nftables
+  installer_operation_context_repo scripts/late/security.sh 1458 configure_target_nftables
   requested_profile=$(late_command_nftables_requested_profile)
   selected_profile=$(late_command_nftables_profile "$requested_profile")
   installer_info "nftables profile selection: raw=${NFT_PROFILE:-default} normalized=${requested_profile} selected=${selected_profile}"
@@ -1457,8 +1457,8 @@ configure_target_nftables() {
     rm -f "${TARGET_ROOT}${DIR_ETC}/nftables/services/${service_asset}.yml"
   done
 
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SBIN_NFT_POLICY_GENERATE)" "__INSTALLER_PATH_DIR_USR_LOCAL__/sbin/nft-policy-generate" 0755
-  render_target_asset_with_placeholder_map "$(installer_repo_file_value FILE_TARGET_NFTABLES_README_TMPL)" "__INSTALLER_PATH_DIR_ETC__/nftables/README.md" 0644 nftables_interface_placeholder_map
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/sbin/desktop/nft-policy-generate.py)" "__INSTALLER_PATH_DIR_USR_LOCAL__/sbin/nft-policy-generate" 0755
+  render_target_asset_with_placeholder_map "$(installer_repo_file_value hooks/target/etc/nftables/desktop/README.md.tmpl)" "__INSTALLER_PATH_DIR_ETC__/nftables/README.md" 0644 nftables_interface_placeholder_map
   stage_target_helper_doc nft-policy-generate.md nft-policy-generate.md
   stage_target_nftables_profile_assets
   render_target_asset_with_placeholder_map \
@@ -1473,7 +1473,7 @@ configure_target_nftables() {
   # Repository membership and installed paths have separate owners. In
   # particular, the desktop policy source lives below its physical role root.
   # Never reconstruct a source path by stripping the target path prefix.
-  installer_operation_context_repo FILE_LATE_SECURITY 1521 seed_persistent_firewall_state
+  installer_operation_context_repo scripts/late/security.sh 1521 seed_persistent_firewall_state
   while IFS='|' read -r local_state_selector local_state; do
     if [ -e "${TARGET_ROOT}${local_state}" ] || [ -L "${TARGET_ROOT}${local_state}" ]; then
       [ -f "${TARGET_ROOT}${local_state}" ] && [ ! -L "${TARGET_ROOT}${local_state}" ] ||
@@ -1487,12 +1487,12 @@ configure_target_nftables() {
       stage_target_asset "$local_state_source" "$local_state" 0644 || return "$?"
     fi
   done <<'EOF'
-FILE_TARGET_NFTABLES_FIREWALL_SECURITY|__INSTALLER_PATH_DIR_ETC__/nftables/firewall-security.rules
-FILE_TARGET_NFTABLES_D_95_FIREWALL_SECURITY_NFT|__INSTALLER_PATH_DIR_ETC__/nftables.d/95-firewall-security.nft
+hooks/target/etc/nftables/desktop/firewall-security.rules|__INSTALLER_PATH_DIR_ETC__/nftables/firewall-security.rules
+hooks/target/etc/nftables.d/95-firewall-security.nft|__INSTALLER_PATH_DIR_ETC__/nftables.d/95-firewall-security.nft
 EOF
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_NFTABLES_SERVICE_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/nftables.service.d/override.conf)" \
     "__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_NFTABLES_DROPIN__/override.conf" \
     0644
 
@@ -1569,7 +1569,7 @@ security_mask_target_systemd_unit_if_available() {
 }
 
 configure_target_fail2ban() {
-  installer_operation_context_repo FILE_LATE_SECURITY 1617 configure_target_fail2ban
+  installer_operation_context_repo scripts/late/security.sh 1617 configure_target_fail2ban
   runtime_apply_ssh_from_classes
   # Current roles expose SSH according to profile policy. There is no web
   # service class: querying a retired selector aborts the shared class parser.
@@ -1585,7 +1585,7 @@ configure_target_fail2ban() {
     ${TARGET_ROOT}${DIR_ETC}/tmpfiles.d
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_FAIL2BAN_FAIL2BAN_LOCAL_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/fail2ban/fail2ban.local.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/fail2ban/fail2ban.local \
     0644
   for fail2ban_managed_asset in \
@@ -1602,27 +1602,27 @@ configure_target_fail2ban() {
   # Create the canonical managed auth sink even before OpenSSH is installed.
   # Journald retains INFO authentication events and forwards them to rsyslog.
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_59_LOG_LAYOUT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/59-log-layout.conf \
     0644
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_FAIL2BAN_JAIL_D_10_SSHD_LOCAL_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/fail2ban/jail.d/10-sshd.local.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/fail2ban/jail.d/10-sshd.local \
     0644 \
     fail2ban_jail_placeholder_map
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_FAIL2BAN_SERVICE_D_40_RUNTIME)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/fail2ban.service.d/40-runtime.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_FAIL2BAN_DROPIN__/40-runtime.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_62_FAIL2BAN_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/62-fail2ban.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/62-fail2ban.conf \
     0644
   normalize_target_tmpfiles_directory_policy \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/62-fail2ban.conf \
     "Fail2ban managed state"
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_FAIL2BAN_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/fail2ban.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/fail2ban \
     0644
 
@@ -1802,9 +1802,9 @@ configure_target_stubby() (
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  stage_target_template_input "$(installer_repo_file_value FILE_LATE_STUBBY_CONFIG)" \
+  stage_target_template_input "$(installer_repo_file_value scripts/late/stubby-config.py)" \
     "$stubby_stage" configure.py
-  stage_target_template_input "$(installer_repo_file_value FILE_TARGET_STUBBY_STUBBY_TMPL)" \
+  stage_target_template_input "$(installer_repo_file_value hooks/target/etc/stubby/stubby.yml.tmpl)" \
     "$stubby_stage" stubby.yml.tmpl
   app_veth_dns_placeholder_map >"$stubby_stage_host/policy.map"
   stubby_ca_input=-
@@ -1838,12 +1838,12 @@ configure_target_stubby() (
   run_in_target "authenticate DNS certificate identities and configure Stubby" \
     __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B "$stubby_stage/configure.py" \
     "$stubby_stage/stubby.yml.tmpl" "$stubby_stage/policy.map" "$stubby_ca_input"
-  installer_target_ownership_record "$(installer_repo_file_value FILE_TARGET_STUBBY_STUBBY_TMPL)" \
+  installer_target_ownership_record "$(installer_repo_file_value hooks/target/etc/stubby/stubby.yml.tmpl)" \
     "${DIR_ETC_STUBBY}/stubby.yml" template 0644
 )
 
 configure_target_app_veth() {
-  installer_operation_context_repo FILE_LATE_SECURITY 1889 configure_target_app_veth
+  installer_operation_context_repo scripts/late/security.sh 1889 configure_target_app_veth
   [ "$(late_command_nftables_profile)" != none ] ||
     installer_fatal "managed kernel namespaces require the nftables policy"
   run_in_target "verify managed network connection cleanup command" __INSTALLER_PATH_DIR_USR_BIN__/test -x __INSTALLER_PATH_DIR_USR_SBIN__/conntrack
@@ -1855,29 +1855,29 @@ configure_target_app_veth() {
     stage_target_asset "$(installer_repo_asset_path DIR_HOOKS_TARGET "$veth_asset")" "/$veth_asset" 0644
   done
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_NETWORKMANAGER_CONF_D_70_APP_VETH_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/NetworkManager/conf.d/70-app-veth.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/NetworkManager/conf.d/70-app-veth.conf 0644 app_veth_identity_placeholder_map
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SBIN_APP_VETH)" __INSTALLER_PATH_DIR_USR_LOCAL__/sbin/app-veth 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/sbin/desktop/app-veth)" __INSTALLER_PATH_DIR_USR_LOCAL__/sbin/app-veth 0755
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_APP_VETH_NFT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/app-veth.nft.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/app-veth.nft 0644 proxy3_placeholder_map
   configure_target_stubby
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_STUBBY_SERVICE)" __INSTALLER_PATH_DIR_ETC__/systemd/system/stubby.service 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_STUBBY_SERVICE_D_60_APP_VETH)" __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_STUBBY_DROPIN__/60-app-veth.conf 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_SYSTEMD_RESOLVED_SERVICE_D_60_STUBBY)" __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_SYSTEMD_RESOLVED_DROPIN__/60-stubby.conf 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/stubby.service)" __INSTALLER_PATH_DIR_ETC__/systemd/system/stubby.service 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/stubby.service.d/60-app-veth.conf)" __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_STUBBY_DROPIN__/60-app-veth.conf 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/systemd-resolved.service.d/60-stubby.conf)" __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_SYSTEMD_RESOLVED_DROPIN__/60-stubby.conf 0644
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_DNSMASQ_APP_VETH_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/dnsmasq-app-veth.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/dnsmasq-app-veth.conf 0644 app_veth_dns_placeholder_map
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_DNSMASQ_APP_VETH_SERVICE)" __INSTALLER_PATH_DIR_ETC__/systemd/system/dnsmasq-app-veth.service 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/dnsmasq-app-veth.service)" __INSTALLER_PATH_DIR_ETC__/systemd/system/dnsmasq-app-veth.service 0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_PY_APP_VETH_POLICY)" \
+    "$(installer_repo_file_value hooks/target/usr/local/lib/desktop/python3/dist-packages/app_veth_policy.py)" \
     "${DIR_PYTHON3_SITE_PACKAGES}/app_veth_policy.py" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APP_VETH_PODMAN)" __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/app-veth-podman 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/app-veth-podman)" __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/app-veth-podman 0755
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_SYSTEMD_RESOLVED_CONF_D_60_APP_VETH_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/desktop/resolved.conf.d/60-app-veth.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/systemd/resolved.conf.d/60-app-veth.conf 0644 app_veth_dns_placeholder_map
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_APP_VETH_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/app-veth.json.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/app-veth.json 0644 app_veth_placeholder_map
   run_in_target "validate managed kernel network configuration" \
     __INSTALLER_PATH_DIR_USR_LOCAL__/sbin/app-veth --check-config
@@ -1885,13 +1885,13 @@ configure_target_app_veth() {
     __INSTALLER_PATH_DIR_USR_SBIN__/dnsmasq --test --conf-file=__INSTALLER_PATH_DIR_ETC__/dnsmasq-app-veth.conf
   run_in_target "validate managed TLS resolver configuration" \
     __INSTALLER_PATH_DIR_USR_BIN__/stubby -i -C __INSTALLER_PATH_DIR_ETC__/stubby/stubby.yml
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_18_APP_VETH_TMPL)" __INSTALLER_PATH_DIR_ETC__/rsyslog.d/18-app-veth.conf 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/rsyslog.d/18-app-veth.conf.tmpl)" __INSTALLER_PATH_DIR_ETC__/rsyslog.d/18-app-veth.conf 0644
   stage_target_systemd_unit_enabled dnsmasq-app-veth.service system
   stage_target_systemd_unit_enabled app-veth.service system
 }
 
 configure_target_apparmor_auditd() {
-  installer_operation_context_repo FILE_LATE_SECURITY 1937 configure_target_apparmor_auditd
+  installer_operation_context_repo scripts/late/security.sh 1937 configure_target_apparmor_auditd
   install -d -m 0755 \
     ${TARGET_ROOT}${DIR_ETC}/apparmor \
     ${TARGET_ROOT}${DIR_APPARMOR} \
@@ -1911,17 +1911,17 @@ configure_target_apparmor_auditd() {
   install -d -m 0700 ${TARGET_ROOT}${DIR_ETC}/security
   [ -e ${TARGET_ROOT}${DIR_ETC}/security/opasswd ] || : > ${TARGET_ROOT}${DIR_ETC}/security/opasswd
   chmod 0600 ${TARGET_ROOT}${DIR_ETC}/security/opasswd
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_APP_VETH_CLIENT)" "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/app-veth-client" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_AA_ABSTRACTIONS_BASE_D_PROCESS_MONITOR)" "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/base.d/process-monitor" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/app-veth-client)" "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/app-veth-client" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/base.d/process-monitor)" "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/base.d/process-monitor" 0644
   stage_target_system_apparmor_profiles
   if security_target_is_desktop; then
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_PERL_RUNTIME_MANAGED_POLICYLOCK)" \
+    stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/lib/common/perl5/site_perl/runtime/Managed/PolicyLock.pm)" \
       "${DIR_PERL5_SITE_PERL}/runtime/Managed/PolicyLock.pm" 0644
     install -d -m 0755 \
       "${TARGET_ROOT}${DIR_PERL5_SITE_PERL}/apparmor-modes/AppArmor/ManagedModes"
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_APPARMOR_MODES_TMPL)" "__INSTALLER_PATH_DIR_ETC__/apparmor/modes.conf" 0644
+    stage_target_asset "$(installer_repo_file_value hooks/target/etc/apparmor/desktop/modes.conf.tmpl)" "__INSTALLER_PATH_DIR_ETC__/apparmor/modes.conf" 0644
     apparmor_apply_desktop_state "${TARGET_ROOT}${DIR_ETC}/apparmor/modes.conf"
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APPARMOR_MODES_RUN)" "__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/apparmor-modes-run" 0755
+    stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/apparmor-modes-run)" "__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/apparmor-modes-run" 0755
     apparmor_managed_modes_perl_modules | while IFS= read -r apparmor_managed_modes_module; do
       [ -n "$apparmor_managed_modes_module" ] || continue
       stage_target_asset \
@@ -1929,9 +1929,9 @@ configure_target_apparmor_auditd() {
         "${DIR_PERL5_SITE_PERL}/apparmor-modes/${apparmor_managed_modes_module}" \
         0644
     done
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_APPARMOR_MODES_SERVICE)" "__INSTALLER_PATH_DIR_ETC__/systemd/system/apparmor-modes.service" 0644
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_LABWC_APPARMOR_POLICY_INSTANCE_SERVICE)" "__INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-apparmor-policy@.service" 0644
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_LABWC_APPARMOR_BOOT_RECOVER_SERVICE)" "__INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-apparmor-boot-recover.service" 0644
+    stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/apparmor-modes.service)" "__INSTALLER_PATH_DIR_ETC__/systemd/system/apparmor-modes.service" 0644
+    stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/labwc-apparmor-policy@.service)" "__INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-apparmor-policy@.service" 0644
+    stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/labwc-apparmor-boot-recover.service)" "__INSTALLER_PATH_DIR_ETC__/systemd/system/labwc-apparmor-boot-recover.service" 0644
     stage_target_desktop_apparmor_profiles
     run_in_target \
       "apply managed AppArmor profile modes without touching the installer kernel" \
@@ -1939,11 +1939,11 @@ configure_target_apparmor_auditd() {
       --no-reload
     stage_target_systemd_unit_enabled apparmor-modes.service system
   fi
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_15_AUDIT)" "__INSTALLER_PATH_DIR_ETC__/rsyslog.d/15-audit.conf" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_99_DISCARD)" "__INSTALLER_PATH_DIR_ETC__/rsyslog.d/99-discard.conf" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LOGROTATE)" "__INSTALLER_PATH_DIR_ETC__/logrotate.conf" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_AUDIT)" "__INSTALLER_PATH_DIR_ETC__/logrotate.d/audit" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_LOGROTATE_TIMER_D_OVERRIDE_TMPL)" "__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LOGROTATE_TIMER_DROPIN__/override.conf" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/rsyslog.d/15-audit.conf)" "__INSTALLER_PATH_DIR_ETC__/rsyslog.d/15-audit.conf" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/rsyslog.d/99-discard.conf)" "__INSTALLER_PATH_DIR_ETC__/rsyslog.d/99-discard.conf" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/logrotate.conf)" "__INSTALLER_PATH_DIR_ETC__/logrotate.conf" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/logrotate.d/audit)" "__INSTALLER_PATH_DIR_ETC__/logrotate.d/audit" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/logrotate.timer.d/override.conf.tmpl)" "__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LOGROTATE_TIMER_DROPIN__/override.conf" 0644
   stage_target_systemd_unit_enabled apparmor.service system
   security_mask_target_systemd_unit_if_available systemd-journald-audit.socket system
   stage_target_systemd_unit_enabled auditd.service system

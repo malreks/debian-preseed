@@ -13233,8 +13233,7 @@
       "consumer": {
         "module": "hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl",
         "source_members": [
-          "hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl",
-          "scripts/desktop/components/rendering-access.sh"
+          "hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -13253,7 +13252,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "target-asset"
       ],
       "syntax": "exactly-one-whole-line-block; consumer validates generated records",
@@ -17215,8 +17213,7 @@
       "consumer": {
         "module": "hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl",
         "source_members": [
-          "hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl",
-          "scripts/desktop/components/rendering-access.sh"
+          "hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -17235,7 +17232,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "target-asset"
       ],
       "syntax": "exactly-one-whole-line-block; consumer validates generated records",
@@ -17245,8 +17241,7 @@
       "consumer": {
         "module": "hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl",
         "source_members": [
-          "hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl",
-          "scripts/desktop/components/rendering-access.sh"
+          "hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -17265,7 +17260,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "desktop-late",
         "target-asset"
       ],
       "syntax": "exactly-one-whole-line-block; consumer validates generated records",
@@ -25316,7 +25310,7 @@
           "hooks/target/etc/apparmor.d/common/abstractions/hardware-tuning-intel",
           "hooks/target/etc/apparmor.d/common/abstractions/hardware-tuning-nvidia",
           "hooks/target/etc/apparmor.d/common/hardware-tuning",
-          "hooks/target/usr/local/bin/desktop/labwc-hardware-tuning",
+          "hooks/target/usr/local/bin/common/labwc-hardware-tuning",
           "hooks/target/usr/local/libexec/common/hardware-tuning-policy",
           "hooks/target/usr/local/libexec/common/hardware-tuning-power-profiles",
           "hooks/target/usr/local/libexec/common/hardware-tuning-worker",
@@ -26320,6 +26314,7 @@
           "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor.pm.tmpl",
           "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/AppArmor/RuleGenerator.pm.tmpl",
           "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/Command.pm",
+          "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/ScannerLog.pm.tmpl",
           "hooks/target/usr/local/libexec/common/apparmor-modes-run",
           "hooks/target/usr/local/libexec/common/filen-sync",
           "hooks/target/usr/local/libexec/common/grub-btrfs-refresh",
@@ -33044,6 +33039,7 @@
           "hooks/target/usr/local/bin/common/gitbuild",
           "hooks/target/usr/local/bin/common/gitops",
           "hooks/target/usr/local/bin/common/key-manager",
+          "hooks/target/usr/local/bin/common/labwc-hardware-tuning",
           "hooks/target/usr/local/bin/common/network-sharing",
           "hooks/target/usr/local/bin/common/telbot",
           "hooks/target/usr/local/bin/common/xssh-retrieve",
@@ -33078,7 +33074,6 @@
           "hooks/target/usr/local/bin/desktop/labwc-greeter-output",
           "hooks/target/usr/local/bin/desktop/labwc-greeter-power",
           "hooks/target/usr/local/bin/desktop/labwc-greeter-session.tmpl",
-          "hooks/target/usr/local/bin/desktop/labwc-hardware-tuning",
           "hooks/target/usr/local/bin/desktop/labwc-health-notify.tmpl",
           "hooks/target/usr/local/bin/desktop/labwc-help",
           "hooks/target/usr/local/bin/desktop/labwc-idle-toggle",
@@ -108662,7 +108657,6 @@
           "hooks/target/usr/local/libexec/desktop/rsyslog-app-run.tmpl",
           "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
           "hooks/target/usr/local/sbin/desktop/app-veth",
-          "repo.env",
           "scripts/desktop/appearance-setup.py",
           "scripts/desktop/appearance_setup/theme_archive.py",
           "scripts/desktop/appearance_setup/theme_assets.py",
@@ -108697,7 +108691,6 @@
       "source_family": [
         "desktop-late",
         "late-command",
-        "shared-bootstrap",
         "target-asset"
       ],
       "syntax": "Python constructor protocol",
@@ -108742,6 +108735,7 @@
           "hooks/target/usr/local/bin/common/gitbuild",
           "hooks/target/usr/local/bin/common/gitops",
           "hooks/target/usr/local/bin/common/key-manager",
+          "hooks/target/usr/local/bin/common/labwc-hardware-tuning",
           "hooks/target/usr/local/bin/common/network-sharing",
           "hooks/target/usr/local/bin/common/telbot",
           "hooks/target/usr/local/bin/desktop/browser-devtools",
@@ -108754,7 +108748,6 @@
           "hooks/target/usr/local/bin/desktop/labwc-focuswriter-import",
           "hooks/target/usr/local/bin/desktop/labwc-freerdp-askpass",
           "hooks/target/usr/local/bin/desktop/labwc-fuzzel.tmpl",
-          "hooks/target/usr/local/bin/desktop/labwc-hardware-tuning",
           "hooks/target/usr/local/bin/desktop/labwc-help",
           "hooks/target/usr/local/bin/desktop/labwc-idle-toggle",
           "hooks/target/usr/local/bin/desktop/labwc-main-menu.tmpl",
@@ -108930,6 +108923,7 @@
           "hooks/target/usr/local/bin/common/gitbuild",
           "hooks/target/usr/local/bin/common/gitops",
           "hooks/target/usr/local/bin/common/key-manager",
+          "hooks/target/usr/local/bin/common/labwc-hardware-tuning",
           "hooks/target/usr/local/bin/common/network-sharing",
           "hooks/target/usr/local/bin/common/telbot",
           "hooks/target/usr/local/bin/desktop/browser-devtools",
@@ -108942,7 +108936,6 @@
           "hooks/target/usr/local/bin/desktop/labwc-focuswriter-import",
           "hooks/target/usr/local/bin/desktop/labwc-freerdp-askpass",
           "hooks/target/usr/local/bin/desktop/labwc-fuzzel.tmpl",
-          "hooks/target/usr/local/bin/desktop/labwc-hardware-tuning",
           "hooks/target/usr/local/bin/desktop/labwc-help",
           "hooks/target/usr/local/bin/desktop/labwc-idle-toggle",
           "hooks/target/usr/local/bin/desktop/labwc-main-menu.tmpl",
@@ -109200,7 +109193,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "82ccd59731fe3414c40f72070a88e4ac40e64be8d8fb1283afbe476100b76fdb",
+  "source_fingerprint": "648b34f8810c075c15e560dd432d26728f423de3f2c4ff07f2c9dcd31ae1f412",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

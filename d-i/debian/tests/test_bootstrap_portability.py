@@ -131,11 +131,12 @@ class TimeoutPortabilityTests(unittest.TestCase):
             self.assertEqual(destination.read_bytes(), (FORKY / 'preseed.cfg').read_bytes())
         self.assertGreater(sum(denied.counts.values()), 0)
 
-    def test_transport_delegates_redirect_and_certificate_behavior_to_wget(self):
+    def test_transport_preserves_wget_certificate_verification(self):
         source = (FORKY / 'scripts/common/source.sh').read_text()
         self.assertNotIn('source_validate_url', source)
         self.assertNotIn('--max-redirect=0', source)
-        self.assertIn('--no-check-certificate', source)
+        self.assertNotIn('--no-check-certificate', source)
+        self.assertIn('certificate verification', source)
 
     @skip_unless_loopback_inet
     def test_seed_discovery_cross_authority_loop_is_bounded_by_wget(self):
@@ -211,13 +212,14 @@ installer_run_bounded 001 /bin/sh -c 'sleep 30'
         bin_dir = self.root / 'bin'
         bin_dir.mkdir()
         script = bin_dir / 'wget'
-        script.write_text('#!/bin/sh\necho attempted >>"$ATTEMPTS"\necho download-error >&2\nexit 6\n')
+        script.write_text('#!/bin/sh\nif [ "${1-}" = --help ]; then exit 0; fi\n'
+                          'echo attempted >>"$ATTEMPTS"\necho download-error >&2\nexit 6\n')
         script.chmod(0o755)
         for name, shell in SHELLS:
             dest = self.root / ('seed.document-' + name)
             attempts = self.root / ('attempts-' + name)
             dest.write_text('keep existing document')
-            result = self.run_shell(shell, f'source_http_get https://example.invalid/seed {Q(str(dest))}',
+            result = self.run_shell(shell, f'source_http_get http://example.invalid/seed {Q(str(dest))}',
                 env={'PATH': str(bin_dir) + ':' + os.environ['PATH'], 'ATTEMPTS': str(attempts)})
             self.assertEqual(result.returncode, 6, result.stderr)
             self.assertEqual(attempts.read_text().splitlines(), ['attempted'])

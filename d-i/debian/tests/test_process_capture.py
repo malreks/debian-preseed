@@ -26,7 +26,9 @@ import unittest
 
 FORKY = Path(__file__).resolve().parents[1]
 os.environ["INSTALLER_SOURCE_LIBRARY"] = str(FORKY / "scripts/common/source.sh")
-LIB = FORKY / "hooks/target/usr/local/lib/perl5/site_perl/runtime"
+COMMON_LIB = FORKY / "hooks/target/usr/local/lib/common/perl5/site_perl"
+DESKTOP_LIB = FORKY / "hooks/target/usr/local/lib/desktop/perl5/site_perl"
+LIB = COMMON_LIB / "runtime"
 RUNNER = r'''
 use Managed::Process qw(capture_command);
 use JSON::PP qw(encode_json);
@@ -40,7 +42,7 @@ print encode_json($result);
 
 class ProcessCaptureTests(unittest.TestCase):
     def test_adb_file_runner_bounds_an_unresponsive_timeout_delegate(self) -> None:
-        libraries = FORKY / 'hooks/target/usr/local/lib/perl5/site_perl'
+        libraries = DESKTOP_LIB
         with tempfile.TemporaryDirectory(prefix='adb-deadline-') as directory:
             root = Path(directory)
             delegate = root / 'timeout'
@@ -92,19 +94,37 @@ print $command->run_to_file_signal('TERM', 1, 1, $ARGV[1], $ARGV[2], '/bin/true'
                                env=environment, capture_output=True, timeout=5)
         if probe.returncode:
             self.skipTest('packaged Perl adapter dependencies unavailable')
-        libraries = FORKY / 'hooks/target/usr/local/lib/perl5/site_perl'
+        libraries = DESKTOP_LIB
         code = r'''
+use Managed::Process qw(status_from_wait);
 use AndroidADB::Command;
 use LabwcSecurityAction::Command;
 use LabwcNetworkControlAction::Command;
 use LabwcNetworkScanAction::Command;
 use TimeshiftManaged::Command;
-for my $raw (0, 17 << 8, 9, 124 << 8, -1) {
-    print AndroidADB::Command::_normalize_status($raw), ',',
-          LabwcSecurityAction::Command::_status($raw), ',',
-          LabwcNetworkControlAction::Command::_status($raw), ',',
-          LabwcNetworkScanAction::Command::_status($raw), ',',
-          TimeshiftManaged::Command::status_from_wait($raw), "\n";
+my $adb = AndroidADB::Command->new(config => bless({}, 'FixtureConfig'));
+for my $raw (0, 17 << 8, 9, 9 | 128, 124 << 8, -1, undef) {
+    # Exercise the real adapters, not copies of their status conversion.
+    # Every call receives fresh capture state so no adapter can decode twice.
+    my $capture = sub { {status => $raw, stdout => 'out', stderr => 'err', error => ''} };
+    no warnings 'redefine';
+    local *Managed::Process::capture_command = $capture;
+    local *LabwcSecurityAction::Command::capture_command = $capture;
+    local *LabwcNetworkControlAction::Command::capture_command = $capture;
+    local *LabwcNetworkScanAction::Command::capture_command = $capture;
+    local *TimeshiftManaged::Command::capture_command = $capture;
+    my $android = $adb->_capture('/fixture/timeout', '-s', '--kill-after=1s', '1s', '/fixture/command');
+    my @security = LabwcSecurityAction::Command->new->capture(argv => ['/fixture/command']);
+    my @network = LabwcNetworkControlAction::Command->new->capture(argv => ['/fixture/command']);
+    my @scan = LabwcNetworkScanAction::Command->new->capture(argv => ['/fixture/command']);
+    my @timeshift = TimeshiftManaged::Command->new->capture(argv => ['/fixture/command']);
+    die "adapter output contract changed\n" unless @security == 3 && @network == 2
+        && @scan == 2 && @timeshift == 2 && $android->{stdout} eq 'out'
+        && $android->{stderr} eq 'err' && $security[2] eq 'err'
+        && !grep { $_ ne 'out' } ($security[1], $network[1], $scan[1], $timeshift[1]);
+    print join(',', status_from_wait($raw), $android->{status}, $security[0],
+        $network[0], $scan[0], $timeshift[0],
+        TimeshiftManaged::Command::status_from_wait($raw)), "\n";
 }
 '''
         decoded = subprocess.run(['/usr/bin/perl', '-I' + str(LIB),
@@ -112,10 +132,11 @@ for my $raw (0, 17 << 8, 9, 124 << 8, -1) {
                                   '-I' + str(libraries / 'labwc-security-action'),
                                   '-I' + str(libraries / 'labwc-network-control-action'),
                                   '-I' + str(libraries / 'labwc-network-scan-action'),
-                                  '-I' + str(libraries / 'timeshift'), '-e', code],
+                                  '-I' + str(COMMON_LIB / 'timeshift'), '-e', code],
                                  env=environment, capture_output=True, text=True, timeout=5)
         self.assertEqual(decoded.returncode, 0, decoded.stderr)
-        self.assertEqual(decoded.stdout.splitlines(), [','.join([str(value)] * 5) for value in (0, 17, 137, 124, 255)])
+        self.assertEqual(decoded.stdout.splitlines(),
+                         [','.join([str(value)] * 7) for value in (0, 17, 137, 137, 124, 255, 255)])
 
     def test_whisper_preserves_raw_status_and_zram_decodes_once(self) -> None:
         environment = {'PATH': '/usr/bin:/bin', 'HOME': '/nonexistent', 'LC_ALL': 'C'}
@@ -124,7 +145,7 @@ for my $raw (0, 17 << 8, 9, 124 << 8, -1) {
                                env=environment, capture_output=True, timeout=5)
         if probe.returncode:
             self.skipTest('packaged Perl adapter dependencies unavailable')
-        libraries = FORKY / 'hooks/target/usr/local/lib/perl5/site_perl'
+        libraries = COMMON_LIB
         code = r'''
 BEGIN {
     $INC{'Zram/Config.pm'} = 1;

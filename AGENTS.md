@@ -197,41 +197,42 @@ it was not run. Report any interrupted validation and stale generated artifacts.
 
 ## Runtime and authority contracts
 
-### Environment-variable ownership and hard-coded-path rules
+### Configuration ownership and stable local interfaces
 
-Do not add hard-coded project, checkout, installer, target, or generated-state
-paths to source, documentation, templates, or profile data. A literal is
-allowed only when an immutable Debian/FHS, package, interpreter, AppArmor, or
-systemd interface requires that exact spelling; keep the reason beside the
-consumer. Otherwise use the owning environment contract and its selector or
-renderer.
+Keep genuinely variable configuration in its owning contract. Documented local
+constants and root-relative literal leaves are appropriate for stable internal
+filenames and interfaces with no supported variability. Do not create a global
+variable for every physical member. Local constants must not duplicate shared
+roots, embed a developer-machine path, replace supported suite/profile/site
+selection or expose secrets.
 
-- `d-i/debian/repo.env` owns repository-relative `DIR_*` and `FILE_*` selectors
-  only. Keep assignments parent-first, derive children from the nearest
-  selector, and resolve them through the cached bootstrap helpers
-  (`installer_repo_join_var`, `bootstrap_repo_join_var`, or the entrypoint
-  equivalent). Never source this file on the installed target or copy its
-  selectors into target runtime configuration.
+- `d-i/debian/repo.env` owns repository defaults and shared repository-relative
+  `DIR_*` roots. It is a small restricted data contract, with parent-derived
+  roots and no `FILE_*` inventory. Preseed, bootstrap and common adapters use
+  the single `source_load_repo_env` parser. Never dot-source or `eval` this
+  configuration, copy its roots into target settings, or load it on the target.
 - `d-i/debian/hosts/installer/runtime.env` owns installed-system target paths,
-  target state, and target policy values. Keep its hierarchy parent-first and
-  publish concrete rendered values; target programs must not source this file
-  at runtime and installer-only paths must not be added to it.
-- `d-i/debian/hooks/installer/di.env` owns d-i-only destinations and state:
-  the mounted target, temporary/runtime directories, phase hooks, partman
-  interfaces, and installer logs. It must not become an installed target
-  environment or be used as a repository selector source.
+  target state and target policy values. Keep its hierarchy parent-first and
+  publish concrete rendered values. Target programs must not source this file
+  at runtime, and installer-only paths must not be added to it.
+- `d-i/debian/hooks/installer/di.env` owns d-i-only destinations and state: the
+  mounted target, temporary/runtime directories, phase hooks, partman interfaces
+  and installer logs. It must not become an installed target environment or a
+  repository source-member catalog.
 - Target source assets may carry `__INSTALLER_PATH_*__` placeholders. Render
   them once at the shared publication boundary from the validated target
   contract, reject unresolved tokens, and do not add ad-hoc substitutions.
 - `hosts/profiles/` owns validated policy and configuration data, including
-  profile overrides; it does not own repository selectors or target/installer
-  roots. `hosts/themes/` owns appearance data and marker values; it follows
-  the same placeholder renderer and must not restore literal project paths.
+  profile overrides. `hosts/themes/` owns appearance data and marker values.
+  Neither owns repository, target or installer roots. Stable relative members
+  in their catalogs are data interfaces; target paths still use the shared
+  contract and placeholder renderer.
 
-When changing an environment variable or moving a path, search every producer,
-consumer, renderer, hook, generated product, payload member, and diagnostic
-source label before publication. Keep operation contexts and error source
-labels selector-resolved so d-i failures identify the actual checkout file.
+When changing configuration or moving a path, search every producer, consumer,
+renderer, hook, generated product, payload member and diagnostic source label.
+Keep source labels tied to the resolved physical root-relative member so d-i
+failures identify the actual file. Preserve credentials in the dedicated
+protected input channel; configuration and generated indexes are public data.
 
 ### Canonical runtime-path contract
 
@@ -239,7 +240,7 @@ labels selector-resolved so d-i failures identify the actual checkout file.
 for installed-system target paths. Keep its assignments in parent-first order
 and derive every child from the nearest canonical parent. Do not add aliases
 that repeat the same path or introduce a second owner for a root. Repository
-checkout selectors belong in `d-i/debian/repo.env`; installer-only destination
+defaults and shared roots belong in `d-i/debian/repo.env`; installer-only destination
 and state paths belong in `d-i/debian/hooks/installer/di.env`.
 
 The target hierarchy is fixed. The standard system roots include `/etc`, `/bin`,
@@ -257,7 +258,7 @@ these parents.
 The installed-system contract owns target paths and state. The installer
 contract owns the mounted target, temporary working areas, installer hook
 directories, partman interfaces, and the installer log. The repository
-contract owns checkout-relative selectors. Keep those contracts in their
+contract owns repository defaults and shared checkout-relative roots. Keep those contracts in their
 respective files; never publish installer-only state into the installed
 system, duplicate a root, or introduce an alias whose value is only another
 alias. After entering the target, use target-relative values directly and do
@@ -266,9 +267,9 @@ not prepend the mount point a second time.
 Name concrete files, fixed executable paths, and process search paths according
 to the consumer's explicit interface. Do not add process-search aliases that
 merely repeat another runtime value; derive a search path in the consuming
-script or wrapper. A helper may retain an immutable Debian/FHS literal only
-when its interpreter, package interface, AppArmor attachment, or systemd
-manager requires that exact spelling; document the reason beside the consumer.
+script or wrapper. Stable internal leaves and exact Debian/FHS, interpreter, package, AppArmor
+or systemd interfaces may be local constants; document the interface beside
+the consumer and keep configurable/shared roots in their canonical contract.
 
 When adding or moving a path, search every shell, Dash, Perl, Python, systemd,
 AppArmor, Waybar/Labwc, preseed, late-command, target-hook, generated asset,
@@ -291,14 +292,12 @@ must contain a concrete target path and must never depend on the runtime
 environment file.
 Do not perform ad-hoc substitutions in individual callers or create a second
 path renderer. The AppArmor metadata file contains profile metadata only and
-does not redefine filesystem roots. The repository file owns repository-
-relative source selectors, while the installer file owns installer-only
-destinations and state. Neither is the installed target filesystem contract.
-Repository selectors must follow the hierarchy in the repository file: target
-asset groups and script groups derive from their nearest parent, including
-component, firstboot, late, and language-specific subtrees. A repository
-selector for a target-side Python tree remains a source selector and is never
-an installed target path. Never replace a target asset's placeholder with a
+does not redefine filesystem roots. The repository file owns shared repository-relative roots and defaults,
+while the installer file owns installer-only destinations and state. Neither is the installed target filesystem contract.
+Shared repository roots follow their parent hierarchy; fixed source files
+remain root-relative interfaces at their callers. A repository root for a
+target-side Python tree remains an acquisition path and is never an installed
+target path. Never replace a target asset's placeholder with a
 literal merely to satisfy a source-level check; render or compare the
 placeholder through the shared renderer instead.
 
@@ -535,30 +534,37 @@ AppArmor transition, allow-list, renderer, target asset, verification path, and
 generated payload; do not move files solely to make the directory layout look
 more conventional.
 
-## Source selector naming and staging
+## Repository configuration and source staging
 
-- Every published source directory and file has a `DIR_*` or `FILE_*` entry
-  in `repo.env`. Use concise role/component names such as
-  `DIR_TARGET_SKEL_PROFILE`, `FILE_TARGET_SKEL_DIRCOLORS`,
-  `FILE_TARGET_SKEL_PROFILE_71_DEVOPS_DE`, and `FILE_LATE_CORE`; do not encode
-  the entire filesystem hierarchy or duplicate extensions in a selector name.
-- File entries name physical payload members, including `.tmpl` when present,
-  and derive from their nearest directory selector. Fixed installer callers
-  resolve `FILE_*` through `installer_repo_file_value`,
-  `bootstrap_repo_file_value`, or the preseed entrypoint equivalent. Dynamic
-  source choices use `installer_repo_asset_path` and the cached FILE catalog;
-  directory operations use DIR selectors. Do not reconstruct a fixed source
-  filename or a static directory prefix at a staging call site.
-- Repository selectors remain installer acquisition data. Installed paths and
-  target policy stay in `hosts/installer/runtime.env`; d-i destinations and
-  state stay in `hooks/installer/di.env`. Profiles and themes retain their
-  policy/appearance ownership. Installed programs must not source any of these
-  installer input files or receive repository selectors as runtime settings.
-- Keep FILE and DIR diagnostic interfaces distinct: FILE context calls pass
-  selector, source line, and operation; DIR context calls additionally pass a
-  relative leaf. Diagnostic lookup is advisory and must never trigger a fetch,
-  fail a valid operation, or report a line belonging to a different source.
-- A selector change requires an audit of fixed and dynamic callers, source
-  labels, loader/template suffix handling, fixtures, and generated products.
-  Preserve Dash/BusyBox compatibility; do not add `stat`, Bash features,
-  environment-size limits, or a second path renderer to the installer.
+- `repo.env` contains the supported repository defaults and genuinely shared
+  `DIR_*` roots. It is restricted assignment data, not shell code. Keep shared
+  roots parent-derived; do not restore a `FILE_*` inventory, aliases for every
+  file, or a second configuration authority.
+- Stable source members are documented root-relative interfaces at their
+  callers, including the physical `.tmpl` suffix where present. Local constants
+  and literal leaves are allowed when that interface has no supported
+  variability. Keep suite/profile/site choices, configurable roots and policy
+  in their owning contracts; never substitute a developer-machine path or
+  duplicate a shared root.
+- Preseed, bootstrap and common adapters share `source_load_repo_env`. Its
+  restricted AWK parser rejects executable syntax, unknown/duplicate/missing
+  keys, undefined parents and unsafe relative paths. Never dot-source or
+  `eval` repository configuration, and never load it on the installed target.
+- Build validates supported configuration and physical source members, and
+  compiles `catalog/compiled/source-members.tsv` from the captured snapshot.
+  Selected APT publication uses the smaller `apt-assets.tsv` table. Those
+  generated indexes carry membership data; they are not exported environment
+  variables or an alternative authored path contract.
+- Resolve dynamic members against the captured membership table at the owning
+  loader/publication boundary. Retain containment, direct-file, template,
+  ownership and permission checks there. Diagnostics name the resolved physical
+  root-relative member and source line, remain advisory, and never trigger a
+  fetch or change a successful operation into a failure.
+- Installed paths and policy remain in `hosts/installer/runtime.env`; d-i-only
+  destinations and state remain in `hooks/installer/di.env`. Profiles and themes
+  retain policy/appearance ownership. Installed programs receive concrete
+  rendered configuration and must not source these installer input files.
+- A configuration or member change requires a consumer, diagnostic, fixture and
+  generated-product audit. Preserve Dash/BusyBox compatibility, phase and
+  target-root boundaries, and the single target-placeholder renderer. Do not
+  add a large exported environment or an installer `stat` dependency.

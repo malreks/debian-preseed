@@ -141,7 +141,7 @@ desktop_install_android_platform_tools() {
 
   platform_tools_extract_helper="${platform_tools_work_dir}/extract-platform-tools.py"
   stage_target_asset \
-    "$(installer_repo_file_value FILE_DESKTOP_ANDROID_PLATFORM_TOOLS_EXTRACT)" \
+    "$(installer_repo_file_value scripts/desktop/android-platform-tools-extract.py)" \
     "$platform_tools_extract_helper" 0700
   if ! attempt_in_target "validate and extract Google Android SDK Platform-Tools within limits" \
     __INSTALLER_PATH_DIR_USR_BIN__/env -i HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ LC_ALL=C PATH=__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__ \

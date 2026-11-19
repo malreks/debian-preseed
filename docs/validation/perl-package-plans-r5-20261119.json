@@ -1,0 +1,637 @@
+{
+  "archive_sha256": "91735463de4fb13a58f56f4c371e745ea20927d2217e170b937253c93e4423b9",
+  "compiled_plan_count": 22,
+  "compiled_plans": [
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "desktop",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/desktop/base/amd64.json",
+      "profile": "desktop/btrfs-de",
+      "roles": [
+        "desktop/base"
+      ],
+      "sha256": "35a888a6e55d2dd9591a37771d2161f053d305ba87754544263520720279b4d5",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "desktop",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/desktop/full/amd64.json",
+      "profile": "desktop/btrfs-de",
+      "roles": [
+        "desktop/full"
+      ],
+      "sha256": "cedd4204a93b86ed21c871db424f3e2ae9b7153026b6a21bccffc34246e1f7a3",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "desktop",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/desktop/medium/amd64.json",
+      "profile": "desktop/btrfs-de",
+      "roles": [
+        "desktop/medium"
+      ],
+      "sha256": "4e20eecfae75c6f8499332056c9a5c52d8e31de3f1a356b873cc4f37cf2181b7",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/server/devops+github-actions+gitlab-cicd/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/devops",
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "sha256": "3c1d0e78ed321b40b7ee5a2a1e4b34e737ef2a5434dfaac7d3412c4e19d921c5",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/server/devops+github-actions/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/devops",
+        "server/github-actions"
+      ],
+      "sha256": "f9c63df1e5299485e720c911b9566d6b5d7e135bd1012e4a610369c9863d6901",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/server/devops+gitlab-cicd/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/devops",
+        "server/gitlab-cicd"
+      ],
+      "sha256": "67ea3d697180c66ae33bc1731a0575908c88909fe94cb0c8411b2627204d0010",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/server/devops/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/devops"
+      ],
+      "sha256": "13b93e979e0753ce6b11b4a2fafdfbb31caaff0c3b2e84c22bf616fadf25e1b5",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/server/github-actions+gitlab-cicd/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "sha256": "b4562c271fcdc779044260212b71e42d4e015a9ec2a8fd63360b293080195ceb",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/server/github-actions/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/github-actions"
+      ],
+      "sha256": "71ec4844b90918aad0c0b1e3a1e360f8d89fad80bf55d980ebd8cc50fd564fc5",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/server/gitlab-cicd/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/gitlab-cicd"
+      ],
+      "sha256": "6073be7d180e1d5ea7b6c3cc193657590826bed0f72218676fb69583798cc742",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/forky/fragments/apt.cfg",
+      "base_owner_hash": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/forky/plans/server/technitium/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/technitium"
+      ],
+      "sha256": "d94072aea702a358ac83fbfb23e658b4dce3457f0c0b6bb6439326e104c87771",
+      "suite": "forky"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "desktop",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/desktop/base/amd64.json",
+      "profile": "desktop/btrfs-de",
+      "roles": [
+        "desktop/base"
+      ],
+      "sha256": "26498d302b61bb13678698be806cca9b56577b066bea77701e20401bbf70bd6b",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "desktop",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/desktop/full/amd64.json",
+      "profile": "desktop/btrfs-de",
+      "roles": [
+        "desktop/full"
+      ],
+      "sha256": "5219ae5b41c769356cc750b35004d4dfaee1939cc7180e20e391b42dbf545549",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "desktop",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/desktop/medium/amd64.json",
+      "profile": "desktop/btrfs-de",
+      "roles": [
+        "desktop/medium"
+      ],
+      "sha256": "65274ec66d738b81608e47ca0b7da7c0fc9fa460446e140916006e12749d1d8d",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/server/devops+github-actions+gitlab-cicd/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/devops",
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "sha256": "c6543f41f7ab325723d70bbb91f2eb241ee94f3fe5bea2a1e0997a29cec1c30d",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/server/devops+github-actions/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/devops",
+        "server/github-actions"
+      ],
+      "sha256": "42bdb712ca14258a1b3a6e274a4a532b8740729cea707e7859aa9c25ff64c913",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/server/devops+gitlab-cicd/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/devops",
+        "server/gitlab-cicd"
+      ],
+      "sha256": "8c93a49661c9847b1e746f7116875fb7ca37ad60156c9083212c65fae7bc4999",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/server/devops/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/devops"
+      ],
+      "sha256": "f050ea900b0e3a95c510dde09ab4d6e14ec937c5cd156be2d6cd17ab571f6879",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/server/github-actions+gitlab-cicd/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/github-actions",
+        "server/gitlab-cicd"
+      ],
+      "sha256": "d2db2b5822ad21e35fb829db8f4a9a4d3ebb5d8d6434eddc0d6e286b186b20c7",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/server/github-actions/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/github-actions"
+      ],
+      "sha256": "f13834dc81ccf17ba21232afed5559ecb3c4fcf851d5334c597983b9111322b4",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/server/gitlab-cicd/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/gitlab-cicd"
+      ],
+      "sha256": "aedbe0954641b38bcd53a264d58522307a45429e7fa3bb959989316d9a4c2b61",
+      "suite": "trixie"
+    },
+    {
+      "base_owner": "frontends/trixie/fragments/apt.cfg",
+      "base_owner_hash": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0",
+      "declared_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "family": "server",
+      "missing_direct_required": [],
+      "path": "catalog/compiled/trixie/plans/server/technitium/amd64.json",
+      "profile": "server/btrfs-srv-flex",
+      "roles": [
+        "server/technitium"
+      ],
+      "sha256": "36259c9a6df86d458db3d5a347af18e4be2ae0b2bddf6f644f60115dc0dc35b0",
+      "suite": "trixie"
+    }
+  ],
+  "date": "2026-11-19",
+  "final_archive_data_review": "PASS; all required provider declarations present once in every captured plan; all 22 plan bytes unchanged from the preceding archive",
+  "inspection": "Current exact-byte equality of both package owners and all22 compiled plans; provider mapping is retained prior source evidence, not package installation or native dependency validation.",
+  "manifest_sha256": "7f8b701a7533f04fa07a46601faf4f5b1ef9c55d3c8f4900a07762728a8baf7a",
+  "module_execution": false,
+  "module_provider_packages": {
+    "Moo": "libmoo-perl",
+    "MooX::HandlesVia": "libmoox-handlesvia-perl",
+    "MooX::Options": "libmoox-options-perl",
+    "MooX::StrictConstructor": "libmoox-strictconstructor-perl",
+    "MooX::TypeTiny": "libmoox-typetiny-perl",
+    "MooX::Types::MooseLike::Base": "libmoox-types-mooselike-perl",
+    "MooX::Types::MooseLike::Numeric": "libmoox-types-mooselike-numeric-perl",
+    "Path::Tiny": "libpath-tiny-perl",
+    "Types::Path::Tiny": "libtypes-path-tiny-perl",
+    "Types::Standard": "libtype-tiny-perl",
+    "XML::LibXML": "libxml-libxml-perl"
+  },
+  "native_dependency_installation": false,
+  "owners": [
+    {
+      "direct_missing": [
+        "libpath-tiny-perl"
+      ],
+      "explicit_noncore_provider_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "line": 119,
+      "path": "d-i/forky/fragments/apt.cfg",
+      "sha256": "d991c765d4b2d5495afd95a3376de42929b6d59d0157664613aa1238d57a9483"
+    },
+    {
+      "direct_missing": [
+        "libpath-tiny-perl"
+      ],
+      "explicit_noncore_provider_packages": [
+        "libmoo-perl",
+        "libmoox-handlesvia-perl",
+        "libmoox-options-perl",
+        "libmoox-strictconstructor-perl",
+        "libmoox-types-mooselike-numeric-perl",
+        "libmoox-types-mooselike-perl",
+        "libmoox-typetiny-perl",
+        "libtype-tiny-perl",
+        "libtypes-path-tiny-perl",
+        "libxml-libxml-perl"
+      ],
+      "line": 107,
+      "path": "d-i/trixie/fragments/apt.cfg",
+      "sha256": "8ef2cb597e47e347459d65ec743af99fbf4e247ff992509d72b0b5cea356bcb0"
+    }
+  ],
+  "package_state_contacted": false,
+  "path_tiny": {
+    "declaration": "transitive required dependency of explicitly selected libtypes-path-tiny-perl",
+    "source": "https://sources.debian.org/src/libtypes-path-tiny-perl/0.006-2/debian/control",
+    "status": "not a missing runtime package declaration",
+    "suite_catalog": "https://sources.debian.org/src/libtypes-path-tiny-perl/"
+  },
+  "previous_archive_sha256": "82a73d838a165690f537d29a6b3170553f0a0cca2c3cb4d23ddc7acc71444141",
+  "release_id": "f3438948657b580ffdd65ce04c15707e81be6f77566fb4bcee2ed69a41fa39c8",
+  "source_inventory_sha256": "853428db179fe59f81eacdc1de4a95d2a96c3d71a16f1a2528a4bd9c3999dd15"
+}

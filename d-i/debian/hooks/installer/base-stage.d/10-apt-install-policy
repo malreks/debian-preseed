@@ -25,7 +25,7 @@ apt_install_policy_fatal() {
 [ -r "$COMMON_LIB" ] || apt_install_policy_fatal "installer common library is unavailable: ${COMMON_LIB}"
 # shellcheck disable=SC1090
 . "$COMMON_LIB" || apt_install_policy_fatal 'installer common library failed to load'
-installer_operation_context_repo FILE_INST_BASE_10_APT_INSTALL_POLICY 28 apt_install_policy
+installer_operation_context_repo hooks/installer/base-stage.d/10-apt-install-policy 28 apt_install_policy
 
 HOST_ENV="${DIR_INSTALLER_ENV}/host.env"
 [ -r "$HOST_ENV" ] || apt_install_policy_fatal "composed host environment is unavailable: ${HOST_ENV}"

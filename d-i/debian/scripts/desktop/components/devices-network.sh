@@ -42,11 +42,11 @@ esac
 ' sh "$ACCOUNT_USERNAME"
 
   desktop_stage_role_asset \
-    FILE_TARGET_UDEV_RULES_D_51_ANDROID_DEBUG_BRIDGE \
+    hooks/target/etc/udev/rules.d/51-android-debug-bridge.rules \
     __INSTALLER_PATH_DIR_ETC__/udev/rules.d/51-android-debug-bridge.rules \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_UDEV_RULES_D_52_SAMSUNG_DOWNLOAD_MODE \
+    hooks/target/etc/udev/rules.d/52-samsung-download-mode.rules \
     __INSTALLER_PATH_DIR_ETC__/udev/rules.d/52-samsung-download-mode.rules \
     0644
   desktop_log "configured Android Debug Bridge and Samsung Download Mode USB access user=${ACCOUNT_USERNAME} group=plugdev"
@@ -54,7 +54,7 @@ esac
 
 desktop_configure_fido2_security_key_access() {
   desktop_stage_role_asset \
-    FILE_TARGET_UDEV_RULES_D_53_LEDGER_WALLET \
+    hooks/target/etc/udev/rules.d/53-ledger-wallet.rules \
     __INSTALLER_PATH_DIR_ETC__/udev/rules.d/53-ledger-wallet.rules \
     0644
   desktop_log "configured Ledger Stax browser FIDO2 security-key access through active-seat udev ACLs"
@@ -195,6 +195,9 @@ desktop_assert_role_target_template_resolved() {
   target_path=$2
   source_path=$(installer_repo_asset_path DIR_HOOKS_TARGET "$role_relpath")
 
+  # Deferred desktop rendering queues the candidate. This installer-side
+  # inspection must validate the published bytes, including on a fresh target.
+  installer_asset_batch_flush || return $?
   desktop_assert_no_unresolved_template_placeholders "$(target_asset_host_path "$target_path")" "desktop template ${source_path}"
 }
 
@@ -289,23 +292,23 @@ command -v resolvectl >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
     installer_fatal "mullvad-vpn is selected but mullvad-daemon.service is unavailable in the target"
 
   desktop_stage_role_asset \
-    FILE_TARGET_UNIT_MULLVAD_DAEMON_SERVICE_D_20_DNS \
+    hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/20-dns.conf \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_MULLVAD_DAEMON_DROPIN__/20-dns.conf \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_UNIT_TAILSCALED_SERVICE_D_30_MULLVAD_EXCLUSION \
+    hooks/target/etc/systemd/desktop/system/tailscaled.service.d/30-mullvad-exclusion.conf \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_TAILSCALED_DROPIN__/30-mullvad-exclusion.conf \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_TMPFILES_D_51_MULLVAD_VERSION_CACHE \
+    hooks/target/etc/tmpfiles.d/desktop/51-mullvad-version-cache.conf \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/51-mullvad-version-cache.conf \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_TMPFILES_D_52_MULLVAD_TAILSCALE_COORDINATOR \
+    hooks/target/etc/tmpfiles.d/desktop/52-mullvad-tailscale-coordinator.conf \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/52-mullvad-tailscale-coordinator.conf \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_LIBEXEC_MULLVAD_TAILSCALE_COORDINATOR \
+    hooks/target/usr/local/libexec/desktop/mullvad-tailscale-coordinator \
     "${DIR_USR_LOCAL_LIBEXEC}/mullvad-tailscale-coordinator" \
     0755
   desktop_log \
@@ -316,19 +319,19 @@ desktop_stage_mullvad_application_policy() {
   desktop_mullvad_selected || return 0
 
   desktop_stage_role_asset \
-    FILE_TARGET_BIN_MULLVAD_VPN \
+    hooks/target/usr/local/bin/desktop/mullvad-vpn \
     __INSTALLER_PATH_DIR_USR_LOCAL__/bin/mullvad-vpn \
     0755
   desktop_stage_role_asset \
-    FILE_TARGET_LIBEXEC_MULLVAD_DAEMON_START \
+    hooks/target/usr/local/libexec/desktop/mullvad-daemon-start \
     "${DIR_USR_LOCAL_LIBEXEC}/mullvad-daemon-start" \
     0755
   desktop_stage_role_asset \
-    FILE_TARGET_APPS_MULLVAD_VPN_TMPL \
+    hooks/target/usr/local/share/desktop/applications/mullvad-vpn.desktop.tmpl \
     __INSTALLER_PATH_DIR_USR_LOCAL__/share/applications/mullvad-vpn.desktop \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_SKEL_AUTOSTART_MULLVAD_VPN_TMPL \
+    hooks/target/etc/skel-desktop/.config/autostart/mullvad-vpn.desktop.tmpl \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/autostart/mullvad-vpn.desktop \
     0644
   desktop_log \

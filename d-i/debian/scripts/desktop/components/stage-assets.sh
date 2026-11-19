@@ -1,32 +1,6 @@
 #!/bin/sh
 # Labwc target asset staging and service enablement helpers.
 
-desktop_normalize_system_perl_module_parents() {
-  module_path=$1
-  perl_root=${DIR_PERL5_SITE_PERL%/site_perl}
-  case "$module_path" in
-    "${DIR_PERL5_SITE_PERL}"/*) ;;
-    *) unset perl_root; return 0 ;;
-  esac
-
-  module_parent=$(dirname "$module_path")
-  while :; do
-    case "$module_parent" in
-      "${perl_root}"|"${DIR_PERL5_SITE_PERL}"/*) ;;
-      *) installer_fatal "system Perl module parent escaped the managed tree: ${module_parent}" ;;
-    esac
-    ensure_target_asset_parent "${module_parent}/.installer-module-parent"
-    module_parent_host=$(target_asset_host_path "$module_parent")
-    [ -d "$module_parent_host" ] && [ ! -L "$module_parent_host" ] ||
-      installer_fatal "system Perl module parent is unsafe: ${module_parent}"
-    chown root:root "$module_parent_host"
-    chmod 0755 "$module_parent_host"
-    [ "$module_parent" != "$perl_root" ] || break
-    module_parent=$(dirname "$module_parent")
-  done
-  unset perl_root
-}
-
 # A role's package records and stage declarations are the selection authority.
 # Shared libraries remain available, but a base desktop receives no specialist
 # entrypoint, shell activation or user service merely because it is in payload.
@@ -53,14 +27,9 @@ desktop_stage_role_asset() {
   target_path=$2
   mode=$3
   desktop_role_owns_target "$target_path" || return 0
-  source_path=$(installer_repo_asset_path DIR_HOOKS_TARGET "$role_relpath")
-  if bootstrap_prepared_asset_published "$source_path" "$target_path" "$mode"; then
-    return 0
-  fi
-
-  desktop_normalize_system_perl_module_parents "$target_path"
-  stage_target_asset "$source_path" "$target_path" "$mode"
-  desktop_log "staged_asset source=${source_path} target=${target_path} mode=${mode}"
+  # Root-relative members and role-relative leaves are resolved together from
+  # the prepared member index in the Perl batch, without a shell catalog scan.
+  stage_target_asset "$role_relpath" "$target_path" "$mode"
 }
 
 desktop_normalize_proxy3_directories() {
@@ -138,6 +107,23 @@ desktop_normalize_system_dbus_service_directories() {
   desktop_log "normalized_system_dbus_service_directories owner=root:root mode=0755"
 }
 
+desktop_stage_wallpaper_defaults() {
+  # The three selectors may intentionally share a source and destination.
+  # Collapse only identical pairs within this publication operation. Distinct
+  # sources or destinations retain their own staging and validation boundary.
+  desktop_stage_role_asset "${LABWC_WALLPAPER_DESKTOP_SWAYBG#"${DIR_HOOKS_TARGET}"/}" "$LABWC_WALLPAPER_PATH" 0644 || return $?
+  if [ "$LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK" != "$LABWC_WALLPAPER_DESKTOP_SWAYBG" ] ||
+     [ "$LABWC_LOCK_BACKGROUND_PATH" != "$LABWC_WALLPAPER_PATH" ]; then
+    desktop_stage_role_asset "${LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK#"${DIR_HOOKS_TARGET}"/}" "$LABWC_LOCK_BACKGROUND_PATH" 0644 || return $?
+  fi
+  if { [ "$LABWC_WALLPAPER_LOGIN_GTKGREET" != "$LABWC_WALLPAPER_DESKTOP_SWAYBG" ] ||
+       [ "$LABWC_GREETER_BACKGROUND_PATH" != "$LABWC_WALLPAPER_PATH" ]; } &&
+     { [ "$LABWC_WALLPAPER_LOGIN_GTKGREET" != "$LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK" ] ||
+       [ "$LABWC_GREETER_BACKGROUND_PATH" != "$LABWC_LOCK_BACKGROUND_PATH" ]; }; then
+    desktop_stage_role_asset "${LABWC_WALLPAPER_LOGIN_GTKGREET#"${DIR_HOOKS_TARGET}"/}" "$LABWC_GREETER_BACKGROUND_PATH" 0644 || return $?
+  fi
+}
+
 desktop_normalize_background_directories() {
   for background_directory in \
     __INSTALLER_PATH_DIR_USR_SHARE__/backgrounds \
@@ -184,7 +170,7 @@ desktop_reconcile_wtmpdb_common_session() {
 
   wtmpdb_rules_tmp=$(mktemp "${TMP_ENV_DIR}/pam-wtmpdb.XXXXXX") ||
     installer_fatal "cannot stage native wtmpdb policy fragment"
-  if ! fetch_hook "$(installer_repo_file_value FILE_DESKTOP_TMPL_PAM_WTMPDB_FRAGMENT)" "$wtmpdb_rules_tmp"; then
+  if ! fetch_hook "$(installer_repo_file_value scripts/desktop/templates/pam-wtmpdb.fragment)" "$wtmpdb_rules_tmp"; then
     rm -f -- "$wtmpdb_rules_tmp"
     installer_fatal "cannot fetch native wtmpdb policy fragment"
   fi
@@ -317,11 +303,11 @@ desktop_stage_ai_copilots_perl_modules() {
 
 desktop_stage_ai_copilots_catalogs() {
   desktop_stage_role_asset \
-    FILE_TARGET_SHARE_LABWC_AI_COPILOTS_LLAMA_MODELS \
+    hooks/target/usr/local/share/desktop/labwc-ai-copilots/llama-models.tsv \
     "${DIR_USR_LOCAL_SHARE}/labwc-ai-copilots/llama-models.tsv" \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_SHARE_LABWC_AI_COPILOTS_WHISPER_MODELS \
+    hooks/target/usr/local/share/desktop/labwc-ai-copilots/whisper-models.tsv \
     "${DIR_USR_LOCAL_SHARE}/labwc-ai-copilots/whisper-models.tsv" \
     0644
 }
@@ -383,7 +369,7 @@ EOF
 
 desktop_stage_labwc_network_control_action_perl_modules() {
   desktop_stage_role_asset \
-    FILE_TARGET_LIBEXEC_NETWORK_OPENVPN_IMPORT \
+    hooks/target/usr/local/libexec/common/network-openvpn-import \
     "__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/network-openvpn-import" \
     0755
   desktop_labwc_network_control_action_perl_modules |
@@ -417,7 +403,7 @@ desktop_stage_labwc_network_scan_action_perl_modules() {
 
 desktop_render_labwc_network_scan_action_perl_root_module() {
   desktop_render_role_target_template \
-    FILE_TARGET_PERL_LABWC_NETWORK_SCAN_ACTION_ROOT_TMPL \
+    hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-network-scan-action/LabwcNetworkScanAction/Root.pm.tmpl \
     "${DIR_PERL5_SITE_PERL}/labwc-network-scan-action/LabwcNetworkScanAction/Root.pm" \
     0644 \
     ACCOUNT_USERNAME "$ACCOUNT_USERNAME"

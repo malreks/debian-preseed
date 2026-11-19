@@ -196,7 +196,7 @@ hook_resolve_install_disk() {
   host_profile=$2
   if command -v installer_operation_context >/dev/null 2>&1; then
     if command -v installer_operation_context_repo >/dev/null 2>&1; then
-      installer_operation_context_repo FILE_COMMON_HOOK 194 hook_resolve_install_disk
+      installer_operation_context_repo scripts/common/hook.sh 194 hook_resolve_install_disk
     else
       installer_operation_context unknown 194 hook_resolve_install_disk
     fi
@@ -223,7 +223,7 @@ hook_resolve_install_disk() {
   export DEV_INSTALL_DISK
   if command -v installer_operation_context >/dev/null 2>&1; then
     if command -v installer_operation_context_repo >/dev/null 2>&1; then
-      installer_operation_context_repo FILE_COMMON_HOOK 231 detect_disk_identity
+      installer_operation_context_repo scripts/common/hook.sh 231 detect_disk_identity
     else
       installer_operation_context unknown 231 detect_disk_identity
     fi

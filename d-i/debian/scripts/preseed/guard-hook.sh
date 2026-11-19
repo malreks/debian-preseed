@@ -14,7 +14,7 @@ runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
   INSTALLER_FAILURE_LINE=path-contract
   INSTALLER_FAILURE_OPERATION=guard-hook-path
   export INSTALLER_FAILURE_SOURCE INSTALLER_FAILURE_LINE INSTALLER_FAILURE_OPERATION
-  installer_lifecycle_abort 127 'installer path environment is unavailable for supervised d-i component'
+  installer_lifecycle_abort 127 guard-hook-path 'installer path environment is unavailable for supervised d-i component'
 }
 # shellcheck disable=SC1090,SC1091
 . "$runtime/bootstrap/di.env"

@@ -232,14 +232,14 @@ installer_write_context() {
   installer_persist_seed_source "$seed_base"
   installer_ensure_repo_env "$seed_base"
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_CLASS_SELECTION 238 class_selection
+    installer_operation_context_repo scripts/common/modules/class-selection.sh 238 class_selection
   fi
   classes_raw=$(installer_classes_raw "$seed_base") || return "$?"
   INSTALLER_CLASSES_RAW_CACHE=$classes_raw
   installer_validate_class_manifest
   installer_populate_selected_class_state "$seed_base"
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 245 profile_policy
+    installer_operation_context_repo scripts/common/modules/profiles.sh 245 profile_policy
   fi
   profile_plan_policy=$(installer_profile_plan_policy "$seed_base") ||
     installer_fatal 'cannot resolve frozen profile policy'
@@ -272,7 +272,7 @@ installer_write_context() {
   INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE=${profile_policy_tail%%|*}
   INSTALLER_PROFILE_PARTMAN_REUSE_START=${profile_policy_tail#*|}
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_INSTALLATION_PLAN 269 class_plan
+    installer_operation_context_repo scripts/common/modules/installation-plan.sh 269 class_plan
   fi
   installer_prepare_class_plan "$seed_base" || return "$?"
   installer_export_logging_policy
@@ -418,7 +418,7 @@ installer_hardware_asset_path() (
   installer_validate_profile_component "hardware group" "$group"
   installer_validate_profile_component "hardware class" "$class"
   installer_validate_relative_seed_path "$leaf"
-  manifest=$(installer_class_metadata_read_path "$(installer_repo_file_value FILE_TARGET_ASSET_MAP)")
+  manifest=$(installer_class_metadata_read_path "$(installer_repo_file_value catalog/target-assets.tsv)")
   selected=$(awk -F '\t' -v g="$group" -v c="$class" -v p="$leaf" '$1==g && $2==c && $3==p {print $4; exit}' "$manifest")
   if [ -z "$selected" ]; then
     printf '%s\n' "${DIR_HOOKS_TARGET}/.unavailable/$group/$class/$leaf"

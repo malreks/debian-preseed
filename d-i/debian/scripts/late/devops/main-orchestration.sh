@@ -287,13 +287,13 @@ devops_render_osc_config
 devops_stage_publishing_entrypoints
 devops_stage_gitbuild
 devops_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_BIN_YOUTUBE_DL)" \
+  "$(installer_repo_file_value hooks/target/usr/local/bin/desktop/youtube-dl)" \
   __INSTALLER_PATH_DIR_USR_LOCAL__/bin/youtube-dl \
   0755 \
   youtube-downloader
 chown root:root "${target_root}__INSTALLER_PATH_DIR_USR_LOCAL__/bin/youtube-dl"
 devops_stage_target_asset \
-  "$(installer_repo_file_value FILE_TARGET_BIN_YT_DLP)" \
+  "$(installer_repo_file_value hooks/target/usr/local/bin/desktop/yt-dlp)" \
   __INSTALLER_PATH_DIR_USR_LOCAL__/bin/yt-dlp \
   0755 \
   yt-dlp-cli

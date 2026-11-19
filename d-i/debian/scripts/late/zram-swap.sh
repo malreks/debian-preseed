@@ -198,7 +198,7 @@ write_target_swap_fallback_config() {
   SWAP_FALLBACK_RAW_PARTUUID=$(raw_partition_partuuid "$SWAP_FALLBACK_RAW_DEVICE")
   SWAP_FALLBACK_RAW_DEVICE=$(stable_raw_partition_path "$SWAP_FALLBACK_RAW_DEVICE")
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_SWAP_FALLBACK_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/swap-fallback.conf.tmpl)" \
     "$FILE_SWAP_FALLBACK_CONFIG" 0600 swap_fallback_placeholder_map
 }
 
@@ -264,16 +264,16 @@ stage_target_zram_perl_modules() {
 
 stage_target_zram_assets() {
   validate_raw_storage_partition "$ZRAM_BACKING_RAW_DEVICE" "$DEV_PART_RAW_ZRAM_MB"
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODPROBE_D_90_ZRAM)" "${FILE_MODPROBE_ZRAM}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODULES_LOAD_D_40_ZRAM)" "${FILE_MODULES_LOAD_ZRAM}" 0644
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_ZRAM_WRITEBACK_SETUP_TMPL)" "${FILE_ZRAM_DEFAULT}" 0644
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_ZRAM_WRITEBACK_POLICY_TMPL)" "${FILE_ZRAM_CONFIG}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_60_ZRAM_WRITEBACK_TMPL)" "${FILE_ZRAM_TMPFILES}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_36_ZRAM_TMPL)" "${FILE_ZRAM_RSYSLOG}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_ZRAM_TMPL)" "${FILE_ZRAM_LOGROTATE}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_ZRAM_DEVICE_SETUP_TMPL)" "${FILE_ZRAM_SETUP_HELPER}" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/modprobe.d/90-zram.conf)" "${FILE_MODPROBE_ZRAM}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/modules-load.d/40-zram.conf)" "${FILE_MODULES_LOAD_ZRAM}" 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/zram-writeback/setup.conf.tmpl)" "${FILE_ZRAM_DEFAULT}" 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/zram-writeback/policy.conf.tmpl)" "${FILE_ZRAM_CONFIG}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/60-zram-writeback.conf.tmpl)" "${FILE_ZRAM_TMPFILES}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/rsyslog.d/36-zram.conf.tmpl)" "${FILE_ZRAM_RSYSLOG}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/logrotate.d/zram.tmpl)" "${FILE_ZRAM_LOGROTATE}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/zram-device-setup.tmpl)" "${FILE_ZRAM_SETUP_HELPER}" 0755
   stage_target_zram_perl_modules
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_ZRAM_WRITEBACK_TMPL)" "${FILE_ZRAM_WRITEBACK_HELPER}" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/zram-writeback.tmpl)" "${FILE_ZRAM_WRITEBACK_HELPER}" 0755
   render_target_template "$TMP_ENV_DIR/zram-setup.service.tmpl" "${TARGET_ROOT}${FILE_ZRAM_SETUP_SERVICE}" 0644
   render_target_template "$TMP_ENV_DIR/zram-writeback.service.tmpl" "${TARGET_ROOT}${FILE_ZRAM_WRITEBACK_SERVICE}" 0644
   render_target_template "$TMP_ENV_DIR/zram-writebackd.service.tmpl" "${TARGET_ROOT}${FILE_ZRAM_WRITEBACKD_SERVICE}" 0644

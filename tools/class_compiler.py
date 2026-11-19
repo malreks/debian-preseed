@@ -17,6 +17,8 @@ from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 
 IDENTIFIER = re.compile(r'[a-z][a-z0-9-]*(?:[./][a-z0-9][a-z0-9-]*)*\Z')
+# Stage IDs become phase-stamp and pre-pkgsel filenames; class slashes cannot.
+STAGE_IDENTIFIER = re.compile(r'[a-z][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)*\Z')
 ASSIGNMENT = re.compile(r'([A-Z][A-Z0-9_]*)=(.*)\Z')
 REFERENCE = re.compile(r'\$\{([A-Z][A-Z0-9_]*)(?:(:-|-)([^${}]*))?\}')
 PHASES = {'preseed': 0, 'early': 1, 'partman': 2, 'pre-pkgsel': 3, 'late': 4, 'firstboot': 5}
@@ -114,6 +116,56 @@ def assignment_data(text: str, values: dict[str, str], provenance: dict[str, str
         if not defaults_only or name not in values:
             values[name] = value
             provenance[name] = f'{source}:{number}'
+
+
+def repository_data(text: str, suite: str, supported: set[str]) -> dict[str, str]:
+    """Mirror the early awk data grammar at the owning build boundary.
+
+    This deliberately has fewer forms than profile assignment_data: quoted
+    literals and earlier ${PARENT} references only, with an exact vocabulary.
+    It never evaluates shell, imports installer code, or reads inherited values.
+    """
+    if suite not in {'forky', 'trixie'}:
+        raise ValueError('repo.env requires a supported suite')
+    values = {'INSTALLER_SUITE': suite}
+    seen = set()
+    for number, line in enumerate(text.splitlines(), 1):
+        if number > 512 or len(line) > 4096:
+            raise ValueError('repo.env exceeds configuration limits')
+        if not line or line.startswith('#'):
+            continue
+        match = re.fullmatch(r'([A-Z][A-Z0-9_]*)="([^"]*)"', line)
+        if match is None:
+            raise ValueError(f'repo.env:{number}: invalid data assignment')
+        name, value = match.groups()
+        if name not in supported or name in seen:
+            raise ValueError(f'repo.env:{number}: unsupported or duplicate key')
+        seen.add(name)
+        def parent(reference: re.Match[str]) -> str:
+            if reference[1] not in values:
+                raise ValueError(f'repo.env:{number}: undefined parent')
+            return values[reference[1]]
+        value = re.sub(r'\$\{([A-Z][A-Z0-9_]*)\}', parent, value)
+        if (len(value) > 4096 or any(char in value for char in '$`\\')
+                or any(ord(char) < 32 or ord(char) == 127 for char in value)):
+            raise ValueError(f'repo.env:{number}: unsupported data expansion')
+        if name.startswith('DIR_'):
+            if not (name == 'DIR_REPO_ROOT' and value == '.') and (
+                    not re.fullmatch(r'[A-Za-z0-9_./@+-]+', value) or value.startswith('/')
+                    or any(part in {'', '.', '..'} for part in value.split('/'))):
+                raise ValueError(f'repo.env:{number}: unsafe repository root')
+        elif name == 'REPOSITORY_FAMILIES':
+            if value != 'desktop server':
+                raise ValueError('repo.env: unsupported repository families')
+        elif name == 'REPOSITORY_NAME':
+            if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', value):
+                raise ValueError('repo.env: invalid repository name')
+        elif not re.fullmatch(r'[A-Za-z0-9_./@+:,; -]*', value):
+            raise ValueError('repo.env: invalid selection data')
+        values[name] = value
+    if seen != supported:
+        raise ValueError('repo.env: missing supported key')
+    return values
 
 
 def merge_debconf(documents: list[tuple[str, str]]) -> list[str]:
@@ -618,10 +670,13 @@ def class_dispatch(sources: dict[str, bytes], classes: dict[str, dict]) -> None:
                 classes[owner].update(architectures=list(arches), requires=list(required), conflicts=list(conflicts))
         else:
             name, phase, selector, after, before = cells[2:]
-            if phase not in PHASES or IDENTIFIER.fullmatch(name) is None or re.fullmatch(r'FILE_[A-Z0-9_]+', selector) is None:
+            if (phase not in PHASES or STAGE_IDENTIFIER.fullmatch(name) is None
+                    or safe_path(selector) != selector
+                    or re.fullmatch(r'[A-Za-z0-9_./@+-]+', selector) is None
+                    or '__INSTALLER_' in selector):
                 raise ValueError(f'{source}:{number}: invalid phase provider')
             after_ids, before_ids = (value.split(',') if value != '-' else [] for value in (after, before))
-            if any(IDENTIFIER.fullmatch(value) is None or value == name for value in after_ids + before_ids):
+            if any(STAGE_IDENTIFIER.fullmatch(value) is None or value == name for value in after_ids + before_ids):
                 raise ValueError(f'{source}:{number}: invalid stage ordering constraint')
             for owner in owners:
                 if (owner, name) in stage_owners:
@@ -969,43 +1024,91 @@ def compile_classes(sources: dict[str, bytes]) -> tuple[dict[str, bytes], dict[s
         '\t'.join(row) + '\n' for row in perl_members).encode()
     outputs['catalog/compiled/suite-qualification.tsv'] = ''.join('\t'.join(row) + '\n' for row in qualification_rows).encode()
     outputs['catalog/compiled/support-matrix.json'] = encode({'format': 1, 'tuples': matrix})
-    # Every source selector and phase provider must name the captured source or
-    # an explicitly generated member. This is generation-time data validation;
-    # it imports and executes no installer or target implementation.
+    # Capture owns membership. Fixed source addresses are interfaces at their
+    # consumers; repo.env owns only configuration and genuinely shared roots.
+    # These catalogs are deterministic data, never executable configuration.
     outputs['catalog/compiled/profile-assets.tsv'] = b''
+    outputs['catalog/compiled/source-members.tsv'] = b''
+    outputs['catalog/compiled/apt-assets.tsv'] = b''
     members = set(sources) | set(outputs) | {'catalog/compiled/release.tsv'}
-    selected_source_members = set()
-    required_file_selectors, required_directory_selectors = set(), set()
-    profile_asset_selectors: set[str] = set()
+    required_members, required_directory_selectors = set(), set()
     profile_asset_members: set[str] = set()
+    source_call = re.compile(
+        r'\b(installer_repo_file_value|bootstrap_repo_file_value|repo_file_value|'
+        r'installer_stage_profile_file|desktop_stage_role_asset|'
+        r'desktop_render_role_target_template(?:_deferred)?|installer_operation_context_repo)'
+        r'(?:\s|\\\n)+(?:"([A-Za-z0-9_./@+${} -]+)"|'
+        r"'([A-Za-z0-9_./@+${} -]+)'|([A-Za-z0-9_./@+${}-]+))")
     for name, data in sources.items():
         if not name.startswith(('scripts/', 'hooks/installer/')):
             continue
         text = data.decode()
-        profile_asset_selectors.update(re.findall(r'\binstaller_stage_profile_file\s+(FILE_[A-Z0-9_]+)', text))
-        required_file_selectors.update(re.findall(
-            r'(?:installer_repo_file_value|bootstrap_repo_file_value|installer_stage_profile_file|desktop_stage_role_asset|desktop_render_role_target_template|installer_operation_context_repo)\s+["\']?(FILE_[A-Z0-9_]+)', text))
+        for match in source_call.finditer(text):
+            operation = match[1]
+            member = next(value for value in match.groups()[1:] if value is not None)
+            if member.startswith('FILE_'):
+                raise ValueError(name + ': retired per-file repository selector: ' + member)
+            if '/' not in member or '$' in member and '${INSTALLER_SUITE}' not in member:
+                continue  # A runtime policy value or directory selector.
+            required_members.add(member)
+            if operation == 'installer_stage_profile_file':
+                profile_asset_members.add(member)
         required_directory_selectors.update(re.findall(
             r'(?:installer_repo_join_var|bootstrap_repo_join_var|installer_repo_asset_path)\s+["\']?(DIR_[A-Z0-9_]+)', text))
+    apt_source_roots = {}
     for suite, classes in suite_classes.items():
-        selectors, provenance = {'INSTALLER_SUITE': suite}, {}
-        assignment_data(sources['repo.env'].decode(), selectors, provenance, 'repo.env')
-        profile_asset_members.update(selectors[key] for key in profile_asset_selectors if key in selectors)
-        missing = (required_file_selectors | required_directory_selectors) - set(selectors)
+        schema = re.search(r"source_repo_supported='([^']+)'", sources['scripts/common/source.sh'].decode())
+        if schema is None:
+            raise ValueError('repository data loader has no supported vocabulary')
+        selectors = repository_data(sources['repo.env'].decode(), suite, set(schema[1].split()))
+        apt_roots = {family: selectors[key] for family, key in (
+            ('common', 'DIR_TARGET_APT'), ('desktop', 'DIR_TARGET_APT_DESKTOP'),
+            ('server', 'DIR_TARGET_APT_SERVER'))}
+        for family in ('desktop', 'server'):
+            other = 'server' if family == 'desktop' else 'desktop'
+            if (apt_roots['common'] == apt_roots[family]
+                    or apt_roots['common'].startswith(apt_roots[family] + '/')
+                    or apt_roots[family] == apt_roots[other]
+                    or apt_roots[family].startswith(apt_roots[other] + '/')):
+                raise ValueError('overlapping APT common/role source owners: ' + suite)
+        apt_source_roots[suite] = apt_roots
+        missing = required_directory_selectors - set(selectors)
         if missing:
-            raise ValueError('installer caller lacks a source selector: ' + ', '.join(sorted(missing)))
-        for key, value in selectors.items():
-            if key.startswith('FILE_') and value not in members:
-                raise ValueError(key + ': source selector names no captured member: ' + value)
-            if key.startswith('FILE_'):
-                selected_source_members.add(value)
+            raise ValueError('installer caller lacks a shared source root: ' + ', '.join(sorted(missing)))
+        missing_members = {member.replace('${INSTALLER_SUITE}', suite) for member in required_members} - members
+        if missing_members:
+            raise ValueError('fixed source call names no captured member: ' + ', '.join(sorted(missing_members)))
         for record in classes.values():
             for stage in record['stages']:
-                if stage['selector'] not in selectors:
-                    raise ValueError(stage['id'] + ': missing phase provider selector')
-    missing_members = set(sources) - selected_source_members
-    if missing_members:
-        raise ValueError('published source lacks a FILE selector: ' + ', '.join(sorted(missing_members)))
+                if stage['selector'] not in members:
+                    raise ValueError(stage['id'] + ': missing phase provider source')
     outputs['catalog/compiled/profile-assets.tsv'] = ''.join(
         member + '\tprofile\n' for member in sorted(profile_asset_members)).encode()
+    inventory, apt = [], []
+    for member in sorted(members):
+        safe_path(member)
+        suite_match = re.match(r'frontends/(forky|trixie)/', member)
+        suite = suite_match[1] if suite_match else 'any'
+        family_match = re.match(
+            r'hooks/target/(?:etc/(?:systemd|apparmor(?:\.d)?|tmpfiles\.d|sysctl\.d)|'
+            r'usr/local/(?:bin|sbin|libexec|lib|share))/(common|desktop|server)/', member)
+        family = family_match[1] if family_match else 'any'
+        inventory.append((member, family, suite))
+        for selected_suite, apt_roots in sorted(apt_source_roots.items()):
+            matches = [(family, root) for family, root in apt_roots.items()
+                       if member.startswith(root + '/')]
+            if not matches:
+                continue
+            # Role roots may be nested under the common root. The most
+            # specific configured owner wins; disjoint role roots also work.
+            selected_family, apt_root = max(matches, key=lambda item: len(item[1]))
+            leaf = member[len(apt_root) + 1:]
+            kind, separator, remainder = leaf.partition('/')
+            if not separator:
+                kind, remainder = 'root', leaf
+            apt.append((selected_suite, selected_family, kind, remainder, member))
+    outputs['catalog/compiled/source-members.tsv'] = (
+        'format\t1\n' + ''.join('\t'.join(row) + '\n' for row in inventory)).encode()
+    outputs['catalog/compiled/apt-assets.tsv'] = (
+        'format\t1\n' + ''.join('\t'.join(row) + '\n' for row in sorted(apt))).encode()
     return outputs, {}, {'format': 1, 'tuples': matrix}

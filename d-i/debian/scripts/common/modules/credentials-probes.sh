@@ -125,7 +125,7 @@ installer_load_primary_account() {
   set +x
   set +v
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_CREDENTIALS_PROBES 124 load_primary_account
+    installer_operation_context_repo scripts/common/modules/credentials-probes.sh 124 load_primary_account
   fi
   if installer_primary_account_username=$(installer_cmdline_value primary_username); then
     :

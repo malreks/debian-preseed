@@ -366,7 +366,7 @@ desktop_install_satty() {
   install -m 0644 "$satty_extract_host/README.md" ${TARGET_ROOT}${DIR_USR_LOCAL_SHARE}/doc/satty/README.md
 
   desktop_satty_install_private_glibc
-  desktop_stage_role_asset FILE_TARGET_BIN_SATTY __INSTALLER_PATH_DIR_USR_LOCAL__/bin/satty 0755
+  desktop_stage_role_asset hooks/target/usr/local/bin/desktop/satty __INSTALLER_PATH_DIR_USR_LOCAL__/bin/satty 0755
 
   printf 'version=%s\nurl=%s\narchive_sha256=%s\nglibc_version=%s\nglibc_package_sha256=%s\nglibc_gconv_package_sha256=%s\n' \
     "$LABWC_SATTY_VERSION" \

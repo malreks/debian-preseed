@@ -34,7 +34,7 @@ set -eu
 . "$FIXTURE_SOURCE/scripts/common/modules/profiles.sh"
 . "$FIXTURE_SOURCE/scripts/common/modules/target-publication.sh"
 bootstrap_repo_file_value() {
-  [ "$1" = FILE_COMMON_CREDENTIAL_DATA ] || exit 90
+  [ "$1" = scripts/common/credential-data.awk ] || exit 90
   printf '%s\n' scripts/common/credential-data.awk
 }
 bootstrap_parser_asset_path() { printf '%s/%s\n' "$FIXTURE_SOURCE" "$1"; }
@@ -109,8 +109,8 @@ installer_fetch_host_env() {
 }
 installer_repo_file_value() {
   case "$1" in
-    FILE_RUNTIME_COMMON) printf '%s\n' scripts/runtime/common.sh ;;
-    FILE_RUNTIME_ACCOUNT) printf '%s\n' scripts/runtime/account.sh ;;
+    scripts/runtime/common.sh) printf '%s\n' scripts/runtime/common.sh ;;
+    scripts/runtime/account.sh) printf '%s\n' scripts/runtime/account.sh ;;
     *) return 94 ;;
   esac
 }
@@ -133,7 +133,7 @@ ACCOUNT_SETUP = r'''
 RUNTIME_COMMON_READY=1
 . "$FIXTURE_SOURCE/scripts/runtime/account.sh"
 installer_operation_context_repo() {
-  [ "$1" = FILE_RUNTIME_ACCOUNT ] || return 95
+  [ "$1" = scripts/runtime/account.sh ] || return 95
   installer_operation_context scripts/runtime/account.sh "$2" "$3"
 }
 '''
@@ -338,9 +338,9 @@ late_command_load_profile_env() { :; }
 installer_prepare_late_account_env() { cp "$FIXTURE_ROOT/state/resolved-account.env" "$2"; }
 installer_operation_context_repo() {
   case "$1" in
-    FILE_RUNTIME_ACCOUNT) fixture_source=scripts/runtime/account.sh ;;
-    FILE_COMMON_MOD_PROFILES) fixture_source=scripts/common/modules/profiles.sh ;;
-    FILE_LATE_CORE) fixture_source=scripts/late/core.sh ;;
+    scripts/runtime/account.sh) fixture_source=scripts/runtime/account.sh ;;
+    scripts/common/modules/profiles.sh) fixture_source=scripts/common/modules/profiles.sh ;;
+    scripts/late/core.sh) fixture_source=scripts/late/core.sh ;;
     *) return 95 ;;
   esac
   installer_operation_context "$fixture_source" "$2" "$3"

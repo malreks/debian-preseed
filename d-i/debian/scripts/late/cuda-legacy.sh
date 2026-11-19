@@ -22,7 +22,7 @@ cuda_legacy_fetch_fragment() {
   fragment_path=$(cuda_legacy_fragment_cache_path)
   if [ ! -s "$fragment_path" ]; then
     installer_fetch_file "$SEED_BASE" \
-      "$(installer_repo_file_value FILE_CLASS_OPTIONAL_NVIDIA_LEGACY)" \
+      "$(installer_repo_file_value frontends/${INSTALLER_SUITE}/classes/class-select/optional/nvidia-legacy.cfg)" \
       "$fragment_path" 0600
   fi
   printf '%s\n' "$fragment_path"

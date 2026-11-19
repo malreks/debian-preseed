@@ -56,68 +56,220 @@ installer_target_context_path() {
   printf '%s\n' "$INSTALLER_TARGET_CONTEXT_ROOT"
 }
 
-# Publication records remain in the installer. They identify only project-owned
-# final files; the final validator must never recursively scan package trees.
+# Publication state has one serial owner: installer phase dispatch. Records
+# are an append-only private journal keyed by the exact destination string,
+# not path hashes. A last-record-wins snapshot removes updates/tombstones in one
+# AWK pass at finish-install. A partial row after interruption is rejected.
+installer_target_ownership_prepare() {
+  ownership_root=${DIR_INSTALLER_TARGET_OWNERSHIP:?installer ownership contract is unavailable}
+  installer_lifecycle_parent_safe "$ownership_root" || installer_fatal 'unsafe target ownership ancestry'
+  [ -d "$ownership_root" ] || mkdir -m 0700 "$ownership_root" || return 1
+  [ ! -L "$ownership_root" ] &&
+    [ "$(installer_metadata_value "$ownership_root" uid_gid_mode)" = '0:0:700' ] ||
+    installer_fatal 'target ownership directory is not private'
+  ownership_journal=$ownership_root/journal.tsv
+  if [ ! -e "$ownership_journal" ] && [ ! -L "$ownership_journal" ]; then
+    (umask 077; set -C; : >"$ownership_journal") || return 1
+  fi
+  [ -f "$ownership_journal" ] && [ ! -L "$ownership_journal" ] &&
+    [ "$(installer_metadata_value "$ownership_journal" uid_gid_mode_links)" = '0:0:600:1' ] ||
+    installer_fatal 'unsafe target ownership journal'
+}
+
 installer_target_ownership_record() (
   set -eu
   umask 077
   ownership_source=$1; ownership_target=$2; ownership_kind=$3; ownership_mode=$4
   case "$ownership_target" in
-    "${DIR_TMP:-}/installer-"*|"${DIR_TMP:-}/install-"*/*)
-      ownership_kind=template-input ;;
+    "${DIR_TMP:-}/installer-"*|"${DIR_TMP:-}/install-"*/*) ownership_kind=template-input ;;
   esac
   ownership_phase=${INSTALLER_PHASE:-late-command}
   case "$ownership_source" in -) ownership_source=generated ;; esac
-  # Source members include the declared Vivaldi "Local State" filename. Spaces
-  # are data in this TSV field; tabs/newlines remain forbidden field separators.
   case "$ownership_source" in
     *[!A-Za-z0-9_./@+:\ -]*|'') installer_fatal 'invalid target ownership source'; exit 1 ;;
   esac
   for ownership_context in "$ownership_phase" "$ownership_kind"; do
-    case "$ownership_context" in
-      *[!A-Za-z0-9_./@+:-]*|'') installer_fatal 'invalid target ownership context'; exit 1 ;;
-    esac
+    case "$ownership_context" in *[!A-Za-z0-9_./@+:-]*|'') installer_fatal 'invalid target ownership context'; exit 1 ;; esac
   done
   case "$ownership_target" in /*) ;; *) installer_fatal 'target ownership path is not absolute'; exit 1 ;; esac
   case "$ownership_target" in
-    /|*//*|*/../*|*/..|*/./*|*/.|*[!A-Za-z0-9_./@+\ -]*)
-      installer_fatal 'target ownership path is not normalized'; exit 1 ;;
+    /|*//*|*/../*|*/..|*/./*|*/.|*[!A-Za-z0-9_./@+\ -]*) installer_fatal 'target ownership path is not normalized'; exit 1 ;;
   esac
   case "$ownership_mode" in [0-7][0-7][0-7]|0[0-7][0-7][0-7]) ;; *) exit 1 ;; esac
-  ownership_root=${DIR_INSTALLER_TARGET_OWNERSHIP:?installer ownership contract is unavailable}
-  installer_lifecycle_parent_safe "$ownership_root" || installer_fatal 'unsafe target ownership ancestry'
-  [ -d "$ownership_root" ] || mkdir -m 0700 "$ownership_root"
-  [ "$(installer_metadata_value "$ownership_root" uid_gid_mode)" = '0:0:700' ] ||
-    installer_fatal 'target ownership directory is not private'
-  ownership_digest=$(printf '%s' "$ownership_target" | sha256sum) || exit 1
-  ownership_digest=${ownership_digest%% *}
-  case "$ownership_digest" in ''|*[!a-f0-9]*) exit 1 ;; esac
-  [ "${#ownership_digest}" -eq 64 ] || exit 1
-  ownership_final=$ownership_root/$ownership_digest.tsv
-  if [ -e "$ownership_final" ] || [ -L "$ownership_final" ]; then
-    [ -f "$ownership_final" ] && [ ! -L "$ownership_final" ] &&
-      [ "$(installer_metadata_value "$ownership_final" uid_gid_mode_links)" = '0:0:600:1' ] ||
-      installer_fatal 'unsafe target ownership record'
-  fi
-  ownership_work=$(mktemp "$ownership_root/.record.XXXXXX") || exit 1
-  trap 'rm -f -- "$ownership_work"' 0
-  trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  installer_target_ownership_prepare
   printf '%s\t%s\t%s\t%s\t%s\n' "$ownership_target" "$ownership_source" \
-    "$ownership_kind" "$ownership_phase" "$ownership_mode" >"$ownership_work"
-  chmod 0600 "$ownership_work"
-  mv -fT -- "$ownership_work" "$ownership_final"
+    "$ownership_kind" "$ownership_phase" "$ownership_mode" >>"$ownership_journal"
 )
 
-installer_target_ownership_forget() (
+installer_target_ownership_forget() {
+  installer_target_ownership_record generated "$1" deleted 0000
+}
+
+# One grammar owns imported batches and journal snapshots. BusyBox AWK ends
+# slash-delimited expressions even inside character classes, so every literal
+# slash is escaped. Import validation does not retain rows or build arrays.
+installer_target_ownership_filter() {
+  case "$1" in validate|snapshot) ;; *) return 1 ;; esac
+  LC_ALL=C awk -F '\t' -v ownership_action="$1" '
+    NF != 5 || length($0) > 16384 || ++count > 20000 { bad=1; exit }
+    $1 !~ /^\// || $1 ~ /(^\/$|\/\/|\/(\.\.?)(\/|$))/ { bad=1; exit }
+    $1 ~ /[^A-Za-z0-9_.\/@+ -]/ || $2 !~ /^[A-Za-z0-9_.\/@+: -]+$/ { bad=1; exit }
+    $3 !~ /^[A-Za-z0-9_.\/@+:-]+$/ || $4 !~ /^[A-Za-z0-9_.\/@+:-]+$/ { bad=1; exit }
+    $5 !~ /^0?[0-7][0-7][0-7]$/ { bad=1; exit }
+    ownership_action == "snapshot" { rows[$1]=$0; kinds[$1]=$3 }
+    END {
+      if (bad || !count) exit 1
+      if (ownership_action == "snapshot")
+        for (path in rows) if (kinds[path] != "deleted") print rows[path]
+    }
+  ' "$2"
+}
+
+# Import a complete batch after its last successful atomic publication. The
+# private source is produced by the shared renderer, never a target program.
+installer_target_ownership_import() (
   set -eu
-  ownership_digest=$(printf '%s' "$1" | sha256sum) || exit 1
-  ownership_digest=${ownership_digest%% *}
-  case "$ownership_digest" in ''|*[!a-f0-9]*) exit 1 ;; esac
-  [ "${#ownership_digest}" -eq 64 ] || exit 1
-  ownership_root=${DIR_INSTALLER_TARGET_OWNERSHIP:?installer ownership contract is unavailable}
-  installer_lifecycle_parent_safe "$ownership_root" || exit 1
-  rm -f -- "$ownership_root/$ownership_digest.tsv"
+  ownership_input=$1
+  [ -f "$ownership_input" ] && [ ! -L "$ownership_input" ] &&
+    [ "$(installer_metadata_value "$ownership_input" uid_gid_mode_links)" = '0:0:600:1' ] ||
+    installer_fatal 'unsafe target ownership batch'
+  installer_target_ownership_prepare
+  installer_target_ownership_filter validate "$ownership_input" ||
+    installer_fatal 'malformed target ownership batch'
+  cat "$ownership_input" >>"$ownership_journal"
 )
+
+installer_target_ownership_snapshot() (
+  set -eu
+  installer_target_ownership_prepare
+  [ "$(wc -c <"$ownership_journal")" -le 16777216 ] || installer_fatal 'excessive target ownership journal'
+  installer_target_ownership_filter snapshot "$ownership_journal"
+)
+
+# Plans and candidates stay in the already authenticated target workspace.
+# Each flush is a dependency barrier: only then may a target program or a
+# shell-side reader observe the files. No Perl is required in early d-i.
+installer_asset_batch_begin() {
+  [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || {
+    installer_fatal 'asset publication requires the prepared base-stage payload'; return 1;
+  }
+  if [ -n "${INSTALLER_ASSET_BATCH_WORK:-}" ]; then
+    INSTALLER_ASSET_BATCH_DEPTH=$((INSTALLER_ASSET_BATCH_DEPTH + 1))
+    export INSTALLER_ASSET_BATCH_DEPTH
+    return 0
+  fi
+  installer_target_context_init || return 1
+  installer_asset_group=$1
+  case "$installer_asset_group" in ''|*[!a-z0-9-]*) installer_fatal 'invalid publication group'; return 1 ;; esac
+  installer_asset_stage=${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}
+  installer_apt_safe_path "$installer_asset_stage/inputs" || return 1
+  INSTALLER_ASSET_BATCH_WORK=$(umask 077; mktemp -d "$installer_asset_stage/inputs/publish.XXXXXX") || return 1
+  INSTALLER_ASSET_BATCH_DEPTH=1
+  INSTALLER_ASSET_BATCH_GROUP=$installer_asset_group
+  export INSTALLER_ASSET_BATCH_WORK INSTALLER_ASSET_BATCH_DEPTH INSTALLER_ASSET_BATCH_GROUP
+  (umask 077
+    : >"$INSTALLER_ASSET_BATCH_WORK/plan"
+    printf 'FORMAT=1\nSUITE=%s\nFAMILY=%s\nPHASE=%s\nGROUP=%s\nDEFAULTS_ROOT=%s\nTEMP_ROOT=%s\nSKELETON_BASE=%s\nSKELETON_DESKTOP=%s\nSKELETON_SERVER=%s\nACCOUNT_HOME=%s\nSOURCE_ARCHIVE_SHA256=%s\nSOURCE_TARGET_ROOT=%s\n' \
+      "$INSTALLER_SUITE" "$INSTALLER_HOST_VARIANT" "${INSTALLER_PHASE:-late-command}" \
+      "$installer_asset_group" "$DIR_INSTALLER_TARGET_DEFAULTS" "$DIR_TMP" \
+      "$DIR_ETC_SKEL_BASE" "$DIR_ETC_SKEL_DESKTOP" "$DIR_ETC_SKEL_SERVER" \
+      "${ACCOUNT_HOME:-$DIR_ROOT_HOME}" "$BOOTSTRAP_PREPARED_ARCHIVE_SHA256" "$DIR_HOOKS_TARGET" \
+      >"$INSTALLER_ASSET_BATCH_WORK/context"
+    printf 'SOURCE_AA_ROOT=%s\nSOURCE_APPARMOR_ROOT=%s\nSOURCE_TMPFILES_ROOT=%s\nSOURCE_SYSCTL_ROOT=%s\nSOURCE_BIN_ROOT=%s\nSOURCE_SBIN_ROOT=%s\nSOURCE_LIBEXEC_ROOT=%s\nSOURCE_LIB_ROOT=%s\nSOURCE_SHARE_ROOT=%s\nSOURCE_SYSTEMD_ROOT=%s\nSOURCE_SYSTEMD_COMMON=%s\nSOURCE_SYSTEMD_DESKTOP=%s\nSOURCE_SYSTEMD_SERVER=%s\nSOURCE_APT_ROOT=%s\nSOURCE_APT_DESKTOP=%s\nSOURCE_APT_SERVER=%s\nSOURCE_FRONTEND_ROOT=%s\n' \
+      "$DIR_TARGET_AA" "$DIR_TARGET_APPARMOR" "$DIR_TARGET_TMPFILES_D" "$DIR_TARGET_SYSCTL_D" \
+      "$DIR_TARGET_BIN" "$DIR_TARGET_SBIN" "$DIR_TARGET_LIBEXEC" "$DIR_TARGET_LIB" "$DIR_TARGET_SHARE" \
+      "$DIR_TARGET_SYSTEMD" "$DIR_TARGET_SYSTEMD_COMMON" "$DIR_TARGET_SYSTEMD_DESKTOP" "$DIR_TARGET_SYSTEMD_SERVER" \
+      "$DIR_TARGET_APT" "$DIR_TARGET_APT_DESKTOP" "$DIR_TARGET_APT_SERVER" "$DIR_FRONTEND" \
+      >>"$INSTALLER_ASSET_BATCH_WORK/context"
+  )
+}
+
+installer_asset_plan_fields() {
+  for installer_asset_field do
+    [ "${#installer_asset_field}" -le 1048576 ] || return 1
+    printf '%s:%s,' "${#installer_asset_field}" "$installer_asset_field" || return 1
+  done
+}
+
+installer_asset_batch_add() {
+  [ -n "${INSTALLER_ASSET_BATCH_WORK:-}" ] && [ ! -e "$INSTALLER_ASSET_BATCH_WORK/failed" ] || return 1
+  installer_asset_kind=$1; installer_asset_source=$2; installer_asset_target=$3; installer_asset_mode=$4
+  case "$installer_asset_target" in
+    "$TARGET_ROOT"/*) installer_asset_target=${installer_asset_target#"$TARGET_ROOT"} ;;
+  esac
+  shift 4
+  [ "$#" -le 1024 ] && [ $(( $# % 2 )) -eq 0 ] || return 1
+  # POSIX parameter length must count bytes, including under UTF-8 locales.
+  installer_asset_lc_set=${LC_ALL+x}; installer_asset_lc=${LC_ALL-}
+  LC_ALL=C
+  {
+    [ -s "$INSTALLER_ASSET_BATCH_WORK/plan" ] || printf 'publication-plan-v1\n'
+    printf '%s\n' "$((9 + $#))"
+    installer_asset_plan_fields "$installer_asset_kind" "$installer_asset_source" \
+      "$installer_asset_target" "$installer_asset_mode" 0:0 "$INSTALLER_HOST_VARIANT" \
+      "$INSTALLER_SUITE" "${INSTALLER_PHASE:-late-command}" "$INSTALLER_ASSET_BATCH_GROUP" "$@"
+  } >>"$INSTALLER_ASSET_BATCH_WORK/plan"
+  installer_asset_plan_status=$?
+  if [ "$installer_asset_lc_set" = x ]; then LC_ALL=$installer_asset_lc; else unset LC_ALL; fi
+  return "$installer_asset_plan_status"
+}
+
+installer_asset_batch_flush() {
+  [ -n "${INSTALLER_ASSET_BATCH_WORK:-}" ] || return 0
+  [ ! -e "$INSTALLER_ASSET_BATCH_WORK/failed" ] || return 1
+  [ -s "$INSTALLER_ASSET_BATCH_WORK/plan" ] || return 0
+  installer_target_context_init || return 1
+  installer_asset_stage=${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}
+  if installer_run_bounded 120 chroot "$TARGET_ROOT" "${DIR_USR_BIN}/env" -i \
+      HOME="$DIR_ROOT_HOME" PATH="${DIR_USR_BIN}:${DIR_BIN}" LC_ALL=C \
+      "${DIR_USR_BIN}/perl" -f "${installer_asset_stage#"$TARGET_ROOT"}/render.pl" \
+      --publish "${INSTALLER_ASSET_BATCH_WORK#"$TARGET_ROOT"}" "${installer_asset_stage#"$TARGET_ROOT"}" \
+      >"$INSTALLER_ASSET_BATCH_WORK/log" 2>&1; then
+    :
+  else
+    installer_asset_status=$?
+    : >"$INSTALLER_ASSET_BATCH_WORK/failed"
+    cat "$INSTALLER_ASSET_BATCH_WORK/log" >&2
+    installer_error "asset publication failed; private plan and recovery evidence retained: ${INSTALLER_ASSET_BATCH_WORK#"$TARGET_ROOT"}"
+    return "$installer_asset_status"
+  fi
+  if ! installer_target_ownership_import "$INSTALLER_ASSET_BATCH_WORK/ownership.tsv"; then
+    : >"$INSTALLER_ASSET_BATCH_WORK/failed"
+    installer_error 'asset publication completed but ownership import failed; private plan retained'
+    return 1
+  fi
+  cat "$INSTALLER_ASSET_BATCH_WORK/log" >&2
+  if ! rm -f -- "$INSTALLER_ASSET_BATCH_WORK/ownership.tsv" "$INSTALLER_ASSET_BATCH_WORK/report" \
+      "$INSTALLER_ASSET_BATCH_WORK/log" "$INSTALLER_ASSET_BATCH_WORK"/input.*; then
+    : >"$INSTALLER_ASSET_BATCH_WORK/failed"
+    installer_error 'published asset batch cleanup failed; retained plan must not be replayed'
+    return 1
+  fi
+  : >"$INSTALLER_ASSET_BATCH_WORK/plan" || {
+    : >"$INSTALLER_ASSET_BATCH_WORK/failed"
+    return 1
+  }
+}
+
+installer_asset_batch_finish() {
+  [ -n "${INSTALLER_ASSET_BATCH_WORK:-}" ] || return 0
+  if [ "$INSTALLER_ASSET_BATCH_DEPTH" -gt 1 ]; then
+    INSTALLER_ASSET_BATCH_DEPTH=$((INSTALLER_ASSET_BATCH_DEPTH - 1))
+    return 0
+  fi
+  installer_asset_batch_flush || return $?
+  rm -f -- "$INSTALLER_ASSET_BATCH_WORK/plan" "$INSTALLER_ASSET_BATCH_WORK/context" || return 1
+  rmdir "$INSTALLER_ASSET_BATCH_WORK" || return 1
+  unset INSTALLER_ASSET_BATCH_WORK INSTALLER_ASSET_BATCH_DEPTH INSTALLER_ASSET_BATCH_GROUP
+}
+
+installer_asset_publish() {
+  if [ -n "${INSTALLER_ASSET_BATCH_WORK:-}" ]; then
+    installer_asset_batch_add "$@"
+  else
+    (set -eu; installer_asset_batch_begin single-asset; installer_asset_batch_add "$@"; installer_asset_batch_finish)
+  fi
+}
 
 installer_primary_default_path() (
   case "$1" in
@@ -149,8 +301,17 @@ installer_capture_primary_default() (
 )
 
 installer_publish_primary_defaults() {
-  installer_run_target_setup FILE_COMMON_PRIMARY_DEFAULTS 'publish rendered payload defaults for the primary account' \
-    publish "${DIR_INSTALLER_TARGET_DEFAULTS}/$1" "$2" "$3"
+  case "$#" in
+    3)
+      installer_run_target_setup scripts/common/primary-defaults.py 'publish rendered payload defaults for the primary account' \
+        publish "${DIR_INSTALLER_TARGET_DEFAULTS}/$1" "$2" "$3"
+      ;;
+    4)
+      installer_run_target_setup scripts/common/primary-defaults.py 'publish one rendered payload default for the primary account' \
+        publish "${DIR_INSTALLER_TARGET_DEFAULTS}/$1" "$2" "$3" --relative "$4"
+      ;;
+    *) installer_fatal 'primary payload publication requires a family, account, home and optional relative file'; return 1 ;;
+  esac
 }
 
 installer_stage_account_creation() {
@@ -158,19 +319,20 @@ installer_stage_account_creation() {
   # an administrator explicitly creates an account and selects its type.
   installer_apt_safe_path "${TARGET_ROOT}${DIR_USR_LOCAL_SBIN}" || installer_fatal 'unsafe account helper ancestry'
   install -d -m 0755 -- "${TARGET_ROOT}${DIR_USR_LOCAL_SBIN}"
-  installer_stage_profile_file FILE_TARGET_SBIN_ACCOUNT_CREATE "$FILE_ACCOUNT_CREATE" 0755
-  installer_stage_profile_file FILE_TARGET_SKEL_BASE_PROFILE \
+  installer_stage_profile_file hooks/target/usr/local/sbin/common/account-create "$FILE_ACCOUNT_CREATE" 0755
+  installer_stage_profile_file hooks/target/etc/skel-base/.profile \
     "${DIR_ETC_SKEL_BASE}/.profile" 0644
-  installer_stage_profile_file FILE_TARGET_SKEL_BASE_BASH_PROFILE \
+  installer_stage_profile_file hooks/target/etc/skel-base/.bash_profile \
     "${DIR_ETC_SKEL_BASE}/.bash_profile" 0644
-  installer_stage_profile_file FILE_TARGET_SKEL_BASE_BASHRC \
+  installer_stage_profile_file hooks/target/etc/skel-base/.bashrc \
     "${DIR_ETC_SKEL_BASE}/.bashrc" 0644
-  installer_stage_profile_file FILE_TARGET_SKEL_BASE_BASH_LOGOUT \
+  installer_stage_profile_file hooks/target/etc/skel-base/.bash_logout \
     "${DIR_ETC_SKEL_BASE}/.bash_logout" 0644
 }
 
 installer_stage_profile_asset() (
   set -eu
+  [ -z "${INSTALLER_ASSET_BATCH_WORK:-}" ] || installer_asset_batch_flush || exit $?
   installer_target_context_init || exit 1
   source_path=$1; target_path=$2; asset_mode=$3
   if command -v installer_operation_context >/dev/null 2>&1; then
@@ -271,7 +433,7 @@ installer_run_target_setup() (
   trap setup_cleanup 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   installer_stage_profile_file "$setup_selector" "$setup_program" 0600
-  if [ "$setup_selector" = FILE_SERVER_SETUP ]; then
+  if [ "$setup_selector" = scripts/server/setup.py.tmpl ]; then
     set -- --defaults-root "${DIR_INSTALLER_TARGET_DEFAULTS}/server" "$@"
   fi
   run_in_target "$setup_context" "${DIR_USR_BIN}/python3" -I -B "$setup_program" "$@"

@@ -110,7 +110,7 @@ bootstrap_source_common_lib "" || software_fatal "failed to source installer com
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/software}
 if command -v installer_operation_context >/dev/null 2>&1; then
-  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 113 software
+  installer_operation_context_repo scripts/late/software.sh.tmpl 113 software
 fi
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target || {
@@ -131,9 +131,9 @@ account_runtime=${DIR_INSTALLER_LATE_ENV}/account-runtime.sh
 [ -r "$host_env" ] ||
   installer_fetch_host_env "$seed_base" "$(installer_resolve_host_profile "")" "$host_env" 0600
 [ -r "$runtime_common" ] ||
-  fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_COMMON)" "$runtime_common"
+  fetch_hook_file "$(installer_repo_file_value scripts/runtime/common.sh)" "$runtime_common"
 [ -r "$account_runtime" ] ||
-  fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" "$account_runtime"
+  fetch_hook_file "$(installer_repo_file_value scripts/runtime/account.sh)" "$account_runtime"
 # shellcheck disable=SC1090,SC1091
 unset ACCOUNT_USERNAME ACCOUNT_HOME
 installer_load_data_env "$account_env"
@@ -156,7 +156,7 @@ if installer_tools_class_selected 2>__INSTALLER_PATH_DIR_DEV__/null; then
 fi
 desktop_detect="${tmp_env_dir}/desktop-detect.sh"
 [ -r "$desktop_detect" ] ||
-  fetch_hook_file "$(installer_repo_file_value FILE_DESKTOP_DETECT_TMPL)" "$desktop_detect"
+  fetch_hook_file "$(installer_repo_file_value scripts/desktop/detect.sh.tmpl)" "$desktop_detect"
 # shellcheck disable=SC1090,SC1091
 . "$desktop_detect"
 desktop_resolve_acceleration_availability
@@ -513,7 +513,7 @@ software_render_theme_asset() {
       TMP_ENV_DIR=$tmp_env_dir
       theme_library="${tmp_env_dir}/themes.sh"
       bootstrap_fetch_seed_file "$seed_base" \
-        "$(installer_repo_file_value FILE_LATE_THEMES)" \
+        "$(installer_repo_file_value scripts/late/themes.sh)" \
         "$theme_library" 0600 "software theme renderer" ||
         software_fatal "failed to fetch software theme renderer"
       # shellcheck disable=SC1090,SC1091
@@ -727,7 +727,7 @@ EOF
 software_stage_perl_modules() {
   software_normalize_system_perl_module_parents
   software_render_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_PERL_APT_REPO_SERVICING_ARTIFACTLIMITS_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ArtifactLimits.pm.tmpl)" \
     "${DIR_PERL5_SITE_PERL}/apt-repo-local/APTRepoLocal/Servicing/ArtifactLimits.pm" \
     0644 \
     SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES"
@@ -745,23 +745,23 @@ software_stage_external_servicing_runtime() {
   # This extractor is also used by installed servicing. Stage its locked
   # parser identity once before any application archive is handled.
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TUTA_EXTRACT)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/tuta-extract)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tuta-extract 0755
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_USR_LIB_SYSUSERS_D_TUTA_EXTRACT)" \
+    "$(installer_repo_file_value hooks/target/usr/lib/sysusers.d/tuta-extract.conf)" \
     __INSTALLER_PATH_DIR_USR_LIB_SYSUSERS_D__/tuta-extract.conf 0644
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/systemd-sysusers \
     __INSTALLER_PATH_DIR_USR_LIB_SYSUSERS_D__/tuta-extract.conf
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APT_REPO_LOCAL_SOFTWARE_UPDATE)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/apt-repo-local-software-update)" \
     "$software_update_helper" \
     0755
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_DISCORD_DISTRO)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/discord-distro)" \
     "$software_discord_archive_helper" \
     0755
   software_render_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APT_REPO_LOCAL_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/common/apt-repo-local.tmpl)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local \
     0755 \
     SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES" \
@@ -771,7 +771,7 @@ software_stage_external_servicing_runtime() {
     SOFTWARE_APT_REPO_LOCAL_HEADERS_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_HEADERS_MAXIMUM_BYTES" \
     SOFTWARE_APT_REPO_LOCAL_METADATA_MAXIMUM_BYTES "$SOFTWARE_APT_REPO_LOCAL_METADATA_MAXIMUM_BYTES"
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APT_REPO_LOCAL_VENDOR)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/apt-repo-local-vendor)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local-vendor 0755
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/grep -Fq \
     'my $release_policy = $cli->_software_release_policy();' \
@@ -786,13 +786,13 @@ software_stage_external_servicing_runtime() {
     __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local-vendor ||
     software_fatal "staged apt-repo-local-vendor lacks vendor release-policy wiring"
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_BIN_APT_REPO_INIT)" \
+    "$(installer_repo_file_value hooks/target/usr/local/bin/common/apt-repo-init)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/apt-repo-init 0755
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_SHARE_SOFTWARE_PACKAGE_POLICIES)" \
+    "$(installer_repo_file_value hooks/target/usr/local/share/desktop/software/package-policies.json)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_SOFTWARE__/package-policies.json 0644
   software_render_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_SHARE_SOFTWARE_SOFTWARE_RELEASE_POLICY_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/share/desktop/software/software-release-policy.json.tmpl)" \
     "$FILE_SOFTWARE_RELEASE_POLICY" \
     0644 \
     SOFTWARE_BITWARDEN_URL "$SOFTWARE_BITWARDEN_URL" \
@@ -826,7 +826,7 @@ software_stage_external_servicing_runtime() {
     SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_EXTRACTED_BYTES "$SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_EXTRACTED_BYTES" \
     SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_MEMBERS "$SOFTWARE_LEDGER_APPIMAGE_MAXIMUM_MEMBERS"
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_SHARE_SOFTWARE_APT_REPO_LOCAL_SOURCES_IN_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/share/desktop/software/apt-repo-local.sources.in.tmpl)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_SOFTWARE__/apt-repo-local.sources.in 0644
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local init ||
     software_fatal "local APT repository initialization failed"
@@ -849,52 +849,52 @@ software_enable_chatgpt_integration() {
     "${target_root}${chatgpt_canonical_dir}"
 
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_CHATGPT_PACKAGE_POLICY)" \
+    "$(installer_repo_file_value hooks/target/etc/chatgpt/package-policy.conf)" \
     "$chatgpt_canonical_default" \
     0644
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_APPS_CHATGPT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/share/desktop/applications/chatgpt.desktop.tmpl)" \
     "$chatgpt_canonical_desktop" \
     0644
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_AA_CHATGPT)" \
+    "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/chatgpt)" \
     "$chatgpt_canonical_apparmor" \
     0644
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_USR_SHARE_PIXMAPS_CHATGPT_PNG)" \
+    "$(installer_repo_file_value hooks/target/usr/share/pixmaps/chatgpt.png)" \
     "$chatgpt_canonical_icon" \
     0644
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_BIN_CHATGPT)" \
+    "$(installer_repo_file_value hooks/target/usr/local/bin/desktop/chatgpt)" \
     "$chatgpt_launcher" \
     0755
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_LABWC_CHATGPT_LOG_RUNNER_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/labwc-chatgpt-log-runner.tmpl)" \
     "$chatgpt_log_runner" \
     0755
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_RSYSLOG_OPENAI_SOCKET_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/rsyslog-openai-socket.tmpl)" \
     "$chatgpt_log_socket_helper" \
     0755
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_38_OPENAI_CHATGPT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/38-openai-chatgpt.conf.tmpl)" \
     "$chatgpt_rsyslog_config" \
     0644
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_RSYSLOG_SERVICE_D_35_OPENAI_CHATGPT_SOCKET)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/rsyslog.service.d/35-openai-chatgpt-socket.conf)" \
     "$chatgpt_rsyslog_dropin" \
     0644
   software_render_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_61_OPENAI_CHATGPT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl)" \
     "$chatgpt_tmpfiles" \
     0644 \
     ACCOUNT_USERNAME "$ACCOUNT_USERNAME"
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_CHATGPT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/chatgpt.tmpl)" \
     "$chatgpt_logrotate" \
     0644
   software_render_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_CHATGPT_RUNTIME_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/chatgpt-runtime.tmpl)" \
     "$chatgpt_runtime_logrotate" \
     0644 \
     ACCOUNT_USERNAME "$ACCOUNT_USERNAME"
@@ -1276,45 +1276,63 @@ software_ledger_signed_sha512() {
   ' "$checksums_host_path"
 }
 
-software_deb_contains_path() {
-  deb_path=$1
-  expected_path=$2
-
-  case "$expected_path" in
-    /*) expected_path=${expected_path#/} ;;
-    *) return 1 ;;
-  esac
-
-  # dpkg-deb preserves the data archive's member spelling.  Valid packages
-  # may list either usr/bin/tool or .__INSTALLER_PATH_DIR_USR_BIN__/tool, so compare one canonical
-  # relative path while retaining field 6 as the source member for symlinks.
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/env -i \
-    LC_ALL=C \
-    PATH=__INSTALLER_PATH_DIR_USR__/bin:__INSTALLER_PATH_DIR_BIN__ \
-    __INSTALLER_PATH_DIR_USR_BIN__/dpkg-deb -c "$deb_path" 2>__INSTALLER_PATH_DIR_DEV__/null |
-    awk -v wanted="$expected_path" '
-      {
-        archive_path = $6
-        sub(/^[.]\//, "", archive_path)
-        if (archive_path == wanted) {
-          found = 1
-        }
-      }
-      END { exit found ? 0 : 1 }
-    '
+# Package identity, required members and pinned hashes are checked together by
+# the repository owner on its private snapshot. These adapters only describe
+# the selected inputs and the explicit APT dependency barrier.
+software_begin_deb_batch() {
+  case "$1" in scx|desktop) software_batch_name=$1 ;; *) software_fatal 'invalid package batch' ;; esac
+  software_deb_plan="${work_dir}/deb-${software_batch_name}.tsv"
+  software_deb_receipt="${work_dir}/deb-${software_batch_name}.json"
+  software_deb_paths="${work_dir}/deb-${software_batch_name}.paths"
+  [ ! -e "${target_root}${work_dir}/.deb-batch-active" ] &&
+    [ ! -L "${target_root}${work_dir}/.deb-batch-active" ] ||
+    software_fatal "unfinished package transaction retained at ${work_dir}; inspect before retrying"
+  for software_batch_file in "$software_deb_plan" "$software_deb_receipt" "$software_deb_paths"; do
+    [ ! -L "${target_root}${software_batch_file}" ] ||
+      software_fatal "package batch state must not be a symlink"
+    rm -f -- "${target_root}${software_batch_file}"
+  done
+  (umask 077; set -C; printf 'installer-deb-plan-v1\n' >"${target_root}${software_deb_plan}") ||
+    software_fatal 'cannot create private package batch plan'
 }
 
-software_store_managed_deb_archive() {
+software_queue_deb() {
   label=$1
   deb_path=$2
+  expected_packages=$3
+  expected_architecture=$4
+  expected_executable=$5
+  expected_desktop_file=${6:--}
+  expected_runtime_library=${7:--}
+  expected_sha256=${8:--}
+  expected_version=${9:--}
+  [ -n "$expected_desktop_file" ] || expected_desktop_file=-
+  [ -n "$expected_runtime_library" ] || expected_runtime_library=-
   software_validate_abs_path "$label package path" "$deb_path"
-  managed_archive_path=$(
-    chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local import -- "$deb_path"
-  ) || software_fatal "$label could not be imported into the local APT repository"
-  case "$managed_archive_path" in
-    __INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE_REPO_POOL__/*.deb) ;;
-    *) software_fatal "local APT repository returned an invalid retained package path" ;;
+  software_validate_abs_path "$label executable path" "$expected_executable"
+  for software_member in "$expected_desktop_file" "$expected_runtime_library"; do
+    [ "$software_member" = - ] || software_validate_abs_path "$label required member" "$software_member"
+  done
+  [ -n "$expected_packages" ] || software_fatal "$label expected package names are empty"
+  for expected_package in $expected_packages; do
+    case "$expected_package" in
+      *[!abcdefghijklmnopqrstuvwxyz0123456789+.-]*) software_fatal "$label expected package name is invalid" ;;
+    esac
+  done
+  case "$expected_architecture" in
+    amd64|arm64) ;; *) software_fatal "$label expected architecture is unsupported" ;;
   esac
+  [ "$expected_sha256" = - ] || software_validate_sha256 "$label expected SHA-256" "$expected_sha256"
+  case "$expected_version" in
+    ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.+:~-]*)
+      software_fatal "$label expected version is malformed" ;;
+  esac
+  # The importer rejects malformed/duplicate rows and owns the bounded plan
+  # schema. Empty optional fields use '-' because POSIX IFS collapses tabs.
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$deb_path" "$expected_packages" "$expected_architecture" "$expected_executable" \
+    "$expected_desktop_file" "$expected_runtime_library" "$expected_sha256" \
+    "$expected_version" "$label" >>"${target_root}${software_deb_plan}"
 }
 
 software_store_managed_artifact() {
@@ -1355,11 +1373,6 @@ software_store_managed_artifact() {
   # copy of an already verified download before its atomic rename.
   chmod 0644 "$artifact_tmp"
   mv -f -- "$artifact_tmp" "$artifact_host_path"
-}
-
-software_write_managed_deb_repository() {
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local rebuild ||
-    software_fatal "local APT repository atomic publication failed"
 }
 
 software_prepare_managed_deb_repository_apt_tmp() {
@@ -1408,11 +1421,31 @@ software_prepare_managed_deb_repository_apt_tmp() {
 }
 
 software_refresh_managed_deb_repository() {
-  software_write_managed_deb_repository
-  software_prepare_managed_deb_repository_apt_tmp
+  # Every repository mutation publishes its indexes before returning. Never
+  # force a second rebuild of the identical input set here. This marker is an
+  # APT freshness hint for this private installer run, not content verification.
+  software_repository_generation=$(readlink "${target_root}${software_deb_archive_dir}/current") ||
+    software_fatal 'local repository generation is unavailable'
+  case "$software_repository_generation" in
+    .snapshots/*) ;;
+    *) software_fatal 'local repository generation is malformed' ;;
+  esac
+  software_repository_generation_id=${software_repository_generation#.snapshots/}
+  case "$software_repository_generation_id" in
+    ''|*[!0123456789abcdef]*) software_fatal 'local repository generation identity is malformed' ;;
+  esac
+  [ "${#software_repository_generation_id}" -eq 32 ] ||
+    software_fatal 'local repository generation identity has an invalid length'
   [ -r "${target_root}${software_deb_repository_source}" ] &&
     [ ! -L "${target_root}${software_deb_repository_source}" ] ||
     software_fatal "managed package repository source is missing or unsafe: $software_deb_repository_source"
+  software_repository_stamp="${target_root}${work_dir}/apt-generation"
+  [ ! -L "$software_repository_stamp" ] || software_fatal 'unsafe APT generation marker'
+  if [ -f "$software_repository_stamp" ] &&
+      [ "$(cat "$software_repository_stamp")" = "$software_repository_generation" ]; then
+    return 0
+  fi
+  software_prepare_managed_deb_repository_apt_tmp
 
   if ! chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/env -i \
     DEBIAN_FRONTEND=noninteractive \
@@ -1428,6 +1461,7 @@ software_refresh_managed_deb_repository() {
   then
     software_fatal "managed package repository APT index refresh failed"
   fi
+  (umask 077; printf '%s\n' "$software_repository_generation" >"$software_repository_stamp")
 }
 
 software_ensure_temporary_unshare() {
@@ -1453,131 +1487,48 @@ software_ensure_temporary_unshare() {
   software_info "verified temporary unshare installer shim before vendor package installation"
 }
 
-software_install_deb() {
-  label=$1
-  deb_path=$2
-  expected_packages=$3
-  expected_architecture=$4
-  expected_executable=$5
-  expected_desktop_file=$6
-  expected_runtime_library=${7:-}
-
-  software_validate_abs_path "$label package path" "$deb_path"
-  software_validate_abs_path "$label executable path" "$expected_executable"
-  # An explicitly empty desktop path denotes a CLI-only package (Tomat).
-  if [ -n "$expected_desktop_file" ]; then
-    software_validate_abs_path "$label desktop file path" "$expected_desktop_file"
-  fi
-  if [ -n "$expected_runtime_library" ]; then
-    software_validate_abs_path "$label runtime library path" "$expected_runtime_library"
-  fi
-  [ -n "$expected_packages" ] ||
-    software_fatal "$label expected package names are empty"
-  case "$expected_architecture" in
-    amd64|arm64) ;;
-    *) software_fatal "$label expected architecture is unsupported: $expected_architecture" ;;
-  esac
-  deb_magic=$(head -c 8 "${target_root}${deb_path}" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-  [ "$deb_magic" = '!<arch>' ] ||
-    software_fatal "$label download does not have Debian archive framing"
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-deb --info "$deb_path" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
-    software_fatal "$label download is not a valid Debian binary package"
-  software_deb_contains_path "$deb_path" "$expected_executable" ||
-    software_fatal "$label package payload is missing executable: $expected_executable"
-  if [ -n "$expected_desktop_file" ]; then
-    software_deb_contains_path "$deb_path" "$expected_desktop_file" ||
-      software_fatal "$label package payload is missing desktop entry: $expected_desktop_file"
-  fi
-  if [ -n "$expected_runtime_library" ]; then
-    software_deb_contains_path "$deb_path" "$expected_runtime_library" ||
-      software_fatal "$label package payload is missing runtime library: $expected_runtime_library"
-  fi
-
-  package_name=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-deb -f "$deb_path" Package 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-  package_version=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-deb -f "$deb_path" Version 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-  package_architecture=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-deb -f "$deb_path" Architecture 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-  case "$package_name" in
-    ''|*[!abcdefghijklmnopqrstuvwxyz0123456789+.-]*)
-      software_fatal "$label package has an invalid Package field: ${package_name:-unset}"
-      ;;
-  esac
-  package_name_is_expected=false
-  for expected_package in $expected_packages; do
-    case "$expected_package" in
-      ''|*[!abcdefghijklmnopqrstuvwxyz0123456789+.-]*)
-        software_fatal "$label expected package name is invalid: ${expected_package:-unset}"
-        ;;
+software_flush_deb_batch() {
+  # The marker survives any failed/uncertain import, APT operation or readiness
+  # check. A later invocation must not replay a package mutation automatically.
+  (umask 077; set -C; printf '%s\n' "$software_deb_plan" >"${target_root}${work_dir}/.deb-batch-active") ||
+    software_fatal 'cannot acquire the installer package batch marker'
+  chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local \
+    import-plan --receipt "$software_deb_receipt" -- "$software_deb_plan" \
+    >"${target_root}${software_deb_paths}" ||
+    software_fatal "package batch import failed; retained plan=${software_deb_plan}"
+  software_batch_archives=$(cat "${target_root}${software_deb_paths}")
+  set --
+  for managed_archive_path in $software_batch_archives; do
+    case "$managed_archive_path" in
+      __INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE_REPO_POOL__/*.deb) ;;
+      *) software_fatal 'local repository returned an invalid package path' ;;
     esac
-    if [ "$package_name" = "$expected_package" ]; then
-      package_name_is_expected=true
-    fi
+    case "$managed_archive_path" in
+      *[!A-Za-z0-9_./+:%~-]*) software_fatal 'unsafe imported package filename' ;;
+    esac
+    set -- "$@" "$managed_archive_path"
   done
-  [ "$package_name_is_expected" = true ] ||
-    software_fatal "$label package has unexpected Package field: $package_name"
-  unset expected_package package_name_is_expected
-  [ -n "$package_version" ] ||
-    software_fatal "$label package has no Version field"
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg --validate-version "$package_version" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
-    software_fatal "$label package has an invalid Version field: $package_version"
-  [ "${#package_version}" -le 128 ] ||
-    software_fatal "$label package Version field exceeds 128 characters"
-  [ "$package_architecture" = "$expected_architecture" ] ||
-    software_fatal "$label package has unexpected architecture: ${package_architecture:-unset}"
-
-  software_store_managed_deb_archive \
-    "$label" \
-    "$deb_path" \
-    "$package_name" \
-    "$package_version" \
-    "$package_architecture"
+  [ "$#" -gt 0 ] || software_fatal 'local repository returned an empty package batch'
   software_refresh_managed_deb_repository
-
   if command -v purge_target_cdrom_apt_sources >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
     purge_target_cdrom_apt_sources
   fi
-  # The d-i target is a chroot, not the running system. There are no target
-  # services or user sessions to inspect or restart, and current needrestart
-  # scanners may invoke unshare(1), which the installer environment can deny.
-  # Suppress restart handling for this automatic installer-time package
-  # transaction. Administrator-initiated target APT operations remain outside it.
-  if ! chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/env -i \
-    DEBIAN_FRONTEND=noninteractive \
-    DEBCONF_NONINTERACTIVE_SEEN=true \
-    NEEDRESTART_SUSPEND=1 \
-    HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ \
+  # One serialized APT transaction owns dependency resolution, maintainer
+  # scripts and triggers for this compatible batch. Required application
+  # post-install work runs only after the readiness barrier below.
+  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/env -i \
+    DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    NEEDRESTART_SUSPEND=1 HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ LC_ALL=C.UTF-8 \
     PATH=__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__:__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__ \
-    __INSTALLER_PATH_DIR_USR_BIN__/apt-get \
-      -y \
-      -o DPkg::Lock::Timeout=60 \
-      -o DPkg::Use-Pty=0 \
-      --no-install-recommends \
-      --no-install-suggests \
-      install "$managed_archive_path"
-  then
-    software_fatal "$label package installation failed inside the d-i target"
-  fi
-
-  installed_package_status=$(
-    chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-query \
-      -W \
-      -f='${Status}' \
-      "$package_name" 2>__INSTALLER_PATH_DIR_DEV__/null || true
-  )
-  [ "$installed_package_status" = "install ok installed" ] ||
-    software_fatal "$label package is not fully installed and configured: ${installed_package_status:-missing}"
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/test -x "$expected_executable" ||
-    software_fatal "$label executable is missing after package installation: $expected_executable"
-  if [ -n "$expected_desktop_file" ]; then
-    chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/test -r "$expected_desktop_file" ||
-      software_fatal "$label desktop entry is missing after package installation: $expected_desktop_file"
-  fi
-  if [ -n "$expected_runtime_library" ]; then
-    chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/test -r "$expected_runtime_library" ||
-      software_fatal "$label runtime library is missing after package installation: $expected_runtime_library"
-  fi
-  package_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$deb_path" | awk '{print $1}')
-  [ -n "$package_sha256" ] || software_fatal "$label package SHA-256 could not be recorded"
-  software_info "installed ${label} package=${package_name} version=${package_version} architecture=${package_architecture} sha256=${package_sha256}"
+    __INSTALLER_PATH_DIR_USR_BIN__/apt-get -y \
+      -o DPkg::Lock::Timeout=60 -o DPkg::Use-Pty=0 \
+      --no-install-recommends --no-install-suggests install "$@" ||
+    software_fatal 'package batch installation failed inside the d-i target'
+  chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local \
+    verify-installed-plan -- "$software_deb_receipt" ||
+    software_fatal 'package batch is not fully installed and configured'
+  rm -f -- "${target_root}${work_dir}/.deb-batch-active"
+  software_info "completed ${software_batch_name} package batch; receipt=${software_deb_receipt}"
 }
 
 software_install_scx_scheduler() {
@@ -1620,37 +1571,17 @@ software_install_scx_scheduler() {
     artifact \
     fatal
 
-  scx_actual_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$scx_deb" | awk '{print $1}')
-  [ "$scx_actual_sha256" = "$scx_sha256" ] ||
-    software_fatal "scx scheduler package SHA-256 does not match the host profile"
-  scx_loader_actual_sha256=$(chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$scx_loader_deb" | awk '{print $1}')
-  [ "$scx_loader_actual_sha256" = "$scx_loader_sha256" ] ||
-    software_fatal "scx-loader package SHA-256 does not match the host profile"
-
-  # software_install_deb imports each verified archive into apt-repo-local.
-  # The publisher embeds a local dpkg-sig _gpgorigin signature in the retained
-  # package, rebuilds and verifies signed InRelease/Release.gpg metadata, then
-  # installs the retained pool path through APT. No update URL is registered
-  # for these profile-controlled packages, so the local repository will not
-  # autoupdate them while retaining both signatures.
-  software_install_deb \
-    "scx scheduler" \
-    "$scx_deb" \
-    scx \
-    amd64 \
-    __INSTALLER_PATH_DIR_USR_BIN__/scx_rusty \
-    ""
-  # The loader's boot default and the DevOps handoff are deliberately
-  # separate binaries. Reject a partial package before desktop activation.
+  software_begin_deb_batch scx
+  software_queue_deb \
+    "scx scheduler" "$scx_deb" scx amd64 \
+    __INSTALLER_PATH_DIR_USR_BIN__/scx_rusty "" "" "$scx_sha256"
+  software_queue_deb \
+    "scx-loader" "$scx_loader_deb" scx-loader amd64 \
+    __INSTALLER_PATH_DIR_USR_BIN__/scx_loader "" "" "$scx_loader_sha256"
+  software_flush_deb_batch
+  # The loader's boot default and the DevOps handoff are distinct binaries.
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/test -x __INSTALLER_PATH_DIR_USR_BIN__/scx_flash ||
     software_fatal "scx scheduler package is missing the DevOps handoff binary: __INSTALLER_PATH_DIR_USR_BIN__/scx_flash"
-  software_install_deb \
-    "scx-loader" \
-    "$scx_loader_deb" \
-    scx-loader \
-    amd64 \
-    __INSTALLER_PATH_DIR_USR_BIN__/scx_loader \
-    ""
   software_info "installed profile-controlled scx packages through signed local APT repository; automatic release tracking disabled"
 }
 
@@ -1891,7 +1822,7 @@ POSTMAN_INSTALL_SH
     software_fatal "Postman archive SHA-256 has an invalid length"
 
   software_render_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_APPS_POSTMAN_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/share/desktop/applications/postman.desktop.tmpl)" \
     "$postman_desktop_file" \
     0644 \
     LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
@@ -1907,7 +1838,7 @@ software_install_ledger() {
 
   software_info "resolving the requested Ledger channel ${ledger_requested_latest_url} through signed release metadata"
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_SHARE_SOFTWARE_LEDGER_LEDGERLIVE_PEM)" \
+    "$(installer_repo_file_value hooks/target/usr/local/share/desktop/software/ledger/ledgerlive.pem)" \
     "$ledger_public_key" \
     0644
 
@@ -1963,21 +1894,36 @@ software_install_ledger() {
 
   ledger_signed_sha512=$(software_ledger_signed_sha512) ||
     software_fatal "Ledger signed SHA-512 manifest does not contain exactly one valid Linux AppImage record"
-  ledger_actual_sha512=$(
-    chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha512sum "$ledger_appimage" |
-      awk '{print $1}'
-  )
+  ledger_digest_record=$(
+    chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B -c '
+import base64
+import hashlib
+import os
+import stat
+import sys
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+with os.fdopen(fd, "rb") as stream:
+    before = os.fstat(stream.fileno())
+    if (not stat.S_ISREG(before.st_mode) or before.st_uid != 0
+            or before.st_nlink != 1 or before.st_mode & 0o022):
+        raise SystemExit("unsafe Ledger artifact")
+    digest = hashlib.sha512()
+    while chunk := stream.read(1024 * 1024):
+        digest.update(chunk)
+    after = os.fstat(stream.fileno())
+    if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+        raise SystemExit("Ledger artifact changed while hashing")
+    value = digest.digest()
+    print(value.hex() + "|" + base64.b64encode(value).decode("ascii") + "|" + str(after.st_size))
+' "$ledger_appimage"
+  ) || software_fatal 'Ledger Live AppImage digest could not be computed'
+  IFS='|' read -r ledger_actual_sha512 ledger_actual_sha512_base64 ledger_actual_size <<EOF_LEDGER_DIGEST
+$ledger_digest_record
+EOF_LEDGER_DIGEST
   [ "$ledger_actual_sha512" = "$ledger_signed_sha512" ] ||
     software_fatal "Ledger Live AppImage SHA-512 does not match the signed vendor manifest"
-  ledger_actual_sha512_base64=$(
-    chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/openssl dgst \
-      -sha512 \
-      -binary "$ledger_appimage" |
-      chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/openssl base64 -A
-  )
   [ "$ledger_actual_sha512_base64" = "$ledger_metadata_sha512" ] ||
     software_fatal "Ledger Live AppImage SHA-512 does not match the release metadata"
-  ledger_actual_size=$(wc -c <"${target_root}${ledger_appimage}" | awk '{print $1}')
   [ "$ledger_actual_size" = "$ledger_metadata_size" ] ||
     software_fatal "Ledger Live AppImage size does not match the release metadata"
 
@@ -2106,12 +2052,12 @@ trap - EXIT HUP INT TERM
   install -D -m 0644 "$ledger_icon_source" "${target_root}${ledger_icon_file}"
 
   software_render_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_APPS_LEDGER_LIVE_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/share/desktop/applications/ledger-live.desktop.tmpl)" \
     "$ledger_desktop_file" \
     0644 \
     LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_UDEV_RULES_D_53_LEDGER_WALLET)" \
+    "$(installer_repo_file_value hooks/target/etc/udev/rules.d/53-ledger-wallet.rules)" \
     "$ledger_udev_rules" \
     0644
 
@@ -2144,6 +2090,11 @@ fi
 }
 
 software_cleanup_work_dir() {
+  if [ -e "${target_root}${work_dir}/.deb-batch-active" ] ||
+     [ -L "${target_root}${work_dir}/.deb-batch-active" ]; then
+    software_warn "package transaction incomplete; retain ${work_dir} for operator recovery; do not retry automatically"
+    return 0
+  fi
   if [ -e "${target_root}${work_dir}/.extraction-outcome-unknown" ] ||
      [ -e "${target_root}${work_dir}/.extraction-active" ]; then
     software_warn "extraction cleanup outcome unknown; retain ${work_dir} for operator recovery; do not retry automatically"
@@ -2158,7 +2109,7 @@ software_run_selected_app() {
   selected_worker=$3
   selected_result=$4
   installer_class_selected_any $selected_classes || return 0
-  installer_operation_context_repo FILE_LATE_SOFTWARE_TMPL 2167 "install_managed_application:${selected_worker}"
+  installer_operation_context_repo scripts/late/software.sh.tmpl 2118 "install_managed_application:${selected_worker}"
   software_info "starting ${selected_label}"
   # A required worker runs outside a conditional context so Dash keeps errexit.
   (
@@ -2177,6 +2128,7 @@ EOF_SELECTED
     selected_status=$?
   fi
   if [ "$selected_status" -eq 3 ] ||
+     [ -e "${target_root}${work_dir}/.deb-batch-active" ] ||
      [ -e "${target_root}${work_dir}/.extraction-outcome-unknown" ] ||
      [ -e "${target_root}${work_dir}/.extraction-active" ]; then
     software_warn "$selected_label outcome unknown; retain ${work_dir}; do not retry automatically"
@@ -2186,12 +2138,15 @@ EOF_SELECTED
 }
 
 if [ "$software_scx_only" = true ]; then
+  [ ! -L "${target_root}${work_dir}" ] || software_fatal 'software workspace must not be a symlink'
   install -d -m 0700 "${target_root}${work_dir}" "$tmp_env_dir"
+  [ ! -e "${target_root}${work_dir}/.deb-batch-active" ] ||
+    software_fatal "unfinished package transaction retained at ${work_dir}; inspect before retrying"
   trap software_cleanup_work_dir EXIT HUP INT TERM
   software_ensure_temporary_unshare
   software_stage_external_servicing_runtime
   software_stage_seed_asset \
-    "$(installer_repo_apt_file SOURCES_LIST_D_APT_REPO_LOCAL_SOURCES)" \
+    "$(installer_repo_apt_file sources.list.d/apt-repo-local.sources)" \
     "$software_deb_repository_source" \
     0644
   software_install_scx_scheduler
@@ -2215,23 +2170,28 @@ software_discord_installed=false
 software_ledger_installed=false
 software_tuta_installed=false
 
+[ ! -L "${target_root}${work_dir}" ] || software_fatal 'software workspace must not be a symlink'
 install -d -m 0700 "${target_root}${work_dir}" "$tmp_env_dir"
+[ ! -e "${target_root}${work_dir}/.deb-batch-active" ] ||
+  software_fatal "unfinished package transaction retained at ${work_dir}; inspect before retrying"
 trap software_cleanup_work_dir EXIT HUP INT TERM
 software_ensure_temporary_unshare
 software_stage_external_servicing_runtime
 tor_browser_module="${tmp_env_dir}/tor-browser.sh"
-fetch_hook_file "$(installer_repo_file_value FILE_LATE_TOR_BROWSER)" "$tor_browser_module"
+fetch_hook_file "$(installer_repo_file_value scripts/late/tor-browser.sh)" "$tor_browser_module"
 # shellcheck disable=SC1090,SC1091
 . "$tor_browser_module"
 software_run_selected_app "role/desktop/full" "Tor Browser" software_install_tor_browser software_tor_browser_installed
 software_stage_seed_asset \
-  "$(installer_repo_apt_file SOURCES_LIST_D_APT_REPO_LOCAL_SOURCES)" \
+  "$(installer_repo_apt_file sources.list.d/apt-repo-local.sources)" \
   "$software_deb_repository_source" \
   0644
 software_install_scx_scheduler
 software_run_selected_app "role/desktop/medium role/desktop/full" "ChatGPT/Codex desktop" software_enable_chatgpt_integration software_chatgpt_installed
 
-software_install_bitwarden_app() {
+software_begin_deb_batch desktop
+
+software_prepare_bitwarden_app() {
   software_download \
     "Bitwarden Desktop" \
     "$SOFTWARE_BITWARDEN_URL" \
@@ -2240,7 +2200,7 @@ software_install_bitwarden_app() {
     skip
   # Install and retain the exact vendor download; never rewrite app.asar or
   # rebuild Bitwarden's Debian archive.
-  software_install_deb \
+  software_queue_deb \
     "Bitwarden Desktop" \
     "$bitwarden_deb" \
     "bitwarden" \
@@ -2248,86 +2208,69 @@ software_install_bitwarden_app() {
     __INSTALLER_PATH_DIR_OPT_BITWARDEN__/bitwarden \
     __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/bitwarden.desktop \
     __INSTALLER_PATH_DIR_OPT_BITWARDEN__/libffmpeg.so
+}
+
+software_finish_bitwarden_app() {
   software_configure_chromium_sandbox \
     "Bitwarden Desktop" \
     __INSTALLER_PATH_DIR_OPT_BITWARDEN__/chrome-sandbox
 }
 
-software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Bitwarden Desktop" software_install_bitwarden_app software_bitwarden_installed
+software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Bitwarden Desktop preparation" software_prepare_bitwarden_app software_bitwarden_installed
 
-software_install_qoredb_app() {
+software_prepare_qoredb_app() {
 software_download \
   "QoreDB" \
   "$SOFTWARE_QOREDB_URL" \
   "$qoredb_deb" \
   artifact \
   skip
-qoredb_actual_sha256=$(
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$qoredb_deb" |
-    awk '{print $1}'
-)
-[ "$qoredb_actual_sha256" = "$SOFTWARE_QOREDB_SHA256" ] ||
-  software_fatal "QoreDB package SHA-256 does not match the pinned release asset"
-software_install_deb \
+software_queue_deb \
   "QoreDB" \
   "$qoredb_deb" \
   "qore-db" \
   amd64 \
   __INSTALLER_PATH_DIR_USR_BIN__/qoredb \
-  __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/QoreDB.desktop
-qoredb_installed_version=$(
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-query \
-    -W \
-    -f='${Version}' \
-    qore-db 2>__INSTALLER_PATH_DIR_DEV__/null || true
-)
-[ "$qoredb_installed_version" = "$SOFTWARE_QOREDB_VERSION" ] ||
-  software_fatal "QoreDB installed version does not match the pinned release: ${qoredb_installed_version:-missing}"
+  __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/QoreDB.desktop \
+  "" "$SOFTWARE_QOREDB_SHA256" "$SOFTWARE_QOREDB_VERSION"
+}
+
+software_finish_qoredb_app() {
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate \
   __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/QoreDB.desktop >__INSTALLER_PATH_DIR_DEV__/null 2>&1
 
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__
 
 }
-software_run_selected_app "role/desktop/full" "QoreDB" software_install_qoredb_app software_qoredb_installed
+software_run_selected_app "role/desktop/full" "QoreDB preparation" software_prepare_qoredb_app software_qoredb_installed
 
-software_install_obsidian_app() {
+software_prepare_obsidian_app() {
 software_download \
   "Obsidian" \
   "$obsidian_url" \
   "$obsidian_deb" \
   artifact \
   skip
-obsidian_actual_sha256=$(
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$obsidian_deb" |
-    awk '{print $1}'
-)
-[ "$obsidian_actual_sha256" = "$obsidian_sha256" ] ||
-  software_fatal "Obsidian package SHA-256 does not match the pinned release asset"
-software_install_deb \
+software_queue_deb \
   "Obsidian" \
   "$obsidian_deb" \
   "obsidian" \
   amd64 \
   __INSTALLER_PATH_DIR_OPT_OBSIDIAN__/obsidian \
   __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/md.obsidian.Obsidian.desktop \
-  __INSTALLER_PATH_DIR_OPT_OBSIDIAN__/libffmpeg.so
-obsidian_installed_version=$(
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-query \
-    -W \
-    -f='${Version}\n' \
-    obsidian 2>__INSTALLER_PATH_DIR_DEV__/null || true
-)
-[ "$obsidian_installed_version" = "$obsidian_version" ] ||
-  software_fatal "Obsidian installed version does not match the pinned release"
+  __INSTALLER_PATH_DIR_OPT_OBSIDIAN__/libffmpeg.so \
+  "$obsidian_sha256" "$obsidian_version"
+}
+
+software_finish_obsidian_app() {
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate \
   __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/md.obsidian.Obsidian.desktop >__INSTALLER_PATH_DIR_DEV__/null 2>&1
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__
 
 }
-software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Obsidian" software_install_obsidian_app software_obsidian_installed
+software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Obsidian preparation" software_prepare_obsidian_app software_obsidian_installed
 
-software_install_tomat_app() {
+software_prepare_tomat_app() {
 # Bootstrap only the profile-pinned Tomat asset. The adapter validates the tag,
 # canonical URL, digest and exact Debian package version.
 # No latest-release API, source build or unverified fallback is used here.
@@ -2353,13 +2296,16 @@ chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/systemctl --root=/ mask tom
   software_fatal "cannot mask the unscoped Tomat system service"
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/systemctl --global mask tomat.service ||
   software_fatal "cannot mask the unscoped Tomat user service"
-software_install_deb "Tomat" "$tomat_deb" tomat amd64 __INSTALLER_PATH_DIR_USR_BIN__/tomat ""
+software_queue_deb "Tomat" "$tomat_deb" tomat amd64 __INSTALLER_PATH_DIR_USR_BIN__/tomat "" "" "$SOFTWARE_TOMAT_SHA256"
+}
+
+software_finish_tomat_app() {
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/tomat daemon run --help >__INSTALLER_PATH_DIR_DEV__/null ||
   software_fatal "Tomat does not support the required foreground daemon interface"
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/tomat watch --help >__INSTALLER_PATH_DIR_DEV__/null ||
   software_fatal "Tomat does not support the required Waybar watcher interface"
 }
-software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Tomat" software_install_tomat_app software_tomat_installed
+software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Tomat preparation" software_prepare_tomat_app software_tomat_installed
 
 software_install_postman_app() {
 software_download \
@@ -2381,35 +2327,25 @@ if [ "$software_postman_installed" = true ]; then
   postman_sha256=$(sed -n 's/^archive_sha256=//p' "${target_root}${postman_install_dir}/.release")
 fi
 
-software_install_sleek_app() {
+software_prepare_sleek_app() {
 software_download \
   "Sleek" \
   "$sleek_url" \
   "$sleek_deb" \
   artifact \
   skip
-sleek_actual_sha256=$(
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$sleek_deb" |
-    awk '{print $1}'
-)
-[ "$sleek_actual_sha256" = "$sleek_sha256" ] ||
-  software_fatal "Sleek package SHA-256 does not match the pinned release asset"
-software_install_deb \
+software_queue_deb \
   "Sleek" \
   "$sleek_deb" \
   "sleek" \
   amd64 \
   __INSTALLER_PATH_DIR_OPT_SLEEK__/sleek \
   __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/sleek.desktop \
-  __INSTALLER_PATH_DIR_OPT_SLEEK__/libffmpeg.so
-sleek_installed_version=$(
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-query \
-    -W \
-    -f='${Version}' \
-    sleek 2>__INSTALLER_PATH_DIR_DEV__/null || true
-)
-[ "$sleek_installed_version" = "$sleek_version" ] ||
-  software_fatal "Sleek installed version does not match the pinned release: ${sleek_installed_version:-missing}"
+  __INSTALLER_PATH_DIR_OPT_SLEEK__/libffmpeg.so \
+  "$sleek_sha256" "$sleek_version"
+}
+
+software_finish_sleek_app() {
 sleek_icon_source=$(
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-query -L sleek |
     awk '/^\__INSTALLER_PATH_DIR_USR__\/share\/icons\/hicolor\/[0-9]+x[0-9]+\/apps\/sleek\.png$/ { print }' |
@@ -2418,7 +2354,7 @@ sleek_icon_source=$(
 [ -n "$sleek_icon_source" ] || software_fatal "Sleek package has no themed PNG icon"
 software_stage_menu_icon "$sleek_icon_source" sleek
 software_render_seed_asset \
-  "$(installer_repo_file_value FILE_TARGET_APPS_SLEEK_TMPL)" \
+  "$(installer_repo_file_value hooks/target/usr/local/share/desktop/applications/sleek.desktop.tmpl)" \
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/sleek.desktop \
   0644 \
   LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
@@ -2428,16 +2364,16 @@ chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __I
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__
 
 }
-software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Sleek" software_install_sleek_app software_sleek_installed
+software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Sleek preparation" software_prepare_sleek_app software_sleek_installed
 
-software_install_zoom_app() {
+software_prepare_zoom_app() {
 software_download \
   "Zoom Workplace" \
   "$SOFTWARE_ZOOM_URL" \
   "$zoom_deb" \
   artifact \
   skip
-software_install_deb \
+software_queue_deb \
   "Zoom Workplace" \
   "$zoom_deb" \
   "zoom" \
@@ -2445,16 +2381,16 @@ software_install_deb \
   __INSTALLER_PATH_DIR_USR_BIN__/zoom \
   __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/Zoom.desktop
 }
-software_run_selected_app "role/desktop/medium role/desktop/full" "Zoom Workplace" software_install_zoom_app software_zoom_installed
+software_run_selected_app "role/desktop/medium role/desktop/full" "Zoom Workplace preparation" software_prepare_zoom_app software_zoom_installed
 
-software_install_filen_app() {
+software_prepare_filen_app() {
 software_download \
   "Filen Desktop" \
   "$SOFTWARE_FILEN_DESKTOP_URL" \
   "$filen_deb" \
   artifact \
   skip
-software_install_deb \
+software_queue_deb \
   "Filen Desktop" \
   "$filen_deb" \
   "filen filen-desktop" \
@@ -2462,19 +2398,32 @@ software_install_deb \
   __INSTALLER_PATH_DIR_OPT_FILEN__/Filen \
   __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/Filen.desktop \
   __INSTALLER_PATH_DIR_OPT_FILEN__/libffmpeg.so
+}
+
+software_finish_filen_app() {
 software_configure_chromium_sandbox \
   "Filen Desktop" \
   __INSTALLER_PATH_DIR_OPT_FILEN__/chrome-sandbox \
   optional
 }
-software_run_selected_app "role/desktop/medium role/desktop/full" "Filen Desktop" software_install_filen_app software_filen_installed
+software_run_selected_app "role/desktop/medium role/desktop/full" "Filen Desktop preparation" software_prepare_filen_app software_filen_installed
+
+# All selected .deb inputs now exist. Commit and configure them together, then
+# execute application-specific checks that require their installed files.
+software_flush_deb_batch
+software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Bitwarden Desktop post-install" software_finish_bitwarden_app software_bitwarden_installed
+software_run_selected_app "role/desktop/full" "QoreDB post-install" software_finish_qoredb_app software_qoredb_installed
+software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Obsidian post-install" software_finish_obsidian_app software_obsidian_installed
+software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Tomat post-install" software_finish_tomat_app software_tomat_installed
+software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Sleek post-install" software_finish_sleek_app software_sleek_installed
+software_run_selected_app "role/desktop/medium role/desktop/full" "Filen Desktop post-install" software_finish_filen_app software_filen_installed
 
 software_install_discord_app() {
 # The Discord verifier publishes the runtime and then validates this desktop
 # entry as part of its postinstall transaction. Stage it before bootstrap so a
 # fresh install does not fail solely because the entry is created afterward.
 software_stage_seed_asset \
-  "$(installer_repo_file_value FILE_TARGET_APPS_DISCORD_TMPL)" \
+  "$(installer_repo_file_value hooks/target/usr/local/share/desktop/applications/discord.desktop.tmpl)" \
   "$discord_desktop_file" \
   0644
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate "$discord_desktop_file"
@@ -2517,7 +2466,7 @@ fi
 
 software_install_tuta_app() {
 software_stage_seed_asset \
-  "$(installer_repo_file_value FILE_TARGET_SHARE_SOFTWARE_TUTA_TUTAO_PUB_PEM)" \
+  "$(installer_repo_file_value hooks/target/usr/local/share/desktop/software/tuta/tutao-pub.pem)" \
   "$tuta_public_key" \
   0644
 
@@ -2635,7 +2584,7 @@ install -d -m 0755 "${target_root}$(dirname "$tuta_icon_file")"
 install -m 0644 "${target_root}${tuta_icon_source}" "${target_root}${tuta_icon_file}"
 
 software_render_seed_asset \
-  "$(installer_repo_file_value FILE_TARGET_SKEL_APPS_TUTANOTA_DESKTOP_TMPL)" \
+  "$(installer_repo_file_value hooks/target/etc/skel-desktop/.local/share/applications/tutanota-desktop.desktop.tmpl)" \
   "$tuta_desktop_file" \
   0644 \
   LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
@@ -2723,8 +2672,6 @@ if [ "$software_ledger_installed" = true ]; then
   mv -f -- "$ledger_version_tmp" "${target_root}${ledger_version_file}"
 fi
 
-software_refresh_managed_deb_repository
-
 # Adopt the verified, already-installed binary distributions without compiling
 # or modifying their binaries. APT/dpkg now own their files and future upgrades.
 software_binary_packages=$(
@@ -2742,6 +2689,7 @@ for software_binary_package in $software_binary_packages; do
   set -- "$@" "$software_binary_package"
 done
 if [ "$#" -gt 0 ]; then
+  software_refresh_managed_deb_repository
   # These are already-installed vendor distributions. Adopt all of their
   # verified packages in one transaction instead of repeating APT/dpkg setup,
   # dependency resolution and trigger processing for each binary distribution.
@@ -2757,7 +2705,7 @@ chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local se
 software_refresh_managed_deb_repository
 
 software_stage_seed_asset \
-  "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APT_REPO_LOCAL_SOFTWARE_NOTIFY)" \
+  "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/apt-repo-local-software-notify)" \
   "$software_notify_helper" 0755
 for software_inbox_unit in apt-repo-local-inbox.service apt-repo-local-inbox.path apt-repo-local-refresh.service apt-repo-local-refresh.timer; do
   software_stage_seed_asset \
@@ -2765,13 +2713,13 @@ for software_inbox_unit in apt-repo-local-inbox.service apt-repo-local-inbox.pat
     "__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/${software_inbox_unit}" 0644
 done
 software_stage_seed_asset \
-  "$(installer_repo_file_value FILE_TARGET_UNIT_APT_REPO_LOCAL_FAMILY_SERVICE_D_60_RESOURCE_CLASS)" \
+  "$(installer_repo_file_value hooks/target/etc/systemd/common/system/apt-repo-local-.service.d/60-resource-class.conf)" \
   __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_APT_REPO_LOCAL_FAMILY_DROPIN__/60-resource-class.conf 0644
 software_stage_seed_asset \
-  "$(installer_repo_file_value FILE_TARGET_SKEL_USER_UNIT_APT_REPO_LOCAL_SOFTWARE_NOTIFY_SERVICE)" \
+  "$(installer_repo_file_value hooks/target/etc/skel-desktop/.config/systemd/user/apt-repo-local-software-notify.service)" \
   "$software_notify_service" 0644
 software_stage_seed_asset \
-  "$(installer_repo_file_value FILE_TARGET_SKEL_USER_UNIT_APT_REPO_LOCAL_SOFTWARE_NOTIFY_PATH)" \
+  "$(installer_repo_file_value hooks/target/etc/skel-desktop/.config/systemd/user/apt-repo-local-software-notify.path)" \
   "$software_notify_path" 0644
 
 run_in_target "enable local APT inbox and weekly refresh" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '

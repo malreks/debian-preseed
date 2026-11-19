@@ -229,7 +229,7 @@ preseed_env_read_value() (
       "$preseed_read_file" >"$preseed_read_tmp" 2>/dev/null; then
     preseed_env_error 'cannot normalize credential file'; return 2
   fi
-  preseed_data_parser=$(bootstrap_parser_asset_path "$(bootstrap_repo_file_value FILE_COMMON_CREDENTIAL_DATA)") || return 2
+  preseed_data_parser=$(bootstrap_parser_asset_path "$(bootstrap_repo_file_value scripts/common/credential-data.awk)") || return 2
   if preseed_read_result=$(LC_ALL=C awk -v mode=credential \
       -v wanted="$preseed_read_name" -f "$preseed_data_parser" "$preseed_read_tmp"); then
     :

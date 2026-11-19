@@ -67,10 +67,10 @@ software_install_tor_browser() (
   tor_key=__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_SOFTWARE__/tor-browser/developers.asc
   tor_install_helper=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tor-browser-install
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_SHARE_SOFTWARE_TOR_BROWSER_DEVELOPERS_ASC)" \
+    "$(installer_repo_file_value hooks/target/usr/local/share/desktop/software/tor-browser/developers.asc)" \
     "$tor_key" 0644
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TOR_BROWSER_INSTALL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/tor-browser-install)" \
     "$tor_install_helper" 0755
   software_download_tor_browser_asset \
     "Tor Browser" \
@@ -110,13 +110,13 @@ software_install_tor_browser() (
   # The root-owned immutable bundle is maintained through release pins and
   # installer publication; never permit a browser-owned binary replacement.
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_OPT_TOR_BROWSER_BROWSER_DISTRIBUTION_POLICIES)" \
+    "$(installer_repo_file_value hooks/target/opt/tor-browser/Browser/distribution/policies.json)" \
     __INSTALLER_PATH_DIR_OPT_TOR_BROWSER__/Browser/distribution/policies.json 0644
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_TOR_BROWSER_RUN)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/tor-browser-run)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/tor-browser-run 0755
   software_stage_seed_asset \
-    "$(installer_repo_file_value FILE_TARGET_APPS_TOR_BROWSER_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/share/desktop/applications/tor-browser.desktop.tmpl)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/tor-browser.desktop 0644
   # Firefox uses the distribution FFmpeg library for H.264/AAC. Check the
   # actual target ABI and decoders, not merely the ffmpeg command's presence.

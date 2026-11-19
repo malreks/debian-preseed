@@ -1,6 +1,7 @@
 """Safe access to the installed native appearance color fields."""
 from __future__ import annotations
 
+from collections import OrderedDict
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,10 @@ MAX_INPUT_BYTES = 2 * 1024 * 1024
 MAX_FIELDS = 1024
 MAX_VALUE_BYTES = 2048
 MAX_LINE_PART_CANDIDATES = 4096
+# Retain decoded files only within one current-values operation. Charge both
+# characters and line objects, so many short lines cannot fill an unbounded
+# cache. Larger working sets remain readable through ordinary LRU eviction.
+MAX_CURRENT_CACHE_COST = 8 * 1024 * 1024
 VARIANTS = ('', '.internal', '.external')
 COMPONENTS = frozenset(('DOCK', 'FUZZEL', 'WAYBAR', 'TASKVIEW', 'WAYCAL', 'MAKO', 'TERMINAL', 'SWAYLOCK', 'GTKGREET'))
 COLOR_TYPES = frozenset(('hash6', 'hash8', 'hex6', 'hex8', 'swaylock-rgb', 'swaylock-rgba', 'rgba', 'alpha', 'decimal',
@@ -417,10 +422,10 @@ def _account_home() -> Path:
     return home
 
 
-def _prepare_user_updates(tree: Tree, selected: dict[str, str]) -> tuple[dict[str, bytes], set[str]]:
+def _prepare_user_updates(tree: Tree, selected: dict[str, str], registry: dict
+                          ) -> tuple[dict[str, bytes], dict[str, bytes], set[str]]:
     grouped: dict[str, list[tuple[dict, dict[int, str]]]] = {}
     components: set[str] = set()
-    registry = load_registry()
     fields = field_map(registry)
     token_validator = _registry_token_validator(registry)
     for key, value in selected.items():
@@ -433,18 +438,19 @@ def _prepare_user_updates(tree: Tree, selected: dict[str, str]) -> tuple[dict[st
             if mapping['path'].startswith('/'):
                 continue
             for path in _candidate_user_paths(mapping['path']):
-                if tree.read(path, missing=True) is not None:
-                    grouped.setdefault(path, []).append((mapping, {mapping['target_index']: value}))
-    if not grouped:
-        return {}, components
+                grouped.setdefault(path, []).append((mapping, {mapping['target_index']: value}))
     updates: dict[str, bytes] = {}
+    expected: dict[str, bytes] = {}
     for path, mappings in grouped.items():
-        raw = tree.read(path)
+        # Probe each physical variant once, using these same bytes to render.
+        # transaction.plan performs a fresh comparison before journaling.
+        raw = tree.read(path, limit=transaction.MAX_IMAGE_BYTES, missing=True)
         if raw is None:
-            raise RuntimeError('appearance target disappeared: ' + path)
+            continue
         text = raw.decode('utf-8')
         updates[path] = _apply_to_text(text, mappings, token_validator).encode('utf-8')
-    return updates, components
+        expected[path] = raw
+    return updates, expected, components
 
 
 def _recover_field_updates(tree: Tree) -> None:
@@ -478,7 +484,7 @@ def _recover_field_updates(tree: Tree) -> None:
     tree.write(USER_JOURNAL, None)
 
 
-def _apply_updates(selected: dict[str, str]) -> set[str]:
+def _apply_updates(selected: dict[str, str], registry: dict) -> set[str]:
     from .engine import privileged
 
     account_home = _account_home()
@@ -491,12 +497,12 @@ def _apply_updates(selected: dict[str, str]) -> set[str]:
             if tree.json('.local/state/labwc-appearance/pending.json') is not None:
                 raise RuntimeError('a theme transaction needs recovery in the appearance theme menu')
             _recover_field_updates(tree)
-            updates, components = _prepare_user_updates(tree, selected)
-            greeter = _greeter_updates(selected)
+            updates, expected, components = _prepare_user_updates(tree, selected, registry)
+            greeter = _greeter_updates(selected, registry)
             if not updates and not greeter:
                 return components
             token = secrets.token_hex(16)
-            journal = transaction.plan(tree, updates, token)
+            journal = transaction.plan(tree, updates, token, expected=expected)
             # Capture liveness under the same lock, and persist it before a
             # service stop. Unchanged dock colors need no stop/start cycle.
             dock_running = (any(path.startswith('.config/crystal-dock/') for path in journal['new'])
@@ -510,14 +516,14 @@ def _apply_updates(selected: dict[str, str]) -> set[str]:
                     service.dock_stop()
                     # QSettings can save layout while stopping. Preserve those
                     # legitimate writes in the rollback images and candidate.
-                    updates, components = _prepare_user_updates(tree, selected)
-                    replacement = transaction.plan(tree, updates, token)
+                    updates, expected, components = _prepare_user_updates(tree, selected, registry)
+                    replacement = transaction.plan(tree, updates, token, expected=expected)
                     journal.update(old=replacement['old'], new=replacement['new'])
                     tree.put_json(USER_JOURNAL, journal)
                 journal['filesStarted'] = True
                 tree.put_json(USER_JOURNAL, journal)
                 if greeter:
-                    apply_greeter(greeter, token)
+                    apply_greeter(greeter, token, registry=registry)
                 transaction.apply(tree, journal)
                 # The durable account decision coordinates the authenticated
                 # root journal, including an interrupted or lost pkexec reply.
@@ -536,8 +542,8 @@ def _apply_updates(selected: dict[str, str]) -> set[str]:
     return components
 
 
-def _greeter_updates(selected: dict[str, str]) -> dict[str, str]:
-    fields = field_map(load_registry())
+def _greeter_updates(selected: dict[str, str], registry: dict) -> dict[str, str]:
+    fields = field_map(registry)
     result = {}
     for key, value in selected.items():
         field = fields.get(key)
@@ -550,10 +556,11 @@ def _greeter_updates(selected: dict[str, str]) -> dict[str, str]:
     return result
 
 
-def apply_greeter(selected: dict[str, str], token: str) -> None:
+def apply_greeter(selected: dict[str, str], token: str, *, registry: dict | None = None) -> None:
     if not re.fullmatch(r'[0-9a-f]{32}', token):
         raise ValueError('invalid greeter field transaction token')
-    payload = json.dumps({'updates': _greeter_updates(selected)}, separators=(',', ':')).encode('utf-8')
+    registry = load_registry() if registry is None else registry
+    payload = json.dumps({'updates': _greeter_updates(selected, registry)}, separators=(',', ':')).encode('utf-8')
     if len(payload) > MAX_INPUT_BYTES:
         raise ValueError('greeter appearance update is too large')
     process = subprocess.run(
@@ -614,11 +621,12 @@ def apply_root_greeter(selected: dict[str, str], token: str, uid: int) -> None:
                 raise RuntimeError('another greeter transaction needs recovery by its initiating account')
             transaction.check_committed(config, pending)
             return
-        updates = {}
+        updates, expected = {}, {}
         for path, mappings in updates_by_path.items():
-            raw = config.read(path)
+            raw = config.read(path, limit=transaction.MAX_IMAGE_BYTES)
             updates[path] = _apply_to_text(raw.decode('utf-8'), mappings, token_validator).encode('utf-8')
-        journal = transaction.plan(config, updates, token)
+            expected[path] = raw
+        journal = transaction.plan(config, updates, token, expected=expected)
         journal.update(caller=uid, kind='fields')
         transaction.validate(journal, set(updates))
         state.put_json('pending.json', journal)
@@ -643,7 +651,7 @@ def apply(selected: dict[str, str]) -> list[str]:
     for key, value in selected.items():
         for mapping in known[key]['mappings']:
             validate_value(known[key], value, mapping)
-    components = _apply_updates(selected)
+    components = _apply_updates(selected, registry)
     warnings = service.refresh(components)
     return warnings
 
@@ -703,6 +711,33 @@ def current_values(registry: dict | None = None) -> dict[str, str]:
     result = {}
     token_validator = _registry_token_validator(registry)
     with Tree(_account_home()) as user_tree, Tree(Path('__INSTALLER_PATH_DIR_ETC__/greetd'), uid=0) as greeter_tree:
+        cache: OrderedDict[str, tuple[list[str] | None, int]] = OrderedDict()
+        cache_cost = 0
+
+        def read_lines(path: str) -> list[str] | None:
+            nonlocal cache_cost
+            if path in cache:
+                lines, cost = cache.pop(path)
+                cache[path] = (lines, cost)
+                return lines
+            lines, cost = None, 128
+            try:
+                raw = (greeter_tree.read(path[len('__INSTALLER_PATH_DIR_ETC__/greetd/'):], missing=True)
+                       if path.startswith('__INSTALLER_PATH_DIR_ETC__/greetd/')
+                       else user_tree.read(path, missing=True))
+                if raw is not None:
+                    lines = raw.decode('utf-8').splitlines()
+                    cost += 4 * len(raw) + 96 * len(lines)
+            except (OSError, UnicodeDecodeError, ValueError):
+                pass
+            if cost <= MAX_CURRENT_CACHE_COST:
+                while cache and cache_cost + cost > MAX_CURRENT_CACHE_COST:
+                    _, (_, removed) = cache.popitem(last=False)
+                    cache_cost -= removed
+                cache[path] = (lines, cost)
+                cache_cost += cost
+            return lines
+
         for field in registry['fields']:
             value = None
             for mapping in field['mappings']:
@@ -710,12 +745,9 @@ def current_values(registry: dict | None = None) -> dict[str, str]:
                          else _candidate_user_paths(mapping['path']))
                 for path in paths:
                     try:
-                        raw = (greeter_tree.read(path[len('__INSTALLER_PATH_DIR_ETC__/greetd/'):], missing=True)
-                               if path.startswith('__INSTALLER_PATH_DIR_ETC__/greetd/')
-                               else user_tree.read(path, missing=True))
-                        if raw is None:
+                        lines = read_lines(path)
+                        if lines is None:
                             continue
-                        lines = raw.decode('utf-8').splitlines()
                         located = _locate_line_parts(lines, mapping, token_validator)
                         if located is not None:
                             _, parsed = located

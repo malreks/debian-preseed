@@ -939,7 +939,7 @@ bootstrap_source_common_lib "" ||
   whisper_fatal "failed to source installer common library"
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/whisper}
-installer_operation_context_repo FILE_LATE_WHISPER 961 whisper
+installer_operation_context_repo scripts/late/whisper.sh 961 whisper
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target || {
   whisper_fatal "failed to source installer late support libraries"
@@ -987,9 +987,9 @@ target_archive_helper_host="${target_root}${target_archive_helper}"
 target_runtime_template=/tmp/whisper.conf.tmpl
 target_runtime_template_host="${target_root}${target_runtime_template}"
 
-whisper_stage_target_asset "$(installer_repo_file_value FILE_LATE_WHISPER)" "$target_helper" 0700
-whisper_stage_target_asset "$(installer_repo_file_value FILE_LATE_AI_RUNTIME_ARCHIVE)" "$target_archive_helper" 0700
-whisper_stage_target_asset "$(installer_repo_file_value FILE_TARGET_WHISPER_WHISPER_TMPL)" "$target_runtime_template" 0600
+whisper_stage_target_asset "$(installer_repo_file_value scripts/late/whisper.sh)" "$target_helper" 0700
+whisper_stage_target_asset "$(installer_repo_file_value scripts/late/ai-runtime-archive.py)" "$target_archive_helper" 0700
+whisper_stage_target_asset "$(installer_repo_file_value hooks/target/etc/whisper/whisper.conf.tmpl)" "$target_runtime_template" 0600
 installer_apply_scalar_placeholders "$target_runtime_template_host" "$target_runtime_template_host" \
   WHISPER_CLI "${WHISPER_BINARY_DIR}/whisper-cli" WHISPER_SERVER "${WHISPER_BINARY_DIR}/whisper-server" \
   WHISPER_SERVER_PORT "$WHISPER_SERVER_PORT" WHISPER_MODEL "${WHISPER_MODEL_DIR}/${model_filename}" \
@@ -998,8 +998,8 @@ installer_apply_scalar_placeholders "$target_runtime_template_host" "$target_run
 installer_assert_no_unresolved_installer_placeholders "$target_runtime_template_host" 'Whisper runtime configuration' || exit 1
 if [ "$INSTALLER_HOST_VARIANT" = desktop ]; then
   whisper_stage_mode_perl_modules
-  whisper_stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_WHISPER_RECORD_TOGGLE)" "${DIR_USR_LOCAL_LIBEXEC}/whisper-record-toggle" 0755
-  whisper_stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_WHISPER_CLI_DEFAULT_MODEL)" "${DIR_USR_LOCAL_LIBEXEC}/whisper-cli-default-model" 0755
+  whisper_stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/whisper-record-toggle)" "${DIR_USR_LOCAL_LIBEXEC}/whisper-record-toggle" 0755
+  whisper_stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/whisper-cli-default-model)" "${DIR_USR_LOCAL_LIBEXEC}/whisper-cli-default-model" 0755
 fi
 
 cleanup_target_install_assets() {

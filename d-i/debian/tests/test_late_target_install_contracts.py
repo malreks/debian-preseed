@@ -260,7 +260,8 @@ class SkeletonDestinationContracts(unittest.TestCase):
     def setUp(self):
         self.inputs = [(ROOT / 'd-i/debian' / name).read_text() for name in (
             'scripts/server/foundation.sh', 'scripts/desktop/waypaper.sh',
-            'scripts/common/modules/target-publication.sh', 'scripts/common/primary-defaults.py')]
+            'scripts/common/modules/target-publication.sh', 'scripts/common/primary-defaults.py',
+            'scripts/common/render.pl')]
 
     def issues(self, index=None, before=None, after='removed_contract'):
         inputs = self.inputs.copy()
@@ -279,18 +280,23 @@ class SkeletonDestinationContracts(unittest.TestCase):
         self.assertTrue(self.issues(1, '${DIR_ETC_SKEL_DESKTOP}/.local/share/applications/waypaper.desktop'))
 
     def test_waypaper_cannot_have_only_the_future_account_destination(self):
-        self.assertTrue(self.issues(1, '"$waypaper_launcher_target" "$waypaper_launcher_mode"'))
+        self.assertTrue(self.issues(1, 'installer_publish_primary_defaults desktop'))
+        self.assertTrue(self.issues(1, 'installer_asset_batch_flush'))
+        self.assertTrue(self.issues(2, '--relative "$4"'))
+        self.assertTrue(self.issues(4, '$primary{$primary_path} = [$result, oct($mode)]'))
 
     def test_waypaper_primary_launcher_must_belong_to_the_user_applications_directory(self):
         self.assertTrue(self.issues(1, '${ACCOUNT_HOME}/.local/share/applications'))
-        self.assertTrue(self.issues(1, '"$waypaper_account_uid:$waypaper_account_gid"'))
+        self.assertTrue(self.issues(3, 'args.home == Path(account.pw_dir)'))
+        self.assertTrue(self.issues(3, 'os.fchown(stream.fileno(), account.pw_uid, account.pw_gid)'))
 
     def test_both_families_and_hidden_defaults_remain_in_the_shared_copy(self):
         for family in ('DESKTOP', 'SERVER'):
             with self.subTest(family=family):
                 self.assertTrue(self.issues(2, '${DIR_ETC_SKEL_' + family + '}/'))
         self.assertTrue(self.issues(3, 'with os.scandir(directory) as iterator:'))
-        self.assertTrue(self.issues(3, 'publish(input_dir, output_dir, account, budget, depth + 1)'))
+        self.assertTrue(self.issues(3, 'publish(input_dir, output_dir, account, budget, depth + 1,'))
+        self.assertTrue(self.issues(3, 'if selected is not None and name != selected[0]:'))
 
     def test_primary_home_group_and_privacy_cannot_be_dropped(self):
         self.assertTrue(self.issues(3, 'os.fchown(home, account.pw_uid, account.pw_gid)'))
@@ -305,7 +311,7 @@ class FutureAccountContracts(unittest.TestCase):
             'hooks/target/usr/local/sbin/common/account-create',
             'scripts/common/modules/target-publication.sh',
             'scripts/desktop/components/rendering-access.sh',
-            'scripts/late/dispatch.sh')]
+            'scripts/late/dispatch.sh', 'scripts/common/render.pl')]
 
     def issues(self, index=None, before=None, after='removed_contract'):
         inputs = self.inputs.copy()
@@ -318,9 +324,9 @@ class FutureAccountContracts(unittest.TestCase):
         self.assertEqual(self.issues(), [])
 
     def test_reported_build_failure_cannot_return(self):
-        broken = self.issues(1, 'installer_stage_profile_file FILE_TARGET_SKEL_BASE_PROFILE',
+        broken = self.issues(1, 'installer_stage_profile_file hooks/target/etc/skel-base/.profile',
                              'installer_stage_profile_file "FILE_TARGET_SKEL_BASE_${base_shell_asset}"')
-        self.assertTrue(any('explicit registered source selector' in issue for issue in broken))
+        self.assertTrue(any('explicit registered source member' in issue for issue in broken))
         self.assertTrue(any('incomplete prefix' in issue for issue in broken))
 
     def test_root_gate_and_default_base_type_cannot_be_dropped(self):
@@ -344,8 +350,10 @@ class FutureAccountContracts(unittest.TestCase):
                                     'installer_publish_primary_defaults() {\n  "$FILE_ACCOUNT_CREATE" --prepare-home'))
 
     def test_capture_must_precede_account_relative_template_values(self):
-        self.assertTrue(self.issues(2, 'installer_capture_primary_default "$tmp_rendered"'))
-        self.assertTrue(self.issues(2, "ACCOUNT_USERNAME) future_value='$USER'"))
+        self.assertTrue(self.issues(2, 'installer_asset_publish "$desktop_plan_kind" "$desktop_plan_source"'))
+        self.assertTrue(self.issues(4, '$primary{$primary_path} = [$result, oct($mode)]'))
+        self.assertTrue(self.issues(4, "$future{ACCOUNT_USERNAME} = '$USER'"))
+        self.assertTrue(self.issues(4, 'future-account directory escapes the primary account HOME'))
 
     def test_unprivileged_initializer_cannot_read_a_private_skeleton(self):
         self.assertTrue(self.issues(0, 'def personalize(account, role: str) -> None:',

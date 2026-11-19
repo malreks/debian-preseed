@@ -24,19 +24,20 @@ authoritative.
   appearance rendering. Do not duplicate a theme key or action table.
 - Theme variables own appearance data only. They do not own repository
   selectors, installer destinations, mounted-target paths, or installed-system
-  roots. Do not hard-code those paths in a theme; use `repo.env` for relative
-  source selectors, `hooks/installer/di.env` for d-i-only paths, and
+  roots. Do not duplicate those roots in a theme; use `repo.env` for shared
+  relative roots, `hooks/installer/di.env` for d-i-only paths, and
   `hosts/installer/runtime.env` through the shared target placeholder renderer
   for installed paths.
 - Preserve `__INSTALLER_PATH_*__` tokens until the single publication renderer
   resolves them, then reject unresolved tokens. Never add ad-hoc substitutions,
   restore a literal project path to satisfy a checker, or source an environment
-  file from an installed theme asset. Repository selectors remain parent-derived
-  `DIR_*`/`FILE_*` values in `repo.env`.
+  file from an installed theme asset. Shared repository roots remain
+  parent-derived `DIR_*` values in `repo.env`; fixed members and stable leaves
+  may be documented literal data.
 - Project-owned installed paths must use the shared installer placeholder
-  renderer before theme substitution. Repository source selectors use the
-  grouped hierarchy in `repo.env`; do not restore literals when a placeholder
-  or selector is required.
+  renderer before theme substitution. Shared repository roots use the
+  hierarchy in `repo.env`; fixed source members do not require global aliases.
+  Preserve placeholders for project-owned target paths.
 - Keep native Waybar `clock`, audio, battery, brightness/backlight, disk, CPU,
   memory and other built-in modules native. Preserve the existing launcher
   marker and Apps drawer prelight/expanded protocol. Only the authorized
@@ -49,30 +50,37 @@ authoritative.
 - Validate theme data and rendering statically only. Do not launch GTK, Waybar,
   Labwc, D-Bus or a systemd manager; report those verification limits.
 
-## Source selector naming and staging
+## Repository configuration and source staging
 
-- Every published source directory and file has a `DIR_*` or `FILE_*` entry
-  in `repo.env`. Use concise role/component names such as
-  `DIR_TARGET_SKEL_PROFILE`, `FILE_TARGET_SKEL_DIRCOLORS`,
-  `FILE_TARGET_SKEL_PROFILE_71_DEVOPS_DE`, and `FILE_LATE_CORE`; do not encode
-  the entire filesystem hierarchy or duplicate extensions in a selector name.
-- File entries name physical payload members, including `.tmpl` when present,
-  and derive from their nearest directory selector. Fixed installer callers
-  resolve `FILE_*` through `installer_repo_file_value`,
-  `bootstrap_repo_file_value`, or the preseed entrypoint equivalent. Dynamic
-  source choices use `installer_repo_asset_path` and the cached FILE catalog;
-  directory operations use DIR selectors. Do not reconstruct a fixed source
-  filename or a static directory prefix at a staging call site.
-- Repository selectors remain installer acquisition data. Installed paths and
-  target policy stay in `hosts/installer/runtime.env`; d-i destinations and
-  state stay in `hooks/installer/di.env`. Profiles and themes retain their
-  policy/appearance ownership. Installed programs must not source any of these
-  installer input files or receive repository selectors as runtime settings.
-- Keep FILE and DIR diagnostic interfaces distinct: FILE context calls pass
-  selector, source line, and operation; DIR context calls additionally pass a
-  relative leaf. Diagnostic lookup is advisory and must never trigger a fetch,
-  fail a valid operation, or report a line belonging to a different source.
-- A selector change requires an audit of fixed and dynamic callers, source
-  labels, loader/template suffix handling, fixtures, and generated products.
-  Preserve Dash/BusyBox compatibility; do not add `stat`, Bash features,
-  environment-size limits, or a second path renderer to the installer.
+- `repo.env` contains the supported repository defaults and genuinely shared
+  `DIR_*` roots. It is restricted assignment data, not shell code. Keep shared
+  roots parent-derived; do not restore a `FILE_*` inventory, aliases for every
+  file, or a second configuration authority.
+- Stable source members are documented root-relative interfaces at their
+  callers, including the physical `.tmpl` suffix where present. Local constants
+  and literal leaves are allowed when that interface has no supported
+  variability. Keep suite/profile/site choices, configurable roots and policy
+  in their owning contracts; never substitute a developer-machine path or
+  duplicate a shared root.
+- Preseed, bootstrap and common adapters share `source_load_repo_env`. Its
+  restricted AWK parser rejects executable syntax, unknown/duplicate/missing
+  keys, undefined parents and unsafe relative paths. Never dot-source or
+  `eval` repository configuration, and never load it on the installed target.
+- Build validates supported configuration and physical source members, and
+  compiles `catalog/compiled/source-members.tsv` from the captured snapshot.
+  Selected APT publication uses the smaller `apt-assets.tsv` table. Those
+  generated indexes carry membership data; they are not exported environment
+  variables or an alternative authored path contract.
+- Resolve dynamic members against the captured membership table at the owning
+  loader/publication boundary. Retain containment, direct-file, template,
+  ownership and permission checks there. Diagnostics name the resolved physical
+  root-relative member and source line, remain advisory, and never trigger a
+  fetch or change a successful operation into a failure.
+- Installed paths and policy remain in `hosts/installer/runtime.env`; d-i-only
+  destinations and state remain in `hooks/installer/di.env`. Profiles and themes
+  retain policy/appearance ownership. Installed programs receive concrete
+  rendered configuration and must not source these installer input files.
+- A configuration or member change requires a consumer, diagnostic, fixture and
+  generated-product audit. Preserve Dash/BusyBox compatibility, phase and
+  target-root boundaries, and the single target-placeholder renderer. Do not
+  add a large exported environment or an installer `stat` dependency.

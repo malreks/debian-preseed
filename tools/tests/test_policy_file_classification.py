@@ -71,17 +71,26 @@ class PolicyFileClassification(unittest.TestCase):
             self.assertEqual(len(list(checker['shell_sources'](root))),2)
 
     def test_audit_does_not_count_policy_attachment_as_a_shell_failure_or_pass(self):
-        with tempfile.TemporaryDirectory() as directory:
+        checker=runpy.run_path(str(ROOT/'d-i/debian/tests/audit_codebase.py'))
+        with tempfile.TemporaryDirectory(dir='/workspace') as directory:
             root=Path(directory);script=root/'d-i/debian/tests/audit_codebase.py'
             script.parent.mkdir(parents=True)
             shutil.copyfile(ROOT/'d-i/debian/tests/audit_codebase.py',script)
+            for name in checker['REQUIRED_SCOPES']:
+                scope=root/name
+                scope.mkdir(parents=True,exist_ok=True)
+                (scope/'fixture-data').write_text('owned fixture data\n')
+            renderer=root/'d-i/debian/scripts/common/render.pl'
+            renderer.parent.mkdir(parents=True)
+            renderer.write_text('use strict; use warnings; 1;\n')
             policy=root/'d-i/debian/hooks/target/etc/apparmor.d/usr.local.sbin.example.sh'
             policy.parent.mkdir(parents=True)
             policy.write_text('profile example /usr/local/sbin/example.sh flags=(attach_disconnected) { }\n')
             report=root/'audit.json'
-            result=subprocess.run([sys.executable,'-B',str(script),'--output',str(report)],
+            result=subprocess.run([sys.executable,'-B',str(script),'--source-only','--output',str(report)],
                                   capture_output=True,text=True,timeout=20)
             self.assertEqual(result.returncode,0,result.stderr)
-            record=json.loads(report.read_text())['files'][0]
+            record=next(item for item in json.loads(report.read_text())['files']
+                        if item['path']==policy.relative_to(root).as_posix())
             self.assertEqual(record['kind'],'apparmor-policy')
             self.assertEqual(record['check'],'inventory-only')

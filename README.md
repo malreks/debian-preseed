@@ -10,6 +10,16 @@ This repository provisions fresh installations. Installer policy and saved runti
 state use their current formats. New installations use explicit role and host
 profile selections; host-specific identities are never role defaults.
 
+The [2026-11-19 log-driven renderer repair](IMPLEMENTATION_LOG_REPAIR_20261119.md)
+fixes the complete-program Perl syntax failure reported by the new installer
+logs, corrects service-name validation and command argument handling, and replaces
+the obsolete syntax-audit scope with the shared source layout and a guarded
+prepared-payload Perl gate.
+The report distinguishes actual isolated passes from unavailable dependencies
+and tools. Current products are in `d-i/forky/` and `d-i/trixie/`; deploy each
+suite's six generated files together. The separate `offline/payload.tar.gz`
+is an older historical build and is not this repaired release.
+
 Every desktop tier, including base, installs Obsidian and clones the vault from the managed GitLab SSH
 repository into `~/Syncthing/obsidian-md`. An account-local Labwc timer
 commits settled edits and forwards the main branch to staging and release
@@ -42,9 +52,11 @@ private application-output socket; authentication fallback never writes there.
 
 The current [security repair and operating gates](docs/security-hardening.md)
 cover their recorded A01-A09 findings, rsyslog tmpfs, and the installer
-module/loading contract. Current work uses only generation and the
-[required changed-file static audit](docs/test-isolation.md). Tests, managed
-module imports, host operations and disposable execution environments are prohibited.
+module/loading contract. Generation and the
+[required changed-file static audit](docs/test-isolation.md) remain the default.
+Native tests and managed-module execution require the reviewed disposable
+validation boundary in that document; host execution and host fallback are
+prohibited.
 
 Optional [URLhaus authentication](docs/clamav-urlhaus.md) uses
 `PRESEED_URLHAUS_AUTHKEY` from the private installer credential input. A missing
@@ -59,14 +71,22 @@ asset staging use the same selection, with no profile or inherited-account
 fallback. Shared late stages resolve the username and canonical home before
 rendering account-dependent assets in their own shells.
 
-`url=` and `preseed/url=` accept HTTP, HTTPS, and local `file=` sources. The
-installer does not perform HTTP/HTTPS certificate, authority, downgrade, or
-redirect validation; it passes HTTP and HTTPS to the available d-i `wget` and
-uses its no-certificate-check option for HTTPS. That permits LAN hosts,
-GitHub-style endpoints, and shortener URLs such as TinyURL in lightweight d-i
-images. A local `file=` preseed uses its sibling payload products. HTTP and
-HTTPS transport do not weaken the authenticated archive, manifest, release, or
-suite pins. Password/passphrase arguments, including the named d-i Wi-Fi
+`url=` and `preseed/url=` accept HTTP, HTTPS, and local `file=` sources.
+Requested HTTPS requires certificate-verifying GNU wget and CA trust for its
+endpoint, without an insecure retry. Bootstrap rejects an HTTPS URL before
+transfer when wget lacks the GNU `--no-config` capability. BusyBox wget remains
+supported for operator-controlled HTTP seeds; local-file sources are also
+supported. Its internal TLS implementation is not accepted as a verifying
+HTTPS client. Explicit d-i image construction can include
+`ca-certificates-udeb`; bootstrap does not silently install a downloader or
+trust packages. A local preseed uses its sibling payload products.
+
+The generated preseed pins the downloaded source helper, archive and manifest.
+The helper is checked before execution, and payload bytes before archive
+parsing. These pins depend on the operator trusting the first preseed; they
+cannot authenticate a preseed acquired through an untrusted initial channel.
+Existing bounded redirect handling remains delegated to the downloader.
+Password/passphrase arguments, including the named d-i Wi-Fi
 passphrase aliases, are accepted during installation and take precedence over
 the protected initrd `/preseed.env` value. Tokens, access keys, bearer secrets,
 private keys, generic PSKs and credential-file arguments remain forbidden.
@@ -115,14 +135,14 @@ and enforcing-policy behavior have not been accepted for the current source.
 - `d-i/{forky,trixie}/classes/`: plain preseed answers, packages and repositories, with one desktop role or multiple server roles.
 - `d-i/{forky,trixie}/fragments/apt.cfg`: suite mirror, archive access, exclusions and universal packages.
 - `d-i/{forky,trixie}/hooks/target/etc/apt/{desktop,server}/`: suite/family preferences and update policy.
-- `d-i/debian/repo.env`: repository source selectors, never installed runtime configuration.
+- `d-i/debian/repo.env`: repository defaults and shared relative directory roots; no per-file inventory and never installed runtime configuration.
 - `d-i/debian/hosts/installer/`: shared target path contract and filesystem/logging inputs.
 - `d-i/debian/hosts/profiles/{desktop,server}/`: editable family defaults and explicit host policies.
 - `d-i/debian/hooks/installer/`: phase hooks, `di.env` and the separate class dispatcher.
 - `d-i/debian/hooks/target/`: target assets, with separate family service, network, firewall and skeleton trees.
 - `d-i/debian/scripts/`: shared installer entrypoints and runtime modules.
 - `d-i/{forky,trixie}/{preseed.cfg,payload.tar.gz,payload.manifest,source.sh,receipt.json,support-matrix.json}`: generated regular files, visible to Git and overwritten by each build.
-- `d-i/debian/tests/`: source fixtures and tests that remain unexecuted; root `tools/` owns pure generation and static inspection.
+- `d-i/debian/tests/`: fixtures and tests requiring the reviewed isolated image; root `tools/` owns pure generation and static inspection.
 - `d-i/debian/hooks/target/etc/{vivaldi,chromium,opt/edge,opt/chrome}/policies/`: authoritative native browser policies, edited directly and staged without generation. Extension exports are cloned over SSH into `~/Workspace/netscape` from `git@gitlab.com:core-assets/helpers/netscape.git` on `mcr/main`. Extension settings remain user-editable; exports are imported manually in each extension. Current Chromium-family browsers use uBlock Origin Lite (Manifest V3).
 
 ### Installer implementation
@@ -134,6 +154,22 @@ Shared paths, filesystem and logging policy remain in `hosts/installer/` and
 `hosts/logging/`; per-host choices remain in `hosts/profiles/{desktop,server}/`.
 Read [class selection and role composition](docs/implementation/class-selection.md)
 before choosing a role or profile.
+
+Repository configuration, d-i state and installed target paths have separate
+owners. `repo.env` contains four public defaults and 109 shared directory roots
+(113 assignments, 6,103 bytes), parsed as data by the one
+`source_load_repo_env` loader. Fixed root-relative source members remain at
+their owning callers. Build checks those physical members and produces
+`catalog/compiled/source-members.tsv`; APT selection uses the smaller
+`apt-assets.tsv` table. Source membership is not an exported shell inventory.
+
+`hosts/installer/runtime.env` remains the target path contract; templates are
+rendered into concrete installed values. `hooks/installer/di.env` remains the
+installer mount, temporary state, hook and log contract. Installed programs do
+not depend on any of these authored installer inputs. Profiles, themes and the
+protected credential channel retain their existing owners. See the
+[configuration ownership matrix and migration rationale](docs/implementation/installer-configuration-20261119.md)
+and the [measured log baseline and validation limits](docs/validation/installer-performance-evidence-20261119.md).
 
 ```text
 scripts/common/bootstrap.sh      shared, snapshot-backed module loader
@@ -430,13 +466,20 @@ The reviewed build captures source bytes once and overwrites the same generated
 files directly in `d-i/forky/` and `d-i/trixie/`. It creates no release or
 publication directories. Both suite copies bind the same captured source
 identity, bootstrap, manifest and payload. It does not rewrite classes, fragments, profiles,
-APT settings or target assets, run tests, collect inventories or switch a
+APT settings or target assets, run tests, collect host inventories or switch a
 served pointer. Do not hand-edit generated products or preseeds.
+
+The full repository retains the developer placeholder JSON and its validation.
+Runtime payloads omit only `catalog/placeholder-registry.json`; the complete
+`placeholder-registry.tsv` remains authenticated runtime input for base-stage
+staging and final owned-file diagnostics. The offline source snapshot uses the
+same exclusion. See the [configuration ownership matrix](docs/implementation/installer-configuration-20261119.md).
 
 `make profile` first offers creation or deletion. Creation asks for filesystem,
 desktop/server/both, optional Duo/Trio variants and a one-to-five-character host
 name. Deletion lists registered profiles and removes selected host environments,
-both suite classes, registrations and source selectors after confirmation. A
+both suite classes and selection registrations after confirmation. Neither action
+rewrites `repo.env` or creates per-file aliases. A
 normal profile is protected while either corresponding Duo/Trio variant remains;
 the command offers to include those variants and delete them first. Both actions
 validate the complete candidate before writing, and support a no-write preview.

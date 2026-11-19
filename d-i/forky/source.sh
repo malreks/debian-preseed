@@ -83,13 +83,27 @@ installer_lifecycle_paths() {
   [ "$(installer_metadata_value "$LC_ROOT" mode)" = 700 ] || return 1;
   [ "$(installer_metadata_value "$LC_STATE" mode)" = 700 ] || return 1;
 };
+installer_failure_component() (
+  # Log contexts are prose, while the frontend accepts bounded identifiers.
+  # Keep descriptive/private diagnostics in the log; never sanitize their text
+  # into public UI data. Prefer a supplied identifier, then the owning log tag
+  # or supervised phase, without weakening the frontend's validation.
+  for lc_component_candidate in "${1:-}" "${INSTALLER_LOG_TAG:-}" "${INSTALLER_PHASE:-}"; do
+    case "$lc_component_candidate" in
+      ''|unknown|unavailable|*://*|*[!A-Za-z0-9_./:+-]*) continue ;;
+    esac;
+    [ "${#lc_component_candidate}" -le 240 ] || continue;
+    printf '%s\n' "$lc_component_candidate"; exit 0;
+  done;
+  printf '%s\n' unknown;
+);
 installer_record_failure() (
   # Atomic first-writer-wins publication, never replaced by cleanup errors.
   set +e; umask 077;
   installer_lifecycle_paths || exit 1;
-  lc_status=${1:-1}; lc_component=${2:-unknown}; lc_detail=${3:-unspecified};
+  lc_status=${1:-1}; lc_detail=${3:-unspecified};
   case "$lc_status" in ''|*[!0-9]*|0) lc_status=1 ;; esac;
-  lc_component=$(printf '%s' "$lc_component" | tr '\r\n\t' '   ');
+  lc_component=$(installer_failure_component "${2:-}") || lc_component=unknown;
   lc_detail=$(printf '%s' "$lc_detail" | tr '\r\n\t' '   ');
   lc_source=${INSTALLER_FAILURE_SOURCE:-unknown};
   lc_line=${INSTALLER_FAILURE_LINE:-unknown};
@@ -573,6 +587,22 @@ source_state_key() {
   # with this helper; installer asset publication performs no content hashing.
   if command -v sha256sum >/dev/null 2>&1; then sha256sum; else busybox sha256sum; fi;
 };
+source_sha256() {
+  # Content verification is distinct from path/device indexing. This helper
+  # reads protected acquisition bytes once at their owning trust boundary.
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum; else busybox sha256sum; fi;
+};
+source_verify_sha256() (
+  set -eu;
+  source_verify_file=$1; source_verify_expected=$2; source_verify_label=$3;
+  case "$source_verify_expected" in ''|*[!a-f0-9]*) source_error 'invalid trusted SHA-256 pin'; exit 1 ;; esac;
+  [ "${#source_verify_expected}" -eq 64 ] && [ -f "$source_verify_file" ] && [ ! -L "$source_verify_file" ] || exit 1;
+  source_verify_actual=$(source_sha256 <"$source_verify_file") || exit 1;
+  source_verify_actual=${source_verify_actual%% *};
+  [ "$source_verify_actual" = "$source_verify_expected" ] || {
+    source_error "$source_verify_label SHA-256 differs from trusted preseed pin"; exit 1;
+  };
+);
 source_monotonic_seconds() (
   IFS=' ' read -r seconds remainder </proc/uptime || exit 1;
   seconds=${seconds%%.*};
@@ -610,14 +640,22 @@ source_http_get() (
   temp=$(mktemp "${destination}.part.XXXXXX") || exit 1; headers=${temp}.headers;
   trap 'rm -f "$temp" "$headers"' 0;
   trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP;
-  set -- wget --no-config -S -T "$read_timeout" -O "$temp" --tries=1;
-  # Keep the policy independent of the initial scheme: an HTTP URL may
-  # redirect to HTTPS, and that HTTPS hop must also skip certificate checks.
-  set -- "$@" --no-check-certificate;
-  # d-i intentionally delegates HTTP/HTTPS parsing, redirects, and certificate
-  # behavior to wget. This keeps url=/preseed/url= usable with LAN HTTP,
-  # shorteners, GitHub and lightweight installer images. Repository transport
-  # follows the operator-selected seed; installer content is not checksum-verified.
+  # GNU wget offers configuration suppression and retry control; BusyBox wget
+  # has neither config files nor its own retry loop. Its internal TLS backend
+  # does not authenticate peers, so it is supported for explicit HTTP only.
+  # This wrapper remains the sole retry owner.
+  source_wget_help=$(wget --help 2>&1) || exit 125;
+  case "$source_wget_help" in
+    *--no-config*) set -- wget --no-config -S -T "$read_timeout" -O "$temp" --tries=1 ;;
+    *)
+      case "$url" in https://*) source_error 'HTTPS requires certificate-verifying GNU wget and configured CA trust'; exit 125 ;; esac;
+      set -- wget -S -T "$read_timeout" -O "$temp" ;;
+  esac;
+  # Requested HTTPS uses GNU wget's certificate verification.
+  # The installer image must supply its CA trust; there is no insecure retry.
+  # Local/LAN HTTP seeds retain their operator trust model. Executed source,
+  # archive and manifest bytes are separately compared with the trusted preseed
+  # pins at acquisition; a neighboring checksum download is not authentication.
   # One deadline covers every transfer attempt and retry.
   started=$(source_monotonic_seconds) || exit 125;
   deadline=$(expr "$started" + "$wall_timeout") || exit 125;
@@ -651,7 +689,7 @@ source_http_get() (
 );
 source_validate_relative() {
   # The payload validator runs before repo.env can be selected and
-  # sourced. Keep this one space-bearing archive member in the immutable
+  # parsed. Keep this one space-bearing archive member in the immutable
   # bootstrap protocol; tools/build.py carries the matching allow-list entry.
   # All other paths stay space-free and repository-relative.
   case "${1:-}" in
@@ -724,7 +762,7 @@ source_resolve_seed() (
   if [ -n "$file" ]; then
     case "$file" in /*) ;; *) source_error 'file= must name an absolute preseed file'; exit 1 ;; esac;
     [ -f "$file" ] || { source_error 'file= does not name a readable preseed file'; exit 1; };
-    case "/$file/" in */../*|*//*) source_error 'local frontend path contains traversal'; exit 1 ;; esac;
+    case "/${file#/}/" in */../*|*//*) source_error 'local frontend path contains traversal'; exit 1 ;; esac;
     file=$(readlink -f "$file");
     base=${file%/*}; [ -n "$base" ] || base=/;
     printf '%s\n' "$base" >"$boot/seed.file";
@@ -750,18 +788,66 @@ source_resolve_seed() (
 
 # Payload-only helpers stay outside the single-line embedded bootstrap. A
 # here-document needs its physical newlines and cannot be flattened into it.
-source_validate_repo_env_selectors() {
-  source_repo_env_path=$1
-  while IFS= read -r source_selector_name || [ -n "$source_selector_name" ]; do
-    [ -n "$source_selector_name" ] || continue
-    source_selector_value=
-    eval "source_selector_value=\${$source_selector_name:-}"
-    case "$source_selector_name:$source_selector_value" in
-      DIR_REPO_ROOT:.) ;;
-      *) source_validate_selector_path "$source_selector_name" "$source_selector_value" || return 1 ;;
-    esac
+# One data-only loader is shared by preseed, bootstrap and common adapters.
+# The supported vocabulary contains configuration and shared roots, never an
+# inventory of source files. read assigns a validated variable name as data;
+# neither eval nor dot sourcing evaluates configuration as shell code.
+source_load_repo_env() {
+  source_repo_input=$1
+  [ -f "$source_repo_input" ] && [ ! -L "$source_repo_input" ] && [ -r "$source_repo_input" ] || {
+    source_error 'repository environment is not a direct readable file'; return 1;
+  }
+  case "${INSTALLER_SUITE:-}" in forky|trixie) ;; *) source_error 'repository environment requires a supported suite'; return 1 ;; esac
+  source_repo_supported='REPOSITORY_FAMILIES REPOSITORY_NAME DEBIAN_APT_PREFERENCES DEBIAN_DEFAULT_CLASSES DIR_REPO_ROOT DIR_REPO_BUILD_STATE DIR_OFFLINE_WORK DIR_CATALOG DIR_CATALOG_COMPILED DIR_FRONTENDS DIR_FRONTEND DIR_CLASSES DIR_REPO_DI DIR_REPO_HOOKS DIR_REPO_HOSTS DIR_REPO_SCRIPTS DIR_CLASSES_AUTO DIR_CLASSES_PROFILE DIR_CLASSES_PROFILE_DESKTOP DIR_CLASSES_PROFILE_SERVER DIR_CLASSES_SELECT DIR_REPO_DEBIAN DIR_HOOKS_INSTALLER DIR_HOOKS_TARGET DIR_HOSTS_PROFILES DIR_HOSTS_PROFILES_DESKTOP DIR_HOSTS_PROFILES_SERVER DIR_HOSTS_PROFILES_TEMPLATES DIR_HOSTS_THEMES DIR_SCRIPTS_COMMON DIR_SCRIPTS_DESKTOP DIR_SCRIPTS_EARLY DIR_SCRIPTS_FIRSTBOOT DIR_SCRIPTS_LATE DIR_SCRIPTS_PARTMAN DIR_SCRIPTS_PRESEED DIR_SCRIPTS_RUNTIME DIR_TARGET_DATA DIR_TARGET DIR_TARGET_USR DIR_SCRIPTS_COMMON_MODULES DIR_SCRIPTS_DESKTOP_COMPONENTS DIR_SCRIPTS_DESKTOP_TEMPLATES DIR_SCRIPTS_LATE_DEVOPS DIR_SCRIPTS_LATE_SSH DIR_SCRIPTS_RUNTIME_MODULES DIR_SCRIPTS_RUNTIME_TEMPLATES DIR_TARGET_CONFIG DIR_TARGET_DOCS DIR_TARGET_APPARMOR DIR_TARGET_AA DIR_FRONTEND_HOOKS DIR_FRONTEND_TARGET DIR_FRONTEND_TARGET_ETC DIR_TARGET_APT DIR_TARGET_APT_APT_CONF_D DIR_TARGET_CROWDSEC_ROOT DIR_TARGET_CROWDSEC DIR_TARGET_DEFAULT DIR_TARGET_FAIL2BAN DIR_TARGET_LABWC DIR_TARGET_MODPROBE_D DIR_TARGET_NFTABLES_ROOT DIR_TARGET_NFTABLES DIR_TARGET_SKEL DIR_TARGET_SYSCTL_D DIR_TARGET_SYSTEMD DIR_TARGET_SYSTEMD_COMMON DIR_TARGET_SYSTEMD_DESKTOP DIR_TARGET_SYSTEMD_SERVER DIR_TARGET_COMMON_UNIT DIR_TARGET_TMPFILES_D DIR_TARGET_USR_LOCAL DIR_TARGET_CONFIG_PODMAN DIR_TARGET_DEFAULT_GRUB_D DIR_TARGET_LABWC_3PROXY DIR_TARGET_NFTABLES_PROFILES DIR_TARGET_NFTABLES_SERVICES DIR_TARGET_SKEL_CONFIG DIR_TARGET_UNIT DIR_TARGET_USER_UNIT DIR_TARGET_BIN DIR_TARGET_LIB DIR_TARGET_LIBEXEC DIR_TARGET_SBIN DIR_TARGET_SHARE DIR_TARGET_CONFIG_PODMAN_TEMPLATES DIR_TARGET_SKEL_VIVALDI DIR_TARGET_CONFIG_PODMAN_TEMPLATES_DEVOPS DIR_TARGET_APT_DESKTOP DIR_TARGET_APT_DESKTOP_APT_CONF_D DIR_TARGET_APT_SERVER DIR_TARGET_APT_SERVER_APT_CONF_D DIR_TARGET_AA_COMMON DIR_TARGET_AA_DESKTOP DIR_TARGET_LIB_COMMON DIR_TARGET_LIB_DESKTOP DIR_TARGET_BIN_SERVER DIR_TARGET_SHARE_COMMON DIR_TARGET_SHARE_DESKTOP DIR_TARGET_AA_ABSTRACTIONS DIR_TARGET_AA_LOCAL DIR_TARGET_LIB_PERL5 DIR_TARGET_LIB_PYTHON3 DIR_TARGET_SHARE_GRUB_PROFILES DIR_TARGET_SHARE_LABWC_APPEARANCE DIR_TARGET_PERL DIR_TARGET_PY DIR_TARGET_PERL_APPARMOR_MODES DIR_TARGET_PERL_APT_REPO_LOCAL DIR_TARGET_PERL_NETWORK DIR_TARGET_PERL_WHISPER DIR_TARGET_PERL_ZRAM_WRITEBACK'
+  source_repo_rows=$(LC_ALL=C awk -v suite="$INSTALLER_SUITE" -v supported="$source_repo_supported" '
+    function reject(message) {
+      print "repo.env:" NR ": " message > "/dev/stderr"
+      failed=1; exit 1
+    }
+    BEGIN {
+      n=split(supported, names, " ")
+      for(i=1;i<=n;i++) allowed[names[i]]=1
+      values["INSTALLER_SUITE"]=suite
+    }
+    length($0)>4096 || NR>512 {reject("input exceeds configuration limits")}
+    /^#/ || /^$/ {next}
+    {
+      if($0 !~ /^[A-Z][A-Z0-9_]*="[^"]*"$/) reject("invalid data assignment")
+      boundary=index($0,"="); name=substr($0,1,boundary-1)
+      if(!(name in allowed)) reject("unsupported key")
+      if(seen[name]++) reject("duplicate key")
+      value=substr($0,boundary+2,length($0)-boundary-2)
+      while(match(value,/\$\{[A-Z][A-Z0-9_]*\}/)) {
+        parent=substr(value,RSTART+2,RLENGTH-3)
+        if(!(parent in values)) reject("undefined parent")
+        value=substr(value,1,RSTART-1) values[parent] substr(value,RSTART+RLENGTH)
+        if(length(value)>4096) reject("expanded value exceeds configuration limit")
+      }
+      if(value ~ /[$`\\]/ || value ~ /[[:cntrl:]]/) reject("unsupported data expansion")
+      if(name ~ /^DIR_/) {
+        if(name=="DIR_REPO_ROOT" && value==".") {}
+        else if(value=="" || value ~ /^\// || value ~ /[^A-Za-z0-9_.\/@+-]/ ||
+                ("/" value "/") ~ /\/\.\.?\/|\/\//) reject("unsafe repository root")
+      } else if(name=="REPOSITORY_FAMILIES") {
+        if(value!="desktop server") reject("unsupported repository families")
+      } else if(name=="REPOSITORY_NAME") {
+        if(value !~ /^[a-z0-9][a-z0-9-]*$/) reject("invalid repository name")
+      } else if(value ~ /[^A-Za-z0-9_.\/@+:,; -]/) reject("invalid selection data")
+      values[name]=value
+      printf "%s\t%s\n",name,value
+      count++
+    }
+    END {if(!failed && count!=n) reject("missing supported key")}
+  ' "$source_repo_input") || {
+    source_error 'invalid repository configuration'; return 1;
+  }
+  source_repo_tab=$(printf '\t')
+  while IFS="$source_repo_tab" read -r source_repo_name source_repo_value; do
+    IFS= read -r "$source_repo_name" <<EOF
+$source_repo_value
+EOF
   done <<EOF
-$(sed -n 's/^\(DIR_[A-Z0-9_]*\|FILE_[A-Z0-9_]*\)=.*/\1/p' "$source_repo_env_path")
+$source_repo_rows
 EOF
 }
 
@@ -780,8 +866,13 @@ source_cache_root() (
   runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
   marker=$runtime/bootstrap/payload.ready
   if [ -f "$marker" ]; then
-    IFS=' ' read -r archive manifest selected_base <"$marker" || exit 1
-    [ "$selected_base" = "$base" ] || { source_error 'repository source differs from the selected payload'; exit 1; }
+    [ ! -L "$marker" ] || { source_error 'indirect payload verification receipt'; exit 1; }
+    IFS=' ' read -r verification archive manifest selected_base <"$marker" || exit 1
+    if [ "$verification" = verified-v1 ]; then
+      [ "$selected_base" = "$base" ] || { source_error 'repository source differs from the selected payload'; exit 1; }
+    else
+      [ "${2:-}" = prepare ] || { source_error 'payload verification receipt requires reacquisition'; exit 1; }
+    fi
   fi
   printf '%s/cache/seed\n' "$runtime"
 )
@@ -797,15 +888,26 @@ source_prepare_payload() (
   case "$expected_archive$expected_manifest" in *[!a-f0-9]*) source_error 'invalid payload digest'; exit 1 ;; esac
   [ "${#expected_archive}" -eq 64 ] && [ "${#expected_manifest}" -eq 64 ] || exit 1
   runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
-  root=$(source_cache_root "$base")
+  root=$(source_cache_root "$base" prepare)
   marker=$runtime/bootstrap/payload.ready
-  if [ -r "$marker" ] && [ "$(cat "$marker")" = "$expected_archive $expected_manifest $base" ]; then exit 0; fi
+  # This receipt can only be published after actual trusted-pin comparison.
+  # Its schema invalidates older receipts that merely repeated expected hashes.
+  # Reuse is confined to this install's protected source tree; never import it
+  # as a cache across boots or after a source-root mutation.
+  if [ -f "$marker" ] && [ ! -L "$marker" ] && [ -d "$root" ] && [ ! -L "$root" ] &&
+     [ -f "$runtime/bootstrap/payload.manifest" ] && [ ! -L "$runtime/bootstrap/payload.manifest" ] &&
+     [ "$(cat "$marker")" = "verified-v1 $expected_archive $expected_manifest $base" ]; then exit 0; fi
   mkdir -p "$runtime/bootstrap" || exit 1
   work=$(mktemp -d "$runtime/bootstrap/payload.XXXXXX") || exit 1
   trap 'rm -rf "$work"' 0
   trap 'exit 130' INT; trap 'exit 143' TERM
   source_transfer "$base" payload.manifest "$work/payload.manifest" || exit 1
   source_transfer "$base" payload.tar.gz "$work/payload.tar.gz" || exit 1
+  # Authenticate both complete byte streams before any archive parser sees
+  # executable content. Pins come from the trusted preseed, not a neighboring
+  # download. Per-member hashes are build/audit metadata, not repeated here.
+  source_verify_sha256 "$work/payload.manifest" "$expected_manifest" 'payload manifest' || exit 1
+  source_verify_sha256 "$work/payload.tar.gz" "$expected_archive" 'payload archive' || exit 1
   # A bundle must contain regular files only; reject links, devices, directories,
   # duplicate entries and escaping paths BEFORE extraction into a private tree.
   tar -tzf "$work/payload.tar.gz" >"$work/members" || { source_error 'cannot list payload archive'; exit 1; }
@@ -846,7 +948,7 @@ source_prepare_payload() (
   if [ -e "$root" ]; then rm -rf "$root" || exit 1; fi
   mv "$work/tree" "$root" || exit 1
   cp "$work/payload.manifest" "$runtime/bootstrap/payload.manifest" || exit 1
-  printf '%s\n' "$expected_archive $expected_manifest $base" >"$marker"
+  printf '%s\n' "verified-v1 $expected_archive $expected_manifest $base" >"$marker"
   chmod 0600 "$marker"
 )
 
@@ -943,23 +1045,13 @@ source_bootstrap() (
   source_fetch "$base" repo.env "$boot/repo.env" 0600 || {
     source_error 'selected payload is missing repo.env'; exit 1;
   }
-  /bin/sh -n "$boot/repo.env" || {
-    source_error 'selected repo.env has invalid shell syntax'; exit 1;
-  }
-  # shellcheck disable=SC1090
-  . "$boot/repo.env" || {
-    source_error 'cannot load selected repo.env'; exit 1;
-  }
-  source_validate_repo_env_selectors "$boot/repo.env" || exit 1
+  source_load_repo_env "$boot/repo.env" || exit 1
   source_validate_selector_path DIR_REPO_SCRIPTS "${DIR_REPO_SCRIPTS:-}" || exit 1
   source_validate_selector_path DIR_SCRIPTS_COMMON "${DIR_SCRIPTS_COMMON:-}" || exit 1
   source_validate_selector_path DIR_SCRIPTS_PRESEED "${DIR_SCRIPTS_PRESEED:-}" || exit 1
-  source_validate_selector_path FILE_HOOKS_INSTALLER_DI_ENV "${FILE_HOOKS_INSTALLER_DI_ENV:-}" || exit 1
-  for pair in FILE_COMMON_SOURCE:source.sh FILE_PRESEED_BOOTSTRAP_ENTRY:preseed-bootstrap-entry.sh FILE_PRESEED_APPLY:preseed-apply.sh FILE_PRESEED_GUARD_HOOK:guard-hook.sh; do
-    source_selector=${pair%:*}
-    source_rel=
-    eval "source_rel=\${$source_selector:-}"
-    source_validate_selector_path "$source_selector" "$source_rel" || exit 1
+  for pair in scripts/common/source.sh:source.sh scripts/preseed/bootstrap-entry.sh:preseed-bootstrap-entry.sh scripts/preseed/apply.sh:preseed-apply.sh scripts/preseed/guard-hook.sh:guard-hook.sh; do
+    source_rel=${pair%:*}
+    source_validate_relative "$source_rel" || exit 1
     source_name=${pair##*:}
     source_fetch "$base" "$source_rel" "$boot/$source_name" 0700 || {
       source_error "cannot stage selected bootstrap file: $source_rel"; exit 1;
@@ -972,9 +1064,9 @@ source_bootstrap() (
   "$boot/preseed-bootstrap-entry.sh" prepare-context "${FILE_INSTALLER_LOG:-/tmp/installer.log}" "$base" "$requested_suite" || { source_error "class/profile preflight failed; see ${FILE_INSTALLER_LOG:-/tmp/installer.log} (console 4)"; exit 1; }
   # All includes are local, absolute URIs: preseed.last_location can no longer
   # accidentally anchor them to a shortener, CDN host root or previous include.
-  for include_selector in FILE_PRESEED_COMMON FILE_FRAGMENTS_NETWORK FILE_FRAGMENTS_PARTMAN FILE_FRAGMENTS_APT FILE_FRAGMENTS_FINISH; do
-    eval "rel=\${$include_selector:-}"
-    source_validate_selector_path "$include_selector" "$rel" || exit 1
+  for include_selector in frontends/${INSTALLER_SUITE}/common.cfg frontends/${INSTALLER_SUITE}/fragments/network.cfg frontends/${INSTALLER_SUITE}/fragments/partman.cfg frontends/${INSTALLER_SUITE}/fragments/apt.cfg frontends/${INSTALLER_SUITE}/fragments/finish.cfg; do
+    rel=$include_selector
+    source_validate_relative "$rel" || exit 1
     destination=$boot/includes/$rel
     source_fetch "$base" "$rel" "$destination" 0600 || {
       source_error "cannot stage selected preseed include: $rel"; exit 1;

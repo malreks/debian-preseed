@@ -18,11 +18,13 @@ _isolation_sys.path.pop(0)
 _require_test_isolation()
 
 import configparser
+import hashlib
 import contextlib
 import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -31,6 +33,8 @@ import unittest
 from unittest import mock
 
 from payload_fixture import logging_text
+from fixture_render import rendered_path_text
+from test_installer_package_batch_20261119 import publisher_module, compiled_package_fixture_values
 
 SEED = Path(__file__).resolve().parents[1]
 TARGET = SEED / 'hooks/target'
@@ -52,18 +56,25 @@ Categories=Office;
 class ObsidianPackageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.publisher = publisher_module()
         cls.library_temporary = tempfile.TemporaryDirectory(prefix='obsidian-perl-')
         cls.addClassCleanup(cls.library_temporary.cleanup)
         cls.library = Path(cls.library_temporary.name)
-        perl_source = TARGET / 'usr/local/lib/perl5/site_perl'
+        perl_source = TARGET / 'usr/local/lib/common/perl5/site_perl'
         for name in ('apt-repo-local', 'runtime'):
             shutil.copytree(perl_source / name, cls.library / name, symlinks=True)
-        for template in cls.library.rglob('*.pm.tmpl'):
-            destination = template.with_name(template.name[:-5])
-            if destination.exists():
+        values = compiled_package_fixture_values()
+        for template in sorted(cls.library.rglob('*')):
+            if not template.is_file() or not template.name.endswith(('.pm', '.pm.tmpl')):
+                continue
+            destination = template.with_name(template.name[:-5]) if template.name.endswith('.tmpl') else template
+            if destination != template and destination.exists():
                 raise AssertionError('ambiguous copied Perl template')
-            destination.write_text(logging_text(template.read_text(encoding='utf-8')), encoding='utf-8')
-            template.unlink()
+            text = rendered_path_text(logging_text(template.read_text(encoding='utf-8')))
+            text = re.sub(r'__INSTALLER_(SOFTWARE_[A-Z0-9_]+)__', lambda match: values[match[1]], text)
+            destination.write_text(text, encoding='utf-8')
+            if destination != template:
+                template.unlink()
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix='obsidian-deb-layout-')
@@ -97,62 +108,56 @@ class ObsidianPackageTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def run_installer(self, source=None):
-        source = self.software if source is None else source
+        source = rendered_path_text(self.software if source is None else source)
         definitions = source[:source.index('software_validate_abs_path "target root"')]
-        for name in ('software_deb_contains_path', 'software_install_deb'):
+        for name in ('software_begin_deb_batch', 'software_queue_deb', 'software_prepare_obsidian_app'):
             start = source.index(name + '() {')
             definitions += '\n' + source[start:source.index('\n}\n', start) + 2]
-        start = source.index('software_install_deb \\\n  "Obsidian"')
-        block = source[start:source.index('# Bootstrap only the profile-pinned Tomat', start)]
-        # Execute both payload and post-install checks, but replace root/chroot
-        # and APT mutations with a strict fixture command dispatcher.
+        # The production shell writes its declarative plan. The importer owns
+        # package/member inspection now; index signing and APT are explicit
+        # doubles, as they were in the former per-package shell fixture.
         fixture = r'''
-chroot() {
-  [ "$1" = "$FIXTURE_ROOT" ] || return 90
-  shift
-  if [ "$1" = /usr/bin/env ]; then
-    shift
-    [ "$1" != -i ] || shift
-    while [ "$#" -gt 0 ]; do
-      case "$1" in *=*) shift ;; *) break ;; esac
-    done
-  fi
-  fixture_command=$1
-  shift
-  case "$fixture_command" in
-    /usr/bin/dpkg-deb)
-      fixture_operation=$1; fixture_package=$2; shift 2
-      /usr/bin/dpkg-deb "$fixture_operation" "${FIXTURE_ROOT}${fixture_package}" "$@" ;;
-    /usr/bin/dpkg)
-      [ "$1" = --validate-version ] || return 91
-      /usr/bin/dpkg "$@" ;;
-    /usr/bin/apt-get)
-      printf 'fixture APT\n' >"$FIXTURE_MARKER"
-      /usr/bin/dpkg-deb --extract "$FIXTURE_ROOT/fixture.deb" "$FIXTURE_ROOT" ;;
-    /usr/bin/dpkg-query)
-      if [ "$2" = '-f=${Status}' ]; then printf 'install ok installed'; else printf '1.14.4\n'; fi ;;
-    /usr/bin/test)
-      /usr/bin/test "$1" "${FIXTURE_ROOT}$2" ;;
-    /usr/bin/sha256sum)
-      /usr/bin/sha256sum "${FIXTURE_ROOT}$1" ;;
-    /usr/bin/desktop-file-validate)
-      /usr/bin/desktop-file-validate "${FIXTURE_ROOT}$1" ;;
-    /usr/bin/update-desktop-database)
-      /usr/bin/update-desktop-database "${FIXTURE_ROOT}$1" ;;
-    *) printf 'unexpected fixture command: %s\n' "$fixture_command" >&2; return 92 ;;
-  esac
-}
-software_store_managed_deb_archive() { managed_archive_path=/fixture.deb; }
-software_refresh_managed_deb_repository() { :; }
+software_download() { :; }
 target_root=$FIXTURE_ROOT
+work_dir=/fixture-work
 obsidian_deb=/fixture.deb
+obsidian_url=https://example.invalid/fixture.deb
 obsidian_version=1.14.4
+obsidian_sha256=$FIXTURE_SHA256
+software_begin_deb_batch desktop
+software_prepare_obsidian_app
 '''
-        script = definitions + '\n' + fixture + '\n' + block
-        return subprocess.run(['/bin/sh', '-eu', '-c', script], text=True, encoding='utf-8',
-                              capture_output=True, timeout=15,
-                              env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C',
-                                   'FIXTURE_ROOT': str(self.target), 'FIXTURE_MARKER': str(self.marker)})
+        (self.target / 'fixture-work').mkdir(mode=0o700, exist_ok=True)
+        script = definitions + '\n' + fixture
+        result = subprocess.run(['/bin/sh', '-eu', '-c', script, 'fixture', str(self.target)],
+                                text=True, encoding='utf-8', capture_output=True, timeout=15,
+                                env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C',
+                                     'TMPDIR': str(self.root), 'TMP': str(self.root), 'TEMP': str(self.root),
+                                     'FIXTURE_ROOT': str(self.target),
+                                     'FIXTURE_SHA256': hashlib.sha256(self.archive.read_bytes()).hexdigest()})
+        if result.returncode:
+            return result
+        requirement, = self.publisher.installer_plan(self.target / 'fixture-work/deb-desktop.tsv')
+        try:
+            self.publisher.inspect_deb(self.archive, {'amd64'}, required_members=tuple(
+                requirement[key] for key in ('executable', 'desktop_file', 'runtime_library')
+                if requirement[key] != '-'))
+        except self.publisher.Error as error:
+            return subprocess.CompletedProcess(['fixture-import'], 1, '', str(error))
+        # No maintainer script or vendor executable is run: APT is represented
+        # by extraction of this test's tiny fixture only, after acceptance.
+        self.marker.write_text('fixture APT\n')
+        for command in (
+            ['/usr/bin/dpkg-deb', '--extract', str(self.archive), str(self.target)],
+            ['/usr/bin/desktop-file-validate', str(self.target / DESKTOP_PATH.lstrip('/'))],
+            ['/usr/bin/update-desktop-database', str(self.target / 'usr/share/applications')],
+        ):
+            result = subprocess.run(command, capture_output=True, text=True, timeout=15,
+                                    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C',
+                                         'TMPDIR': str(self.root), 'TMP': str(self.root), 'TEMP': str(self.root)})
+            if result.returncode:
+                return result
+        return result
 
     def validate_worker_spec(self):
         code = r'''
@@ -233,7 +238,7 @@ print encode_json($result->{metadata}), "\n";
         previous = self.software.replace(DESKTOP_ID, 'obsidian.desktop')
         result = self.run_installer(previous)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('payload is missing desktop entry: /usr/share/applications/obsidian.desktop', result.stderr)
+        self.assertIn('required member: /usr/share/applications/obsidian.desktop', result.stderr)
         self.assertFalse(self.marker.exists())
 
     def test_missing_current_desktop_is_refused_before_installation(self):
@@ -241,7 +246,7 @@ print encode_json($result->{metadata}), "\n";
         self.build_archive()
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('payload is missing desktop entry: ' + DESKTOP_PATH, result.stderr)
+        self.assertIn('required member: ' + DESKTOP_PATH, result.stderr)
         self.assertFalse(self.marker.exists())
 
     def test_update_worker_spec_accepts_current_package_layout(self):

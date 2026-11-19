@@ -63,7 +63,7 @@ installer_apt_install_target_policy "$target" bootstrap
 # APT::Default-Release file is intentionally written later by the
 # finish-install normalizer, after apt-setup has completed and sources have
 # been modernized, as in the legacy installer flow.
-installer_operation_context_repo FILE_COMMON_APT_SOURCES 66 apt_bootstrap_source
+installer_operation_context_repo scripts/common/apt-sources.sh 66 apt_bootstrap_source
 if installer_apt_bootstrap_source "$target" "$protocol" "$host" "$directory" "$suite"; then
   :
 else
@@ -76,7 +76,7 @@ if installer_cuda_legacy_selected 2>/dev/null; then
   printf 'stage=base_install level=info component=network-apt published legacy CUDA source before first update\n' >&2
 fi
 printf 'stage=base_install level=info component=network-apt normalized sources before first update suite=%s\n' "$suite" >&2
-installer_operation_context_repo FILE_PRESEED_NETWORK_APT 67 base_network_apt_update
+installer_operation_context_repo scripts/preseed/network-apt.sh 67 base_network_apt_update
 installer_run_supervised in-target env LC_ALL=C DEBIAN_FRONTEND=noninteractive \
   apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=3 \
   -o Acquire::PDiffs=false -o Acquire::Languages=en \

@@ -17,7 +17,7 @@ desktop_stage_compz() (
     chown root:root "$directory_host"
     chmod 0755 "$directory_host"
   done
-  desktop_stage_role_asset FILE_TARGET_BIN_COMPZ __INSTALLER_PATH_DIR_USR_LOCAL__/bin/compz 0755
+  desktop_stage_role_asset hooks/target/usr/local/bin/desktop/compz __INSTALLER_PATH_DIR_USR_LOCAL__/bin/compz 0755
   for helper in compz-worker compz-sandbox compz-pipeline; do
     desktop_stage_role_asset "usr/local/libexec/${helper}" "${DIR_USR_LOCAL_LIBEXEC}/${helper}" 0755
   done
@@ -26,7 +26,7 @@ desktop_stage_compz() (
     desktop_stage_role_asset "$module_path" "${DIR_PYTHON3_SITE_PACKAGES}/labwc_compz/${module}.py" 0644
   done
   desktop_stage_role_asset \
-    FILE_TARGET_PERL_LABWC_COMPZ_COMPZARCHIVES_PIPELINE \
+    hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-compz/CompzArchives/Pipeline.pm \
     "${DIR_PERL5_SITE_PERL}/labwc-compz/CompzArchives/Pipeline.pm" 0644
   helper="${DIR_USR_LOCAL_LIBEXEC}/installer-compz-codecs"
   trap 'cleanup_target_assets "$?" "$helper"' EXIT
@@ -34,7 +34,7 @@ desktop_stage_compz() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   stage_target_asset \
-    "$(installer_repo_file_value FILE_DESKTOP_COMPZ_CODECS_INSTALL)" \
+    "$(installer_repo_file_value scripts/desktop/compz-codecs-install.py)" \
     "$helper" 0700
   run_in_target "install pinned compz FLZMA2 codec" \
     __INSTALLER_PATH_DIR_USR_BIN__/env -i HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ LC_ALL=C PATH=__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__ \

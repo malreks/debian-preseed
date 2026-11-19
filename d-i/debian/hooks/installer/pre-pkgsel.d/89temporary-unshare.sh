@@ -27,7 +27,7 @@ temporary_unshare_fatal() {
 # shellcheck disable=SC1090,SC1091
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib ""
-installer_operation_context_repo FILE_INST_PREPKG_89TEMPORARY_UNSHARE 30 temporary_unshare
+installer_operation_context_repo hooks/installer/pre-pkgsel.d/89temporary-unshare.sh 30 temporary_unshare
 TARGET=${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}
 case "$TARGET" in
   /*) ;;

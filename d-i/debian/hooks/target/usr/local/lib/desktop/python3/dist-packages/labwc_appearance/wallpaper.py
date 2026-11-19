@@ -151,8 +151,10 @@ def publish(state: Tree, config: Tree, data: bytes) -> None:
         raise ValueError('greeter wallpaper asset does not match its content hash')
     if existing is None:
         config.write(name, data, mode=0o644, replace=False)
-    candidate = stylesheet(config.read('gtkgreet.css', limit=transaction.MAX_IMAGE_BYTES), name)
-    journal = transaction.plan(config, {'gtkgreet.css': candidate}, os.urandom(16).hex())
+    before = config.read('gtkgreet.css', limit=transaction.MAX_IMAGE_BYTES)
+    candidate = stylesheet(before, name)
+    journal = transaction.plan(config, {'gtkgreet.css': candidate}, os.urandom(16).hex(),
+                               expected={'gtkgreet.css': before})
     state.put_json(journal_name, journal)
     try:
         transaction.apply(config, journal, mode=0o644)

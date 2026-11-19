@@ -10,7 +10,18 @@ use IO::Select;
 use POSIX qw(WNOHANG);
 use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC sleep);
 
-our @EXPORT_OK = qw(capture_command);
+our @EXPORT_OK = qw(capture_command status_from_wait);
+
+# Decode only at an adapter's public exit-code boundary. The capture API keeps
+# the raw wait status so callers that need signal/core information retain it.
+# Share this conversion with system()/waitpid() adapters; shifting alone would
+# mistake signal termination for success. Missing/failed waits are failures.
+sub status_from_wait {
+    my ($status) = @_;
+    return 255 if !defined($status) || $status == -1;
+    return 128 + ($status & 127) if $status & 127;
+    return $status >> 8;
+}
 
 sub _nonblocking {
     my ($handle) = @_;

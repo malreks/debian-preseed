@@ -5,8 +5,8 @@ The Perl harness evaluates the exact production method bodies with core Perl
 imports and explicit fixture objects. It deliberately does not replace Moo or
 claim constructor/module-load coverage. This keeps the archive and filesystem
 checks executable even on a publishing host without the target's Moo packages.
-Full module loading remains part of audit_codebase.py and the existing managed
-external-software tests. The Python publisher and dpkg-deb are executed directly.
+Full module loading requires the managed external-software tests inside the
+reviewed guest. The Python publisher and dpkg-deb run only behind that same gate.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ _require_test_isolation()
 from payload_fixture import copyfile as payload_copyfile, installed_argv as payload_installed_argv, source_is_file as payload_source_is_file, source_stat as payload_source_stat
 from payload_fixture import read_text as payload_read_text
 
+import atexit
 import gzip
 import hashlib
 import io
@@ -31,27 +32,49 @@ import os
 from pathlib import Path
 import re
 import resource
-import runpy
 import shutil
 import stat
 import subprocess
 import tarfile
 import tempfile
 import unittest
+from functools import lru_cache
+from fixture_render import rendered_path_text
+from test_installer_package_batch_20261119 import compiled_package_fixture_values, publisher_module
 
 FORKY = Path(__file__).resolve().parents[1]
-PERL_LIB = FORKY / 'hooks/target/usr/local/lib/perl5/site_perl/apt-repo-local'
+PERL_LIB = FORKY / 'hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local'
 SERVICING = PERL_LIB / 'APTRepoLocal/Servicing'
-HELPER = FORKY / 'hooks/target/usr/local/libexec/apt-repo-local'
-MAX_DEB = 1 << 32
-MAX_PUBLISHER = 1 << 31
+MAX_DEB = int(compiled_package_fixture_values()['SOFTWARE_APT_REPO_LOCAL_DEB_MAXIMUM_BYTES'])
 OLD_BOUND = 1 << 29
-ENV = {**os.environ, 'LC_ALL': 'C.UTF-8', 'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'PERL5OPT': ''}
+
+
+@lru_cache(maxsize=1)
+def fixture_library() -> Path:
+    """Materialize only core-based imports inside this already-guarded guest."""
+    temporary = tempfile.TemporaryDirectory(prefix='retained-perl-library-', dir='/workspace')
+    atexit.register(temporary.cleanup)
+    root = Path(temporary.name)
+    values = compiled_package_fixture_values()
+    sources = {
+        'APTRepoLocal/Servicing/ArtifactLimits.pm': SERVICING / 'ArtifactLimits.pm.tmpl',
+        'Managed/Process.pm': PERL_LIB.parent / 'runtime/Managed/Process.pm',
+    }
+    for relative, source in sources.items():
+        text = rendered_path_text(source.read_text())
+        text = re.sub(r'__INSTALLER_(SOFTWARE_[A-Z0-9_]+)__',
+                      lambda match: values[match[1]], text)
+        if '__INSTALLER_' in text:
+            raise ValueError('unrendered retained-package fixture import')
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+    return root
 
 
 def method(filename: str, name: str) -> str:
     """Take a complete top-level method verbatim, without rewriting its body."""
-    text = payload_read_text(SERVICING / filename)
+    text = rendered_path_text(payload_read_text(SERVICING / filename))
     match = re.search(rf'^sub {re.escape(name)}\s*\{{.*?(?=^sub [A-Za-z_]|^1;\s*$)',
                       text, re.M | re.S)
     if match is None:
@@ -67,16 +90,20 @@ def perl_program() -> str:
 use Fcntl qw(:DEFAULT O_NOFOLLOW O_NONBLOCK S_IFMT S_IFREG);
 use Errno qw(EINTR); use Digest::SHA; use JSON::PP;
 use APTRepoLocal::Servicing::ArtifactLimits qw(MAX_DEB_BYTES);
+use Managed::Process qw(capture_command);
 '''
     constants = '\n'.join(re.findall(r'^use constant\s+.*?;',
-                                     payload_read_text(SERVICING / 'ChatGPT.pm'), re.M | re.S))
+                                     rendered_path_text(payload_read_text(SERVICING / 'ChatGPT.pm')), re.M | re.S))
     return ('package APTRepoLocal::Servicing::Atomic;\n' + common
             + method('Atomic.pm', 'assert_absolute_path')
             + method('Atomic.pm', 'read_limited') + method('Atomic.pm', 'sha256_file')
             + 'package APTRepoLocal::Servicing::ChatGPT;\n' + common + constants + '\n'
             + method('ChatGPT.pm', 'spec')
             + 'package APTRepoLocal::Servicing::Deb;\n' + common
-            + method('Deb.pm', '_capture') + method('Deb.pm', 'control')
+            + ''.join(method('Deb.pm', name) for name in (
+                '_capture', '_capture_limited', '_capture_quiet', 'control', 'control_fields',
+                '_archive_listing', '_listing_modes', '_listing_mode', '_listing_contains',
+                '_sandbox_presence', 'installed_version'))
             + method('Deb.pm', 'validate') + method('Deb.pm', 'validate_spec')
             + 'package APTRepoLocal::Servicing::Repository;\n' + common
             + "use constant HELPER => '/fixture/catalogue-transport';\n"
@@ -101,17 +128,50 @@ if ($action eq 'limit') {
 } elsif ($action eq 'validate') {
     $result = $deb->validate_spec($path, $spec, "$spec->{label} retained archive");
 } elsif ($action eq 'changed') {
-    my $original = \\&APTRepoLocal::Servicing::Deb::control;
+    my $original = \\&APTRepoLocal::Servicing::Deb::control_fields;
     no warnings 'redefine';
-    local *APTRepoLocal::Servicing::Deb::control = sub {
+    local *APTRepoLocal::Servicing::Deb::control_fields = sub {
         my $value = $original->(@_);
-        if ($_[2] eq 'Architecture') {
-            open my $out, '>>', $_[1] or die "fixture append: $!";
-            print {$out} "changed"; close $out or die "fixture close: $!";
-        }
+        open my $out, '>>', $_[1] or die "fixture append: $!";
+        print {$out} "changed"; close $out or die "fixture close: $!";
         return $value;
     };
     $result = $deb->validate_spec($path, $spec);
+} elsif ($action eq 'inspection') {
+    my $fixture = decode_json($extra);
+    my (@commands, @records);
+    my $listing_index = 0;
+    no warnings 'redefine';
+    local *APTRepoLocal::Servicing::Deb::_capture = sub {
+        my ($self, @argv) = @_;
+        push @commands, { kind => 'control', argv => \\@argv };
+        return 'X' x 1_048_577 if $fixture->{oversize_control};
+        return $fixture->{control};
+    };
+    local *APTRepoLocal::Servicing::Deb::_capture_limited = sub {
+        my ($self, $limit, @argv) = @_;
+        push @commands, { kind => 'listing', limit => $limit, argv => \\@argv };
+        return $fixture->{listings}->[$listing_index++];
+    };
+    local *APTRepoLocal::Servicing::Deb::_capture_quiet = sub {
+        my ($self, @argv) = @_;
+        push @commands, { kind => 'query', argv => \\@argv };
+        return $fixture->{query};
+    };
+    for (1 .. ($fixture->{runs} // 1)) {
+        my $value = eval {
+            my $operation = $fixture->{operation} // 'validate';
+            if ($operation eq 'validate') {
+                $deb->validate_spec($path, $fixture->{spec});
+            } elsif ($operation eq 'version') {
+                $deb->installed_version('fixture');
+            } else {
+                die "unknown inspection fixture operation";
+            }
+        };
+        push @records, { value => $value, error => "$@" };
+    }
+    $result = { records => \\@records, commands => \\@commands };
 } elsif ($action eq 'latest') {
     my $repository = bless { directory => $path, catalogue => $extra },
         'APTRepoLocal::Servicing::Repository';
@@ -168,9 +228,12 @@ def sparse_deb(path: Path, size: int = 8192, *, package: str = 'chatgpt',
 def run_perl(action: str, path: object = '', extra: object = '', *, memory_limit: bool = False):
     def limit_memory():
         resource.setrlimit(resource.RLIMIT_AS, (128 << 20, 128 << 20))
-    return subprocess.run(payload_installed_argv(['/usr/bin/perl', '-I', str(PERL_LIB), '-e', perl_program(),
+    library = fixture_library()
+    environment = {'LC_ALL': 'C.UTF-8', 'PATH': '/usr/bin:/bin', 'PERL5OPT': '',
+                   'HOME': str(library), 'TMPDIR': str(library), 'TMP': str(library), 'TEMP': str(library)}
+    return subprocess.run(payload_installed_argv(['/usr/bin/perl', '-f', '-I', str(library), '-e', perl_program(),
                            action, str(path), str(extra)]), text=True, capture_output=True,
-                          env=ENV, timeout=45,
+                          env=environment, timeout=45,
                           preexec_fn=limit_memory if memory_limit else None)
 
 
@@ -187,7 +250,7 @@ def result_value(result):
 class RetainedPackageBoundsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temporary = tempfile.TemporaryDirectory(prefix='retained-package-bounds-')
+        cls.temporary = tempfile.TemporaryDirectory(prefix='retained-package-bounds-', dir='/workspace')
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.directory = Path(cls.temporary.name)
         cls.small = cls.directory / 'chatgpt-small.deb'
@@ -196,7 +259,7 @@ class RetainedPackageBoundsTests(unittest.TestCase):
         sparse_deb(cls.small)
         sparse_deb(cls.large, OLD_BOUND + 4096)
         sparse_deb(cls.at_limit, MAX_DEB)
-        cls.publisher = runpy.run_path(str(HELPER), run_name='retained_package_publisher_test')
+        cls.publisher = publisher_module().__dict__
 
     def assert_rejected(self, path, reason: str, *, action='validate', extra=''):
         result = run_perl(action, path, extra)
@@ -204,10 +267,9 @@ class RetainedPackageBoundsTests(unittest.TestCase):
         self.assertIn(reason, result.stderr)
         return result
 
-    def test_publisher_and_retained_archive_have_explicit_separate_ceilings(self):
+    def test_publisher_and_retained_archive_share_the_configured_package_ceiling(self):
         self.assertEqual(result_value(run_perl('limit')), MAX_DEB)
-        self.assertEqual(self.publisher['MAX_DEB'], MAX_PUBLISHER)
-        self.assertEqual(MAX_DEB, 2 * MAX_PUBLISHER)
+        self.assertEqual(self.publisher['MAX_DEB'], MAX_DEB)
 
     def test_chatgpt_transport_has_no_byte_ceiling(self):
         self.assertIsNone(result_value(run_perl('spec-limit')))
@@ -231,7 +293,7 @@ class RetainedPackageBoundsTests(unittest.TestCase):
         self.assertEqual(result_value(run_perl('validate', self.large))['version'], fields['Version'])
         self.assertGreater(payload_source_stat(self.large).st_size, OLD_BOUND)
 
-    def test_real_archive_exactly_at_four_gib_is_accepted(self):
+    def test_real_archive_exactly_at_the_configured_limit_is_accepted(self):
         self.assertEqual(result_value(run_perl('validate', self.at_limit))['package'], 'chatgpt')
         self.assertEqual(payload_source_stat(self.at_limit).st_size, MAX_DEB)
 
@@ -247,9 +309,9 @@ class RetainedPackageBoundsTests(unittest.TestCase):
             fd = self.publisher['checked_file'](path)
             os.close(fd)
 
-    def test_publisher_accepts_exactly_two_gib_and_rejects_one_byte_more(self):
+    def test_publisher_accepts_exactly_the_configured_limit_and_rejects_one_byte_more(self):
         path = self.directory / 'publisher-boundary.deb'
-        sparse_deb(path, MAX_PUBLISHER)
+        sparse_deb(path, MAX_DEB)
         os.chmod(path, 0o600)
         fd = self.publisher['checked_file'](path)
         os.close(fd)
@@ -257,13 +319,12 @@ class RetainedPackageBoundsTests(unittest.TestCase):
             stream.write(b'x')
         with self.assertRaises(self.publisher['Error']):
             self.publisher['checked_file'](path)
-        # The larger retained policy deliberately still accepts this size.
         path.unlink()
 
-    def test_retained_archive_above_publisher_budget_is_still_valid(self):
+    def test_retained_archive_above_the_shared_package_budget_is_rejected(self):
         path = self.directory / 'retained-expanded.deb'
-        sparse_deb(path, MAX_PUBLISHER + 4096)
-        self.assertEqual(result_value(run_perl('validate', path))['package'], 'chatgpt')
+        sparse_deb(path, MAX_DEB + 4096)
+        self.assert_rejected(path, 'not a bounded regular file')
         with self.assertRaises(self.publisher['Error']):
             self.publisher['checked_file'](path, private=False)
         path.unlink()
@@ -377,6 +438,98 @@ class RetainedPackageBoundsTests(unittest.TestCase):
         record = result_value(run_perl('latest-bitwarden', root, catalogue))
         self.assertEqual(record['metadata']['package'], 'bitwarden')
         self.assertNotIn('vendor_sha256', record)
+
+
+class ServicingInspectionTests(unittest.TestCase):
+    """Bounded command doubles exercise the production parser/validator bodies."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='servicing-inspection-', dir='/workspace')
+        self.addCleanup(temporary.cleanup)
+        self.path = Path(temporary.name) / 'fixture.deb'
+        self.path.write_bytes(b'!<arch>\n')
+        self.path.chmod(0o600)
+        self.control = ('Description: fixture metadata\n continued description\nArchitecture: amd64\n'
+                        'Version: 1.0\nPackage: fixture\n')
+        self.spec = {
+            'label': 'Fixture', 'packages': ['fixture'], 'executable': '/usr/bin/fixture',
+            'desktop': '/usr/share/applications/fixture.desktop', 'library': '/opt/Fixture/lib.so',
+            'required_paths': ['/opt/Fixture/resources/app.asar'],
+            'required_executables': ['/opt/Fixture/helper'],
+            'sandbox': '/opt/Fixture/chrome-sandbox', 'sandbox_presence': 'required',
+        }
+        members = (
+            ('-rwxr-xr-x', '/usr/bin/fixture'),
+            ('-rw-r--r--', '/usr/share/applications/fixture.desktop'),
+            ('-rw-r--r--', '/opt/Fixture/lib.so'),
+            ('-rw-r--r--', '/opt/Fixture/resources/app.asar'),
+            ('lrwxrwxrwx', '/opt/Fixture/helper -> helper-runtime'),
+            ('-rwsr-xr-x', '/opt/Fixture/chrome-sandbox'),
+        )
+        self.listing = ''.join(f'{mode} root/root 1 2026-11-19 00:00 .{name}\n'
+                               for mode, name in members)
+
+    def inspect(self, **changes):
+        fixture = {'control': self.control, 'spec': self.spec, 'listings': [self.listing]}
+        fixture.update(changes)
+        return result_value(run_perl('inspection', self.path, json.dumps(fixture)))
+
+    def test_named_control_and_all_required_members_use_one_read_each(self):
+        result = self.inspect()
+        self.assertEqual(result['records'], [{'value': {
+            'package': 'fixture', 'version': '1.0', 'architecture': 'amd64'}, 'error': ''}])
+        self.assertEqual([command['kind'] for command in result['commands']], ['control', 'listing'])
+        control, listing = result['commands']
+        self.assertEqual(control['argv'][1:], ['-f', str(self.path)])
+        self.assertEqual(listing['argv'][1:], ['-c', str(self.path)])
+        self.assertEqual(listing['limit'], 16 * 1024 * 1024)
+
+    def test_missing_duplicate_malformed_and_unbounded_control_are_rejected(self):
+        cases = (
+            {'control': self.control.replace('Version: 1.0\n', '')},
+            {'control': self.control + 'pAcKaGe: fixture\n'},
+            {'control': ' orphaned continuation\n' + self.control},
+            {'control': self.control + '\0'},
+            {'control': self.control.replace('Package: fixture', 'Package fixture')},
+            {'control': None},
+            {'oversize_control': True},
+        )
+        for changes in cases:
+            with self.subTest(changes=changes):
+                self.assertTrue(self.inspect(**changes)['records'][0]['error'])
+
+    def test_duplicate_and_hardlink_payload_members_remain_rejected(self):
+        duplicate = self.listing + '-rwxr-xr-x root/root 1 2026-11-19 00:00 ./usr/bin/fixture\n'
+        hardlink = self.listing.replace(
+            '-rwxr-xr-x root/root 1 2026-11-19 00:00 ./usr/bin/fixture',
+            'hrwxr-xr-x root/root 1 2026-11-19 00:00 ./usr/bin/fixture link to ./usr/bin/other')
+        for listing in (duplicate, hardlink):
+            with self.subTest(listing=listing):
+                result = self.inspect(listings=[listing])
+                self.assertIn('missing its expected executable', result['records'][0]['error'])
+
+    def test_each_validation_reinspects_instead_of_reusing_old_listing_text(self):
+        changed = self.listing.replace('./usr/bin/fixture\n', './usr/bin/missing\n')
+        result = self.inspect(runs=2, listings=[self.listing, changed])
+        self.assertEqual(result['records'][0]['error'], '')
+        self.assertIn('missing its expected executable', result['records'][1]['error'])
+        self.assertEqual([command['kind'] for command in result['commands']],
+                         ['control', 'listing', 'control', 'listing'])
+
+    def test_installed_status_and_version_come_from_one_query(self):
+        result = self.inspect(operation='version', query='install ok installed\t1.0')
+        self.assertEqual(result['records'], [{'value': '1.0', 'error': ''}])
+        self.assertEqual(len(result['commands']), 1)
+        self.assertEqual(result['commands'][0]['kind'], 'query')
+        self.assertEqual(result['commands'][0]['argv'][2], '-f=${Status}\\t${Version}')
+
+    def test_partial_or_ambiguous_installed_state_cannot_supply_a_version(self):
+        for query in (None, 'install ok unpacked\t1.0', 'install ok installed',
+                      'install ok installed\t1.0\ninstall ok installed\t2.0'):
+            with self.subTest(query=query):
+                result = self.inspect(operation='version', query=query)
+                self.assertIsNone(result['records'][0]['value'])
+                self.assertEqual(len(result['commands']), 1)
 
 
 if __name__ == '__main__':

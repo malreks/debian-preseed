@@ -32,7 +32,7 @@ esac
 # shellcheck disable=SC1090,SC1091
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib ""
-installer_operation_context_repo FILE_INST_PREPKG_49NVIDIA_OPT_IN_FIRMWARE 35 nvidia_firmware_gate
+installer_operation_context_repo hooks/installer/pre-pkgsel.d/49nvidia-opt-in-firmware.sh 35 nvidia_firmware_gate
 
 SEED_BASE=$(installer_seed_base "")
 installer_persist_seed_source "$SEED_BASE"

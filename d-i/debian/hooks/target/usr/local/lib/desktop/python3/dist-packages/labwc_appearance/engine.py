@@ -173,7 +173,8 @@ def apply_choice(argv: list[str]) -> list[str]:
             if home.json('.config/labwc/appearance-fields.pending.json') is not None:
                 raise RuntimeError('a color transaction needs recovery in the GTK appearance editor')
             recover(home)
-            previous = validate_state(home.json(CONFIG, initial(defaults)))
+            state_raw = home.read(CONFIG, limit=transaction.MAX_IMAGE_BYTES, missing=True)
+            previous = validate_state(initial(defaults) if state_raw is None else json.loads(state_raw))
             current, affected, greeter = selection(previous, argv, defaults)
             if 'theme' in affected and current['theme'] is not None:
                 require_installed(current['theme'])
@@ -192,13 +193,14 @@ def apply_choice(argv: list[str]) -> list[str]:
                     'color-scheme': "'prefer-" + current['mode'] + "'",
                     'gtk-theme': "'" + desktop_theme(current['theme']).gtk + "'"}
             updates = {}
+            expected = {CONFIG: state_raw}
             for path, baseline in defaults['files'].items():
                 component, base = identify(path)
                 if (component not in affected and
                         not ('icon' in affected and base in ICON_MANAGED_FILES) and
                         not ('pointer' in affected and base in POINTER_MANAGED_FILES)):
                     continue
-                raw = home.read(path, missing=True)
+                raw = home.read(path, limit=transaction.MAX_IMAGE_BYTES, missing=True)
                 # Optional Qt compatibility files may be absent on a target.
                 # Preserve that absence instead of trying to render a setting
                 # into an empty file during an icon-only transaction.
@@ -220,8 +222,9 @@ def apply_choice(argv: list[str]) -> list[str]:
                 else:
                     pass
                 updates[path] = None if value is None else value.encode('utf-8')
+                expected[path] = raw
             updates[CONFIG] = (json.dumps(current, sort_keys=True, indent=2) + '\n').encode()
-            journal = transaction.plan(home, updates, token)
+            journal = transaction.plan(home, updates, token, expected=expected)
             journal.update(greeter=greeter, dockRunning=dock_running, filesStarted=False,
                            oldSettings=old_settings, newSettings=new_settings)
             transaction.validate(journal, user_paths() | {CONFIG})
@@ -234,10 +237,12 @@ def apply_choice(argv: list[str]) -> list[str]:
                     # Re-render against the now-quiescent file to preserve them.
                     for path, baseline in defaults['files'].items():
                         if identify(path)[0] == 'dock':
-                            source = home.read(path).decode()
+                            raw = home.read(path, limit=transaction.MAX_IMAGE_BYTES)
+                            source = raw.decode()
                             value = render(path, source, baseline, current['profiles']['dock'], current['mode'], home.root)
                             updates[path] = value.encode()
-                    replacement = transaction.plan(home, updates, token)
+                            expected[path] = raw
+                    replacement = transaction.plan(home, updates, token, expected=expected)
                     journal.update(old=replacement['old'], new=replacement['new'])
                     home.put_json(JOURNAL, journal)
                 # QSettings may have saved layout during shutdown. Until this

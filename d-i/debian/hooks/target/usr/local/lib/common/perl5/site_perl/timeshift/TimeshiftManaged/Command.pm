@@ -4,19 +4,11 @@ use strict;
 use warnings;
 
 use lib '__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/runtime';
-use Managed::Process qw(capture_command);
+use Managed::Process qw(capture_command status_from_wait);
 use Moo;
 use MooX::StrictConstructor;
 use MooX::TypeTiny;
 use Types::Standard qw(ArrayRef Str);
-
-sub status_from_wait {
-    my ($status) = @_;
-
-    return 255 if !defined($status) || $status == -1;
-    return 128 + ($status & 127) if $status & 127;
-    return $status >> 8;
-}
 
 sub run {
     my ($self, @argv) = @_;

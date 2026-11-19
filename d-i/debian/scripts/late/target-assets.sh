@@ -67,6 +67,7 @@ target_asset_is_logical_path() {
 # target_asset_host_path below.
 target_asset_entry_host_path() (
   set -eu
+  [ -z "${INSTALLER_ASSET_BATCH_WORK:-}" ] || installer_asset_batch_flush || exit $?
   target_root=$(target_asset_validate_root_context "${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}") || exit 1
   requested_path=${1:-}
   case "$requested_path" in
@@ -202,7 +203,34 @@ target_asset_assert_no_unresolved_installer_placeholders() {
 # Publish only fully fetched/rendered files. A private work directory on the
 # destination filesystem makes rename atomic and contains all renderer scratch
 # files; failure and signal traps never expose a half-rendered target file.
-publish_target_asset() (
+# Prepared plain/scalar/resource assets use the shared Perl publisher. The
+# hardware-derived system-template adapter retains its typed map producers;
+# reaching it is an explicit dependency barrier for any queued publications.
+publish_target_asset() {
+  if [ "$4" != stdin ] && [ -z "$1" ]; then
+    installer_fatal 'target asset source is empty; repository resolution failed'
+    return 1
+  fi
+  case "$4" in
+    plain|template-input|appearance-registry|resources)
+      installer_asset_publish "$4" "$1" "$2" "$3"
+      ;;
+    stdin)
+      (set -eu
+        installer_asset_batch_begin generated-file
+        installer_asset_input=$(mktemp "$INSTALLER_ASSET_BATCH_WORK/input.XXXXXX")
+        cat >"$installer_asset_input"
+        installer_asset_batch_add stdin "$1" "$2" "$3" INPUT_FILE "${installer_asset_input##*/}"
+        installer_asset_batch_finish)
+      ;;
+    *)
+      installer_asset_batch_flush || return $?
+      publish_target_typed_asset "$@"
+      ;;
+  esac
+}
+
+publish_target_typed_asset() (
   set -eu
   umask 077
   asset_source=$1
@@ -230,20 +258,26 @@ publish_target_asset() (
   # A failed command substitution can leave an empty source argument while
   # the enclosing command still runs. Reject it before preparing or fetching
   # any target path; stdin publication has its own explicit source contract.
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 233 validate_target_asset
+  installer_operation_context_repo scripts/late/target-assets.sh 233 validate_target_asset
   if [ "$asset_kind" != stdin ] && [ -z "$asset_source" ]; then
     installer_fatal 'target asset source is empty; repository selector resolution failed'
     exit 1
   fi
   case "$asset_mode" in [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
     *) installer_fatal "invalid target asset mode"; exit 1 ;; esac
-  installer_target_context_init || exit 1
-  if [ "$asset_kind" = plain ] &&
-      bootstrap_prepared_asset_published "$asset_source" "$asset_target" "$asset_mode"; then
-    exit 0
+  if [ "$asset_kind" = helper-doc ]; then
+    # Runtime storage normalization gives this tree to the primary account.
+    # Keep this existing, ancestry-checked atomic handoff for that exact owner;
+    # the root-only batch writer must not accept arbitrary user-owned trees.
+    [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] &&
+      [ -n "${DIR_TARGET_DOCS:-}" ] && [ -n "${DIR_DATA_DOCS:-}" ] &&
+      [ "$asset_mode" = 0644 ] || installer_fatal 'helper docs require prepared source and declared roots'
+    case "$asset_source" in "$DIR_TARGET_DOCS/"*) ;; *) installer_fatal 'helper doc source escapes its owner' ;; esac
+    case "$asset_target" in "$DIR_DATA_DOCS/"*) ;; *) installer_fatal 'helper doc target escapes its owner' ;; esac
   fi
+  installer_target_context_init || exit 1
   target_publish_step=prepare_destination
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 246 prepare_target_asset_destination
+  installer_operation_context_repo scripts/late/target-assets.sh 246 prepare_target_asset_destination
   asset_destination=$(target_asset_host_path "$asset_target") || exit "$?"
   ensure_target_asset_parent "$asset_target" || exit "$?"
   [ ! -d "$asset_destination" ] || { installer_fatal "asset destination is a directory"; exit 1; }
@@ -252,46 +286,19 @@ publish_target_asset() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   target_publish_step=acquire
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 255 acquire_target_asset
-  if [ "$asset_kind" = stdin ]; then
-    cat >"$asset_work/payload" || exit "$?"
-  else
-    (fetch_hook "$asset_source" "$asset_work/payload") || exit "$?"
-  fi
+  installer_operation_context_repo scripts/late/target-assets.sh 255 acquire_target_asset
+  (fetch_hook "$asset_source" "$asset_work/payload") || exit "$?"
   target_publish_step=render
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 262 render_target_asset
+  installer_operation_context_repo scripts/late/target-assets.sh 262 render_target_asset
   case "$asset_kind" in
-    plain|stdin|template-input|appearance-registry)
-      # Canonical fields always use the shared map. Private renderer inputs
-      # and appearance mapping grammar have explicit, separate consumers.
-      if installer_contains_unresolved_path_placeholders "$asset_work/payload"; then
-        installer_apply_scalar_placeholders "$asset_work/payload" "$asset_work/path-rendered" || exit "$?"
-        mv -f "$asset_work/path-rendered" "$asset_work/payload" || exit "$?"
-      else
-        asset_path_probe=$?
-        [ "$asset_path_probe" -eq 1 ] || exit "$asset_path_probe"
-      fi
-      case "$asset_kind" in
-        template-input)
-          installer_assert_no_unresolved_path_placeholders \
-            "$asset_work/payload" "template input $asset_source" || exit "$?"
-          ;;
-        appearance-registry)
-          desktop_assert_appearance_registry_placeholders "$asset_work/payload" || exit "$?"
-          ;;
-        *)
-          installer_assert_no_unresolved_installer_placeholders \
-            "$asset_work/payload" "target asset $asset_source" || exit "$?"
-          ;;
-      esac
+    helper-doc)
+      # These protected source bytes already passed base-stage path rendering.
+      # The dedicated handoff only validates and publishes them atomically.
+      target_asset_assert_no_unresolved_installer_placeholders "$asset_work/payload" "helper doc $asset_source"
       ;;
     template)
       (TMP_ENV_DIR=$asset_work; render_target_template "$asset_work/payload" "$asset_work/rendered" "$asset_mode") || exit "$?"
       mv -f "$asset_work/rendered" "$asset_work/payload" || exit "$?"
-      ;;
-    resources)
-      (TMP_ENV_DIR=$asset_work; apply_systemd_resource_placeholders "$asset_work/payload") || exit "$?"
-      (target_asset_assert_no_unresolved_installer_placeholders "$asset_work/payload" "resource asset $asset_source") || exit "$?"
       ;;
     pre-clean)
       # Reuse the existing tmpfs scalar/block renderer without requiring
@@ -306,13 +313,9 @@ publish_target_asset() (
     *) installer_fatal "invalid target asset operation"; exit 1 ;;
   esac
   target_publish_step=publish
-  installer_operation_context_repo FILE_LATE_TARGET_ASSETS 309 publish_target_asset
+  installer_operation_context_repo scripts/late/target-assets.sh 309 publish_target_asset
   chmod "$asset_mode" "$asset_work/payload" || exit "$?"
-  # Named stdin publications come from the typed desktop renderer, which
-  # separately captures primary and future-account values before this call.
-  if [ "$asset_kind" != stdin ] || [ "$asset_source" = - ]; then
-    installer_capture_primary_default "$asset_work/payload" "$asset_target" "$asset_mode" || exit "$?"
-  fi
+  installer_capture_primary_default "$asset_work/payload" "$asset_target" "$asset_mode" || exit "$?"
   [ "$(target_asset_host_path "$asset_target")" = "$asset_destination" ] || exit 1
   installer_target_ownership_record "$asset_source" "${asset_destination#"${INSTALLER_TARGET_DIR:-$TARGET_ROOT}"}" \
     "$asset_kind" "$asset_mode" || exit "$?"
@@ -453,7 +456,7 @@ stage_target_docs_index() {
     installer_fatal "DIR_DATA_DOCS must be set before staging helper docs"
     return 1
   }
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_DOCS_README)" "${DIR_DATA_DOCS}/README.md" 0644 || return $?
+  publish_target_asset "$(installer_repo_file_value hooks/target/data/docs/README.md)" "${DIR_DATA_DOCS}/README.md" 0644 helper-doc || return $?
   target_chown_helper_doc_path "${DIR_DATA_DOCS}/README.md"
 }
 
@@ -489,7 +492,7 @@ stage_target_helper_doc_file() {
   doc_name=$2
 
   doc_target_path="${DIR_DATA_DOCS}/${doc_name}"
-  stage_target_asset "$(installer_repo_asset_path DIR_TARGET_DOCS "${repo_relpath}")" "${doc_target_path}" 0644 || return $?
+  publish_target_asset "$(installer_repo_asset_path DIR_TARGET_DOCS "${repo_relpath}")" "${doc_target_path}" 0644 helper-doc || return $?
   target_chown_helper_doc_path "$doc_target_path"
 }
 
@@ -568,13 +571,13 @@ write_target_fstab_records() (
   trap 'exit 1' HUP INT TERM
   cat >"$fstab_work/records" || exit 1
   [ -s "$fstab_work/records" ] || { installer_fatal "empty filesystem table"; exit 1; }
-  fetch_hook "$(installer_repo_file_value FILE_TARGET_FSTAB_TMPL)" "$fstab_work/template" || exit 1
+  fetch_hook "$(installer_repo_file_value hooks/target/etc/fstab.tmpl)" "$fstab_work/template" || exit 1
   installer_target_perl_render "$fstab_work/template" "$fstab_work/rendered" \
     "$fstab_work/records" fstab || exit "$?"
   installer_assert_no_unresolved_installer_placeholders "$fstab_work/rendered" fstab || exit 1
   [ ! -L ${TARGET_ROOT}${DIR_ETC}/fstab ] || { installer_fatal "refusing a symlinked fstab"; exit 1; }
   chmod 0644 "$fstab_work/rendered" || exit 1
-  installer_target_ownership_record "$(installer_repo_file_value FILE_TARGET_FSTAB_TMPL)" \
+  installer_target_ownership_record "$(installer_repo_file_value hooks/target/etc/fstab.tmpl)" \
     "${DIR_ETC}/fstab" template 0644 || exit 1
   mv -fT -- "$fstab_work/rendered" ${TARGET_ROOT}${DIR_ETC}/fstab || exit 1
 )
@@ -585,20 +588,24 @@ write_target_fstab_records() (
 # before the final __INSTALLER_PATH_DIR_VAR__/log mount setup. Class helpers and rsyslog preflight
 # existing paths immediately before their own tmpfiles invocation.
 stage_target_logging_foundation() {
+  installer_asset_batch_begin logging-foundation || return $?
   # Journald starts with forwarding off in every storage profile. Publish the
   # complete readiness owner before any selected class can enable rsyslog.
   # Debian's unnumbered vendor syslog.conf sorts after both numbered policies.
   # Replace that basename locally without assigning a competing runtime value.
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SYSTEMD_JOURNALD_CONF_D_SYSLOG)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/journald.conf.d/syslog.conf)" \
     __INSTALLER_PATH_DIR_ETC__/systemd/journald.conf.d/syslog.conf 0644 || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_JOURNAL_CHECK)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/journal-check)" \
     "${DIR_USR_LOCAL_LIBEXEC}/journal-check" 0755 || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_JOURNAL_FORWARDING)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/journal-forwarding)" \
     "${DIR_USR_LOCAL_LIBEXEC}/journal-forwarding" 0755 || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_RSYSLOG_JOURNAL_FORWARDING_SERVICE)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/rsyslog-journal-forwarding.service)" \
     __INSTALLER_PATH_DIR_ETC__/systemd/system/rsyslog-journal-forwarding.service 0644 || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_RSYSLOG_SERVICE_D_40_JOURNAL_FORWARDING)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/rsyslog.service.d/40-journal-forwarding.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/40-journal-forwarding.conf 0644 || return $?
+  # These metadata/content checks are installer-side readers. They must see
+  # the just-queued candidates before any later target_exec barrier is reached.
+  installer_asset_batch_flush || return $?
   for forwarding_asset in \
     etc/systemd/journald.conf.d/syslog.conf \
     usr/local/libexec/journal-check \
@@ -614,18 +621,19 @@ stage_target_logging_foundation() {
     }
     target_asset_assert_no_unresolved_installer_placeholders "$forwarding_path" "$forwarding_asset" || return $?
   done
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_59_LOG_LAYOUT_TMPL)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/59-log-layout.conf 0644 || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_65_AUDIT_SYSLOG)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/65-audit-syslog.conf)" \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/65-audit-syslog.conf 0644 || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_LOG_LAYOUT_TMPL)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/log-layout.tmpl)" \
     "${DIR_USR_LOCAL_LIBEXEC}/log-layout" 0755 || return $?
   # Selected helpers validate their rsyslog drop-ins before desktop setup.
   # Publish the module/template definitions and rotation callback first.
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_RSYSLOG_SIZE_ROTATE_TMPL)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/rsyslog-size-rotate.tmpl)" \
     "${DIR_USR_LOCAL_LIBEXEC}/rsyslog-size-rotate" 0755 || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_RSYSLOG_TMPL)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/rsyslog.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.conf 0644 || return $?
+  installer_asset_batch_finish
 }
 
 # Shared GPU publication preserves the selected driver policy in either family.
@@ -636,7 +644,7 @@ stage_target_graphics_kernel_tunables() {
   stage_target_asset_if_path "$(installer_hardware_asset_path gpu intel-uhd etc/modprobe.d/80-i915.conf)" "${FILE_MODPROBE_I915:-}" "${DIR_MODPROBE_D}/80-i915.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path gpu amd-radeon etc/modprobe.d/81-amdgpu.conf)" "${FILE_MODPROBE_AMDGPU:-}" "${DIR_MODPROBE_D}/81-amdgpu.conf" 0644
   if [ "$1" = true ]; then
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODPROBE_D_50_NOUVEAU_BLACKLIST)" "${DIR_MODPROBE_D}/50-nouveau-blacklist.conf" 0644
+    stage_target_asset "$(installer_repo_file_value hooks/target/etc/modprobe.d/50-nouveau-blacklist.conf)" "${DIR_MODPROBE_D}/50-nouveau-blacklist.conf" 0644
     stage_target_asset "$(installer_hardware_asset_path gpu nvidia etc/modprobe.d/82-nvidia.conf)" "${FILE_MODPROBE_NVIDIA}" 0644
   else
     remove_target_asset "${DIR_MODPROBE_D}/50-nouveau-blacklist.conf"

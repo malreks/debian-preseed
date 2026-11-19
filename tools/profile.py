@@ -22,7 +22,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from build import SourceCapture
-from class_compiler import assignment_data, compile_classes, read_json
+from class_compiler import compile_classes, read_json, repository_data
 from publication import (BuildOwnership, PublicationOutcomeUnknown, _Directory,
                          _atomic_write_at, _file_identity, _verify_file)
 
@@ -51,24 +51,25 @@ def prompt(label: str, choices: tuple[str, ...]) -> str:
     raise ValueError('too many invalid answers')
 
 
-def selectors(text: str, suite: str) -> dict[str, str]:
-    values = {'INSTALLER_SUITE': suite}
-    assignment_data(text, values, {}, 'repo.env')
-    return values
-
-
-def add_selector(text: str, key: str, parent: str, leaf: str) -> str:
-    if re.search(r'^' + re.escape(key) + '=', text, re.M):
-        raise ValueError('profile selector already exists: ' + key)
-    return text.rstrip() + '\n' + key + '="${' + parent + '}/' + leaf + '"\n'
+def repo_paths(sources: dict[str, bytes], suite: str) -> dict[str, str]:
+    schemas = re.findall(r"^  source_repo_supported='([^']+)'$",
+                         sources['scripts/common/source.sh'].decode(), re.M)
+    if len(schemas) != 1:
+        raise ValueError('repository configuration has no unique supported vocabulary')
+    names = schemas[0].split()
+    if len(names) != len(set(names)) or any(name.startswith('FILE_') for name in names):
+        raise ValueError('invalid repository configuration vocabulary')
+    return repository_data(sources['repo.env'].decode(), suite, set(names))
 
 
 def candidate(sources: dict[str, bytes], filesystem: str, family: str,
               variants: list[str], hostname: str) -> dict[str, bytes]:
     validate_hostname(hostname)
-    repo = sources['repo.env'].decode()
-    paths = selectors(repo, SUITES[0])
-    selection_path = paths['FILE_SELECTION_REGISTRY']
+    suite_paths = {suite: repo_paths(sources, suite) for suite in SUITES}
+    paths = suite_paths[SUITES[0]]
+    # Registry/template leaf names are stable build interfaces. The shared
+    # roots remain configurable; profile membership belongs to the registry.
+    selection_path = paths['DIR_CATALOG'] + '/selection.json'
     selection = json.loads(sources[selection_path])
     changes: dict[str, bytes] = {}
     families = ('desktop', 'server') if family == 'both' else (family,)
@@ -81,12 +82,11 @@ def candidate(sources: dict[str, bytes], filesystem: str, family: str,
             identifier = f'{filesystem}-{tag}-{hostname}{suffix}'
             if any(item['id'] == identifier for item in selection['profiles']):
                 raise ValueError('registered profile already exists: ' + identifier)
-            template_key = 'FILE_HOST_TEMPLATE_' + (filesystem + '-' + selected_family + suffix).upper().replace('-', '_')
-            template_path = paths[template_key]
+            template_path = paths['DIR_HOSTS_PROFILES_TEMPLATES'] + '/' + filesystem + '-' + selected_family + suffix + '.env'
             template = sources[template_path].decode()
             # Identity is supplied by the existing installer account contract.
             # Template comments identify provenance without changing policy data.
-            env = f'# Generated profile {identifier}; template selector {template_key}.\n' + template
+            env = f'# Generated profile {identifier}; template {template_path}.\n' + template
             destination = paths[parent] + '/' + identifier + '.env'
             if destination in sources:
                 raise ValueError('profile environment already exists: ' + destination)
@@ -94,14 +94,8 @@ def candidate(sources: dict[str, bytes], filesystem: str, family: str,
             selection['profiles'].append({'id': identifier, 'family': selected_family,
                 'filesystem': filesystem, 'mode': 'fresh' if variant == 'normal' else 'dualboot',
                 'source': destination, 'identity_policy': 'explicit-profile-only'})
-            token = identifier.upper().replace('-', '_')
-            host_key = 'FILE_HOST_PROFILE_' + ('SERVER_' if selected_family == 'server' else '') + token
-            class_key = 'FILE_CLASS_PROFILE_' + ('SERVER_' if selected_family == 'server' else '') + token
-            repo = add_selector(repo, host_key, parent, identifier + '.env')
-            repo = add_selector(repo, class_key, class_parent, identifier + '.cfg')
             for suite in SUITES:
-                suite_paths = selectors(repo, suite)
-                path = suite_paths[class_parent] + '/' + identifier + '.cfg'
+                path = suite_paths[suite][class_parent] + '/' + identifier + '.cfg'
                 if path in sources:
                     raise ValueError('profile class already exists: ' + path)
                 text = f'# Explicit {selected_family} profile: {identifier}\n'
@@ -109,7 +103,6 @@ def candidate(sources: dict[str, bytes], filesystem: str, family: str,
                     text += 'd-i pkgsel/include string os-prober\n'
                 changes[path] = text.encode()
     changes[selection_path] = (json.dumps(selection, indent=2) + '\n').encode()
-    changes['repo.env'] = repo.encode()
     compile_classes({**sources, **changes})
     return changes
 
@@ -119,9 +112,8 @@ def deletion_candidate(sources: dict[str, bytes], identifiers: list[str]) -> dic
     if (not identifiers or len(identifiers) > 256 or len(set(identifiers)) != len(identifiers)
             or any(len(value) > 96 or PROFILE_ID.fullmatch(value) is None for value in identifiers)):
         raise ValueError('select one or more distinct, exact registered profile IDs')
-    repo = sources['repo.env'].decode()
-    paths = {suite: selectors(repo, suite) for suite in SUITES}
-    selection_path = paths[SUITES[0]]['FILE_SELECTION_REGISTRY']
+    paths = {suite: repo_paths(sources, suite) for suite in SUITES}
+    selection_path = paths[SUITES[0]]['DIR_CATALOG'] + '/selection.json'
     selection = read_json(sources, selection_path)
     selected = set(identifiers)
     required = dependent_variants(selection, identifiers)
@@ -149,27 +141,17 @@ def deletion_candidate(sources: dict[str, bytes], identifiers: list[str]) -> dic
             if member not in sources or member in changes:
                 raise ValueError('missing or shared profile member: ' + member)
             changes[member] = None
-        # Resolve by value, including any aliases, rather than guessing selector names.
-        for member in members:
-            if not any(key.startswith('FILE_') and value == member
-                       for values in paths.values() for key, value in values.items()):
-                raise ValueError('profile member has no source selector: ' + member)
     selection['profiles'] = [profile for profile in selection['profiles'] if profile['id'] not in selected]
     if any(profile['source'] in changes for profile in selection['profiles']):
         raise ValueError('a remaining profile shares the selected environment')
-    removed_keys = {key for values in paths.values() for key, value in values.items()
-                    if key.startswith('FILE_') and value in changes}
-    repo = ''.join(line for line in repo.splitlines(keepends=True)
-                   if line.partition('=')[0] not in removed_keys)
-    # Undefined selector parents and fixed callers must fail before publication.
-    for suite in SUITES:
-        selectors(repo, suite)
-    references = re.compile(rb'(?<![A-Z0-9_])(?:' + b'|'.join(key.encode() for key in sorted(removed_keys)) + rb')(?![A-Z0-9_])')
+    # Fixed consumers now name exact members rather than global FILE aliases.
+    # Reject a dangling physical-member reference before any source mutation.
+    references = re.compile(rb'(?<![A-Za-z0-9_./-])(?:' + b'|'.join(
+        re.escape(member.encode()) for member in sorted(changes)) + rb')(?![A-Za-z0-9_./-])')
     for member, data in sources.items():
-        if member != 'repo.env' and member not in changes and references.search(data):
-            raise ValueError('remaining source references a selected profile selector: ' + member)
+        if member not in {'repo.env', selection_path} and member not in changes and references.search(data):
+            raise ValueError('remaining source references a selected profile member: ' + member)
     changes[selection_path] = (json.dumps(selection, indent=2) + '\n').encode()
-    changes['repo.env'] = repo.encode()
     compile_classes({**{member: data for member, data in sources.items() if member not in changes},
                      **{member: data for member, data in changes.items() if data is not None}})
     return changes
@@ -185,8 +167,8 @@ def dependent_variants(selection: dict, identifiers: list[str]) -> list[str]:
 
 
 def select_deletions(sources: dict[str, bytes]) -> list[str]:
-    paths = selectors(sources['repo.env'].decode(), SUITES[0])
-    profiles = sorted(profile['id'] for profile in read_json(sources, paths['FILE_SELECTION_REGISTRY'])['profiles'])
+    paths = repo_paths(sources, SUITES[0])
+    profiles = sorted(profile['id'] for profile in read_json(sources, paths['DIR_CATALOG'] + '/selection.json')['profiles'])
     if not profiles:
         raise ValueError('there are no registered profiles to delete')
     print('Registered profiles (delete Duo/Trio variants before their normal profile):')
@@ -357,7 +339,7 @@ class Recovery:
 
 def ordered_members(changes: dict[str, bytes | None], paths: dict[str, str]) -> list[str]:
     return sorted(changes, key=lambda name: (
-        name in {'repo.env', paths['FILE_SELECTION_REGISTRY']},
+        name == paths['DIR_CATALOG'] + '/selection.json',
         not Path(name).stem.endswith(('-duo', '-trio')), name))
 
 
@@ -367,7 +349,7 @@ def publish(changes: dict[str, bytes | None], sources: dict[str, bytes], paths: 
     with ExitStack() as stack:
         parents: dict[Path, _Directory] = {}
         edits = []
-        # Registry and selectors follow their exact owned file edits.
+        # Registry publication follows the exact owned file edits.
         for member in ordered_members(changes, paths):
             path = physical(member, paths)
             if path.parent not in parents:
@@ -457,8 +439,8 @@ def main() -> int:
             sources, _compiler = capture.read()
             if action == 'delete':
                 identifiers = args.profile or select_deletions(sources)
-                paths = selectors(sources['repo.env'].decode(), SUITES[0])
-                selection = read_json(sources, paths['FILE_SELECTION_REGISTRY'])
+                paths = repo_paths(sources, SUITES[0])
+                selection = read_json(sources, paths['DIR_CATALOG'] + '/selection.json')
                 required = dependent_variants(selection, identifiers)
                 if required:
                     print('Corresponding variants must be deleted first: ' + ', '.join(required))
@@ -474,7 +456,7 @@ def main() -> int:
                 print('Selected for deletion: ' + ', '.join(identifiers))
             else:
                 changes = candidate(sources, filesystem, family, variants, hostname)
-            paths = selectors(sources['repo.env'].decode(), SUITES[0])
+            paths = repo_paths(sources, SUITES[0])
             capture.verify()
             for member in ordered_members(changes, paths):
                 verb = 'delete' if changes[member] is None else 'update' if member in sources else 'create'

@@ -18,7 +18,7 @@ install_profile_hardware_tuning() (
   set -eu
   umask 077
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_OS_HARDWARE_TUNING 17 install_profile_hardware_tuning
+    installer_operation_context_repo scripts/common/hardware-tuning.sh 17 install_profile_hardware_tuning
   fi
   for hardware_flag in "${HARDWARE_INTEL_CPU_TUNING_ENABLE:-false}" "${HARDWARE_NVIDIA_GPU_TUNING_ENABLE:-false}"; do
     case "$hardware_flag" in true|false) ;; *) installer_fatal "hardware tuning enable flags must be literal true or false"; exit 1 ;; esac
@@ -39,12 +39,12 @@ install_profile_hardware_tuning() (
   for hardware_module in common engine broker client policy_owner system_state power_profiles $hardware_vendors; do
     profile_hardware_stage_asset "usr/local/lib/hardware_tuning/${hardware_module}.py" "${DIR_HARDWARE_TUNING}/${hardware_module}.py" 0644 || exit 1
   done
-  profile_hardware_stage_asset FILE_TARGET_BIN_LABWC_HARDWARE_TUNING __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-hardware-tuning 0755 || exit 1
-  profile_hardware_stage_asset FILE_TARGET_LIBEXEC_HARDWARE_TUNINGD __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/hardware-tuningd 0755 || exit 1
-  profile_hardware_stage_asset FILE_TARGET_LIBEXEC_HARDWARE_TUNING_WORKER __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/hardware-tuning-worker 0755 || exit 1
-  profile_hardware_stage_asset FILE_TARGET_LIBEXEC_HARDWARE_TUNING_POLICY __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/hardware-tuning-policy 0755 || exit 1
-  profile_hardware_stage_asset FILE_TARGET_LIBEXEC_HARDWARE_TUNING_POWER_PROFILES __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/hardware-tuning-power-profiles 0755 || exit 1
-  profile_hardware_stage_asset FILE_TARGET_AA_HARDWARE_TUNING __INSTALLER_PATH_DIR_ETC__/apparmor.d/hardware-tuning 0644 || exit 1
+  profile_hardware_stage_asset hooks/target/usr/local/bin/common/labwc-hardware-tuning __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-hardware-tuning 0755 || exit 1
+  profile_hardware_stage_asset hooks/target/usr/local/libexec/common/hardware-tuningd __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/hardware-tuningd 0755 || exit 1
+  profile_hardware_stage_asset hooks/target/usr/local/libexec/common/hardware-tuning-worker __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/hardware-tuning-worker 0755 || exit 1
+  profile_hardware_stage_asset hooks/target/usr/local/libexec/common/hardware-tuning-policy __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/hardware-tuning-policy 0755 || exit 1
+  profile_hardware_stage_asset hooks/target/usr/local/libexec/common/hardware-tuning-power-profiles __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/hardware-tuning-power-profiles 0755 || exit 1
+  profile_hardware_stage_asset hooks/target/etc/apparmor.d/common/hardware-tuning __INSTALLER_PATH_DIR_ETC__/apparmor.d/hardware-tuning 0644 || exit 1
   hardware_bridges=
   if [ "$INSTALLER_HOST_VARIANT" = desktop ]; then hardware_bridges="desktop-parent fuzzel-parent management-parent"; fi
   for hardware_bridge in $hardware_bridges; do
@@ -68,7 +68,7 @@ install_profile_hardware_tuning() (
   # The Python installer parses these as literals; it never sources/evals them.
   (umask 077; awk '/^HARDWARE_(INTEL_CPU_TUNING|NVIDIA_GPU_TUNING|TUNING)_[A-Z0-9_]+=/ {print}' \
       "$LATE_COMMAND_HOST_ENV" >"${hardware_stage_host}/policy.env") || exit 1
-  fetch_hook "$(installer_repo_file_value FILE_OS_HARDWARE_TUNING_CONFIG)" "${hardware_stage_host}/config.py" || exit 1
+  fetch_hook "$(installer_repo_file_value scripts/common/hardware-tuning-config.py)" "${hardware_stage_host}/config.py" || exit 1
   hardware_config_rendered="${hardware_stage_host}/config.py.rendered"
   installer_apply_scalar_placeholders \
     "${hardware_stage_host}/config.py" "$hardware_config_rendered" || exit 1
@@ -76,7 +76,7 @@ install_profile_hardware_tuning() (
   installer_assert_no_unresolved_installer_placeholders \
     "${hardware_stage_host}/config.py" hardware-tuning-config.py || exit 1
   chmod 0700 "${hardware_stage_host}/config.py" || exit 1
-  fetch_hook "$(installer_repo_file_value FILE_OS_HARDWARE_TUNING_ASSETS)" "${hardware_stage_host}/assets.list" || exit 1
+  fetch_hook "$(installer_repo_file_value scripts/common/hardware-tuning-assets.list)" "${hardware_stage_host}/assets.list" || exit 1
   while IFS= read -r hardware_asset; do
     case "$hardware_asset" in etc/systemd/*|etc/hardware-tuning/*|etc/dbus-1/system.d/*) ;; *) exit 1 ;; esac
     if [ "$INSTALLER_HOST_VARIANT" = server ]; then case "$hardware_asset" in etc/systemd/user/*) continue ;; esac; fi

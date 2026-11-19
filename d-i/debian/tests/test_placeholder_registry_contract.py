@@ -56,14 +56,20 @@ class PlaceholderRegistryContractTests(unittest.TestCase):
         self.assertIn("source=%s phase=%s", scanner)
         self.assertIn("installer_target_context_path", validator)
 
-    def test_desktop_blocks_finish_before_the_shared_atomic_publication(self):
-        renderer = (ROOT / 'd-i/debian/scripts/desktop/components/rendering-access.sh').read_text(encoding='utf-8')
-        body = renderer.split('desktop_render_target_template_impl() {', 1)[1].split('\n}\n', 1)[0]
-        self.assertLess(body.index('desktop_render_declared_template_blocks'),
-                        body.index('publish_target_asset'))
-        self.assertIn('"$source_path" "$target_path" "$mode" stdin', body)
-        self.assertNotIn('install -m "$mode" "$tmp_rendered" "$rendered_target"', body)
-        self.assertIn('required || return 1', renderer)
+    def test_desktop_blocks_use_the_shared_batch_publication_owner(self):
+        adapter = (ROOT / 'd-i/debian/scripts/desktop/components/rendering-access.sh').read_text(encoding='utf-8')
+        renderer = (ROOT / 'd-i/debian/scripts/common/render.pl').read_text(encoding='utf-8')
+        body = adapter.split('desktop_render_target_template_impl() {', 1)[1].split('\n}\n', 1)[0]
+        for field in ('BLOCK_LABWC_WORKSPACE_NAME_LINES', 'BLOCK_LABWC_WORKSPACE_KEYBIND_LINES',
+                      'BLOCK_LABWC_RECORDING_KEYBIND_LINES'):
+            self.assertIn(field, body)
+        self.assertIn('installer_asset_publish', body)
+        self.assertNotIn('desktop_render_declared_template_blocks', adapter)
+        self.assertNotIn('fetch_hook', body)
+        self.assertIn('declared publication line block must occur exactly once', renderer)
+        publication = renderer.split('sub publish_assets {', 1)[1].split('sub main {', 1)[0]
+        self.assertLess(publication.index('publication_render('), publication.index('write_file($path,'))
+        self.assertIn('primary and future publication outputs exceed batch limit', publication)
 
     def test_final_target_roots_and_allowlisted_application_grammar_are_declared(self):
         registry = json.loads((ROOT / "d-i/debian/catalog/placeholder-registry.json").read_text())

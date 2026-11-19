@@ -25,7 +25,7 @@ fi
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib "${1:-}"
 installer_init_log_file "$(installer_runtime_log_file)" "" "partman dispatch" partman-dispatch partman_start
-installer_operation_context_repo FILE_PARTMAN_DISPATCH 28 partman_dispatch
+installer_operation_context_repo scripts/partman/dispatch.sh 28 partman_dispatch
 trap 'installer_finalize_log "$?"' EXIT
 
 seed_base=$(installer_seed_base "${1:-}")
@@ -39,11 +39,11 @@ host_profile=$(installer_resolve_host_profile "")
 hook_family=${INSTALLER_HOOK_FAMILY:-${INSTALLER_HOST_FAMILY}}
 case "$hook_family" in
   btrfs|vm)
-    shared_family_hook_path=$(installer_repo_file_value FILE_INST_PARTMAN_BTRFS_EARLY)
+    shared_family_hook_path=$(installer_repo_file_value hooks/installer/partman/btrfs-early.sh)
     shared_family_hook_dest="${RUNTIME_DIR}/bootstrap/shared-partman-btrfs-early.sh"
     ;;
   f2fs)
-    shared_family_hook_path=$(installer_repo_file_value FILE_INST_PARTMAN_F2FS_EARLY)
+    shared_family_hook_path=$(installer_repo_file_value hooks/installer/partman/f2fs-early.sh)
     shared_family_hook_dest="${RUNTIME_DIR}/bootstrap/shared-f2fs-tools-udeb-early.sh"
     ;;
   *)

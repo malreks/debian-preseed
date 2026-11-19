@@ -1,0 +1,588 @@
+{
+  "asset_events": {
+    "deduplication": "identical timestamp+message removes desktop/late category replay; not a syscall count",
+    "log_records": 1176,
+    "unique_timestamp_message_pairs": 592
+  },
+  "baseline_receipts": {
+    "forky": {
+      "members": 2433,
+      "products": {
+        "payload.manifest": "4853e8377eb23dd359c9ff8b257a6fd985c171613355071a7bf7656bc743e668",
+        "payload.tar.gz": "fad99459aead4da7d81617e717a79e46431272cf53ae6bd9bdbe436ffcc6f31f",
+        "source.sh": "74780244bc38fc58102873697ba286c8cf72d9de8d53e66da354a24bda1a8e2b",
+        "support-matrix.json": "d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef"
+      },
+      "release": "d02800c982e0fbde087f19dbfb21fa7bc00e1e03c7e19575e1af228b5692621b",
+      "runtime_acceptance": "unverified; no installer, native checks or tests executed",
+      "source_fingerprint": "d243097a0b0cea24c878a40178f369ae48ea8adeb4d5b92e2dbc7ef08aefb802"
+    },
+    "trixie": {
+      "members": 2433,
+      "products": {
+        "payload.manifest": "4853e8377eb23dd359c9ff8b257a6fd985c171613355071a7bf7656bc743e668",
+        "payload.tar.gz": "fad99459aead4da7d81617e717a79e46431272cf53ae6bd9bdbe436ffcc6f31f",
+        "source.sh": "74780244bc38fc58102873697ba286c8cf72d9de8d53e66da354a24bda1a8e2b",
+        "support-matrix.json": "d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef"
+      },
+      "release": "d02800c982e0fbde087f19dbfb21fa7bc00e1e03c7e19575e1af228b5692621b",
+      "runtime_acceptance": "unverified; no installer, native checks or tests executed",
+      "source_fingerprint": "d243097a0b0cea24c878a40178f369ae48ea8adeb4d5b92e2dbc7ef08aefb802"
+    }
+  },
+  "configuration_source_comparison": {
+    "configuration_bytes": 6103,
+    "defaults": {
+      "DEBIAN_APT_PREFERENCES": "",
+      "DEBIAN_DEFAULT_CLASSES": "site/prod;network/dhcp",
+      "REPOSITORY_FAMILIES": "desktop server",
+      "REPOSITORY_NAME": "debian-preseed-de"
+    },
+    "keys": 113,
+    "original_bytes": 253948,
+    "original_keys": 2855,
+    "retained_values_changed_from_provided_map": [],
+    "sha256": "07493586d53926ede6aa18a8a6ba5f3190db9913a3443c938c54d6fc752fc030",
+    "shared_directories": 109
+  },
+  "evidence_class": "supplied historical failed-install log; static source/archive inspection",
+  "format": 1,
+  "implementation_static_work_counts": {
+    "apt_install_transactions": {
+      "after": 1,
+      "before": 7
+    },
+    "asset_flush_contract": {
+      "ownership_imports_per_successful_flush": 1,
+      "source_reads_per_distinct_resolved_source_per_flush": 1,
+      "target_perl_launches_per_nonempty_flush": 1
+    },
+    "deb_contents_calls": {
+      "after": 7,
+      "before": 24
+    },
+    "deb_field_calls": {
+      "after": 7,
+      "before": 28
+    },
+    "deb_info_calls": {
+      "after": 0,
+      "before": 7
+    },
+    "forced_immediate_rebuilds": {
+      "after": 0,
+      "before": 7
+    },
+    "import_publications": {
+      "after": 1,
+      "before": 7
+    },
+    "ledger_full_sha512_scans": {
+      "after": 1,
+      "before": 2
+    },
+    "local_apt_updates": {
+      "after": 1,
+      "before": 7
+    },
+    "scope": "seven compatible full-desktop original deb inputs; additional policy-rewrite and Tomat trust-boundary work excluded",
+    "status": "source_review_only_not_executed",
+    "wall_time_benefit_measured": false
+  },
+  "input_archive_sha256": "42b458b4d00977eb7d5a62ea4a53cb86ac646876d1efd3d25ee8def9c1995642",
+  "input_hashes": {
+    "d-i/debian/repo.env": "df792338c5c0a0e2f40b0ee0ea358334bc749c837da5c1b4bc058b00df7a2069",
+    "d-i/debian/scripts/common/source.sh": "74780244bc38fc58102873697ba286c8cf72d9de8d53e66da354a24bda1a8e2b",
+    "todo/installer.log": "86b6c4d798502ae03c57af0f7e2def9f92704f5f2a8cb614b1c14adbc6c471de",
+    "todo/syslog": "0555a9dcb6403ad445565c5a3ca1d990fa95efb4c3287bfde34594519b37fad0"
+  },
+  "interval": {
+    "end": "2026-11-19T01:04:01Z",
+    "seconds": 6463,
+    "start": "2026-11-18T23:16:18Z"
+  },
+  "late_dispatch": {
+    "end": "2026-11-19T01:04:01Z",
+    "seconds": 4131,
+    "start": "2026-11-18T23:55:10Z"
+  },
+  "late_stages": [
+    {
+      "end": "2026-11-18T23:56:20Z",
+      "end_line": 534,
+      "name": "os.shared",
+      "outcome": "completed",
+      "seconds": 46,
+      "start": "2026-11-18T23:55:34Z",
+      "start_line": 503
+    },
+    {
+      "end": "2026-11-18T23:57:02Z",
+      "end_line": 611,
+      "name": "os.crowdsec",
+      "outcome": "completed",
+      "seconds": 42,
+      "start": "2026-11-18T23:56:20Z",
+      "start_line": 535
+    },
+    {
+      "end": "2026-11-18T23:57:28Z",
+      "end_line": 622,
+      "name": "os.kernel",
+      "outcome": "completed",
+      "seconds": 26,
+      "start": "2026-11-18T23:57:02Z",
+      "start_line": 612
+    },
+    {
+      "end": "2026-11-19T00:10:27Z",
+      "end_line": 1824,
+      "name": "desktop.storage",
+      "outcome": "completed",
+      "seconds": 779,
+      "start": "2026-11-18T23:57:28Z",
+      "start_line": 623
+    },
+    {
+      "end": "2026-11-19T00:34:56Z",
+      "end_line": 2658,
+      "name": "desktop.software",
+      "outcome": "completed",
+      "seconds": 1469,
+      "start": "2026-11-19T00:10:27Z",
+      "start_line": 1825
+    },
+    {
+      "end": "2026-11-19T00:35:35Z",
+      "end_line": 2664,
+      "name": "desktop.tailscale",
+      "outcome": "completed",
+      "seconds": 39,
+      "start": "2026-11-19T00:34:56Z",
+      "start_line": 2659
+    },
+    {
+      "end": "2026-11-19T00:36:14Z",
+      "end_line": 2682,
+      "name": "desktop.whisper",
+      "outcome": "completed",
+      "seconds": 39,
+      "start": "2026-11-19T00:35:35Z",
+      "start_line": 2665
+    },
+    {
+      "end": "2026-11-19T00:36:39Z",
+      "end_line": 2684,
+      "name": "os.crypto",
+      "outcome": "completed",
+      "seconds": 25,
+      "start": "2026-11-19T00:36:14Z",
+      "start_line": 2683
+    },
+    {
+      "end": "2026-11-19T00:37:24Z",
+      "end_line": 2694,
+      "name": "os.uplinks",
+      "outcome": "completed",
+      "seconds": 45,
+      "start": "2026-11-19T00:36:39Z",
+      "start_line": 2685
+    },
+    {
+      "end": "2026-11-19T00:38:18Z",
+      "end_line": 2848,
+      "name": "os.sharing",
+      "outcome": "completed",
+      "seconds": 54,
+      "start": "2026-11-19T00:37:24Z",
+      "start_line": 2695
+    },
+    {
+      "end": "2026-11-19T00:39:21Z",
+      "end_line": 2919,
+      "name": "os.services",
+      "outcome": "completed",
+      "seconds": 63,
+      "start": "2026-11-19T00:38:18Z",
+      "start_line": 2849
+    },
+    {
+      "end": "2026-11-19T00:40:35Z",
+      "end_line": 2946,
+      "name": "os.codex",
+      "outcome": "completed",
+      "seconds": 74,
+      "start": "2026-11-19T00:39:21Z",
+      "start_line": 2920
+    },
+    {
+      "end": "2026-11-19T00:45:32Z",
+      "end_line": 3702,
+      "name": "desktop.devops",
+      "outcome": "completed",
+      "seconds": 297,
+      "start": "2026-11-19T00:40:35Z",
+      "start_line": 2947
+    },
+    {
+      "end": "2026-11-19T00:46:01Z",
+      "end_line": 3722,
+      "name": "os.firmware",
+      "outcome": "completed",
+      "seconds": 29,
+      "start": "2026-11-19T00:45:32Z",
+      "start_line": 3703
+    },
+    {
+      "end": "2026-11-19T00:46:28Z",
+      "end_line": 3729,
+      "name": "desktop.ch341a",
+      "outcome": "completed",
+      "seconds": 27,
+      "start": "2026-11-19T00:46:01Z",
+      "start_line": 3723
+    },
+    {
+      "end": "2026-11-19T00:47:02Z",
+      "end_line": 3758,
+      "name": "os.timeshift",
+      "outcome": "completed",
+      "seconds": 34,
+      "start": "2026-11-19T00:46:28Z",
+      "start_line": 3730
+    },
+    {
+      "end": "2026-11-19T00:47:31Z",
+      "end_line": 3777,
+      "name": "os.virtualization",
+      "outcome": "completed",
+      "seconds": 29,
+      "start": "2026-11-19T00:47:02Z",
+      "start_line": 3759
+    },
+    {
+      "end": "2026-11-19T00:47:59Z",
+      "end_line": 3788,
+      "name": "desktop.virtualization",
+      "outcome": "completed",
+      "seconds": 28,
+      "start": "2026-11-19T00:47:31Z",
+      "start_line": 3778
+    },
+    {
+      "end": "2026-11-19T01:04:01Z",
+      "end_line": 7089,
+      "name": "desktop.session",
+      "outcome": "failed",
+      "seconds": 962,
+      "start": "2026-11-19T00:47:59Z",
+      "start_line": 3789
+    }
+  ],
+  "limits": [
+    "No successful complete installation or controlled before/after runtime run.",
+    "No CPU/iowait/bytes-hashed/syscall/download byte totals beyond explicit summaries.",
+    "Nested durations are not added to parent stage durations.",
+    "Physical newline line numbers; carriage-return progress is not treated as a new line."
+  ],
+  "log_release": "a66ecd9a0e79c128300604b8f422faf6e8759fe64c5ad49b2e3d246f73ccc745",
+  "placeholder_registry_disposition": {
+    "compressed_size_saving_measured": false,
+    "elapsed_time_saving_measured": false,
+    "expanded_payload_input_bytes_removed": 4152041,
+    "fixtures_authored_not_run": [
+      "tools/tests/test_installer_modules.py:RepositoryFileModes",
+      "tools/tests/test_installer_modules.py:SourceCaptureContracts"
+    ],
+    "json": {
+      "bytes": 4152041,
+      "consumers": [
+        "tools/validate_placeholder_registry.py",
+        "d-i/debian/tests/test_placeholder_registry_contract.py",
+        "d-i/debian/tests/test_target_owned_scan.py"
+      ],
+      "full_checkout_retained": true,
+      "identical_to_supplied_archive": true,
+      "member": "catalog/placeholder-registry.json",
+      "runtime_capture": "excluded by exact shared member path",
+      "sha256": "a14d1ffab8894c80c8c6bdb4800184e706395379a543b631cb0833f8482b52dc"
+    },
+    "offline": "inherits SourceCapture; existing offline archive not regenerated",
+    "tsv": {
+      "bytes": 2249615,
+      "consumers": [
+        "hooks/installer/base-stage.d/00rendertarget",
+        "hooks/installer/finish-install.d/94zz-99-validate-target",
+        "scripts/common/target-owned-scan.awk"
+      ],
+      "identical_to_supplied_archive": true,
+      "member": "catalog/placeholder-registry.tsv",
+      "runtime_capture": "retained completely",
+      "sha256": "d84feaecf6f8d978629f94326c5a82503edd66d3104e62a5805317c4a445f388"
+    },
+    "verification": "source consumer review, byte/hash comparison and AST syntax only; no native fixture execution"
+  },
+  "repo_env_baseline": {
+    "assignments": 2855,
+    "bytes": 253948
+  },
+  "syslog_counts": {
+    "dkms_initial_module_builds": 1,
+    "dkms_module_signing_records": 5,
+    "fetched_summaries": 47,
+    "initramfs_deferrals": 8,
+    "initramfs_generations": 3,
+    "need_archives_summaries": 16,
+    "reading_package_lists_records": 57,
+    "setting_up_records": 2569,
+    "trigger_processing_records": 41,
+    "unpacking_records": 2569
+  },
+  "syslog_events": [
+    {
+      "line": 1602,
+      "text": "Nov 18 23:19:08 main-menu[397]: INFO: Menu item 'bootstrap-base' selected"
+    },
+    {
+      "line": 4616,
+      "text": "Nov 18 23:23:41 main-menu[397]: INFO: Menu item 'pkgsel' selected"
+    },
+    {
+      "line": 4945,
+      "text": "Nov 18 23:29:00 pkgsel: installing additional packages"
+    },
+    {
+      "line": 8140,
+      "text": "Nov 18 23:31:50 in-target: Fetched 10.3 GB in 2min 41s (64.1 MB/s)"
+    },
+    {
+      "line": 15065,
+      "text": "Nov 18 23:44:26 in-target: update-initramfs: Generating /boot/initrd.img-7.3.1-x64v3-xanmod1^M"
+    },
+    {
+      "line": 15069,
+      "text": "Nov 18 23:44:36 in-target: update-initramfs: Generating /boot/initrd.img-7.3.1-x64v3-xanmod1^M"
+    },
+    {
+      "line": 16543,
+      "text": "Nov 18 23:45:56 in-target: Building initial module nvidia/580.142 for 7.3.1-x64v3-xanmod1^M"
+    },
+    {
+      "line": 16548,
+      "text": "Nov 18 23:45:57 in-target: Building module(s)..."
+    },
+    {
+      "line": 16695,
+      "text": "Nov 18 23:53:15 in-target: Signing module /var/lib/dkms/nvidia/580.142/build/nvidia.ko^M"
+    },
+    {
+      "line": 16696,
+      "text": "Nov 18 23:53:16 in-target: Signing module /var/lib/dkms/nvidia/580.142/build/nvidia-modeset.ko^M"
+    },
+    {
+      "line": 16697,
+      "text": "Nov 18 23:53:16 in-target: Signing module /var/lib/dkms/nvidia/580.142/build/nvidia-drm.ko^M"
+    },
+    {
+      "line": 16698,
+      "text": "Nov 18 23:53:16 in-target: Signing module /var/lib/dkms/nvidia/580.142/build/nvidia-uvm.ko^M"
+    },
+    {
+      "line": 16699,
+      "text": "Nov 18 23:53:16 in-target: Signing module /var/lib/dkms/nvidia/580.142/build/nvidia-peermem.ko^M"
+    },
+    {
+      "line": 17319,
+      "text": "Nov 18 23:53:59 in-target: update-initramfs: Generating /boot/initrd.img-7.3.1-x64v3-xanmod1^M"
+    },
+    {
+      "line": 17403,
+      "text": "Nov 18 23:54:29 pkgsel: finishing up"
+    },
+    {
+      "line": 17834,
+      "text": "Nov 18 23:55:04 main-menu[397]: INFO: Menu item 'finish-install' selected"
+    }
+  ],
+  "wrapped_child_commands": {
+    "count": 375,
+    "reported_seconds": 1148,
+    "top": [
+      {
+        "end": "2026-11-19T00:16:59Z",
+        "line": 2241,
+        "operation": "bootstrap the managed ChatGPT/Codex desktop package",
+        "output_lines": 56,
+        "seconds": 309
+      },
+      {
+        "end": "2026-11-19T00:45:00Z",
+        "line": 3606,
+        "operation": "download and install selected llama.cpp runtime",
+        "output_lines": 2,
+        "seconds": 64
+      },
+      {
+        "end": "2026-11-19T01:01:21Z",
+        "line": 6463,
+        "operation": "prepare native desktop appearance: themes",
+        "output_lines": 0,
+        "seconds": 61
+      },
+      {
+        "end": "2026-11-19T00:43:10Z",
+        "line": 3353,
+        "operation": "download, validate, and install pinned upstream DevOps tools",
+        "output_lines": 96,
+        "seconds": 30
+      },
+      {
+        "end": "2026-11-19T00:26:57Z",
+        "line": 2577,
+        "operation": "install complete managed Discord stable runtime",
+        "output_lines": 0,
+        "seconds": 29
+      },
+      {
+        "end": "2026-11-19T00:05:47Z",
+        "line": 1115,
+        "operation": "apply managed AppArmor profile modes without touching the installer kernel",
+        "output_lines": 92,
+        "seconds": 28
+      },
+      {
+        "end": "2026-11-19T01:03:17Z",
+        "line": 6952,
+        "operation": "install pinned desktop fonts and refresh user font caches",
+        "output_lines": 0,
+        "seconds": 28
+      },
+      {
+        "end": "2026-11-19T00:42:04Z",
+        "line": 3099,
+        "operation": "apply selected AppArmor mode to staged gitbuild workers",
+        "output_lines": 146,
+        "seconds": 26
+      },
+      {
+        "end": "2026-11-19T00:42:38Z",
+        "line": 3263,
+        "operation": "download and install pinned Node runtimes for Mise",
+        "output_lines": 3,
+        "seconds": 24
+      },
+      {
+        "end": "2026-11-19T01:02:13Z",
+        "line": 6802,
+        "operation": "wrap installed desktop package launchers",
+        "output_lines": 83,
+        "seconds": 24
+      },
+      {
+        "end": "2026-11-19T00:40:27Z",
+        "line": 2934,
+        "operation": "download and install pinned managed Codex",
+        "output_lines": 1,
+        "seconds": 23
+      },
+      {
+        "end": "2026-11-19T00:45:20Z",
+        "line": 3645,
+        "operation": "initialize pinned Rustup with the profile-selected toolchain without changing shell startup files",
+        "output_lines": 30,
+        "seconds": 19
+      },
+      {
+        "end": "2026-11-19T00:38:11Z",
+        "line": 2772,
+        "operation": "validate and configure profile-controlled NFS sharing",
+        "output_lines": 69,
+        "seconds": 17
+      },
+      {
+        "end": "2026-11-19T00:51:34Z",
+        "line": 4514,
+        "operation": "install pinned PDF conversion tools with pipx",
+        "output_lines": 13,
+        "seconds": 17
+      },
+      {
+        "end": "2026-11-19T01:03:36Z",
+        "line": 6981,
+        "operation": "install pinned Waypaper with pipx",
+        "output_lines": 18,
+        "seconds": 17
+      },
+      {
+        "end": "2026-11-19T00:02:52Z",
+        "line": 940,
+        "operation": "reinstall selected GRUB EFI boot chain packages on the restored ESP",
+        "output_lines": 46,
+        "seconds": 15
+      },
+      {
+        "end": "2026-11-19T00:43:25Z",
+        "line": 3514,
+        "operation": "initialize exact-version Packer plugins from the managed HCL template",
+        "output_lines": 62,
+        "seconds": 15
+      },
+      {
+        "end": "2026-11-19T00:36:14Z",
+        "line": 2674,
+        "operation": "download and install selected whisper.cpp runtime",
+        "output_lines": 6,
+        "seconds": 13
+      },
+      {
+        "end": "2026-11-19T01:01:43Z",
+        "line": 6555,
+        "operation": "apply selected AppArmor mode to staged hardware tuning policy",
+        "output_lines": 149,
+        "seconds": 13
+      },
+      {
+        "end": "2026-11-19T00:07:16Z",
+        "line": 1590,
+        "operation": "apply selected AppArmor mode to staged first-boot policy",
+        "output_lines": 86,
+        "seconds": 12
+      },
+      {
+        "end": "2026-11-18T23:28:07Z",
+        "line": 435,
+        "operation": "refresh explicitly trusted legacy CUDA metadata",
+        "output_lines": 41,
+        "seconds": 11
+      },
+      {
+        "end": "2026-11-19T00:51:44Z",
+        "line": 4533,
+        "operation": "inject pinned PyMuPDF4LLM into PDF conversion tools",
+        "output_lines": 3,
+        "seconds": 10
+      },
+      {
+        "end": "2026-11-19T00:11:21Z",
+        "line": 1859,
+        "operation": "authenticate and install Tor Browser",
+        "output_lines": 3,
+        "seconds": 9
+      },
+      {
+        "end": "2026-11-19T01:03:50Z",
+        "line": 7030,
+        "operation": "install the official Codex standalone package after desktop account configuration",
+        "output_lines": 12,
+        "seconds": 8
+      },
+      {
+        "end": "2026-11-18T23:56:53Z",
+        "line": 569,
+        "operation": "install CrowdSec bouncer after engine configuration",
+        "output_lines": 22,
+        "seconds": 7
+      }
+    ]
+  }
+}

@@ -31,7 +31,7 @@ class AppearancePickerContractFixtures(unittest.TestCase):
 
     def test_picker_uses_native_icon_metadata_with_newline_records(self):
         source = self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_appearance/cli.py'
         )
         tree = ast.parse(source)
@@ -48,19 +48,19 @@ class AppearancePickerContractFixtures(unittest.TestCase):
 
     def test_mako_is_a_captured_rendered_and_refreshable_component(self):
         catalog = self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_appearance/catalog.py'
         )
         native = self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_appearance/native.py'
         )
         engine = self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_appearance/engine.py'
         )
         service = self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_appearance/service.py'
         )
         apparmor = self._source('hooks/target/etc/apparmor.d/desktop/labwc-appearance')
@@ -76,34 +76,34 @@ class AppearancePickerContractFixtures(unittest.TestCase):
 
     def test_editor_reads_installed_values_before_rendering_color_updates(self):
         fields = self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_appearance/fields.py'
         )
         editor = self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_appearance/editor.py'
         )
         self.assertIn('def current_values(registry: dict | None = None)', fields)
         self.assertIn('user_tree.read(path, missing=True)', fields)
-        self.assertIn('greeter_tree.read(path[len(\'/etc/greetd/\'):], missing=True)', fields)
+        self.assertIn("greeter_tree.read(path[len('__INSTALLER_PATH_DIR_ETC__/greetd/'):], missing=True)", fields)
         self.assertIn('fields.current_values(registry)', editor)
         self.assertIn('warnings = fields.apply(selected)', editor)
         self.assertIn('Choose a color; the text value remains editable', editor)
 
     def test_proxy_accepts_only_terminal_dot_prefix_wildcards(self):
         source = self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_managed_app/dbus_proxy.py'
         )
         self.assertIn(r'(?:\.\*)?\Z', source)
         self.assertIn('socket_stat.st_nlink != 1', source)
         self.assertIn('temp_root_stat.st_uid != os.getuid()', source)
         self.assertIn('org.freedesktop.portal.*', self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_managed_app/profiles.py.tmpl'
         ))
         self.assertIn('org.mpris.MediaPlayer2.vivaldi.*', self._source(
-            'hooks/target/usr/local/lib/python3/dist-packages/'
+            'hooks/target/usr/local/lib/desktop/python3/dist-packages/'
             'labwc_managed_app/profiles.py.tmpl'
         ))
 
@@ -120,7 +120,7 @@ class AppearanceDraftFixtures(unittest.TestCase):
         self.addCleanup(commands.stop)
 
     def window(self):
-        path = (Path(__file__).resolve().parents[1] / 'hooks/target/usr/local/lib/python3/'
+        path = (Path(__file__).resolve().parents[1] / 'hooks/target/usr/local/lib/desktop/python3/'
                 'dist-packages/labwc_appearance/editor.py')
         tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
         main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'main')

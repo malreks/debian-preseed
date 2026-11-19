@@ -47,6 +47,22 @@ The permitted generation and static-audit paths remain separate:
 - `python3 -B tools/post_change_check.py` is the required changed-file static
   audit after edits and again after payload regeneration. It must not import
   repository modules, execute fixtures or contact host services.
+- `make check-perl` and the first stage of isolated `make check` use the
+  canonical codebase auditor's `--perl-only --prepare-suite forky
+  --prepare-family desktop` mode. The maintained `prepare_syntax_fixture.py`
+  helper verifies the shipped payload, uses the real map producers and shared
+  renderer, and supplies the actual published Perl modules. The audit stages
+  those bytes unchanged under their importable filenames. The shared renderer
+  and all physical role-owned modules must be included. Missing compilers,
+  unresolved dependencies, incomplete templates and compilation errors fail
+  this gate; none counts as successful syntax coverage. Perl compilation stays
+  inside the reviewed image because imports can execute compile-time code.
+  Use the same auditor command with `--prepare-suite trixie` to select Trixie.
+- `make audit` is an explicit strict source diagnostic (`--source-only`). It
+  reports unresolved template inputs and missing dependencies as incomplete,
+  with a nonzero result. Use the prepared Perl gate for rendered compilation;
+  source diagnostics do not replace it. The aggregate validator records all
+  twelve flat suite products and never expects a retired release directory.
 
 Inspect the chosen recipe and its full execution path before generation.
 `make build` must remain pure serialization. Any native test, installer replay,
@@ -59,6 +75,16 @@ Retain `tools/isolation.py`, `tools/test-init.py` and the Makefile guards. Their
 presence does not authorize host execution, privileged containers, host mounts,
 host sockets or host fallback. Do not weaken a guard or run its discovery/import
 path on the host.
+
+After checking private PID and user-namespace ownership, the guard reads the
+bounded `/proc/self/net/dev` inventory and requires exactly one loopback
+interface with the kernel's complete counter layout. This observes the current
+process's network namespace without opening a socket. The opened descriptor must
+belong to the private procfs; symlink final components and submounts beneath
+`/proc` are rejected. This prevents a private file or redirected lookup from
+spoofing the inventory. Unreadable, oversized or malformed data fails closed.
+All capability, mount, image, PID 1 and workspace
+checks remain mandatory; no network permission or host fallback is added.
 
 Report exact static checks, isolated commands, changed paths and generated
 artifact hashes. State the image or fixture identity, tool versions, timeout,

@@ -51,16 +51,16 @@ run_in_target 'configure shared QEMU and Incus operator access' "${DIR_BIN}/sh" 
   for group in devops kvm incus; do usermod -a -G "$group" -- "$operator"; done
 ' sh "$operator"
 
-installer_stage_profile_file FILE_TARGET_INCUS_HOST_TMPL "${DIR_ETC_INCUS}/host.conf" 0644
-installer_stage_profile_file FILE_TARGET_TMPFILES_D_85_QEMU_INCUS_STORAGE_TMPL \
+installer_stage_profile_file hooks/target/etc/incus/host.conf.tmpl "${DIR_ETC_INCUS}/host.conf" 0644
+installer_stage_profile_file hooks/target/etc/tmpfiles.d/common/85-qemu-incus-storage.conf.tmpl \
   "${DIR_TMPFILES_D}/85-qemu-incus-storage.conf" 0644
-installer_stage_profile_file FILE_TARGET_QEMU_BRIDGE_TMPL "${DIR_ETC_QEMU}/bridge.conf" 0644
-installer_stage_profile_file FILE_TARGET_LIBEXEC_INCUS_HOST "${DIR_USR_LOCAL_LIBEXEC}/incus-host" 0755
-installer_stage_profile_file FILE_TARGET_AA_INCUS_HOST "${DIR_APPARMOR}/incus-host" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_INCUS_HOST_SERVICE "${DIR_SYSTEMD_SYSTEM}/incus-host.service" 0644
-installer_stage_profile_file FILE_TARGET_UNIT_INCUS_USER_SERVICE_D_20_BOOTSTRAP \
+installer_stage_profile_file hooks/target/etc/qemu/bridge.conf.tmpl "${DIR_ETC_QEMU}/bridge.conf" 0644
+installer_stage_profile_file hooks/target/usr/local/libexec/common/incus-host "${DIR_USR_LOCAL_LIBEXEC}/incus-host" 0755
+installer_stage_profile_file hooks/target/etc/apparmor.d/common/incus-host.tmpl "${DIR_APPARMOR}/incus-host" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/incus-host.service "${DIR_SYSTEMD_SYSTEM}/incus-host.service" 0644
+installer_stage_profile_file hooks/target/etc/systemd/common/system/incus-user.service.d/20-bootstrap.conf \
   "${DIR_SYSTEMD_SYSTEM_INCUS_USER_DROPIN}/20-bootstrap.conf" 0644
-installer_stage_profile_file FILE_TARGET_SYSUSERS_D_SWTPM_SYSUSERS "${DIR_ETC_SYSUSERS_D}/swtpm-sysusers.conf" 0644
+installer_stage_profile_file hooks/target/etc/sysusers.d/swtpm-sysusers.conf "${DIR_ETC_SYSUSERS_D}/swtpm-sysusers.conf" 0644
 run_in_target 'prepare owned QEMU and Incus storage without starting a daemon' \
   "${DIR_USR_LOCAL_LIBEXEC}/incus-host" --prepare-install
 

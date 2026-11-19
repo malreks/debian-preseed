@@ -8,7 +8,7 @@ HOOK_FAMILY=f2fs
 
 f2fs_late_command_mark() {
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_LATE_F2FS_FAMILY "$1" "$2"
+    installer_operation_context_repo scripts/late/f2fs-family.sh "$1" "$2"
   elif command -v installer_operation_context >/dev/null 2>&1; then
     installer_operation_context unknown "$1" "$2"
   fi
@@ -20,13 +20,13 @@ late_command_shared_init "$requested_seed_base" "$requested_host_profile" "$HOOK
 f2fs_late_command_mark 22 run_f2fs_family_late_command
 
 f2fs_late_command_mark 23 late_command_fetch_common_assets
-late_command_fetch_common_assets_file FILE_RUNTIME_F2FS
+late_command_fetch_common_assets_file scripts/runtime/f2fs.sh
 f2fs_late_command_mark 25 late_command_load_runtime_env
 late_command_load_runtime_env false
 f2fs_late_command_mark 27 fetch_grub_profiles_template
-late_command_fetch_repo_file FILE_TARGET_DEFAULT_GRUB_PROFILES_TMPL "$TMP_ENV_DIR/grub-profiles" grub-profiles.tmpl
+late_command_fetch_repo_file hooks/target/etc/default/grub-profiles.tmpl "$TMP_ENV_DIR/grub-profiles" grub-profiles.tmpl
 f2fs_late_command_mark 29 fetch_grub_profile_generator
-late_command_fetch_repo_file FILE_TARGET_GRUB_D_40_CUSTOM_TMPL "$TMP_ENV_DIR/grub-profile-generator" grub-profile-generator.tmpl
+late_command_fetch_repo_file hooks/target/etc/grub.d/40_custom.tmpl "$TMP_ENV_DIR/grub-profile-generator" grub-profile-generator.tmpl
 f2fs_late_command_mark 31 late_command_load_host_env
 late_command_load_host_env || return $?
 # Architecture policy owns the required EFI placeholders and must exist before
@@ -189,7 +189,7 @@ write_target_fstab() {
 }
 
 write_target_kernel_tunables() {
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODPROBE_D_60_SES_BLACKLIST)" "${FILE_MODPROBE_SES_BLACKLIST}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/modprobe.d/60-ses-blacklist.conf)" "${FILE_MODPROBE_SES_BLACKLIST}" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modprobe.d/72-nvme-blacklist.conf")" "${FILE_MODPROBE_NVME_BLACKLIST:-}" "${DIR_MODPROBE_D}/72-nvme-blacklist.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/05-mei-blacklist.conf")" "${FILE_MODPROBE_MEI_BLACKLIST:-}" "${DIR_MODPROBE_D}/05-mei-blacklist.conf" 0644
   stage_target_hardware_spec
@@ -197,17 +197,17 @@ write_target_kernel_tunables() {
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modprobe.d/74-usbcore.conf")" "${FILE_MODPROBE_USBCORE:-}" "${DIR_MODPROBE_D}/74-usbcore.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/75-cfg80211.conf")" "${FILE_MODPROBE_CFG80211:-}" "${DIR_MODPROBE_D}/75-cfg80211.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modules-load.d/20-emmc-storage.conf")" "${FILE_MODULES_LOAD_EMMC_STORAGE:-}" "${DIR_MODULES_LOAD}/20-emmc-storage.conf" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODULES_LOAD_D_30_STORAGE_MEMORY)" "${FILE_MODULES_LOAD_STORAGE_MEMORY}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_MODULES_LOAD_D_32_TPM)" "${FILE_MODULES_LOAD_TPM}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_10_BASELINE)" "${FILE_SYSCTL_BASELINE}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_20_STORAGE_MEMORY)" "${FILE_SYSCTL_STORAGE_MEMORY}" 0644
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_25_STORAGE_STATIC_TMPL)" "${FILE_SYSCTL_FAMILY_OVERRIDE}" 0644
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_PROFILES_BALANCED_40_BALANCED_TMPL)" "${FILE_SYSCTL_PROFILE_DEFAULT}" 0644
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_PROFILES_HARDENED_40_HARDENED_TMPL)" "${FILE_SYSCTL_PROFILE_HARDENED}" 0644
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_SYSCTL_D_PROFILES_PERFORMANCE_40_PERFORMANCE_TMPL)" "${FILE_SYSCTL_PROFILE_PERFORMANCE}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/modules-load.d/30-storage-memory.conf)" "${FILE_MODULES_LOAD_STORAGE_MEMORY}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/modules-load.d/32-tpm.conf)" "${FILE_MODULES_LOAD_TPM}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/sysctl.d/common/10-baseline.conf)" "${FILE_SYSCTL_BASELINE}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/sysctl.d/common/20-storage-memory.conf)" "${FILE_SYSCTL_STORAGE_MEMORY}" 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/sysctl.d/common/25-storage-static.conf.tmpl)" "${FILE_SYSCTL_FAMILY_OVERRIDE}" 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/sysctl.d/common/profiles/balanced/40-balanced.conf.tmpl)" "${FILE_SYSCTL_PROFILE_DEFAULT}" 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/sysctl.d/common/profiles/hardened/40-hardened.conf.tmpl)" "${FILE_SYSCTL_PROFILE_HARDENED}" 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/sysctl.d/common/profiles/performance/40-performance.conf.tmpl)" "${FILE_SYSCTL_PROFILE_PERFORMANCE}" 0644
 
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_INITRAMFS_CONF_D_99_COMPRESS)" "${FILE_INITRAMFS_CUSTOM_CONF}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_INITRAMFS_CONF_D_RESUME)" "${FILE_INITRAMFS_RESUME}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/initramfs-tools/conf.d/99-compress.conf)" "${FILE_INITRAMFS_CUSTOM_CONF}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/initramfs-tools/conf.d/resume)" "${FILE_INITRAMFS_RESUME}" 0644
   render_target_asset "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/initramfs-tools/modules.tmpl")" "${FILE_INITRAMFS_MODULES}" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/default/grub.d/80-cpu-profile-flags.cfg")" "${FILE_GRUB_CPU_PROFILE_DROPIN:-}" "${DIR_GRUB_DEFAULT}/80-cpu-profile-flags.cfg" 0644
   stage_target_common_boot_policy "$target_enable_nvidia"

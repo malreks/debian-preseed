@@ -7,7 +7,7 @@ bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
 . "$bootstrap_lib"
 bootstrap_source_common_lib ""
 installer_init_log_file "$(installer_runtime_log_file)" "" "pre-pkgsel class plan" pre-pkgsel package_install
-installer_operation_context_repo FILE_INST_PREPKG_PLAN 10 pre_pkgsel_plan
+installer_operation_context_repo hooks/installer/pre-pkgsel.d/50-class-plan.sh 10 pre_pkgsel_plan
 trap 'installer_finalize_log "$?"' EXIT
 seed_base=$(installer_seed_base "")
 installer_ensure_context_loaded "$seed_base"
@@ -26,12 +26,9 @@ else
   installer_fatal_status "$class_plan_status" 'pre-pkgsel host policy could not be loaded'
 fi
 stage_file="$(installer_runtime_state_dir)/pre-pkgsel-stages.list"
-awk -F '\t' '$1=="stage" {split($2, fields, "|"); if(fields[2]=="pre-pkgsel") print $2}' \
-  "$(installer_class_plan_path)" >"$stage_file"
+installer_plan_stage_records pre-pkgsel >"$stage_file" ||
+  installer_fatal 'invalid pre-pkgsel stage record'
 while IFS='|' read -r stage_id stage_phase stage_selector || [ -n "$stage_id" ]; do
-  case "$stage_id:$stage_phase:$stage_selector" in
-    *[!A-Za-z0-9_.:-]*|:*|*:|*::*) installer_fatal 'invalid pre-pkgsel stage record' ;;
-  esac
   if installer_phase_stage_begin pre-pkgsel "$stage_id"; then
     installer_info "starting pre-pkgsel stage ${stage_id} (${stage_selector})"
     installer_operation_context_repo "$stage_selector" 1 "pre_pkgsel:${stage_id}"

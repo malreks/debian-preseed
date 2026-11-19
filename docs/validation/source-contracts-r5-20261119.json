@@ -1,0 +1,529 @@
+{
+  "python_ast": {
+    "d-i/debian/scripts": {
+      "errors": [],
+      "files": 39
+    },
+    "offline": {
+      "errors": [],
+      "files": 0
+    },
+    "tools": {
+      "errors": [],
+      "files": 45
+    }
+  },
+  "scope": "Source/data inspection only; no repository imports, fixture execution or native target commands.",
+  "source_coverage": {
+    "d-i/debian/catalog": {
+      "bytes": 6459888,
+      "files": 5,
+      "inventory_and_targeted_contract_review": true
+    },
+    "d-i/debian/hosts": {
+      "bytes": 1247468,
+      "files": 53,
+      "inventory_and_targeted_contract_review": true
+    },
+    "d-i/debian/suites": {
+      "bytes": 405,
+      "files": 2,
+      "inventory_and_targeted_contract_review": true
+    },
+    "d-i/forky/classes": {
+      "bytes": 48217,
+      "files": 49,
+      "inventory_and_targeted_contract_review": true
+    },
+    "d-i/forky/fragments": {
+      "bytes": 12164,
+      "files": 9,
+      "inventory_and_targeted_contract_review": true
+    },
+    "d-i/forky/hooks/target/etc/apt": {
+      "bytes": 45308,
+      "files": 44,
+      "inventory_and_targeted_contract_review": true
+    },
+    "d-i/trixie/classes": {
+      "bytes": 48430,
+      "files": 49,
+      "inventory_and_targeted_contract_review": true
+    },
+    "d-i/trixie/fragments": {
+      "bytes": 11522,
+      "files": 9,
+      "inventory_and_targeted_contract_review": true
+    },
+    "d-i/trixie/hooks/target/etc/apt": {
+      "bytes": 46037,
+      "files": 44,
+      "inventory_and_targeted_contract_review": true
+    },
+    "offline": {
+      "bytes": 18793088,
+      "files": 1,
+      "inventory_and_targeted_contract_review": true
+    },
+    "tools": {
+      "bytes": 1132087,
+      "files": 47,
+      "inventory_and_targeted_contract_review": true
+    }
+  },
+  "status": "PASS",
+  "suites": {
+    "forky": {
+      "apt_rows": 88,
+      "compiled_profiles": [
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-flex-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-flex.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-p15s-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-p15s.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-hp14-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-hp14.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-x360-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-x360.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/forky/profiles/server/btrfs-srv-flex-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/forky/profiles/server/btrfs-srv-flex.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2129,
+          "name": "catalog/compiled/forky/profiles/server/f2fs-srv-hp14.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-flex-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-p15s-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-hp14-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-x360-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/forky/profiles/server/btrfs-srv-flex-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-flex-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-flex.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-p15s-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-p15s.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-hp14-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-hp14.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-x360-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-x360.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/trixie/profiles/server/btrfs-srv-flex-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/trixie/profiles/server/btrfs-srv-flex.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2129,
+          "name": "catalog/compiled/trixie/profiles/server/f2fs-srv-hp14.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-flex-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-p15s-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-hp14-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-x360-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/trixie/profiles/server/btrfs-srv-flex-trio.env",
+          "runtime_fields": 734
+        }
+      ],
+      "manifest_byte_hashes": "PASS",
+      "perl_rows": 160,
+      "preseed_payload_pins": "PASS",
+      "profile_asset_rows": 182,
+      "release": "a8b81c64382235d5af48d0d86b0958b4415c17738a7698f3601e1c901d0a1d35",
+      "runtime_fields": 734,
+      "runtime_members": 2433,
+      "selected_apt": {
+        "forky/desktop": {
+          "dropins": 15,
+          "preferences": 9
+        },
+        "forky/server": {
+          "dropins": 12,
+          "preferences": 7
+        },
+        "trixie/desktop": {
+          "dropins": 15,
+          "preferences": 9
+        },
+        "trixie/server": {
+          "dropins": 12,
+          "preferences": 7
+        }
+      },
+      "selected_perl": {
+        "desktop": 160,
+        "server": 102
+      },
+      "source_index_membership": "PASS",
+      "suite_product_hashes": "PASS"
+    },
+    "trixie": {
+      "apt_rows": 88,
+      "compiled_profiles": [
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-flex-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-flex.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-p15s-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-p15s.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-hp14-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-hp14.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-x360-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-x360.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/forky/profiles/server/btrfs-srv-flex-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/forky/profiles/server/btrfs-srv-flex.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2129,
+          "name": "catalog/compiled/forky/profiles/server/f2fs-srv-hp14.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-flex-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/forky/profiles/desktop/btrfs-de-p15s-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-hp14-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/forky/profiles/desktop/f2fs-de-x360-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/forky/profiles/server/btrfs-srv-flex-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-flex-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-flex.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-p15s-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-p15s.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-hp14-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-hp14.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-x360-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-x360.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/trixie/profiles/server/btrfs-srv-flex-duo.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/trixie/profiles/server/btrfs-srv-flex.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2129,
+          "name": "catalog/compiled/trixie/profiles/server/f2fs-srv-hp14.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-flex-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2495,
+          "name": "catalog/compiled/trixie/profiles/desktop/btrfs-de-p15s-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-hp14-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2457,
+          "name": "catalog/compiled/trixie/profiles/desktop/f2fs-de-x360-trio.env",
+          "runtime_fields": 734
+        },
+        {
+          "fields": 2167,
+          "name": "catalog/compiled/trixie/profiles/server/btrfs-srv-flex-trio.env",
+          "runtime_fields": 734
+        }
+      ],
+      "manifest_byte_hashes": "PASS",
+      "perl_rows": 160,
+      "preseed_payload_pins": "PASS",
+      "profile_asset_rows": 182,
+      "release": "a8b81c64382235d5af48d0d86b0958b4415c17738a7698f3601e1c901d0a1d35",
+      "runtime_fields": 734,
+      "runtime_members": 2433,
+      "selected_apt": {
+        "forky/desktop": {
+          "dropins": 15,
+          "preferences": 9
+        },
+        "forky/server": {
+          "dropins": 12,
+          "preferences": 7
+        },
+        "trixie/desktop": {
+          "dropins": 15,
+          "preferences": 9
+        },
+        "trixie/server": {
+          "dropins": 12,
+          "preferences": 7
+        }
+      },
+      "selected_perl": {
+        "desktop": 160,
+        "server": 102
+      },
+      "source_index_membership": "PASS",
+      "suite_product_hashes": "PASS"
+    }
+  }
+}

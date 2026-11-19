@@ -28,14 +28,14 @@ cuda_prepkgsel_fatal() {
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib ""
 TMP_ENV_DIR=${INSTALLER_CUDA_PREPKGSEL_ENV_DIR:-${DIR_INSTALLER_PRE_PKGSEL_ENV}/cuda-legacy}
-CUDA_FRAGMENT_REL=$(installer_repo_file_value FILE_CLASS_OPTIONAL_NVIDIA_LEGACY)
+CUDA_FRAGMENT_REL=$(installer_repo_file_value frontends/${INSTALLER_SUITE}/classes/class-select/optional/nvidia-legacy.cfg)
 
 LOG="$(installer_runtime_log_file)"
 INSTALLER_DEBUG_LOGS=1
 INSTALLER_LOG_LEVEL=debug
 export INSTALLER_DEBUG_LOGS INSTALLER_LOG_LEVEL
 installer_init_log_file "$LOG" "" "cuda legacy pre-pkgsel" cuda-legacy package_install
-installer_operation_context_repo FILE_INST_PREPKG_91CUDA_LEGACY_APT 38 cuda_legacy_prepkgsel
+installer_operation_context_repo hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh 38 cuda_legacy_prepkgsel
 trap 'installer_finalize_log "$?"' 0
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -128,13 +128,13 @@ cuda_repository_components() {
 }
 
 stage_cuda_legacy_source() {
-  installer_operation_context_repo FILE_INST_PREPKG_91CUDA_LEGACY_APT 131 stage_cuda_legacy_source
+  installer_operation_context_repo hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh 131 stage_cuda_legacy_source
   installer_cuda_stage_target_source \
     "$(cuda_repository_url)" "$(cuda_repository_suite)" "$(cuda_repository_components)"
 }
 
 prepare_cuda_legacy_target_apt_dirs() {
-  installer_operation_context_repo FILE_INST_PREPKG_91CUDA_LEGACY_APT 137 repair_cuda_legacy_target_apt_dirs
+  installer_operation_context_repo hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh 137 repair_cuda_legacy_target_apt_dirs
   run_in_target "repair legacy CUDA target apt directories" /bin/sh -eu -c '
 var_root=$1
 cache_root=$2
@@ -149,7 +149,7 @@ install -d -m 1777 "$tmp_root" "$var_root/tmp"
 }
 
 refresh_cuda_legacy_target_apt_metadata() {
-  installer_operation_context_repo FILE_INST_PREPKG_91CUDA_LEGACY_APT 152 refresh_cuda_legacy_target_apt_metadata
+  installer_operation_context_repo hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh 152 refresh_cuda_legacy_target_apt_metadata
   installer_cuda_refresh_target_apt
 }
 

@@ -13,8 +13,8 @@ installer_load_themes() {
     theme_source_dir=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$DIR_HOSTS_THEMES
     INSTALLER_THEME_MAP=${BOOTSTRAP_PREPARED_SOURCE_ROOT%/source}/inputs/themes.map
   else
-  fetch_hook_file "$(installer_repo_file_value FILE_LATE_THEME_VALIDATE)" "$INSTALLER_THEME_DIR/validate.awk" || return $?
-  fetch_hook_file "$(installer_repo_file_value FILE_HOST_THEME_THEME_SCHEMA)" "$INSTALLER_THEME_DIR/schema.tsv" || return $?
+  fetch_hook_file "$(installer_repo_file_value scripts/late/theme-validate.awk)" "$INSTALLER_THEME_DIR/validate.awk" || return $?
+  fetch_hook_file "$(installer_repo_file_value hosts/themes/theme-schema.tsv)" "$INSTALLER_THEME_DIR/schema.tsv" || return $?
   for theme_group in base apps office; do
     fetch_hook_file "$(installer_repo_asset_path DIR_HOSTS_THEMES "${theme_group}.env")" "$INSTALLER_THEME_DIR/${theme_group}.env" || return $?
   done

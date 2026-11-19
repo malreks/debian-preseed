@@ -32,7 +32,7 @@ fi
 . "$shared_late"
 
 late_command_shared_init "$requested_seed_base" "$requested_host_profile" desktop
-installer_operation_context_repo FILE_LATE_DESKTOP 35 desktop_late_command
+installer_operation_context_repo scripts/late/desktop.sh 35 desktop_late_command
 late_command_load_host_env
 
 desktop_module_dir="${runtime_dir}/bootstrap/desktop-modules"
@@ -40,8 +40,8 @@ install -d -m 0700 "$desktop_module_dir"
 for desktop_module in detect components satty xwayland waypaper android-platform-tools scrcpy samloader digital-assets resctl-bench fonts labwc; do
   fetch_hook "$(installer_repo_asset_path DIR_SCRIPTS_DESKTOP "${desktop_module}.sh")" "${desktop_module_dir}/${desktop_module}.sh"
 done
-fetch_hook "$(installer_repo_file_value FILE_OS_HARDWARE_TUNING)" "${desktop_module_dir}/hardware-tuning.sh"
-fetch_hook "$(installer_repo_file_value FILE_OS_SCX_SCHEDS)" "${desktop_module_dir}/scx-scheds.sh"
+fetch_hook "$(installer_repo_file_value scripts/common/hardware-tuning.sh)" "${desktop_module_dir}/hardware-tuning.sh"
+fetch_hook "$(installer_repo_file_value scripts/common/scx-scheds.sh)" "${desktop_module_dir}/scx-scheds.sh"
 unset desktop_module
 
 # shellcheck disable=SC1090,SC1091

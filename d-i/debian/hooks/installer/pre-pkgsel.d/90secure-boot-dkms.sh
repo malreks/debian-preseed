@@ -33,7 +33,7 @@ INSTALLER_DEBUG_LOGS=1
 INSTALLER_LOG_LEVEL=debug
 export INSTALLER_DEBUG_LOGS INSTALLER_LOG_LEVEL
 installer_init_log_file "$LOG" "" "secure boot pre-pkgsel" secure-boot package_install
-installer_operation_context_repo FILE_INST_PREPKG_90SECURE_BOOT_DKMS 36 secure_boot_prepkgsel
+installer_operation_context_repo hooks/installer/pre-pkgsel.d/90secure-boot-dkms.sh 36 secure_boot_prepkgsel
 trap 'installer_finalize_log "$?"' 0
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -62,22 +62,22 @@ fetch_hook() {
   fetch_hook_file "$1" "$2"
 }
 
-fetch_hook "$(installer_repo_file_value FILE_LATE_CORE)" "$TMP_ENV_DIR/late-core.sh"
-fetch_hook "$(installer_repo_file_value FILE_LATE_TARGET_ASSETS)" "$TMP_ENV_DIR/late-target-assets.sh"
-fetch_hook "$(installer_repo_file_value FILE_LATE_TEMPLATES)" "$TMP_ENV_DIR/late-templates.sh"
-fetch_hook "$(installer_repo_file_value FILE_LATE_VOLATILE_STORAGE)" "$TMP_ENV_DIR/late-volatile-storage.sh"
-fetch_hook "$(installer_repo_file_value FILE_LATE_STORAGE_MAINTENANCE)" "$TMP_ENV_DIR/late-storage-maintenance.sh"
-fetch_hook "$(installer_repo_file_value FILE_LATE_GRUB)" "$TMP_ENV_DIR/late-grub.sh"
-fetch_hook "$(installer_repo_file_value FILE_RUNTIME_COMMON)" "$TMP_ENV_DIR/runtime-common.sh"
-fetch_hook "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" "$TMP_ENV_DIR/account-runtime.sh"
+fetch_hook "$(installer_repo_file_value scripts/late/core.sh)" "$TMP_ENV_DIR/late-core.sh"
+fetch_hook "$(installer_repo_file_value scripts/late/target-assets.sh)" "$TMP_ENV_DIR/late-target-assets.sh"
+fetch_hook "$(installer_repo_file_value scripts/late/templates.sh)" "$TMP_ENV_DIR/late-templates.sh"
+fetch_hook "$(installer_repo_file_value scripts/late/volatile-storage.sh)" "$TMP_ENV_DIR/late-volatile-storage.sh"
+fetch_hook "$(installer_repo_file_value scripts/late/storage-maintenance.sh)" "$TMP_ENV_DIR/late-storage-maintenance.sh"
+fetch_hook "$(installer_repo_file_value scripts/late/grub.sh)" "$TMP_ENV_DIR/late-grub.sh"
+fetch_hook "$(installer_repo_file_value scripts/runtime/common.sh)" "$TMP_ENV_DIR/runtime-common.sh"
+fetch_hook "$(installer_repo_file_value scripts/runtime/account.sh)" "$TMP_ENV_DIR/account-runtime.sh"
 
 case "$HOOK_FAMILY" in
   btrfs|vm)
-    PREPKGSEL_RUNTIME_SCRIPT=$(installer_repo_file_value FILE_RUNTIME_BTRFS)
+    PREPKGSEL_RUNTIME_SCRIPT=$(installer_repo_file_value scripts/runtime/btrfs.sh)
     PREPKGSEL_CAPTURE_DUALBOOT=true
     ;;
   f2fs)
-    PREPKGSEL_RUNTIME_SCRIPT=$(installer_repo_file_value FILE_RUNTIME_F2FS)
+    PREPKGSEL_RUNTIME_SCRIPT=$(installer_repo_file_value scripts/runtime/f2fs.sh)
     PREPKGSEL_CAPTURE_DUALBOOT=false
     ;;
   *)

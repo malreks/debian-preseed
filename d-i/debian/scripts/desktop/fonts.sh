@@ -21,7 +21,7 @@ desktop_install_fonts() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   stage_target_asset \
-    "$(installer_repo_file_value FILE_DESKTOP_FONTS_INSTALL)" "$helper" 0700
+    "$(installer_repo_file_value scripts/desktop/fonts-install.py)" "$helper" 0700
   run_in_target "install pinned desktop fonts and refresh user font caches" \
     __INSTALLER_PATH_DIR_USR_BIN__/env -i HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ LC_ALL=C PATH=__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__ \
     LABWC_FONTS_MAXIMUM_EXPANDED_BYTES="$LABWC_FONTS_MAXIMUM_EXPANDED_BYTES" \

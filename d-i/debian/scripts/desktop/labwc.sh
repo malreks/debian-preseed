@@ -18,7 +18,7 @@ desktop_install_codex_standalone() (
   if ! installer_tools_class_selected 2>__INSTALLER_PATH_DIR_DEV__/null; then
     return 0
   fi
-  installer_operation_context_repo FILE_DESKTOP_LABWC 17 desktop_install_codex_standalone
+  installer_operation_context_repo scripts/desktop/labwc.sh 17 desktop_install_codex_standalone
 
   : "${ACCOUNT_USERNAME:?ACCOUNT_USERNAME must be set before Codex standalone installation}"
   : "${ACCOUNT_HOME:?ACCOUNT_HOME must be set before Codex standalone installation}"
@@ -125,7 +125,7 @@ desktop_install_kanshi_policy() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   stage_target_asset \
-    "$(installer_repo_file_value FILE_DESKTOP_KANSHI_POLICY)" "$helper" 0700
+    "$(installer_repo_file_value scripts/desktop/kanshi-policy.py)" "$helper" 0700
   run_in_target "reconcile opt-in Kanshi package and managed activation" \
     __INSTALLER_PATH_DIR_USR_BIN__/env -i HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ LC_ALL=C PATH=__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_SBIN__:__INSTALLER_PATH_DIR_BIN__ \
     __INSTALLER_PATH_DIR_USR_BIN__/python3 -I "$helper" --enabled "$kanshi_enabled" --home "$ACCOUNT_HOME"

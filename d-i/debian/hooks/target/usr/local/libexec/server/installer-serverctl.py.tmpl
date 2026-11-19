@@ -878,11 +878,22 @@ def require_stopped(role: str) -> None:
     unit = ROLES[role][3]
     if not unit:
         raise ValueError('this role has no maintained DNS service')
-    value = command(['/usr/bin/systemctl', 'show', unit, '--property=ActiveState', '--value'], timeout=15)
-    if value.strip() not in (b'inactive', b'failed'):
+    value = command(['/usr/bin/systemctl', 'show', unit, '--property=ActiveState,MainPID'], timeout=15)
+    # Both fields describe one service observation. Named properties avoid an
+    # ordering assumption, and incomplete or ambiguous replies never permit a
+    # maintenance operation. A later operation always queries again.
+    properties = {}
+    expected = {b'ActiveState', b'MainPID'}
+    for line in value.splitlines():
+        name, separator, content = line.partition(b'=')
+        if not separator or name not in expected or name in properties:
+            raise ValueError('invalid stopped-service state response')
+        properties[name] = content
+    if properties.keys() != expected:
+        raise ValueError('incomplete stopped-service state response')
+    if properties[b'ActiveState'] not in (b'inactive', b'failed'):
         raise ValueError('stop the selected service before update, backup or restore')
-    leader = command(['/usr/bin/systemctl', 'show', unit, '--property=MainPID', '--value'], timeout=15)
-    if leader.strip() != b'0':
+    if properties[b'MainPID'] != b'0':
         raise OutcomeUnknown('stopped service still owns a process')
     if role == 'server/technitium':
         dns_workload().stopped()

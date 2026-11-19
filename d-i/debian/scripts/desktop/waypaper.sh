@@ -240,8 +240,6 @@ desktop_install_waypaper() {
       desktop_waypaper_fail "target uid/gid is unavailable for ${ACCOUNT_USERNAME}"
       ;;
   esac
-  waypaper_account_uid=${waypaper_account_ids%%:*}
-  waypaper_account_gid=${waypaper_account_ids#*:}
   waypaper_root=__INSTALLER_PATH_DIR_OPT__/waypaper
   waypaper_wheel="${waypaper_root}/waypaper-${LABWC_WAYPAPER_VERSION}-py3-none-any.whl"
   waypaper_pipx_home="${waypaper_root}/pipx"
@@ -330,7 +328,7 @@ desktop_install_waypaper() {
   desktop_transient_pipx_build_account_destroy \
     "$waypaper_build_account" \
     "$waypaper_build_home"
-  desktop_stage_role_asset FILE_TARGET_LIBEXEC_LABWC_WAYPAPER_TMPL "${DIR_USR_LOCAL_LIBEXEC}/labwc-waypaper" 0755
+  desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl "${DIR_USR_LOCAL_LIBEXEC}/labwc-waypaper" 0755
   desktop_waypaper_seal_runtime \
     "$waypaper_root" \
     "$waypaper_pipx_home" \
@@ -338,25 +336,16 @@ desktop_install_waypaper() {
     "$waypaper_binary" \
     "$waypaper_system_binary"
 
-  # The installer renders the payload launcher independently for future users
-  # and the primary account. No installed skeleton is used as a copy source.
-  for waypaper_launcher_target in \
-    "${DIR_ETC_SKEL_DESKTOP}/.local/share/applications/waypaper.desktop" \
-    "$waypaper_launcher"
-  do
-    case "$waypaper_launcher_target" in
-      "$waypaper_launcher") waypaper_launcher_mode=0600 ;;
-      *) waypaper_launcher_mode=0644 ;;
-    esac
-    desktop_render_role_target_template \
-      FILE_TARGET_SKEL_APPS_WAYPAPER_TMPL \
-      "$waypaper_launcher_target" "$waypaper_launcher_mode" \
-      LABWC_WAYLAND_APP_DEFAULT_EXEC "$LABWC_WAYLAND_APP_DEFAULT_EXEC"
-  done
-  chown \
-    "$waypaper_account_uid:$waypaper_account_gid" \
-    "${TARGET_ROOT}${waypaper_launcher_dir}" \
-    "${TARGET_ROOT}${waypaper_launcher}"
+  # The shared renderer retains an independent concrete primary payload input
+  # before publishing the reusable template. The existing user-owned HOME
+  # publisher copies only this launcher, with UID/GID and private mode checks.
+  desktop_render_role_target_template \
+    hooks/target/etc/skel-desktop/.local/share/applications/waypaper.desktop.tmpl \
+    "${DIR_ETC_SKEL_DESKTOP}/.local/share/applications/waypaper.desktop" 0644 \
+    LABWC_WAYLAND_APP_DEFAULT_EXEC "$LABWC_WAYLAND_APP_DEFAULT_EXEC"
+  installer_asset_batch_flush || return $?
+  installer_publish_primary_defaults desktop "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" \
+    .local/share/applications/waypaper.desktop
 
   desktop_log \
     "installed_waypaper user=${ACCOUNT_USERNAME} version=${LABWC_WAYPAPER_VERSION} wheel_sha256=${LABWC_WAYPAPER_SHA256} runtime_root=${waypaper_root} binary=${waypaper_system_binary} launcher=${waypaper_launcher}"

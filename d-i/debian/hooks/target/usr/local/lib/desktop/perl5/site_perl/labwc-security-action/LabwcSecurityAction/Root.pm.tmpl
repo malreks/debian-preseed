@@ -71,7 +71,7 @@ sub _require_pkexec_invoker {
 sub _validate_service_name {
     my ($self, $name) = @_;
 
-    defined($name) && $name =~ /\A[A-Za-z0-9@_.:-]+\z/ && $name !~ /\.\./ && $name =~ /\.service\z/
+    defined($name) && $name =~ /\A[A-Za-z0-9\@_.:-]+\z/ && $name !~ /\.\./ && $name =~ /\.service\z/
         or die "invalid systemd service name: " . (defined($name) ? $name : 'unset') . "\n";
     return $name;
 }
@@ -245,7 +245,7 @@ sub _dispatch {
     }
     if ($action eq 'inspect-service') {
         @args == 1 or die "$action requires one service name\n";
-        return $self->_exec('systemd-analyze', 'security', '--no-pager', $self->_validate_service_name($args[0]));
+        return $self->_exec('systemd-analyze', 'security', '--no-pager', '--', $self->_validate_service_name($args[0]));
     }
     if ($action eq 'check-firmware-security') {
         @args == 0 or die "$action does not accept arguments\n";

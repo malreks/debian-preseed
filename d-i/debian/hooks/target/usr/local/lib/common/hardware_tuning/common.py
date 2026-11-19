@@ -230,9 +230,11 @@ class Knob:
             self.validate_extra(candidate)
         return candidate
 
-    def report(self, profiles: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    def report(self, profiles: dict[str, Any], policy: dict[str, Any], *,
+               read_current: Callable[[], Any] | None = None) -> dict[str, Any]:
         try:
-            current, error = (self.read(), None) if self.restorable else (None, "not queryable through the portable driver ABI")
+            reader = self.read if read_current is None else read_current
+            current, error = (reader(), None) if self.restorable else (None, "not queryable through the portable driver ABI")
         except (OSError, TuningError) as exc:
             current, error = None, str(exc)
         try:

@@ -193,6 +193,11 @@ def digest_file(path: Path) -> str:
         return digest.hexdigest()
 
 
+def file_identity(value: os.stat_result) -> tuple[int, ...]:
+    return (value.st_dev, value.st_ino, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns)
+
+
 def file_size(path: Path) -> int:
     """Read protected artifact metadata without rescanning published bytes."""
     with os.fdopen(checked_file(path), "rb") as stream:
@@ -230,8 +235,10 @@ def control_bytes(fields: dict[str, str]) -> bytes:
     return ("\n".join(f"{key}: {value}" for key, value in fields.items()) + "\n").encode()
 
 
-def inspect_deb(path: Path, architectures: set[str]) -> dict[str, str]:
+def inspect_deb(path: Path, architectures: set[str], *,
+                required_members: tuple[str, ...] = ()) -> dict[str, str]:
     with os.fdopen(checked_file(path), "rb") as stream:
+        before = file_identity(os.fstat(stream.fileno()))
         if stream.read(8) != b"!<arch>\n":
             raise Error("download is not a Debian archive (HTML/API responses are not packages)")
     fields = parse_control(run(["__INSTALLER_PATH_DIR_USR__/bin/dpkg-deb", "--field", str(path)]))
@@ -239,6 +246,22 @@ def inspect_deb(path: Path, architectures: set[str]) -> dict[str, str]:
         raise Error(f"unsupported architecture: {fields['Architecture']}")
     # This walks/decompresses the complete payload but never extracts or runs it.
     contents = run(["__INSTALLER_PATH_DIR_USR__/bin/dpkg-deb", "--contents", str(path)], timeout=240)
+    # The installer supplies all required members together. Reuse this one
+    # bounded listing instead of decompressing the data archive for every path.
+    wanted = {name.lstrip("/"): 0 for name in required_members}
+    for line in io.BytesIO(contents):
+        columns = line.split(None, 5)
+        if len(columns) != 6:
+            raise Error("malformed Debian package member listing")
+        member = columns[5].rstrip(b"\n").split(b" -> ", 1)[0].split(b" link to ", 1)[0]
+        while member.startswith(b"./"):
+            member = member[2:]
+        name = member.decode("utf-8", "surrogateescape")
+        if name in wanted:
+            wanted[name] += 1
+    for name, count in wanted.items():
+        if count != 1:
+            raise Error(f"package payload must contain exactly one required member: /{name}")
     if fields["Package"] == "tomat":
         # Tomat is deliberately CLI-only. Require the exact regular executable,
         # not a symlink, world-writable file or a privileged mode. Never extract it.
@@ -248,7 +271,109 @@ def inspect_deb(path: Path, architectures: set[str]) -> dict[str, str]:
             contents, re.M)
         if fields["Architecture"] != "amd64" or executable not in ([b"-rwxr-xr-x"], [b"-r-xr-xr-x"]):
             raise Error("Tomat package must contain a regular root-owned amd64 __INSTALLER_PATH_DIR_USR__/bin/tomat")
+    with os.fdopen(checked_file(path), "rb") as stream:
+        if file_identity(os.fstat(stream.fileno())) != before:
+            raise Error("package changed during inspection")
     return fields
+
+
+def installer_path(value: str) -> str:
+    if (not re.fullmatch(r"/[A-Za-z0-9_./@%:+,~-]+", value)
+            or ".." in Path(value).parts or "//" in value or value == "/"):
+        raise Error("unsafe installer package path")
+    return value
+
+
+def installer_plan(path: Path) -> list[dict]:
+    """Read a bounded, data-only, single-operation installer package plan."""
+    text = read_bytes(path, 65536).decode("utf-8")
+    lines = text[:-1].split("\n")
+    if (re.search(r"[\x00-\x08\x0b-\x1f\x7f]", text) or not text.endswith("\n") or not lines
+            or lines[0] != "installer-deb-plan-v1" or not 1 <= len(lines) - 1 <= 32):
+        raise Error("invalid installer package plan header or package count")
+    result = []
+    seen = set()
+    for line in lines[1:]:
+        values = line.split("\t")
+        if len(values) != 9:
+            raise Error("installer package plan must have nine fields per row")
+        source, packages, arch, executable, desktop, library, digest, version, label = values
+        names = packages.split(" ")
+        if (not names or any(not NAME.fullmatch(name) for name in names)
+                or len(set(names)) != len(names) or arch not in {"amd64", "arm64"}
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+/-]{0,95}", label)):
+            raise Error("invalid installer package identity or label")
+        installer_path(source)
+        installer_path(executable)
+        for member in (desktop, library):
+            if member != "-":
+                installer_path(member)
+        if digest != "-" and not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise Error("invalid installer package SHA-256 expectation")
+        if version != "-" and not VERSION.fullmatch(version):
+            raise Error("invalid installer package version expectation")
+        if source in seen:
+            raise Error("duplicate installer package source")
+        seen.add(source)
+        result.append({"source": source, "packages": names, "architecture": arch,
+                       "executable": executable, "desktop_file": desktop,
+                       "runtime_library": library, "sha256": digest,
+                       "upstream_version": version, "label": label})
+    return result
+
+
+def verify_installer_receipt(path: Path) -> None:
+    """Verify one completed APT batch, without reading repository state again."""
+    receipt = json.loads(read_bytes(path, 65536))
+    if (not isinstance(receipt, dict) or set(receipt) != {"format", "packages"}
+            or receipt["format"] != 1 or not isinstance(receipt["packages"], list)
+            or not 1 <= len(receipt["packages"]) <= 32):
+        raise Error("invalid installer package receipt")
+    records = {}
+    keys = {"package", "version", "architecture", "archive", "upstream_version",
+            "upstream_sha256", "published_sha256", "label", "executable",
+            "desktop_file", "runtime_library"}
+    for record in receipt["packages"]:
+        if (not isinstance(record, dict) or set(record) != keys
+                or any(not isinstance(value, str) for value in record.values())
+                or not NAME.fullmatch(record["package"])
+                or not VERSION.fullmatch(record["version"])
+                or not VERSION.fullmatch(record["upstream_version"])
+                or record["architecture"] not in {"amd64", "arm64"}
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+/-]{0,95}", record["label"])
+                or any(not re.fullmatch(r"[0-9a-f]{64}", record[key])
+                       for key in ("upstream_sha256", "published_sha256"))):
+            raise Error("invalid installer package receipt record")
+        if record["package"] in records:
+            raise Error("duplicate installed package identity")
+        records[record["package"]] = record
+        installer_path(record["archive"])
+        for key in ("executable", "desktop_file", "runtime_library"):
+            if record[key] != "-" or key == "executable":
+                installer_path(record[key])
+    raw = run(["__INSTALLER_PATH_DIR_USR__/bin/dpkg-query", "-W",
+               "-f=${Package}\t${Architecture}\t${Version}\t${Status}\n", *records])
+    installed = {}
+    for line in raw.decode("utf-8").splitlines():
+        fields = line.split("\t")
+        if len(fields) != 4 or fields[0] in installed:
+            raise Error("invalid installed package status")
+        installed[fields[0]] = fields[1:]
+    if set(installed) != set(records):
+        raise Error("installed package batch is incomplete")
+    for package, record in records.items():
+        if installed[package] != [record["architecture"], record["version"], "install ok installed"]:
+            raise Error(f"package is not fully installed with the imported identity: {package}")
+        for key in ("executable", "desktop_file", "runtime_library"):
+            value = record[key]
+            if value == "-":
+                continue
+            mode = os.X_OK if key == "executable" else os.R_OK
+            if not Path(value).is_file() or not os.access(value, mode):
+                raise Error(f"installed package is missing {key}: {value}")
+        warn(f"installed {record['label']} package={package} version={record['version']} "
+             f"architecture={record['architecture']} upstream_sha256={record['upstream_sha256']} "
+             f"published_sha256={record['published_sha256']}")
 
 
 def verify_tomat_release_version(fields: dict[str, str], version: str) -> None:
@@ -359,36 +484,83 @@ def package_signature_record(fingerprint: str) -> dict[str, str]:
     return {"format": "dpkg-sig-v4", "role": "origin", "fingerprint": fingerprint}
 
 
+def write_hashed(stream, data: bytes, digest) -> None:
+    """Hash only bytes actually accepted by each write, including short writes."""
+    remaining = memoryview(data)
+    while remaining:
+        written = stream.write(remaining)
+        if not isinstance(written, int) or not 0 < written <= len(remaining):
+            raise Error("signed archive write made no progress")
+        digest.update(remaining[:written])
+        remaining = remaining[written:]
+
+
 def sign_deb_archive(source: Path, destination: Path, signing_home: Path,
-                     fingerprint: str) -> None:
-    """Add a standard dpkg-sig v4 _gpgorigin member to a Debian archive."""
-    records = deb_member_digests(source)
-    signature_name = deb_signature_name(records)
+                     fingerprint: str, *, expected_identity: tuple[int, ...] | None = None
+                     ) -> tuple[str, str, tuple[int, ...]]:
+    """Sign protected bytes; return input/output SHA-256 and output identity."""
     metadata = destination.with_name("." + destination.name + ".metadata")
     signature = destination.with_name("." + destination.name + ".asc")
     temporary = destination.with_name("." + destination.name + ".part")
     try:
-        metadata.write_bytes(dpkg_sig_metadata(records, fingerprint))
-        os.chmod(metadata, 0o600)
-        run([
-            "__INSTALLER_PATH_DIR_USR__/bin/gpg", "--batch", "--no-options", "--no-tty",
-            "--homedir", str(signing_home), "--local-user", fingerprint,
-            "--digest-algo", "SHA256", "--output", str(signature),
-            "--clearsign", str(metadata),
-        ])
-        signature_blob = read_bytes(signature, MAX_CONTROL)
-        if not signature_blob.startswith(b"-----BEGIN PGP SIGNED MESSAGE-----"):
-            raise Error("local package signature is not an OpenPGP clear signature")
-        with os.fdopen(checked_file(source, private=False), "rb") as old, temporary.open("xb") as new:
-            shutil.copyfileobj(old, new, 1024 * 1024)
-            new.write(ar_header(signature_name, len(signature_blob)))
-            new.write(signature_blob)
-            if len(signature_blob) % 2:
-                new.write(bytes((10,)))
-            new.flush()
-            os.fsync(new.fileno())
-        os.chmod(temporary, 0o644)
-        os.replace(temporary, destination)
+        # The importer owns these root-only snapshots under its repository lock.
+        # Hold the input open across member hashing, signing and copying, and
+        # reject any replacement or mutation before digest reuse is possible.
+        with os.fdopen(checked_file(source), "rb") as old:
+            before = file_identity(os.fstat(old.fileno()))
+            if expected_identity is not None and before != expected_identity:
+                raise Error("private package changed before signing")
+            records = deb_member_digests(source)
+            signature_name = deb_signature_name(records)
+            metadata.write_bytes(dpkg_sig_metadata(records, fingerprint))
+            os.chmod(metadata, 0o600)
+            run([
+                "__INSTALLER_PATH_DIR_USR__/bin/gpg", "--batch", "--no-options", "--no-tty",
+                "--homedir", str(signing_home), "--local-user", fingerprint,
+                "--digest-algo", "SHA256", "--output", str(signature),
+                "--clearsign", str(metadata),
+            ])
+            signature_blob = read_bytes(signature, MAX_CONTROL)
+            if not signature_blob.startswith(b"-----BEGIN PGP SIGNED MESSAGE-----"):
+                raise Error("local package signature is not an OpenPGP clear signature")
+            header = ar_header(signature_name, len(signature_blob))
+            padding = b"\n" if len(signature_blob) % 2 else b""
+            expected_size = before[2] + len(header) + len(signature_blob) + len(padding)
+            if expected_size > MAX_DEB:
+                raise Error("signed package exceeds size limit")
+            if (file_identity(os.fstat(old.fileno())) != before
+                    or file_identity(source.lstat()) != before):
+                raise Error("private package changed during signing")
+            published_digest = hashlib.sha256()
+            with temporary.open("xb") as new:
+                remaining = before[2]
+                while chunk := old.read(min(1024 * 1024, remaining + 1)):
+                    remaining -= len(chunk)
+                    if remaining < 0:
+                        raise Error("private package grew during signing")
+                    write_hashed(new, chunk, published_digest)
+                if (remaining or file_identity(os.fstat(old.fileno())) != before
+                        or file_identity(source.lstat()) != before):
+                    raise Error("private package changed during signing")
+                # The unsigned archive is the exact prefix already copied and
+                # hashed. Snapshot that digest before appending the signature.
+                source_sha256 = published_digest.hexdigest()
+                # Include the exact appended ar header, clear signature and
+                # odd-length padding in the published digest, in write order.
+                for blob in (header, signature_blob, padding):
+                    write_hashed(new, blob, published_digest)
+                os.fchmod(new.fileno(), 0o644)
+                new.flush()
+                if os.fstat(new.fileno()).st_size != expected_size:
+                    raise Error("signed archive size differs from written bytes")
+                os.fsync(new.fileno())
+                os.replace(temporary, destination)
+                published = os.fstat(new.fileno())
+                identity = file_identity(published)
+                if (identity != file_identity(destination.lstat()) or published.st_nlink != 1
+                        or published.st_uid != 0 or published.st_mode & 0o022):
+                    raise Error("signed archive identity changed during publication")
+        return source_sha256, published_digest.hexdigest(), identity
     finally:
         metadata.unlink(missing_ok=True)
         signature.unlink(missing_ok=True)
@@ -1411,6 +1583,10 @@ class Repository:
         self.architectures.update(run(["__INSTALLER_PATH_DIR_USR__/bin/dpkg", "--print-foreign-architectures"]).decode().split())
         self.catalog = {"format": 1, "packages": {}, "disabled_seeds": []}
         self.pending: list[Path] = []
+        # Only snapshots copied by this locked process can reuse a digest.
+        # Nothing in this map is serialized or accepted from an inbox sidecar.
+        self.staged_digests: dict[Path, tuple[tuple[int, ...], str]] = {}
+        self.staged_inspections: dict[Path, tuple[tuple[int, ...], tuple[str, ...], dict[str, str]]] = {}
         self.changed = False
         self.discovery = Discovery(root)
 
@@ -1454,30 +1630,74 @@ class Repository:
         finally:
             os.close(fd)
 
-    def stage(self, source: Path, *, policy: dict | None = None, expected: tuple[str, str] | None = None, active: bool = True) -> Path:
+    def stage(self, source: Path, *, policy: dict | None = None, expected: tuple[str, str] | None = None,
+              active: bool = True, expected_sha256: str | None = None) -> Path:
+        if expected_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise Error("invalid expected upstream SHA-256")
         fd = checked_file(source, private=False)
         destination = self.inbox / (uuid.uuid4().hex + ".part")
         try:
             with os.fdopen(fd, "rb") as old, destination.open("xb") as new:
                 before = os.fstat(old.fileno())
                 remaining = MAX_DEB
+                digest = hashlib.sha256()
                 while chunk := old.read(min(1024 * 1024, remaining + 1)):
                     remaining -= len(chunk)
                     if remaining < 0:
                         raise Error("package exceeds size limit")
                     new.write(chunk)
+                    digest.update(chunk)
                 after = os.fstat(old.fileno())
                 if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
                     raise Error("source changed while copying")
                 os.fchmod(new.fileno(), 0o600)
                 new.flush()
                 os.fsync(new.fileno())
+            actual_sha256 = digest.hexdigest()
+            if expected_sha256 is not None and actual_sha256 != expected_sha256:
+                raise Error("package SHA-256 does not match the expected upstream bytes")
+            self.staged_digests[destination] = (self.snapshot_identity(destination), actual_sha256)
             if active:
                 return self.activate(destination, policy=policy, expected=expected)
             return destination
         except BaseException:
+            self.staged_digests.pop(destination, None)
+            self.staged_inspections.pop(destination, None)
             destination.unlink(missing_ok=True)
             raise
+
+    @staticmethod
+    def snapshot_identity(path: Path) -> tuple[int, ...]:
+        with os.fdopen(checked_file(path), "rb") as stream:
+            return file_identity(os.fstat(stream.fileno()))
+
+    def snapshot_digest(self, path: Path) -> str:
+        saved = self.staged_digests.get(path)
+        if saved is None:
+            # An inbox object arriving from another process has a new trust
+            # boundary. A sidecar, filename or size is not content evidence.
+            return digest_file(path)
+        if saved[0] != self.snapshot_identity(path):
+            raise Error("private package snapshot changed before import")
+        return saved[1]
+
+    def inspect_snapshot(self, path: Path, *, required_members: tuple[str, ...] = ()) -> dict[str, str]:
+        saved = self.staged_digests.get(path)
+        if saved is None:
+            # Independent inbox deliveries and transformed outputs have not
+            # crossed this process's protected copy boundary. Inspect afresh.
+            return inspect_deb(path, self.architectures, required_members=required_members)
+        identity = self.snapshot_identity(path)
+        if identity != saved[0]:
+            raise Error("private package snapshot changed before inspection")
+        cached = self.staged_inspections.get(path)
+        if cached is not None and cached[:2] == (identity, required_members):
+            return dict(cached[2])
+        fields = inspect_deb(path, self.architectures, required_members=required_members)
+        if self.snapshot_identity(path) != identity:
+            raise Error("private package snapshot changed during inspection")
+        self.staged_inspections[path] = (identity, required_members, dict(fields))
+        return fields
 
     def activate(self, partial: Path, *, policy: dict | None = None,
                  expected: tuple[str, str] | None = None) -> Path:
@@ -1487,14 +1707,56 @@ class Repository:
         if policy is not None or expected is not None:
             metadata = {"policy": policy, "expected": expected}
             atomic_bytes(Path(str(ready) + ".json"), (json.dumps(metadata) + "\n").encode(), 0o600)
-        os.replace(partial, ready)
-        fsync_dir(self.inbox)
+        saved = self.staged_digests.get(partial)
+        if saved is not None and saved[0] != self.snapshot_identity(partial):
+            raise Error("private package snapshot changed before activation")
+        inspected = self.staged_inspections.get(partial)
+        if inspected is not None and (saved is None or inspected[0] != saved[0]):
+            raise Error("private package inspection differs before activation")
+        try:
+            os.replace(partial, ready)
+            if saved is not None:
+                identity = self.snapshot_identity(ready)
+                # A rename may update ctime, but cannot change the copied
+                # inode, size or mtime. Never bless replacement bytes by
+                # attaching the old digest/inspection to a fresh identity.
+                if identity[:4] != saved[0][:4]:
+                    raise Error("private package snapshot changed during activation")
+                self.staged_digests[ready] = (identity, saved[1])
+                if inspected is not None:
+                    self.staged_inspections[ready] = (identity, inspected[1], inspected[2])
+            fsync_dir(self.inbox)
+        except BaseException:
+            # The caller still holds the old .part name if activation raises.
+            # Own cleanup of the exact ready name here, so a failed identity
+            # check/sync cannot leave an unapproved job for the inbox watcher.
+            for candidate in (partial, ready):
+                self.staged_digests.pop(candidate, None)
+                self.staged_inspections.pop(candidate, None)
+            if ready.exists() or ready.is_symlink():
+                quarantine = self.inbox / (".activation-failed-" + uuid.uuid4().hex + ".part")
+                try:
+                    os.replace(ready, quarantine)
+                    sidecar = Path(str(ready) + ".json")
+                    if sidecar.exists() or sidecar.is_symlink():
+                        os.replace(sidecar, Path(str(quarantine) + ".json"))
+                    fsync_dir(self.inbox)
+                except OSError as error:
+                    raise OutcomeUnknown(
+                        f"failed package activation could not be isolated; retain {ready} and {quarantine}; do not retry"
+                    ) from error
+                warn(f"failed package activation retained at {quarantine}")
+            raise
+        self.staged_digests.pop(partial, None)
+        self.staged_inspections.pop(partial, None)
         return ready
 
     def discard(self, path: Path) -> None:
         if path.parent != self.inbox:
             raise Error("refusing to remove a non-inbox input")
         path.unlink(missing_ok=True)
+        self.staged_digests.pop(path, None)
+        self.staged_inspections.pop(path, None)
         Path(str(path) + ".json").unlink(missing_ok=True)
 
     def effective_policy(self, package: str, policy: dict) -> dict:
@@ -1521,23 +1783,35 @@ class Repository:
             "usr/share/pixmaps/chatgpt.png": "chatgpt.png",
         }.items()}
 
-    def retain_upstream(self, source: Path, package: str, digest: str) -> str:
+    def retain_upstream(self, source: Path, package: str, digest: str, *,
+                        expected_identity: tuple[int, ...] | None = None) -> str:
+        identity = self.snapshot_identity(source)
+        if expected_identity is not None and identity != expected_identity:
+            raise Error("private upstream snapshot changed before retention")
         directory = self.root / "upstream" / package
         safe_dir(self.root / "upstream", 0o700)
         safe_dir(directory, 0o700)
         destination = directory / (digest + ".deb")
-        if not destination.exists():
+        if destination.exists() or destination.is_symlink():
+            if digest_file(destination) != digest:
+                raise Error("retained upstream digest mismatch")
+        else:
             temporary = directory / ("." + uuid.uuid4().hex)
             try:
                 shutil.copyfile(source, temporary, follow_symlinks=False)
-                with temporary.open("rb") as stream:
+                with os.fdopen(checked_file(temporary, private=False), "rb") as stream:
+                    if (os.fstat(stream.fileno()).st_size != identity[2]
+                            or self.snapshot_identity(source) != identity):
+                        raise Error("private upstream snapshot changed while retaining original bytes")
                     os.fchmod(stream.fileno(), 0o600)
                     os.fsync(stream.fileno())
                 os.replace(temporary, destination)
                 fsync_dir(directory)
             finally:
                 temporary.unlink(missing_ok=True)
-        if file_size(destination) != file_size(source):
+        if self.snapshot_identity(source) != identity:
+            raise Error("private upstream snapshot changed during retention")
+        if file_size(destination) != identity[2]:
             raise Error("retained upstream size mismatch")
         return str(destination.relative_to(self.root))
 
@@ -1567,8 +1841,11 @@ class Repository:
         if not relative or not re.fullmatch(r"upstream/[a-z0-9][a-z0-9+.-]+/[0-9a-f]{64}\.deb", relative):
             raise Error("original upstream archive is not retained; add the original .deb again to reapply this policy")
         source = self.root / relative
-        file_size(source)
-        ready = self.stage(source, policy=policy, expected=(previous["package"], previous["architecture"]))
+        expected_sha256 = previous.get("upstream_sha256")
+        if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise Error("retained upstream digest is missing")
+        ready = self.stage(source, policy=policy, expected=(previous["package"], previous["architecture"]),
+                           expected_sha256=expected_sha256)
         try:
             result = self.ingest(ready)
             self.publish()
@@ -1577,7 +1854,8 @@ class Repository:
             self.discard(ready)
             raise
 
-    def ingest(self, path: Path, policy: dict | None = None, expected: tuple[str, str] | None = None) -> dict:
+    def ingest(self, path: Path, policy: dict | None = None, expected: tuple[str, str] | None = None,
+               *, requirement: dict | None = None) -> dict:
         sidecar = Path(str(path) + ".json")
         if sidecar.exists() or sidecar.is_symlink():
             metadata = json.loads(read_bytes(sidecar, 65536))
@@ -1594,16 +1872,28 @@ class Repository:
                 policy = saved_policy
             if expected is None and saved_expected is not None:
                 expected = tuple(saved_expected)
-        fields = inspect_deb(path, self.architectures)
+        required_members = tuple(requirement[key] for key in ("executable", "desktop_file", "runtime_library")
+                                 if requirement[key] != "-") if requirement is not None else ()
+        upstream_identity = payload_identity = self.snapshot_identity(path)
+        fields = self.inspect_snapshot(path, required_members=required_members)
         identity = fields["Package"], fields["Architecture"]
         if expected and identity != expected:
             raise Error("download changed Package/Architecture; previous package remains published")
+        if requirement is not None:
+            if identity[0] not in requirement["packages"] or identity[1] != requirement["architecture"]:
+                raise Error(f"unexpected installer package identity: {requirement['label']}")
+            if requirement["upstream_version"] not in ("-", fields["Version"]):
+                raise Error(f"installer package version does not match the pinned release: {requirement['label']}")
         key = ":".join(identity)
         previous = self.catalog["packages"].get(key)
         actual_policy = copy.deepcopy(policy if policy is not None else previous.get("policy", {}) if previous else {})
         actual_policy = self.effective_policy(identity[0], actual_policy)
         upstream_version = fields["Version"]
-        upstream_sha256 = digest_file(path)
+        upstream_sha256 = self.snapshot_digest(path)
+        if self.snapshot_identity(path) != upstream_identity:
+            raise Error("private upstream snapshot changed during inspection")
+        if requirement is not None and requirement["sha256"] not in ("-", upstream_sha256):
+            raise Error(f"installer package SHA-256 does not match the pinned release: {requirement['label']}")
         signing_fingerprint = None
         if (previous and previous.get("upstream_sha256") == upstream_sha256
                 and policy_digest(previous.get("policy", {})) == policy_digest(actual_policy)):
@@ -1611,11 +1901,11 @@ class Repository:
             previous_archive = self.repo / previous_filename if POOL_PATH.fullmatch(previous_filename) else Path("/")
             try:
                 signing_fingerprint = self.signing_key()
-                if file_size(previous_archive) == previous.get("size"):
-                    signature_record = package_signature_record(signing_fingerprint)
-                    if previous.get("package_signature") != signature_record:
-                        previous["package_signature"] = signature_record
-                        self.changed = True
+                if (previous.get("package_signature") == package_signature_record(signing_fingerprint)
+                        and file_size(previous_archive) == previous.get("size")
+                        and digest_file(previous_archive) == previous.get("sha256")):
+                    # This is state from an earlier process. Verify actual
+                    # published bytes, and re-sign if the signing key changed.
                     self.pending.append(path)
                     return previous
             except (Error, OSError, ValueError):
@@ -1633,16 +1923,29 @@ class Repository:
                 if previous and policy_digest(actual_policy) != policy_digest(previous.get("policy", {})):
                     actual_policy["local_revision"] = max(actual_policy["local_revision"], previous.get("policy", {}).get("local_revision", 0) + 1)
                 revised = self.inbox / (".edit-" + uuid.uuid4().hex + ".part")
+                if self.snapshot_identity(path) != upstream_identity:
+                    raise Error("private upstream snapshot changed before transformation")
                 rewrite_depends(path, revised, fields, removals,
                                 actual_policy["local_revision"], policy=actual_policy,
                                 assets=self.policy_assets(actual_policy))
+                if self.snapshot_identity(path) != upstream_identity:
+                    raise Error("private upstream snapshot changed during transformation")
+                payload_identity = self.snapshot_identity(revised)
                 fields = inspect_deb(revised, self.architectures)
                 payload_path = revised
-            signed_path = self.inbox / (".signed-" + uuid.uuid4().hex + ".deb")
+            # A killed importer can leave this complete derived archive behind.
+            # Only explicitly activated inputs may match the watcher's *.deb
+            # queue; signing scratch must remain non-watchable as well.
+            signed_path = self.inbox / (".signed-" + uuid.uuid4().hex + ".part")
             if signing_fingerprint is None:
                 signing_fingerprint = self.signing_key()
-            sign_deb_archive(payload_path, signed_path, self.signing, signing_fingerprint)
-            sha = digest_file(signed_path)
+            transformed_sha256, sha, signed_identity = sign_deb_archive(
+                payload_path, signed_path, self.signing, signing_fingerprint,
+                expected_identity=payload_identity)
+            if payload_path == path and transformed_sha256 != upstream_sha256:
+                raise Error("private package digest changed before signing")
+            if self.snapshot_identity(signed_path) != signed_identity:
+                raise Error("signed package changed before retention")
             if previous:
                 if newer(previous["version"], fields["Version"]):
                     raise Error(f"refusing downgrade for {key}")
@@ -1651,24 +1954,29 @@ class Repository:
             safe_dir(directory)
             destination = directory / filename
             if destination.exists() or destination.is_symlink():
-                if file_size(destination) != file_size(signed_path):
-                    raise Error("immutable pool object has a different size")
+                if (file_size(destination) != signed_identity[2]
+                        or digest_file(destination) != sha):
+                    raise Error("immutable pool object has different content")
             else:
                 temporary = directory / ("." + uuid.uuid4().hex)
                 try:
                     shutil.copyfile(signed_path, temporary, follow_symlinks=False)
-                    with temporary.open("rb") as stream:
+                    with os.fdopen(checked_file(temporary, private=False), "rb") as stream:
+                        if (os.fstat(stream.fileno()).st_size != signed_identity[2]
+                                or self.snapshot_identity(signed_path) != signed_identity):
+                            raise Error("signed package changed while retaining the pool object")
                         os.fchmod(stream.fileno(), 0o644)
                         os.fsync(stream.fileno())
                     os.replace(temporary, destination)
                     fsync_dir(directory)
                 finally:
                     temporary.unlink(missing_ok=True)
-            upstream_filename = self.retain_upstream(path, identity[0], upstream_sha256)
+            upstream_filename = self.retain_upstream(path, identity[0], upstream_sha256,
+                                                     expected_identity=upstream_identity)
             record = {"package": identity[0], "architecture": identity[1], "version": fields["Version"],
                       "upstream_version": upstream_version, "upstream_sha256": upstream_sha256,
                       "upstream_filename": upstream_filename, "sha256": sha,
-                      "transformed_sha256": upstream_sha256 if payload_path == path else digest_file(payload_path),
+                      "transformed_sha256": transformed_sha256,
                       "published_sha256": sha, "size": destination.stat().st_size,
                       "filename": str(destination.relative_to(self.repo)), "control": fields, "policy": actual_policy,
                       "package_signature": package_signature_record(signing_fingerprint)}
@@ -1683,6 +1991,64 @@ class Repository:
                 revised.with_suffix(".data.tar.gz").unlink(missing_ok=True)
             if signed_path is not None:
                 signed_path.unlink(missing_ok=True)
+
+    def import_installer_plan(self, path: Path, receipt_path: Path) -> list[str]:
+        requirements = installer_plan(path)
+        if receipt_path.parent != path.parent or receipt_path == path:
+            raise Error("installer receipt must be a separate file beside its private plan")
+        parent = path.parent.lstat()
+        if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0
+                or parent.st_mode & 0o077):
+            raise Error("installer package plan directory must be private and root-owned")
+        for ancestor in path.parent.parents:
+            info = ancestor.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0
+                    or (info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX)):
+                raise Error("unsafe installer package plan ancestry")
+        snapshots = []
+        records = []
+        identities = set()
+        previous_catalog = copy.deepcopy(self.catalog)
+        previous_changed, previous_pending = self.changed, self.pending[:]
+        publication_started = False
+        # Make the shell's recovery marker durable before the first repository
+        # mutation. Failure to clear a marker after a power loss is conservative:
+        # it requires review instead of automatically replaying an APT writer.
+        atomic_bytes(path.parent / ".deb-batch-active", (str(path) + "\n").encode(), 0o600)
+        try:
+            for requirement in requirements:
+                # Leave incomplete batches as .part files: an inbox watcher
+                # must never auto-publish a batch whose validation was interrupted.
+                expected_sha256 = requirement["sha256"] if requirement["sha256"] != "-" else None
+                snapshot = self.stage(Path(requirement["source"]), active=False,
+                                      expected_sha256=expected_sha256)
+                snapshots.append(snapshot)
+                record = self.ingest(snapshot, requirement=requirement)
+                identity = record["package"], record["architecture"]
+                if identity in identities:
+                    raise Error("duplicate package identity in installer batch")
+                identities.add(identity)
+                item = {key: record[key] for key in ("package", "version", "architecture",
+                        "upstream_version", "upstream_sha256", "published_sha256")}
+                item.update({key: requirement[key] for key in ("label", "executable",
+                             "desktop_file", "runtime_library")})
+                item["archive"] = str(self.repo / record["filename"])
+                records.append(item)
+            # One catalogue/index/signature publication after all accepted inputs.
+            publication_started = True
+            self.publish()
+            atomic_bytes(receipt_path, (json.dumps({"format": 1, "packages": records},
+                         sort_keys=True) + "\n").encode(), 0o600)
+            return [record["archive"] for record in records]
+        except OutcomeUnknown:
+            raise
+        except BaseException:
+            for snapshot in snapshots:
+                self.discard(snapshot)
+            if not publication_started:
+                self.catalog = previous_catalog
+                self.changed, self.pending = previous_changed, previous_pending
+            raise
 
     def signing_key(self) -> str:
         safe_dir(self.keyring.parent)
@@ -1725,10 +2091,12 @@ class Repository:
                 if not re.fullmatch(r"upstream/[a-z0-9][a-z0-9+.-]+/[0-9a-f]{64}\.deb", relative):
                     raise Error("invalid retained upstream filename")
                 source = self.root / relative
-                file_size(source)
+                expected_sha256 = record.get("upstream_sha256")
+                if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+                    raise Error("retained upstream digest is missing")
                 policy["local_revision"] = record.get("policy", {}).get("local_revision", 0) + 1
                 self.ingest(self.stage(source, policy=policy,
-                    expected=(record["package"], record["architecture"])))
+                    expected=(record["package"], record["architecture"]), expected_sha256=expected_sha256))
             elif record.get("policy", {}) != policy:
                 record["policy"] = policy
                 self.changed = True
@@ -1837,7 +2205,7 @@ class Repository:
 
     def finish_inbox(self) -> None:
         for path in self.pending:
-            if path.parent != self.inbox or path.suffix != ".deb":
+            if path.parent != self.inbox or path.suffix not in {".deb", ".part"}:
                 raise Error("refusing to remove a non-inbox file")
             self.discard(path)
         self.pending.clear()
@@ -2092,11 +2460,16 @@ class Repository:
                         partial = directory / "download.part"
                         committed_candidate = retrieve_candidate(
                             candidate, policy.get("tracking", {}), partial, force=force)
+                        # Inspect the same protected bytes that ingest will use.
+                        # Until release/version checks pass this remains a .part
+                        # and cannot become work for the independent watcher.
+                        ready = self.stage(partial, active=False,
+                                           expected_sha256=candidate.get("sha256"))
                         # A new release must actually advance the package version.
                         # Never commit a release-2 receipt for stale release-1 bytes.
                         # Direct URLs can legitimately only change HTTP validators;
                         # ingest still rejects downgrades and same-version new bytes.
-                        fields = inspect_deb(partial, self.architectures)
+                        fields = self.inspect_snapshot(ready)
                         if source.get("url") == "https://api.github.com/repos/jolars/tomat/releases?per_page=100":
                             verify_tomat_release_version(fields, candidate["version"])
                         old_version = record.get("upstream_version", record["version"])
@@ -2113,10 +2486,12 @@ class Repository:
                             updated_policy["local_revision"] = (
                                 int(policy.get("local_revision", 0)) + 1)
                         expected = (record["package"], record["architecture"])
-                        ready = self.stage(partial, policy=updated_policy, expected=expected)
+                        ready = self.activate(ready, policy=updated_policy, expected=expected)
                         updated = self.ingest(ready)
                         result = {"package": key, "status": "updated" if updated["version"] != record["version"] else "current",
                                   "version": updated["version"]}
+            except OutcomeUnknown:
+                raise
             except (Error, OSError, ValueError, subprocess.SubprocessError) as exc:
                 if ready is not None:
                     self.discard(ready)
@@ -2170,7 +2545,7 @@ def interactive_add(repository: Repository, source: Path, options=None) -> None:
         return
     ready = repository.stage(source, active=False)
     try:
-        fields = inspect_deb(ready, repository.architectures)
+        fields = repository.inspect_snapshot(ready)
         key = fields["Package"] + ":" + fields["Architecture"]
         previous = repository.catalog["packages"].get(key)
         policy = copy.deepcopy(previous.get("policy", {})) if previous else {"automatic": False, "remove_depends": [], "local_revision": 0}
@@ -2214,7 +2589,7 @@ def interactive_add(repository: Repository, source: Path, options=None) -> None:
                 policy["local_revision"] += 1
         initial = {"package": fields["Package"], "architecture": fields["Architecture"],
                    "version": fields["Version"], "upstream_version": fields["Version"],
-                   "sha256": digest_file(ready), "policy": policy}
+                   "sha256": repository.snapshot_digest(ready), "policy": policy}
         with tempfile.TemporaryDirectory(prefix=".probe-", dir=repository.inbox) as directory:
             repository.initialize_tracking(initial, Path(directory))
         ready = repository.activate(ready, policy=policy, expected=(fields["Package"], fields["Architecture"]))
@@ -2282,15 +2657,25 @@ def main(argv: list[str] | None = None) -> int:
             option.add_argument("--remove-vendor-apt", action="store_true")
             option.add_argument("--drop-maintainer-script", action="append", choices=sorted(MAINTAINER_SCRIPTS | {"triggers"}))
             option.add_argument("--url", help="HTTPS update URL (enables automatic updates)")
+    plan = sub.add_parser("import-plan", help="publish one bounded installer package batch")
+    plan.add_argument("file", type=Path)
+    plan.add_argument("--receipt", required=True, type=Path)
+    verify = sub.add_parser("verify-installed-plan", help="check a completed installer APT batch")
+    verify.add_argument("file", type=Path)
     args = parser.parse_args(argv)
     if os.geteuid() != 0:
         raise Error("run this command as root (sudo apt-repo-init)")
     if hasattr(args, "file"):
         args.file = args.file.absolute()
+    if hasattr(args, "receipt"):
+        args.receipt = args.receipt.absolute()
     os.environ.clear()
     os.environ.update(ENV)
     os.chdir("/")
     os.umask(0o077)
+    if args.command == "verify-installed-plan":
+        verify_installer_receipt(args.file)
+        return 0
     repository = Repository()
     with repository.locked():
         if args.command == "init":
@@ -2310,6 +2695,9 @@ def main(argv: list[str] | None = None) -> int:
             record = repository.ingest(repository.stage(args.file.absolute()))
             repository.publish()
             print(repository.repo / record["filename"])
+        elif args.command == "import-plan":
+            for path in repository.import_installer_plan(args.file, args.receipt):
+                print(path)
         elif args.command == "inspect":
             print(json.dumps(inspect_policy_input(args.file, repository.architectures), indent=2, sort_keys=True))
         elif args.command in {"show", "policy"}:

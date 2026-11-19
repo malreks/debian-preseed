@@ -47,7 +47,7 @@ late_command_shared_init() {
   installer_target_context_init || late_command_bootstrap_fatal 'mounted target context is unavailable'
   LOG="$(installer_runtime_log_file)"
   installer_init_log_file "$LOG" "" "${hook_family} late_command" late-command late_command
-  installer_operation_context_repo FILE_LATE_CORE 49 late_command_shared_init
+  installer_operation_context_repo scripts/late/core.sh 49 late_command_shared_init
   trap 'installer_finalize_log "$?"' EXIT
   SEED_BASE=$(installer_seed_base "$requested_seed_base")
   installer_persist_seed_source "$SEED_BASE"
@@ -71,7 +71,7 @@ fetch_env() {
 
 late_command_load_themes() {
   if ! command -v installer_load_themes >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
-    fetch_hook_file "$(installer_repo_file_value FILE_LATE_THEMES)" "$TMP_ENV_DIR/themes.sh" || return $?
+    fetch_hook_file "$(installer_repo_file_value scripts/late/themes.sh)" "$TMP_ENV_DIR/themes.sh" || return $?
     # shellcheck disable=SC1090,SC1091
     . "$TMP_ENV_DIR/themes.sh" || return $?
   fi
@@ -270,23 +270,23 @@ late_command_fetch_common_assets() {
   # the target path values needed to render the first bootprofile/unit asset.
   # Load the validated profile before any fetched template reaches a renderer.
   late_command_load_profile_env || return $?
-  late_command_fetch_repo_file FILE_RUNTIME_COMMON "$TMP_ENV_DIR/runtime-common.sh" runtime-common.sh
+  late_command_fetch_repo_file scripts/runtime/common.sh "$TMP_ENV_DIR/runtime-common.sh" runtime-common.sh
   late_command_fetch_asset "$runtime_script_path" "$TMP_ENV_DIR/runtime.sh" "${runtime_script_path##*/}"
-  late_command_fetch_repo_file FILE_RUNTIME_ACCOUNT "$TMP_ENV_DIR/account-runtime.sh" account.sh
-  late_command_fetch_repo_file FILE_TARGET_INSTALL_TOOLS_BOOTPROFILE_APPLY_TMPL "$TMP_ENV_DIR/bootprofile-apply.tmpl" bootprofile-apply.tmpl
-  late_command_fetch_repo_file FILE_TARGET_UNIT_BOOTPROFILE_APPLY_SERVICE_TMPL "$TMP_ENV_DIR/bootprofile-apply.service.tmpl" bootprofile-apply.service
-  late_command_fetch_repo_file FILE_TARGET_LIBEXEC_APT_REFRESH_LISTS_TMPL "$TMP_ENV_DIR/apt-refresh-lists.tmpl" apt-refresh-lists.tmpl
-  late_command_fetch_repo_file FILE_TARGET_UNIT_APT_REFRESH_LISTS_SERVICE_TMPL "$TMP_ENV_DIR/apt-refresh-lists.service.tmpl" apt-refresh-lists.service
-  late_command_fetch_repo_file FILE_TARGET_UNIT_APT_DAILY_SERVICE_D_OVERRIDE_TMPL "$TMP_ENV_DIR/apt-daily.override.conf.tmpl" apt-daily.override.conf
-  late_command_fetch_repo_file FILE_TARGET_SUDOERS_D_ACCOUNT_TMPL "$TMP_ENV_DIR/account.sudoers.tmpl" account.sudoers
-  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_SETUP_SERVICE_TMPL "$TMP_ENV_DIR/zram-setup.service.tmpl" zram-setup.service
-  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_WRITEBACK_SERVICE_TMPL "$TMP_ENV_DIR/zram-writeback.service.tmpl" zram-writeback.service
-  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_WRITEBACKD_SERVICE_TMPL "$TMP_ENV_DIR/zram-writebackd.service.tmpl" zram-writebackd.service
-  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_IDLE_WRITEBACK_TIMER_TMPL "$TMP_ENV_DIR/zram-idle-writeback.timer.tmpl" zram-idle-writeback.timer
-  late_command_fetch_repo_file FILE_TARGET_UNIT_ZRAM_COLD_TIER_TIMER_TMPL "$TMP_ENV_DIR/zram-cold-tier.timer.tmpl" zram-cold-tier.timer
-  late_command_fetch_repo_file FILE_TARGET_UNIT_SWAP_FALLBACK_SERVICE_TMPL "$TMP_ENV_DIR/swap-fallback.service.tmpl" swap-fallback.service
-  late_command_fetch_repo_file FILE_TARGET_LIBEXEC_TMPFS_PRE_CLEAN_TMPL "$TMP_ENV_DIR/tmpfs-pre-clean.tmpl" tmpfs-pre-clean.tmpl
-  late_command_fetch_repo_file FILE_TARGET_UNIT_TMPFS_PRE_CLEAN_SERVICE_TMPL "$TMP_ENV_DIR/tmpfs-pre-clean.service.tmpl" tmpfs-pre-clean.service
+  late_command_fetch_repo_file scripts/runtime/account.sh "$TMP_ENV_DIR/account-runtime.sh" account.sh
+  late_command_fetch_repo_file hooks/target/usr/libexec/install-tools/bootprofile-apply.tmpl "$TMP_ENV_DIR/bootprofile-apply.tmpl" bootprofile-apply.tmpl
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/bootprofile-apply.service.tmpl "$TMP_ENV_DIR/bootprofile-apply.service.tmpl" bootprofile-apply.service
+  late_command_fetch_repo_file hooks/target/usr/local/libexec/common/apt-refresh-lists.tmpl "$TMP_ENV_DIR/apt-refresh-lists.tmpl" apt-refresh-lists.tmpl
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/apt-refresh-lists.service.tmpl "$TMP_ENV_DIR/apt-refresh-lists.service.tmpl" apt-refresh-lists.service
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/apt-daily.service.d/override.conf.tmpl "$TMP_ENV_DIR/apt-daily.override.conf.tmpl" apt-daily.override.conf
+  late_command_fetch_repo_file hooks/target/etc/sudoers.d/account.tmpl "$TMP_ENV_DIR/account.sudoers.tmpl" account.sudoers
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/zram-setup.service.tmpl "$TMP_ENV_DIR/zram-setup.service.tmpl" zram-setup.service
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/zram-writeback.service.tmpl "$TMP_ENV_DIR/zram-writeback.service.tmpl" zram-writeback.service
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/zram-writebackd.service.tmpl "$TMP_ENV_DIR/zram-writebackd.service.tmpl" zram-writebackd.service
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/zram-idle-writeback.timer.tmpl "$TMP_ENV_DIR/zram-idle-writeback.timer.tmpl" zram-idle-writeback.timer
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/zram-cold-tier.timer.tmpl "$TMP_ENV_DIR/zram-cold-tier.timer.tmpl" zram-cold-tier.timer
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/swap-fallback.service.tmpl "$TMP_ENV_DIR/swap-fallback.service.tmpl" swap-fallback.service
+  late_command_fetch_repo_file hooks/target/usr/local/libexec/common/tmpfs-pre-clean.tmpl "$TMP_ENV_DIR/tmpfs-pre-clean.tmpl" tmpfs-pre-clean.tmpl
+  late_command_fetch_repo_file hooks/target/etc/systemd/common/system/tmpfs-pre-clean.service.tmpl "$TMP_ENV_DIR/tmpfs-pre-clean.service.tmpl" tmpfs-pre-clean.service
 }
 
 late_command_fetch_asset() {
@@ -396,9 +396,9 @@ install_target_runtime_defaults() {
   stage_target_iocost || return $?
 
   validate_installed_log_levels || return $?
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_SYSTEM_RUNTIME_TMPL)" __INSTALLER_PATH_DIR_ETC__/system-runtime.conf 0644 || return $?
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/system-runtime.conf.tmpl)" __INSTALLER_PATH_DIR_ETC__/system-runtime.conf 0644 || return $?
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_SYSTEMD_LOGIND_CONF_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/desktop/logind.conf.d/override.conf)" \
     "${FILE_LOGIND_OVERRIDE_CONF}" \
     0644
 }
@@ -411,19 +411,19 @@ install_target_wpa_supplicant_runtime_policy() {
   : "${FILE_NETWORKMANAGER_LINK_PRIVACY_CONF:?FILE_NETWORKMANAGER_LINK_PRIVACY_CONF must be set}"
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_WPA_SUPPLICANT)" \
+    "$(installer_repo_file_value hooks/target/etc/wpa_supplicant/wpa_supplicant.conf)" \
     "${FILE_WPA_SUPPLICANT_CONF}" \
     0644 || return $?
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_WPA_SUPPLICANT_P2P_DEVICE)" \
+    "$(installer_repo_file_value hooks/target/etc/wpa_supplicant/p2p-device.conf)" \
     "${FILE_WPA_SUPPLICANT_P2P_DEVICE_CONF}" \
     0644 || return $?
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_WPA_SUPPLICANT_SERVICE_D_OVERRIDE)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/wpa_supplicant.service.d/override.conf)" \
     "${FILE_WPA_SUPPLICANT_DBUS_SERVICE_OVERRIDE}" \
     0644 || return $?
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_NETWORKMANAGER_CONF_D_80_LINK_PRIVACY)" \
+    "$(installer_repo_file_value hooks/target/etc/NetworkManager/conf.d/80-link-privacy.conf)" \
     "${FILE_NETWORKMANAGER_LINK_PRIVACY_CONF}" \
     0644 || return $?
 
@@ -474,7 +474,7 @@ configure_target_smartmontools_defaults() {
   fi
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_DEFAULT_SMARTMONTOOLS)" \
+    "$(installer_repo_file_value hooks/target/etc/default/smartmontools)" \
     "${FILE_SMARTMONTOOLS_DEFAULT}" \
     0644
 }
@@ -581,23 +581,23 @@ install_target_firstboot_logger() {
   : "${LOG_INITRAMFS_DIR:?LOG_INITRAMFS_DIR must be set}"
 
   # Finish-install normalizes every active source after vendor setup.
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APT_REPO_LOCAL_NORMALIZE_SOURCES)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/apt-repo-local-normalize-sources)" \
     "${DIR_USR_LOCAL_LIBEXEC}/apt-repo-local-normalize-sources" 0755
 
   # Shared by system and desktop command wrappers on every storage family.
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_PERL_RUNTIME_MANAGED_PROCESS)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/lib/common/perl5/site_perl/runtime/Managed/Process.pm)" \
     "${DIR_PERL5_SITE_PERL}/runtime/Managed/Process.pm" 0644
   # Staged across the first reboot only; secondboot removes this entire surface.
   install -d -m 0700 "${TARGET_ROOT}${DIR_FIRSTBOOT}" "${TARGET_ROOT}${DIR_FIRSTBOOT_BIN}"
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_AA_FIRSTBOOT_TMPL)" \
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/apparmor.d/firstboot 0644
   if security_target_is_desktop; then
     run_in_target "apply selected AppArmor mode to staged first-boot policy" \
       "${DIR_USR_LOCAL_LIBEXEC}/apparmor-modes-run" --no-reload
   fi
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_FIRSTBOOT)" "${FILE_FIRSTBOOT_HELPER}" 0755
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/firstboot.sh)" "${FILE_FIRSTBOOT_HELPER}" 0755
   install -d -m 0755 "${TARGET_ROOT}${DIR_FIRSTBOOT_LIB}"
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_LOGGING)" "${DIR_FIRSTBOOT_LIB}/logging.sh" 0644
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/logging.sh)" "${DIR_FIRSTBOOT_LIB}/logging.sh" 0644
   for firstboot_stage in \
     01-early.sh \
     02-collect.sh \
@@ -608,23 +608,23 @@ install_target_firstboot_logger() {
     stage_target_asset "$(installer_repo_asset_path DIR_SCRIPTS_FIRSTBOOT "${firstboot_stage}")" "${DIR_FIRSTBOOT_LIB}/${firstboot_stage}" 0755
   done
   unset firstboot_stage
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_IMPORT_INITRAMFS_TMPL)" \
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/import-initramfs.py.tmpl)" \
     "${DIR_FIRSTBOOT_LIB}/import-initramfs.py" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_SERVICE_ACCOUNT_PROCESSES)" \
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/service-account-processes.py)" \
     "${DIR_FIRSTBOOT_LIB}/service-account-processes.py" 0644
 
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_COMMON)" "${FILE_INITRAMFS_HEALTH_COMMON}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_INIT_TOP_ENTRY)" "${FILE_INITRAMFS_HEALTH_INIT_TOP}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_INIT_PREMOUNT_ENTRY)" "${FILE_INITRAMFS_HEALTH_INIT_PREMOUNT}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_LOCAL_TOP_ENTRY)" "${FILE_INITRAMFS_HEALTH_LOCAL_TOP}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_LOCAL_BLOCK_ENTRY)" "${FILE_INITRAMFS_HEALTH_LOCAL_BLOCK}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_LOCAL_PREMOUNT_ENTRY)" "${FILE_INITRAMFS_HEALTH_LOCAL_PREMOUNT}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_LOCAL_BOTTOM_ENTRY)" "${FILE_INITRAMFS_HEALTH_LOCAL_BOTTOM}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_HEALTH_INIT_BOTTOM_ENTRY)" "${FILE_INITRAMFS_HEALTH_INIT_BOTTOM}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_UNIT_FIRSTBOOT_SERVICE)" "${FILE_FIRSTBOOT_SERVICE}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_BIN_SECONDBOOT_CLEANUP)" "${FILE_SECONDBOOT_HELPER}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_UNIT_SECONDBOOT_SERVICE)" "${FILE_SECONDBOOT_SERVICE}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_FIRSTBOOT_ASSET_UNIT_SECONDBOOT_PATH)" __INSTALLER_PATH_DIR_ETC__/systemd/system/secondboot.path 0644
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/installer-health-common)" "${FILE_INITRAMFS_HEALTH_COMMON}" 0644
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/init-top/90-installer-health)" "${FILE_INITRAMFS_HEALTH_INIT_TOP}" 0755
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/init-premount/90-installer-health)" "${FILE_INITRAMFS_HEALTH_INIT_PREMOUNT}" 0755
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/local-top/90-installer-health)" "${FILE_INITRAMFS_HEALTH_LOCAL_TOP}" 0755
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/local-block/90-installer-health)" "${FILE_INITRAMFS_HEALTH_LOCAL_BLOCK}" 0755
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/local-premount/90-installer-health)" "${FILE_INITRAMFS_HEALTH_LOCAL_PREMOUNT}" 0755
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/local-bottom/90-installer-health)" "${FILE_INITRAMFS_HEALTH_LOCAL_BOTTOM}" 0755
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/init-bottom/90-installer-health)" "${FILE_INITRAMFS_HEALTH_INIT_BOTTOM}" 0755
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/systemd/system/firstboot.service)" "${FILE_FIRSTBOOT_SERVICE}" 0644
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup)" "${FILE_SECONDBOOT_HELPER}" 0755
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/systemd/system/secondboot.service)" "${FILE_SECONDBOOT_SERVICE}" 0644
+  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/systemd/system/secondboot.path)" __INSTALLER_PATH_DIR_ETC__/systemd/system/secondboot.path 0644
 
   install -d -m 0700 \
     "${TARGET_ROOT}${LOG_INITRAMFS_DIR}" \
@@ -662,8 +662,8 @@ configure_target_nvidia_power_management() (
     remove_target_asset "${DIR_USR_LOCAL_LIBEXEC}/nvidia-vram-check"
     return 0
   fi
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_NVIDIA_VRAM_CHECK)" "${DIR_USR_LOCAL_LIBEXEC}/nvidia-vram-check" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_70_NVIDIA_VRAM)" __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/70-nvidia-vram.conf 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/nvidia-vram-check)" "${DIR_USR_LOCAL_LIBEXEC}/nvidia-vram-check" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/desktop/70-nvidia-vram.conf)" __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/70-nvidia-vram.conf 0644
   for phase in suspend suspend-then-hibernate hibernate resume; do
     stage_target_asset "$(installer_repo_asset_path DIR_TARGET_UNIT "nvidia-${phase}.service.d/20-vram.conf")" \
       "$(installer_systemd_dropin_dir system "nvidia-${phase}.service")/20-vram.conf" 0644
@@ -713,7 +713,7 @@ stage_target_common_boot_policy() {
 
   configure_target_nvidia_power_management "$1"
 
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_SWAP_FALLBACK_SETUP_TMPL)" "${FILE_SWAP_FALLBACK_HELPER}" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/swap-fallback-setup.tmpl)" "${FILE_SWAP_FALLBACK_HELPER}" 0755
   render_target_template "$TMP_ENV_DIR/swap-fallback.service.tmpl" "${TARGET_ROOT}${FILE_SWAP_FALLBACK_SERVICE}" 0644
 
   stage_target_common_storage_maintenance_assets

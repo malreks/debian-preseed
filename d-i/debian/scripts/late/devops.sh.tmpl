@@ -15,7 +15,7 @@ bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
 # shellcheck disable=SC1090
 . "$bootstrap_lib"
 bootstrap_source_common_lib ""
-installer_operation_context_repo FILE_LATE_DEVOPS_TMPL 18 devops
+installer_operation_context_repo scripts/late/devops.sh.tmpl 18 devops
 
 # Module rendering needs the selected target paths in this child shell, before
 # devops_main (which is itself defined by one of those modules) can run.
@@ -26,22 +26,22 @@ host_env=${INSTALLER_LATE_HOST_ENV:-${DIR_INSTALLER_LATE_ENV}/host.env}
 [ -r "$host_env" ] || installer_fetch_host_env "$seed_base" "$(installer_resolve_host_profile "")" "$host_env" 0600
 installer_load_data_env "$host_env"
 
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_VALIDATION_BASE)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_UPSTREAM_POLICY)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_POLICY_RESOLUTION_TMPL)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_PUBLICATION_LAYOUT)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_SIGNING_KEY)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_PUBLICATION_SERVICES)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_TOOL_CONFIGS)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_BAZELISK_NODE)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_UPSTREAM_RUST)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_CODEX_LAYOUT)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_CODEX_APPSERVER)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_CODEX_RELEASE)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_ACCOUNT_EXECUTION)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_GITBUILD)" || exit "$?"
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_MAIN_ORCHESTRATION)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/validation-base.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/upstream-policy.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/policy-resolution.sh.tmpl)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/publication-layout.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/signing-key.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/publication-services.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/tool-configs.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/bazelisk-node.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/upstream-rust.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/codex-layout.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/codex-appserver.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/codex-release.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/account-execution.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/gitbuild.sh)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/main-orchestration.sh)" || exit "$?"
 
-bootstrap_source_module "$(installer_repo_file_value FILE_LATE_DEVOPS_CODEX_PROVISION)" || exit "$?"
+bootstrap_source_module "$(installer_repo_file_value scripts/late/devops/codex-provision.sh)" || exit "$?"
 
 devops_main "$@"

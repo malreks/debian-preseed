@@ -83,7 +83,7 @@ installer_stage_lan_public_key() (
   key_destination=$1
   key_source=${FILE_INSTALLER_SSH_LAN_PUBLIC_KEY:?initrd LAN public key interface required}
   if [ ! -e "$key_source" ] && [ ! -L "$key_source" ]; then
-    key_payload=$(installer_repo_file_value FILE_SSH_LAN_ED25519_PUB) || exit "$?"
+    key_payload=$(installer_repo_file_value ssh/lan_ed25519.pub) || exit "$?"
     key_seed=$(installer_seed_base "") || exit "$?"
     key_source=$(installer_seed_cache_path "$key_seed" "$key_payload") || exit "$?"
   fi
@@ -339,8 +339,8 @@ stage_target_xssh_helpers() {
     installer_fatal "openssh-client must be preinstalled by pkgsel when xssh helper staging is enabled"
   fi
 
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_BIN_XSSH_SEND)" "${FILE_XSSH_SEND}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_BIN_XSSH_RETRIEVE)" "${FILE_XSSH_RETRIEVE}" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/bin/common/xssh-send)" "${FILE_XSSH_SEND}" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/bin/common/xssh-retrieve)" "${FILE_XSSH_RETRIEVE}" 0755
 }
 
 provision_target_ssh_client() {
@@ -684,6 +684,6 @@ managed_git_ssh_target_action() (
 
 provision_target_git_ssh_identity() {
   xssh_helpers_role_selected || return 0
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SSH_GIT_KNOWN_HOSTS)" /etc/ssh/git_known_hosts 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/ssh/git_known_hosts)" /etc/ssh/git_known_hosts 0644
   managed_git_ssh_target_action provision || installer_fatal "managed Git SSH identity provisioning failed"
 }

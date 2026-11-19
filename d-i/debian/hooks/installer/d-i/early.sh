@@ -78,7 +78,7 @@ family_d_i_early_main() {
 
   LOG="$(installer_runtime_log_file)"
   installer_init_log_file "$LOG" "" "${hook_family} d-i early hook" d-i-early preseed_loaded
-  installer_operation_context_repo FILE_INST_DI_EARLY 82 family_d_i_early_main
+  installer_operation_context_repo hooks/installer/d-i/early.sh 82 family_d_i_early_main
   trap 'installer_finalize_log "$?"' EXIT
   installer_load_context_if_present || true
 
@@ -113,38 +113,38 @@ family_d_i_early_main() {
   install -d -m 0700 "$TMP_ENV_DIR" "$RUNTIME_DIR"
   bootstrap_source_common_support_libs "$SEED_BASE" "$TMP_ENV_DIR" fetch hook
   fetch_hook_file \
-    "$(installer_repo_apt_file APT_CONF_D_99NOINSTALL_RECOMMENDS)" \
+    "$(installer_repo_apt_file apt.conf.d/99noinstall-recommends)" \
     "$TMP_ENV_DIR/99noinstall-recommends"
   chmod 0644 "$TMP_ENV_DIR/99noinstall-recommends"
   fetch_hook_file \
-    "$(installer_repo_apt_file APT_CONF_D_25NO_PDIFFS)" \
+    "$(installer_repo_apt_file apt.conf.d/25no-pdiffs)" \
     "$TMP_ENV_DIR/25no-pdiffs"
   installer_apt_publish_metadata_policy "$TMP_ENV_DIR/25no-pdiffs" \
     "${DIR_INSTALLER_APT_CONF_D}/25no-pdiffs"
 
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_APT_99_APT_PREFERENCES)" "${DIR_INSTALLER_APT_SETUP_GENERATORS}/99-apt-preferences"
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_APT_98_CUDA_LEGACY_SOURCE)" "${DIR_INSTALLER_APT_SETUP_GENERATORS}/98-cuda-legacy-source"
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/apt-setup/generators/99-apt-preferences)" "${DIR_INSTALLER_APT_SETUP_GENERATORS}/99-apt-preferences"
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/apt-setup/generators/98-cuda-legacy-source)" "${DIR_INSTALLER_APT_SETUP_GENERATORS}/98-cuda-legacy-source"
   chmod 0755 ${DIR_INSTALLER_APT_SETUP_GENERATORS}/98-cuda-legacy-source
   chmod 0755 ${DIR_INSTALLER_APT_SETUP_GENERATORS}/99-apt-preferences
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_BASE_RENDER_TARGET)" "${DIR_INSTALLER_BASE_INSTALLER_D}/00rendertarget"
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/base-stage.d/00rendertarget)" "${DIR_INSTALLER_BASE_INSTALLER_D}/00rendertarget"
   chmod 0755 "${DIR_INSTALLER_BASE_INSTALLER_D}/00rendertarget"
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_BASE_10_APT_INSTALL_POLICY)" "${DIR_INSTALLER_BASE_INSTALLER_D}/10-apt-install-policy"
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_BASE_20_FSTAB_GUARD)" "${DIR_INSTALLER_BASE_INSTALLER_D}/20-fstab-guard"
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/base-stage.d/10-apt-install-policy)" "${DIR_INSTALLER_BASE_INSTALLER_D}/10-apt-install-policy"
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/base-stage.d/20-fstab-guard)" "${DIR_INSTALLER_BASE_INSTALLER_D}/20-fstab-guard"
   chmod 0755 ${DIR_INSTALLER_BASE_INSTALLER_D}/10-apt-install-policy
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_PREPKG_PLAN)" "${DIR_INSTALLER_PRE_PKGSEL_D}/50-class-plan"
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/pre-pkgsel.d/50-class-plan.sh)" "${DIR_INSTALLER_PRE_PKGSEL_D}/50-class-plan"
   chmod 0755 "${DIR_INSTALLER_PRE_PKGSEL_D}/50-class-plan"
   # Finalize volatile backing directories before any target-side APT command,
   # then repair/modernize sources; both still precede validation and 95umount.
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_99_NORMALIZE_FINISH)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish"
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_95_NORMALIZE_APT)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt"
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/99-normalize-finish)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish"
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/95-normalize-apt)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt"
   chmod 0755 ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_00_INSTALLER_GUARD)" ${DIR_INSTALLER_FINISH_INSTALL_D}/00-installer-guard
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_FINISH_94ZZ_99_VALIDATE_TARGET)" ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-99-validate-target
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/00-installer-guard)" ${DIR_INSTALLER_FINISH_INSTALL_D}/00-installer-guard
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/94zz-99-validate-target)" ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-99-validate-target
   # Interpose on the first base-installer APT update, not on the later
   # apt-setup generator. The adapter rejects unknown d-i waypoint layouts.
-  fetch_hook_file "$(installer_repo_file_value FILE_COMMON_APT_SOURCES)" "$RUNTIME_DIR/bootstrap/apt-sources.sh"
-  fetch_hook_file "$(installer_repo_file_value FILE_PRESEED_NETWORK_APT)" "$RUNTIME_DIR/bootstrap/network-apt.sh"
-  fetch_hook_file "$(installer_repo_file_value FILE_PRESEED_BASE_APT_ADAPTER)" "$RUNTIME_DIR/bootstrap/base-apt-adapter.sh"
+  fetch_hook_file "$(installer_repo_file_value scripts/common/apt-sources.sh)" "$RUNTIME_DIR/bootstrap/apt-sources.sh"
+  fetch_hook_file "$(installer_repo_file_value scripts/preseed/network-apt.sh)" "$RUNTIME_DIR/bootstrap/network-apt.sh"
+  fetch_hook_file "$(installer_repo_file_value scripts/preseed/base-apt-adapter.sh)" "$RUNTIME_DIR/bootstrap/base-apt-adapter.sh"
   /bin/sh -eu "$RUNTIME_DIR/bootstrap/base-apt-adapter.sh" \
     /var/lib/dpkg/info/bootstrap-base.postinst "$RUNTIME_DIR/bootstrap/network-apt.sh"
   # anna has loaded these mandatory components before preseed/early_command.
@@ -163,10 +163,10 @@ family_d_i_early_main() {
     [ -x "$base_hook" ] || continue
     installer_guard_hook "$base_hook" post-base || installer_fatal 'cannot supervise post-base hook'
   done
-  fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_COMMON)" "$TMP_ENV_DIR/runtime-common.sh"
+  fetch_hook_file "$(installer_repo_file_value scripts/runtime/common.sh)" "$TMP_ENV_DIR/runtime-common.sh"
   fetch_hook_file "$runtime_script_path" "$TMP_ENV_DIR/runtime.sh"
-  fetch_hook_file "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" "$TMP_ENV_DIR/account.sh"
-  fetch_hook_file "$(installer_repo_file_value FILE_PARTMAN_DETECT_DISK)" "$TMP_ENV_DIR/detect-disk.sh"
+  fetch_hook_file "$(installer_repo_file_value scripts/runtime/account.sh)" "$TMP_ENV_DIR/account.sh"
+  fetch_hook_file "$(installer_repo_file_value scripts/partman/detect-disk.sh)" "$TMP_ENV_DIR/detect-disk.sh"
   installer_fetch_host_env "$SEED_BASE" "$HOST_PROFILE" "$TMP_ENV_DIR/host.env" 0600
   installer_fetch_account_env "$SEED_BASE" "$TMP_ENV_DIR/account.env" 0600
 

@@ -896,7 +896,7 @@ log_line() { printf 'event=%s\\n' "$*"; }
         self.assertIn('CROWDSEC_HOST_VARIANT=desktop', SOURCE)
         self.assertNotIn('if [ "$CROWDSEC_HOST_VARIANT" = desktop ]; then', SOURCE)
         self.assertNotIn('if [ "$host_variant" = desktop ]; then', LATE)
-        self.assertIn('FILE_TARGET_AUDIT_CROWDSEC_COMMON', LATE)
+        self.assertIn('hooks/target/etc/audit/crowdsec/common.rules', LATE)
         for unused in ('crowdsecurity/base-http-scenarios', 'crowdsecurity/appsec-virtual-patching',
                        'crowdsecurity/nginx-logs', 'crowdsecurity/docker-logs',
                        'activate_appsec_acquisition'):

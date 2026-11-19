@@ -195,15 +195,7 @@ installer_repo_env_path() {
   printf '%s/bootstrap/repo.env\n' "${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}"
 }
 
-installer_repo_env_dir_vars() {
-  installer_repo_env_vars_path=$1
-  sed -n 's/^\(DIR_[A-Z0-9_]*\)=.*/\1/p' "$installer_repo_env_vars_path"
-}
 
-installer_repo_env_selector_vars() {
-  installer_repo_env_vars_path=$1
-  sed -n 's/^\(DIR_[A-Z0-9_]*\|FILE_[A-Z0-9_]*\)=.*/\1/p' "$installer_repo_env_vars_path"
-}
 
 installer_validate_repo_dir_value() {
   installer_repo_validate_var=$1
@@ -259,49 +251,7 @@ installer_loaded_repo_dir_value() {
   printf '%s\n' "$installer_loaded_repo_dir_result"
 }
 
-installer_loaded_repo_file_value() {
-  installer_loaded_repo_file_name=${1:-}
-  case "$installer_loaded_repo_file_name" in
-    FILE_[A-Z0-9_]*) ;;
-    *) return 1 ;;
-  esac
-  case "$installer_loaded_repo_file_name" in
-    *[!ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*) return 1 ;;
-  esac
 
-  installer_loaded_repo_file_result=
-  eval "installer_loaded_repo_file_result=\${$installer_loaded_repo_file_name:-}"
-  printf '%s\n' "$installer_loaded_repo_file_result"
-}
-
-installer_validate_repo_env() {
-  installer_repo_validate_env_path=${1:-$(installer_repo_env_path)}
-
-  [ -r "$installer_repo_validate_env_path" ] || installer_fatal "repository path environment is not readable: $installer_repo_validate_env_path"
-  # Build the reverse lookup once in this shell. Keep it out of the process
-  # environment: large catalogs must not consume the child's argv/env budget.
-  INSTALLER_REPO_FILE_INDEX=
-  while IFS= read -r installer_repo_validate_dir_var || [ -n "$installer_repo_validate_dir_var" ]; do
-    [ -n "$installer_repo_validate_dir_var" ] || continue
-    installer_repo_validate_loaded_value=
-    # Names come from the uppercase DIR_*/FILE_* assignment grammar below.
-    # The value is read as data, never interpolated into executable shell text.
-    eval "installer_repo_validate_loaded_value=\${$installer_repo_validate_dir_var:-}"
-    case "$installer_repo_validate_dir_var" in
-      DIR_*)
-        installer_validate_repo_dir_value "$installer_repo_validate_dir_var" "$installer_repo_validate_loaded_value"
-        ;;
-      FILE_*)
-        installer_validate_repo_file_value "$installer_repo_validate_dir_var" "$installer_repo_validate_loaded_value"
-        INSTALLER_REPO_FILE_INDEX="${INSTALLER_REPO_FILE_INDEX}${installer_repo_validate_dir_var}|${installer_repo_validate_loaded_value}
-"
-        ;;
-      *) installer_fatal "unsupported repository selector: $installer_repo_validate_dir_var" ;;
-    esac
-  done <<EOF
-$(installer_repo_env_selector_vars "$installer_repo_validate_env_path")
-EOF
-}
 
 installer_ensure_repo_env() {
   installer_repo_env_seed_base=${1:-}
@@ -321,10 +271,15 @@ installer_ensure_repo_env() {
       installer_fetch_seed_path "$installer_repo_env_seed_base" "$(installer_repo_env_relpath)" "$installer_repo_env_file" 0600 || return "$?"
     fi
   fi
-  # shellcheck disable=SC1090
-  . "$installer_repo_env_file"
-  installer_validate_repo_env "$installer_repo_env_file"
-  installer_validate_relative_seed_path "${FILE_HOOKS_INSTALLER_DI_ENV:-}"
+  bootstrap_load_source_library "$installer_repo_env_seed_base" || return $?
+  source_load_repo_env "$installer_repo_env_file" || return $?
+  # The owning bootstrap bound this immutable snapshot to the selected payload.
+  # Exact dynamic candidates use this root without rebuilding an alias index.
+  INSTALLER_REPO_SOURCE_ROOT=${installer_repo_env_file%/repo.env}
+  if [ "$INSTALLER_REPO_SOURCE_ROOT" = "${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}/bootstrap" ]; then
+    INSTALLER_REPO_SOURCE_ROOT=$(source_cache_root "$installer_repo_env_seed_base") || return $?
+  fi
+  installer_validate_relative_seed_path "hooks/installer/di.env"
   if command -v bootstrap_ensure_di_env >/dev/null 2>&1; then
     bootstrap_ensure_di_env "$installer_repo_env_seed_base" || return $?
   fi
@@ -353,26 +308,11 @@ installer_repo_dir_value() {
 }
 
 installer_repo_file_value() {
-  installer_repo_file_name=$1
-  case "$installer_repo_file_name" in
-    FILE_[A-Z0-9_]*) ;;
-    *) installer_fatal "repository file selector is invalid: ${installer_repo_file_name:-unset}" ;;
-  esac
-  case "$installer_repo_file_name" in
-    *[!ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*)
-      installer_fatal "repository file selector is invalid: $installer_repo_file_name"
-      ;;
-  esac
-
-  if [ "${INSTALLER_REPO_ENV_READY:-0}" -ne 1 ]; then
-    installer_ensure_repo_env ""
-  fi
-  installer_repo_file_value_result=$(installer_loaded_repo_file_value "$installer_repo_file_name" 2>/dev/null || true)
-  [ -n "$installer_repo_file_value_result" ] ||
-    installer_fatal "repository file variable is unset: $installer_repo_file_name"
-  installer_validate_repo_file_value "$installer_repo_file_name" "$installer_repo_file_value_result"
-  installer_repo_assert_asset_family "$installer_repo_file_value_result"
-  printf '%s\n' "$installer_repo_file_value_result"
+  # Stable source member names are local interfaces. Their captured membership
+  # is checked by the compiler and acquisition boundary, not a shell alias map.
+  installer_validate_repo_file_value source_member "$1"
+  installer_repo_assert_asset_family "$1"
+  printf '%s\n' "$1"
 }
 
 # Physical source partitions are distinct from installed paths. The validated
@@ -390,6 +330,32 @@ installer_repo_assert_asset_family() {
   done
 }
 
+# No linear catalog scan or metadata subprocess is needed for an exact key in
+# the already selected private snapshot. Family/ambiguity checks remain at use.
+installer_repo_select_member() (
+  set -eu
+  [ "${INSTALLER_REPO_ENV_READY:-0}" -eq 1 ] || installer_ensure_repo_env "" || exit $?
+  repo_member_count=0
+  repo_member_seen='|'
+  repo_member_selected=
+  for repo_member_logical do
+    installer_validate_repo_file_value source_member "$repo_member_logical"
+    for repo_member in "$repo_member_logical" "$repo_member_logical.tmpl"; do
+      case "$repo_member_seen" in *"|$repo_member|"*) continue ;; esac
+      repo_member_seen=$repo_member_seen$repo_member'|'
+      repo_member_path=$INSTALLER_REPO_SOURCE_ROOT/$repo_member
+      if [ -e "$repo_member_path" ] || [ -L "$repo_member_path" ]; then
+        [ -f "$repo_member_path" ] && [ ! -L "$repo_member_path" ] ||
+          installer_fatal "unsafe physical source member: $repo_member"
+        repo_member_selected=$repo_member
+        repo_member_count=$((repo_member_count + 1))
+      fi
+    done
+  done
+  [ "$repo_member_count" -eq 1 ] || installer_fatal 'missing or ambiguous source member owner'
+  installer_repo_file_value "$repo_member_selected"
+)
+
 installer_repo_family_asset_path() {
   case "${INSTALLER_HOST_VARIANT:-}" in desktop|server) ;; *) installer_fatal 'validated asset role family is required' ;; esac
   family_asset_base=$(installer_repo_dir_value "$1") || return "$?"
@@ -403,13 +369,8 @@ installer_repo_family_asset_path() {
     *) family_asset_common="$family_asset_base/common/$family_asset_leaf"
        family_asset_selected="$family_asset_base/$INSTALLER_HOST_VARIANT/$family_asset_leaf" ;;
   esac
-  family_asset_selector=$(printf '%s' "$INSTALLER_REPO_FILE_INDEX" |
-    awk -F '|' -v common="$family_asset_common" -v selected="$family_asset_selected" '
-      $2==common || $2==common ".tmpl" || $2==selected || $2==selected ".tmpl" {
-        if(!seen[$2]++) {count++; selector=$1}
-      }
-      END {if(count!=1) exit 1; print selector}') || installer_fatal 'missing or ambiguous role source asset owner'
-  installer_repo_file_value "$family_asset_selector"
+  installer_repo_select_member "$family_asset_common" "$family_asset_selected"
+
 }
 
 # Resolve a policy-selected leaf through the same FILE_* catalog as fixed
@@ -417,9 +378,11 @@ installer_repo_family_asset_path() {
 # invoke metadata tools in d-i. A logical name may select its physical .tmpl
 # member, matching source_fetch's existing template convention.
 installer_repo_asset_path() {
-  # Staging wrappers accept a FILE selector directly as their source argument.
+  # Fixed callers pass a complete root-relative member. Dynamic callers pass
+  # a shared directory selector plus a policy-selected leaf.
   case "${2:-$1}" in
-    FILE_*) installer_repo_file_value "${2:-$1}"; return $? ;;
+    hooks/*|scripts/*|hosts/*|catalog/*|frontends/*|repo.env)
+      installer_repo_file_value "${2:-$1}"; return $? ;;
   esac
   [ "${INSTALLER_REPO_ENV_READY:-0}" -eq 1 ] || installer_ensure_repo_env "" || return $?
   case "$1:${2:-}" in
@@ -463,17 +426,8 @@ installer_repo_asset_path() {
   else
     installer_repo_asset_requested=$(installer_repo_join_var "$1" "${2:-}")
   fi || return $?
-  installer_repo_asset_selector=$(
-    printf '%s' "${INSTALLER_REPO_FILE_INDEX:-}" |
-      awk -F '|' -v wanted="$installer_repo_asset_requested" '
-        $2 == wanted { exact = $1 }
-        $2 == wanted ".tmpl" { template = $1 }
-        END { if (exact != "") print exact; else if (template != "") print template }
-      '
-  ) || return $?
-  [ -n "$installer_repo_asset_selector" ] ||
-    installer_fatal "repository asset has no FILE selector in repo.env: ${installer_repo_asset_requested}"
-  installer_repo_file_value "$installer_repo_asset_selector"
+  installer_repo_select_member "$installer_repo_asset_requested"
+
 }
 
 installer_repo_systemd_asset_path() {
@@ -488,11 +442,8 @@ installer_repo_systemd_asset_path() {
   esac
   systemd_common=$(installer_repo_join_var DIR_TARGET_SYSTEMD_COMMON "$1/$2") || return "$?"
   systemd_selected=$(installer_repo_join_var "$systemd_family" "$1/$2") || return "$?"
-  systemd_selector=$(printf '%s' "$INSTALLER_REPO_FILE_INDEX" |
-    awk -F '|' -v common="$systemd_common" -v family="$systemd_selected" '
-      $2==common || $2==common ".tmpl" || $2==family || $2==family ".tmpl" {if(!seen[$2]++) {count++; selector=$1}}
-      END {if(count!=1) exit 1; print selector}') || installer_fatal 'missing or ambiguous systemd source owner'
-  installer_repo_file_value "$systemd_selector"
+  installer_repo_select_member "$systemd_common" "$systemd_selected"
+
 }
 
 installer_repo_join_var() {
@@ -617,7 +568,7 @@ installer_load_logging_helpers() {
   if command -v installer_validate_logging_data >/dev/null 2>&1; then return 0; fi
   installer_load_source_library "$1" || return 1
   log_helper_root=$(source_cache_root "$1") || return 1
-  log_helper_source=$(installer_repo_file_value FILE_COMMON_LOGGING) || return $?
+  log_helper_source=$(installer_repo_file_value scripts/common/logging.sh) || return $?
   log_helper_path=$log_helper_root/$log_helper_source
   if [ ! -f "$log_helper_path" ]; then
     source_fetch "$1" "$log_helper_source" "$log_helper_path" 0600 || return $?
@@ -680,7 +631,7 @@ installer_fetch_seed_path() (
     exit "$?"
   fi
   repository_fetch_step=load_source
-  installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 684 load_asset_source
+  installer_operation_context_repo scripts/common/modules/repository-apt.sh 684 load_asset_source
   installer_load_source_library "$repository_fetch_seed_base" || exit "$?"
   case "$repository_fetch_source" in
     "${DIR_HOOKS_TARGET}/"*|"${DIR_REPO_SCRIPTS}/"*)
@@ -691,10 +642,10 @@ installer_fetch_seed_path() (
       trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
       chmod 0700 "$logging_fetch_work" || exit "$?"
       repository_fetch_step=fetch
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 695 source_fetch
+      installer_operation_context_repo scripts/common/modules/repository-apt.sh 695 source_fetch
       source_fetch "$repository_fetch_seed_base" "$repository_fetch_source" "$logging_fetch_work/asset" "$repository_fetch_mode" || exit "$?"
       repository_fetch_step=render_logging
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 698 installer_render_logging_asset
+      installer_operation_context_repo scripts/common/modules/repository-apt.sh 698 installer_render_logging_asset
       installer_render_logging_asset "$repository_fetch_seed_base" "$repository_fetch_source" "$logging_fetch_work/asset" || exit "$?"
       repository_fetch_step=render_paths
       # This is the code/data publication boundary for every script family,
@@ -709,9 +660,9 @@ installer_fetch_seed_path() (
         command -v installer_apply_scalar_placeholders >/dev/null 2>&1 &&
           command -v installer_assert_no_unresolved_path_placeholders >/dev/null 2>&1 ||
           installer_fatal 'runtime path asset requested before common library initialization'
-        installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 713 render_runtime_paths
+        installer_operation_context_repo scripts/common/modules/repository-apt.sh 713 render_runtime_paths
         installer_apply_scalar_placeholders "$logging_fetch_work/asset" "$logging_fetch_work/rendered" || exit "$?"
-        installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 715 validate_runtime_paths
+        installer_operation_context_repo scripts/common/modules/repository-apt.sh 715 validate_runtime_paths
         installer_assert_no_unresolved_path_placeholders "$logging_fetch_work/rendered" "$repository_fetch_source" || exit "$?"
         chmod "$repository_fetch_mode" "$logging_fetch_work/rendered" || exit "$?"
         mv -f -- "$logging_fetch_work/rendered" "$logging_fetch_work/asset" || exit "$?"
@@ -720,11 +671,11 @@ installer_fetch_seed_path() (
         [ "$repository_path_probe_status" -eq 1 ] || exit "$repository_path_probe_status"
       fi
       repository_fetch_step=publish
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 724 publish_fetched_asset
+      installer_operation_context_repo scripts/common/modules/repository-apt.sh 724 publish_fetched_asset
       mv -f -- "$logging_fetch_work/asset" "$repository_fetch_destination" || exit "$?" ;;
     *)
       repository_fetch_step=fetch
-      installer_operation_context_repo FILE_COMMON_MOD_REPOSITORY_APT 728 source_fetch
+      installer_operation_context_repo scripts/common/modules/repository-apt.sh 728 source_fetch
       source_fetch "$repository_fetch_seed_base" "$repository_fetch_source" "$repository_fetch_destination" "$repository_fetch_mode" || exit "$?" ;;
   esac
 )
@@ -746,51 +697,39 @@ installer_fetch_file() {
 # Native suites and explicitly selected vendor scopes are installed together
 # before the first target APT refresh. No universal testing/stable fallback.
 # Source policy is owned by each suite/family tree, never a parallel registry.
-installer_repo_apt_selector() {
-  case "${INSTALLER_HOST_VARIANT:-}" in desktop) apt_family=DESKTOP ;; server) apt_family=SERVER ;; *) installer_fatal 'validated APT role family is required' ;; esac
-  case "${1:-}" in ''|*[!A-Z0-9_]*) installer_fatal 'invalid APT source selector' ;; esac
-  # Common and role policy have distinct source owners. Reject duplicate owners
-  # instead of silently selecting a stale role copy of a common drop-in.
-  printf '%s' "${INSTALLER_REPO_FILE_INDEX:-}" |
-    awk -F '|' -v common="FILE_TARGET_APT_$1" -v selected="FILE_TARGET_APT_${apt_family}_$1" '
-      $1==common || $1==selected {count++; selector=$1}
-      END {if(count!=1) exit 1; print selector}' ||
-    installer_fatal "missing or ambiguous APT policy selector: $1"
-}
-
 installer_repo_apt_file() {
-  installer_repo_file_value "$(installer_repo_apt_selector "$1")"
+  [ "${INSTALLER_REPO_ENV_READY:-0}" -eq 1 ] || installer_ensure_repo_env "" || return $?
+  case "${INSTALLER_HOST_VARIANT:-}" in
+    desktop) installer_apt_file_role_root=$DIR_TARGET_APT_DESKTOP ;;
+    server) installer_apt_file_role_root=$DIR_TARGET_APT_SERVER ;;
+    *) installer_fatal 'validated APT role family is required' ;;
+  esac
+  installer_validate_repo_file_value apt_policy_leaf "$1"
+  # The source roots are shared configuration; ordinary drop-in leaf names are
+  # package interfaces. Duplicate common/role ownership is always an error.
+  installer_repo_select_member "$DIR_TARGET_APT/$1" "$installer_apt_file_role_root/$1"
 }
 
 # Enumerate only selected immediate drop-ins from the suite's common and
-# selected role directories. repo.env, not a filesystem glob, owns membership.
+# selected role directories. The small build-generated APT plan owns membership.
 installer_repo_apt_conf_catalog() (
   set -eu
-  case "${INSTALLER_HOST_VARIANT:-}" in
-    desktop) apt_role_dir=DIR_TARGET_APT_DESKTOP_APT_CONF_D ;;
-    server) apt_role_dir=DIR_TARGET_APT_SERVER_APT_CONF_D ;;
-    *) installer_fatal 'validated APT role family is required' ;;
-  esac
-  apt_common=$(installer_repo_dir_value DIR_TARGET_APT_APT_CONF_D) || exit "$?"
-  apt_role=$(installer_repo_dir_value "$apt_role_dir") || exit "$?"
-  printf '%s' "$INSTALLER_REPO_FILE_INDEX" |
-    awk -F '|' -v common="$apt_common/" -v role="$apt_role/" '
-      index($2,common)==1 {leaf=substr($2,length(common)+1)}
-      index($2,role)==1 {leaf=substr($2,length(role)+1)}
-      index($2,common)!=1 && index($2,role)!=1 {next}
-      leaf !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/ {exit 1}
-      {sub(/[.]tmpl$/, "", leaf); if(seen[leaf]++) exit 1; print leaf "|" $1; count++}
-      END {if(!count) exit 1}'
+  case "${INSTALLER_HOST_VARIANT:-}" in desktop|server) ;; *) installer_fatal 'validated APT role family is required' ;; esac
+  [ "${INSTALLER_REPO_ENV_READY:-0}" -eq 1 ] || installer_ensure_repo_env "" || exit $?
+  awk -F '\t' -v suite="$INSTALLER_SUITE" -v role="$INSTALLER_HOST_VARIANT" '
+    NR==1 {if($0!="format\t1") exit 1; next}
+    NF!=5 {exit 1}
+    $1==suite && ($2=="common" || $2==role) && $3=="apt.conf.d" {
+      leaf=$4; sub(/[.]tmpl$/, "", leaf)
+      if(leaf !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/ || seen[leaf]++) exit 1
+      print leaf "|" $5; count++
+    }
+    END {if(!count) exit 1}' "$INSTALLER_REPO_SOURCE_ROOT/catalog/compiled/apt-assets.tsv"
 )
 
-installer_repo_apt_conf_asset_path() (
-  set -eu
-  apt_catalog=$(installer_repo_apt_conf_catalog) || exit "$?"
-  apt_selector=$(printf '%s\n' "$apt_catalog" | awk -F '|' -v leaf="$1" '
-    $1==leaf {selector=$2; count++} END {if(count!=1) exit 1; print selector}') ||
-    installer_fatal 'missing or ambiguous APT drop-in source owner'
-  installer_repo_file_value "$apt_selector"
-)
+installer_repo_apt_conf_asset_path() {
+  installer_repo_apt_file "apt.conf.d/$1"
+}
 
 installer_stage_suite_apt_preferences() {
   installer_assert_class_plan || return "$?"
@@ -809,16 +748,11 @@ installer_stage_suite_apt_preferences() {
   # for every suite and role family.  Optional vendor policies are appended
   # below with their explicit 30/31 filenames, matching the legacy hook's
   # configured-preferences-then-optional ordering.
-  apt_preference_sources=$(
-    printf '%s' "$INSTALLER_REPO_FILE_INDEX" |
-      awk -F '|' -v root="$apt_source_root/preferences.d/" '
-        index($2, root) == 1 {
-          leaf = substr($2, length(root) + 1)
-          if (leaf !~ /\// && leaf ~ /\.pref$/) print $2
-        }
-      ' |
-      LC_ALL=C sort
-  ) || return "$?"
+  apt_preference_sources=$(awk -F '\t' -v suite="$INSTALLER_SUITE" -v role="$INSTALLER_HOST_VARIANT" '
+    NR==1 {if($0!="format\t1") exit 1; next}
+    NF!=5 {exit 1}
+    $1==suite && $2==role && $3=="preferences.d" && $4 !~ /\// && $4 ~ /\.pref$/ {print $5}
+  ' "$INSTALLER_REPO_SOURCE_ROOT/catalog/compiled/apt-assets.tsv") || return "$?"
   apt_preference_count=0
   while IFS= read -r apt_source || [ -n "$apt_source" ]; do
     [ -n "$apt_source" ] || continue

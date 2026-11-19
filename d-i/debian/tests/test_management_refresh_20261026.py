@@ -23,14 +23,12 @@ import tempfile
 import types
 import unittest
 from unittest import mock
+from test_installer_package_batch_20261119 import publisher_module
 
 
 class ManagementRefreshFixtures(unittest.TestCase):
     def setUp(self):
-        path = Path(__file__).resolve().parents[1] / 'hooks/target/usr/local/libexec/apt-repo-local'
-        self.mod = types.ModuleType('fixture_management_refresh')
-        self.mod.__file__ = str(path)
-        exec(compile(path.read_bytes(), str(path), 'exec'), self.mod.__dict__)
+        self.mod = publisher_module()
         temporary = tempfile.TemporaryDirectory(prefix='management-refresh-fixture-')
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -55,7 +53,9 @@ class ManagementRefreshFixtures(unittest.TestCase):
         repository.discovery = types.SimpleNamespace(memory={}, candidate=mock.Mock(return_value=self.candidate))
         repository.process_inbox = mock.Mock(return_value=0)
         repository.publish = mock.Mock()
-        repository.stage = mock.Mock(return_value=self.root / 'owned-stage')
+        repository.stage = mock.Mock(return_value=self.root / 'owned-stage.part')
+        repository.activate = mock.Mock(return_value=self.root / 'owned-stage.deb')
+        repository.inspect_snapshot = mock.Mock()
         repository.ingest = mock.Mock(return_value={**self.record, 'version': '1.0+localrepo1'})
         repository.discard = mock.Mock()
         repository.remember_candidate = mock.Mock()
@@ -65,7 +65,7 @@ class ManagementRefreshFixtures(unittest.TestCase):
     def test_xssh_identity_validation_defines_control_character_guards(self):
         for name in ('xssh-send', 'xssh-retrieve'):
             source = (Path(__file__).resolve().parents[1] /
-                      'hooks/target/usr/local/bin' / name).read_text(encoding='utf-8')
+                      'hooks/target/usr/local/bin/common' / name).read_text(encoding='utf-8')
             self.assertIn("CR=$(printf '\\r')", source)
             self.assertIn("LF=$(printf '\\n')", source)
             self.assertIn('*"$CR"*|*"$LF"*)', source)
@@ -108,7 +108,7 @@ class ManagementRefreshFixtures(unittest.TestCase):
             stack.enter_context(mock.patch.object(self.mod, 'newer', side_effect=newer))
             fetch = stack.enter_context(mock.patch.object(self.mod, 'retrieve_candidate',
                 return_value=copy.deepcopy(self.candidate), side_effect=fetch_failure))
-            stack.enter_context(mock.patch.object(self.mod, 'inspect_deb', return_value={
+            stack.enter_context(mock.patch.object(repository, 'inspect_snapshot', return_value={
                 'Package': 'demo', 'Architecture': 'amd64', 'Version': version}))
             publish_report = stack.enter_context(mock.patch.object(self.mod, 'atomic_bytes'))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
@@ -130,7 +130,8 @@ class ManagementRefreshFixtures(unittest.TestCase):
         status, report, fetch = self.refresh(repository, force=True)
         self.assertEqual(status, 0)
         self.assertTrue(fetch.call_args.kwargs['force'])
-        self.assertEqual(repository.stage.call_args.kwargs['policy']['local_revision'], 1)
+        self.assertFalse(repository.stage.call_args.kwargs['active'])
+        self.assertEqual(repository.activate.call_args.kwargs['policy']['local_revision'], 1)
         self.assertEqual(report['counts']['updated'], 1)
         repository.refresh_vendors.assert_called_once_with(report['results'], force=True)
 
@@ -143,5 +144,21 @@ class ManagementRefreshFixtures(unittest.TestCase):
                 self.assertEqual(status, 3)
                 self.assertEqual(report['counts']['error'], 1)
                 self.assertEqual(repository.catalog, before)
-                repository.stage.assert_not_called()
+                if failure is not None:
+                    repository.stage.assert_not_called()
+                else:
+                    repository.stage.assert_called_once()
+                    self.assertFalse(repository.stage.call_args.kwargs['active'])
+                    repository.discard.assert_called_once_with(self.root / 'owned-stage.part')
+                repository.activate.assert_not_called()
                 repository.ingest.assert_not_called()
+
+    def test_uncertain_activation_is_not_reclassified_as_an_upstream_failure(self):
+        repository = self.repository()
+        repository.activate.side_effect = self.mod.OutcomeUnknown('fixture activation cannot be isolated')
+        with self.assertRaisesRegex(self.mod.OutcomeUnknown, 'cannot be isolated'):
+            self.refresh(repository, force=True)
+        repository.discard.assert_not_called()
+        repository.ingest.assert_not_called()
+        repository.refresh_vendors.assert_not_called()
+        repository.publish.assert_called_once_with()

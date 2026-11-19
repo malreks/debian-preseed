@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Caches belong to this bootstrap shell, never to an inherited environment.
-unset BOOTSTRAP_PREPARED_BOUND_READY BOOTSTRAP_SOURCED_MODULES
+unset BOOTSTRAP_PREPARED_BOUND_READY BOOTSTRAP_SOURCED_MODULES BOOTSTRAP_REPO_ENV_READY
 
 bootstrap_log() {
   printf '[bootstrap] %s\n' "$*" >&2
@@ -94,10 +94,6 @@ bootstrap_validate_repo_file_value() {
   esac
 }
 
-bootstrap_repo_env_selector_vars() {
-  bootstrap_repo_env_vars_path=$1
-  sed -n 's/^\(DIR_[A-Z0-9_]*\|FILE_[A-Z0-9_]*\)=.*/\1/p' "$bootstrap_repo_env_vars_path"
-}
 
 bootstrap_repo_dir_input_is_var() {
   case "${1:-}" in
@@ -111,23 +107,6 @@ bootstrap_repo_dir_input_is_var() {
   return 1
 }
 
-bootstrap_validate_repo_env() {
-  bootstrap_repo_env_path_value=$(bootstrap_repo_env_path) || return $?
-  [ -r "$bootstrap_repo_env_path_value" ] ||
-    bootstrap_fatal "repository path environment is not readable: $bootstrap_repo_env_path_value"
-  while IFS= read -r bootstrap_repo_env_var || [ -n "$bootstrap_repo_env_var" ]; do
-    [ -n "$bootstrap_repo_env_var" ] || continue
-    bootstrap_repo_env_value=
-    eval "bootstrap_repo_env_value=\${$bootstrap_repo_env_var:-}"
-    case "$bootstrap_repo_env_var" in
-      DIR_*) bootstrap_validate_repo_dir_value "$bootstrap_repo_env_var" "$bootstrap_repo_env_value" ;;
-      FILE_*) bootstrap_validate_repo_file_value "$bootstrap_repo_env_var" "$bootstrap_repo_env_value" ;;
-      *) bootstrap_fatal "unsupported repository selector: $bootstrap_repo_env_var" ;;
-    esac
-  done <<EOF
-$(bootstrap_repo_env_selector_vars "$bootstrap_repo_env_path_value")
-EOF
-}
 
 bootstrap_di_required_vars() {
   cat <<'EOF'
@@ -234,13 +213,11 @@ bootstrap_validate_di_env() {
 bootstrap_ensure_di_env() {
   bootstrap_di_seed_base=${1:-}
   [ "${BOOTSTRAP_DI_ENV_READY:-0}" -eq 1 ] && return 0
-  [ -n "${FILE_HOOKS_INSTALLER_DI_ENV:-}" ] || bootstrap_fatal 'FILE_HOOKS_INSTALLER_DI_ENV is unset in repo.env'
-  bootstrap_validate_repo_file_value FILE_HOOKS_INSTALLER_DI_ENV "$FILE_HOOKS_INSTALLER_DI_ENV"
 
   bootstrap_di_env_file=$(bootstrap_di_env_path) || return $?
   if [ ! -s "$bootstrap_di_env_file" ]; then
     [ -n "$bootstrap_di_seed_base" ] || bootstrap_di_seed_base=$(bootstrap_require_seed_base "") || return $?
-    bootstrap_fetch_seed_file "$bootstrap_di_seed_base" "$FILE_HOOKS_INSTALLER_DI_ENV" "$bootstrap_di_env_file" 0600 "installer path environment" || return $?
+    bootstrap_fetch_seed_file "$bootstrap_di_seed_base" "hooks/installer/di.env" "$bootstrap_di_env_file" 0600 "installer path environment" || return $?
   fi
   bootstrap_validate_di_source "$bootstrap_di_env_file"
   # shellcheck disable=SC1090
@@ -285,8 +262,8 @@ bootstrap_ensure_repo_env() {
   fi
   # shellcheck disable=SC1090
   case "${INSTALLER_SUITE:-}" in forky|trixie) ;; *) bootstrap_fatal "pinned suite is missing or unsupported" ;; esac
-  . "$bootstrap_repo_env_file" || return $?
-  bootstrap_validate_repo_env || return $?
+  bootstrap_load_source_library "$bootstrap_repo_seed_base" || return $?
+  source_load_repo_env "$bootstrap_repo_env_file" || return $?
   bootstrap_ensure_di_env "$bootstrap_repo_seed_base" || return $?
   bootstrap_load_prepared_source "$bootstrap_repo_seed_base" || return $?
   BOOTSTRAP_REPO_ENV_READY=1
@@ -341,9 +318,11 @@ bootstrap_load_prepared_source() {
   cmp -s "$FILE_INSTALLER_TARGET_RENDER_READY" "$bootstrap_prepared_stage/identity" &&
     cmp -s "$FILE_INSTALLER_TARGET_RENDER_READY" "${DIR_INSTALLER_RUNTIME}/bootstrap/payload.ready" ||
     bootstrap_fatal 'prepared target payload belongs to a different selected source'
-  IFS=' ' read -r bootstrap_identity_archive bootstrap_identity_manifest bootstrap_identity_base \
+  IFS=' ' read -r bootstrap_identity_verification bootstrap_identity_archive bootstrap_identity_manifest bootstrap_identity_base \
     <"$bootstrap_prepared_stage/identity" ||
     bootstrap_fatal 'prepared target payload identity cannot be parsed'
+  [ "$bootstrap_identity_verification" = verified-v1 ] ||
+    bootstrap_fatal 'prepared target payload lacks current verification evidence'
   case "$bootstrap_identity_archive" in ''|*[!a-f0-9]*) bootstrap_fatal 'prepared target payload archive identity is malformed' ;; esac
   case "$bootstrap_identity_manifest" in ''|*[!a-f0-9]*) bootstrap_fatal 'prepared target payload manifest identity is malformed' ;; esac
   [ "${#bootstrap_identity_archive}" -eq 64 ] && [ "${#bootstrap_identity_manifest}" -eq 64 ] ||
@@ -477,23 +456,8 @@ bootstrap_repo_dir_value() {
 }
 
 bootstrap_repo_file_value() {
-  bootstrap_repo_file_name=$1
-  case "$bootstrap_repo_file_name" in
-    FILE_[A-Z0-9_]*) ;;
-    *) bootstrap_fatal "repository file selector is invalid: ${bootstrap_repo_file_name:-unset}" ;;
-  esac
-  case "$bootstrap_repo_file_name" in
-    *[!ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*)
-      bootstrap_fatal "repository file selector is invalid: $bootstrap_repo_file_name"
-      ;;
-  esac
-
-  bootstrap_repo_file_value_result=
-  eval "bootstrap_repo_file_value_result=\${$bootstrap_repo_file_name:-}"
-  [ -n "$bootstrap_repo_file_value_result" ] ||
-    bootstrap_fatal "repository file variable is unset: $bootstrap_repo_file_name"
-  bootstrap_validate_repo_file_value "$bootstrap_repo_file_name" "$bootstrap_repo_file_value_result"
-  printf '%s\n' "$bootstrap_repo_file_value_result"
+  bootstrap_validate_repo_file_value source_member "$1"
+  printf '%s\n' "$1"
 }
 
 bootstrap_repo_join_var() {
@@ -921,8 +885,8 @@ bootstrap_module_path() (
       # Account publication runs before a storage-family runtime is loaded.
       # Permit only its two definition-only entrypoints here; storage runtimes
       # and arbitrary siblings remain outside the shell-module interface.
-      module_common_entry=$(bootstrap_repo_file_value FILE_RUNTIME_COMMON) || exit "$?"
-      module_account_entry=$(bootstrap_repo_file_value FILE_RUNTIME_ACCOUNT) || exit "$?"
+      module_common_entry=$(bootstrap_repo_file_value scripts/runtime/common.sh) || exit "$?"
+      module_account_entry=$(bootstrap_repo_file_value scripts/runtime/account.sh) || exit "$?"
       case "$1" in
         "$module_common_entry"|"$module_account_entry") ;;
         *) bootstrap_log "fatal: unsupported module path: $1"; exit 1 ;;
@@ -1084,7 +1048,7 @@ bootstrap_source_common_lib() {
   bootstrap_persist_seed_source "$seed_base" || return $?
   bootstrap_ensure_repo_env "$seed_base" || return $?
 
-  common_lib_source=$(bootstrap_repo_file_value FILE_COMMON_LIB) || return $?
+  common_lib_source=$(bootstrap_repo_file_value scripts/common/lib.sh) || return $?
   if [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] && [ "$seed_base" = "$BOOTSTRAP_PREPARED_SEED_BASE" ]; then
     common_lib_path=$(bootstrap_prepared_member_path "$common_lib_source") || return "$?"
   else
@@ -1107,19 +1071,19 @@ bootstrap_source_common_support_libs() {
   for lib_name in "$@"; do
     case "$lib_name" in
       fetch)
-        src=$(bootstrap_repo_file_value FILE_COMMON_FETCH) || return $?
+        src=$(bootstrap_repo_file_value scripts/common/fetch.sh) || return $?
         dest="${tmp_env_dir}/fetch.sh"
         ;;
       hook)
-        src=$(bootstrap_repo_file_value FILE_COMMON_HOOK) || return $?
+        src=$(bootstrap_repo_file_value scripts/common/hook.sh) || return $?
         dest="${tmp_env_dir}/hook.sh"
         ;;
       target)
-        src=$(bootstrap_repo_file_value FILE_COMMON_TARGET) || return $?
+        src=$(bootstrap_repo_file_value scripts/common/target.sh) || return $?
         dest="${tmp_env_dir}/target-common.sh"
         ;;
       ssh)
-        src=$(bootstrap_repo_file_value FILE_COMMON_SSH) || return $?
+        src=$(bootstrap_repo_file_value scripts/common/ssh.sh) || return $?
         dest="${tmp_env_dir}/ssh.sh"
         ;;
       *)
@@ -1144,22 +1108,22 @@ bootstrap_run_preseed_phase() {
 
   case "$phase" in
     prepare-context|apply)
-      runner_src=$(bootstrap_repo_file_value FILE_PRESEED_ANSWERS) || return $?
+      runner_src=$(bootstrap_repo_file_value scripts/preseed/answers.sh) || return $?
       runner=${3:-$(bootstrap_phase_runner_path preseed-answers.sh)} || return $?
       set -- "$phase" "$seed_base"
       ;;
     early)
-      runner_src=$(bootstrap_repo_file_value FILE_EARLY_DISPATCH) || return $?
+      runner_src=$(bootstrap_repo_file_value scripts/early/dispatch.sh) || return $?
       runner=${3:-$(bootstrap_phase_runner_path early-dispatch.sh)} || return $?
       set -- "$seed_base"
       ;;
     partman)
-      runner_src=$(bootstrap_repo_file_value FILE_PARTMAN_DISPATCH) || return $?
+      runner_src=$(bootstrap_repo_file_value scripts/partman/dispatch.sh) || return $?
       runner=${3:-$(bootstrap_phase_runner_path partman-dispatch.sh)} || return $?
       set -- "$seed_base"
       ;;
     late)
-      runner_src=$(bootstrap_repo_file_value FILE_LATE_DISPATCH) || return $?
+      runner_src=$(bootstrap_repo_file_value scripts/late/dispatch.sh) || return $?
       runner=${3:-$(bootstrap_phase_runner_path late-dispatch.sh)} || return $?
       set -- "$seed_base"
       ;;

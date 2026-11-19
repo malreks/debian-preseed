@@ -109,13 +109,13 @@ install_partman_f2fs_backend() {
     ${DIR_INSTALLER_LIB_PARTMAN}/commit.d \
     "$backend_tmp_dir"
 
-  fetch_hook "$(installer_repo_file_value FILE_INST_PARTMAN_F2FS_BACKEND_VALID_FILESYSTEMS_F2FS)" "$backend_tmp_dir/valid_filesystems.f2fs"
-  fetch_hook "$(installer_repo_file_value FILE_INST_PARTMAN_F2FS_BACKEND_MOUNTOPTIONS_F2FS)" "$backend_tmp_dir/mountoptions.f2fs"
-  fetch_hook "$(installer_repo_file_value FILE_INST_PARTMAN_F2FS_BACKEND_MOUNT_D_F2FS)" "$backend_tmp_dir/mount.d.f2fs"
-  fetch_hook "$(installer_repo_file_value FILE_INST_PARTMAN_F2FS_BACKEND_FSTAB_D_F2FS)" "$backend_tmp_dir/fstab.d.f2fs"
-  fetch_hook "$(installer_repo_file_value FILE_INST_PARTMAN_F2FS_BACKEND_INIT_D_KERNELMODULES_F2FS)" "$backend_tmp_dir/init.d.kernelmodules_f2fs"
-  fetch_hook "$(installer_repo_file_value FILE_INST_PARTMAN_F2FS_BACKEND_CHECK_D_NOMOUNTPOINT_F2FS)" "$backend_tmp_dir/check.d.nomountpoint_f2fs"
-  fetch_hook "$(installer_repo_file_value FILE_INST_PARTMAN_F2FS_BACKEND_COMMIT_D_FORMAT_F2FS)" "$backend_tmp_dir/commit.d.format_f2fs"
+  fetch_hook "$(installer_repo_file_value hooks/installer/partman/f2fs-backend/valid_filesystems/f2fs)" "$backend_tmp_dir/valid_filesystems.f2fs"
+  fetch_hook "$(installer_repo_file_value hooks/installer/partman/f2fs-backend/mountoptions/f2fs)" "$backend_tmp_dir/mountoptions.f2fs"
+  fetch_hook "$(installer_repo_file_value hooks/installer/partman/f2fs-backend/mount.d/f2fs)" "$backend_tmp_dir/mount.d.f2fs"
+  fetch_hook "$(installer_repo_file_value hooks/installer/partman/f2fs-backend/fstab.d/f2fs)" "$backend_tmp_dir/fstab.d.f2fs"
+  fetch_hook "$(installer_repo_file_value hooks/installer/partman/f2fs-backend/init.d/kernelmodules_f2fs)" "$backend_tmp_dir/init.d.kernelmodules_f2fs"
+  fetch_hook "$(installer_repo_file_value hooks/installer/partman/f2fs-backend/check.d/nomountpoint_f2fs)" "$backend_tmp_dir/check.d.nomountpoint_f2fs"
+  fetch_hook "$(installer_repo_file_value hooks/installer/partman/f2fs-backend/commit.d/format_f2fs)" "$backend_tmp_dir/commit.d.format_f2fs"
 
   install -m 0755 "$backend_tmp_dir/valid_filesystems.f2fs" ${DIR_INSTALLER_LIB_PARTMAN}/valid_filesystems/f2fs
   install -m 0644 "$backend_tmp_dir/mountoptions.f2fs" ${DIR_INSTALLER_LIB_PARTMAN}/mountoptions/f2fs
@@ -178,7 +178,7 @@ fi
 bootstrap_source_common_lib "${1:-}"
 LOG=$(installer_runtime_log_file)
 installer_init_log_file "$LOG" "" "${HOOK_FAMILY} partman early hook" partman-early partman_start
-installer_operation_context_repo FILE_INST_PARTMAN_F2FS_EARLY 407 partman_f2fs_early
+installer_operation_context_repo hooks/installer/partman/f2fs-early.sh 407 partman_f2fs_early
 trap 'installer_finalize_log "$?"' EXIT
 installer_load_context_if_present || true
 
@@ -197,8 +197,8 @@ RUNTIME_RECIPE_FILE="${CACHE_DIR}/expert_recipe"
 RUNTIME_FRAGMENT_FILE="${STATE_DIR}/partman.answers.cfg"
 install -d -m 0700 "$TMP_ENV_DIR" "$RUNTIME_DIR"
 bootstrap_source_common_support_libs "$SEED_BASE" "$TMP_ENV_DIR" fetch hook
-fetch_hook_file "$(installer_repo_file_value FILE_INST_PARTMAN_EARLY)" "$TMP_ENV_DIR/partman-early-common.sh"
-fetch_hook_file "$(installer_repo_file_value FILE_INST_PARTMAN_FINISH_D_99_STORAGE_LAYOUT)" "$TMP_ENV_DIR/partman-layout-common.sh"
+fetch_hook_file "$(installer_repo_file_value hooks/installer/partman/early.sh)" "$TMP_ENV_DIR/partman-early-common.sh"
+fetch_hook_file "$(installer_repo_file_value hooks/installer/partman/finish.d/99-storage-layout.sh)" "$TMP_ENV_DIR/partman-layout-common.sh"
 # shellcheck disable=SC1090,SC1091
 . "$TMP_ENV_DIR/partman-early-common.sh"
 
@@ -228,7 +228,7 @@ install_storage_layout_hook() {
   layout_hook_tmp_env_dir=$(installer_shell_quote "$TMP_ENV_DIR")
   layout_hook_family=$(installer_shell_quote "$HOOK_FAMILY")
 
-  fetch_hook_file "$(installer_repo_file_value FILE_INST_PARTMAN_FINISH_D_99_STORAGE_LAYOUT)" "$TMP_ENV_DIR/partman-layout-common.sh"
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/partman/finish.d/99-storage-layout.sh)" "$TMP_ENV_DIR/partman-layout-common.sh"
   {
     printf '%s\n' '#!/bin/sh'
     printf '%s\n' 'set -eu'
@@ -261,10 +261,10 @@ install_storage_layout_hook() {
 
 installer_fetch_host_env "$SEED_BASE" "$HOST_PROFILE" "$TMP_ENV_DIR/host.env" 0600
 installer_fetch_account_env "$SEED_BASE" "$TMP_ENV_DIR/account.env" 0600
-  fetch_hook "$(installer_repo_file_value FILE_RUNTIME_COMMON)" "$TMP_ENV_DIR/runtime-common.sh"
-  fetch_hook "$(installer_repo_file_value FILE_RUNTIME_F2FS)" "$TMP_ENV_DIR/runtime.sh"
-  fetch_hook "$(installer_repo_file_value FILE_RUNTIME_ACCOUNT)" "$TMP_ENV_DIR/account.sh"
-  fetch_hook "$(installer_repo_file_value FILE_PARTMAN_DETECT_DISK)" "$TMP_ENV_DIR/detect-disk.sh"
+  fetch_hook "$(installer_repo_file_value scripts/runtime/common.sh)" "$TMP_ENV_DIR/runtime-common.sh"
+  fetch_hook "$(installer_repo_file_value scripts/runtime/f2fs.sh)" "$TMP_ENV_DIR/runtime.sh"
+  fetch_hook "$(installer_repo_file_value scripts/runtime/account.sh)" "$TMP_ENV_DIR/account.sh"
+  fetch_hook "$(installer_repo_file_value scripts/partman/detect-disk.sh)" "$TMP_ENV_DIR/detect-disk.sh"
 
 # shellcheck disable=SC1090,SC1091
 installer_load_data_env "$TMP_ENV_DIR/host.env"

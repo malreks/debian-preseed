@@ -83,13 +83,16 @@ def snapshot() -> list[dict]:
     entries = sorted(PCI_ROOT.iterdir())
     if len(entries) > 65536:
         raise ValueError('oversized PCI device listing')
+    device_root = None
     for entry in entries:
         if not re.fullmatch(r'[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]', entry.name):
             raise ValueError('invalid PCI device address')
         # __INSTALLER_PATH_DIR_SYS__/bus/pci/devices contains kernel-owned symlinks. Permit those
         # only into the kernel device tree; all final attribute opens are nofollow.
         device = entry.resolve(strict=True)
-        if not device.is_relative_to(DEVICE_ROOT.resolve(strict=True)) or device.name != entry.name:
+        if device_root is None:
+            device_root = DEVICE_ROOT.resolve(strict=True)
+        if not device.is_relative_to(device_root) or device.name != entry.name:
             raise ValueError('PCI device escapes the kernel device tree')
         if (read_attribute(device / 'vendor'), read_attribute(device / 'device'),
                 read_attribute(device / 'class')) != ('0x15b7', '0x5006', '0x010802'):
@@ -115,6 +118,7 @@ def snapshot() -> list[dict]:
             raise ValueError('invalid NVMe power-state latency limit')
         # Correctable counts are cumulative; their presence is not a media
         # health verdict. No serial numbers or namespace contents are read.
+        device_link = link_evidence(device)
         devices.append({'pci_address': entry.name, 'pci_id': '15b7:5006',
                         'policy_state': state, 'link_idle_enabled': controls,
                         'policy_note': ('No kernel link controls are exposed; the udev rule cannot verify '
@@ -129,10 +133,12 @@ def snapshot() -> list[dict]:
                         'd3cold_allowed': read_attribute(device / 'd3cold_allowed'),
                         'controllers': controller_evidence(device), 'upstream_bridge': upstream,
                         'correctable_aer_logging': correctable_log_evidence(device),
-                        'link_evidence': link_evidence(device),
-                        'aer_correctable': read_attribute(device / 'aer_dev_correctable'),
-                        'current_link_speed': read_attribute(device / 'current_link_speed'),
-                        'current_link_width': read_attribute(device / 'current_link_width')})
+                        'link_evidence': device_link,
+                        # Compatibility fields use the same observation as the
+                        # nested evidence, including unavailable (None) values.
+                        'aer_correctable': device_link['aer_dev_correctable'],
+                        'current_link_speed': device_link['current_link_speed'],
+                        'current_link_width': device_link['current_link_width']})
     return devices
 
 

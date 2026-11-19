@@ -23,7 +23,7 @@ configure_target_network_sharing() (
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  stage_target_asset "$(installer_repo_file_value FILE_LATE_NETWORK_SHARING_PY)" \
+  stage_target_asset "$(installer_repo_file_value scripts/late/network-sharing.py)" \
     "${nfs_stage}/configure.py" 0600
   for nfs_asset in \
     etc/exports.tmpl \

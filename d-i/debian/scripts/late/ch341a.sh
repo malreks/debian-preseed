@@ -16,7 +16,7 @@ installer_load_data_env "$profile"
 bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/desktop-firmware-support" fetch hook target
 ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || installer_fatal 'desktop firmware operator is missing'
 printf '%s\n' "$ACCOUNT_USERNAME" | LC_ALL=C grep -Eq '^[a-z_][a-z0-9_-]{0,31}$' || installer_fatal 'invalid desktop firmware operator'
-installer_stage_profile_file FILE_TARGET_SKEL_PROFILE_75_FIRMWARE_WORKSPACE_TMPL "${DIR_ETC_SKEL_DESKTOP}/.profile.d/75-firmware-workspace.sh" 0644
+installer_stage_profile_file hooks/target/etc/skel-desktop/.profile.d/75-firmware-workspace.sh.tmpl "${DIR_ETC_SKEL_DESKTOP}/.profile.d/75-firmware-workspace.sh" 0644
 # shellcheck disable=SC2016
 run_in_target 'publish desktop firmware login profile and check GUI package entrypoints' "${DIR_USR_BIN}/python3" -I -c '
 from pathlib import Path

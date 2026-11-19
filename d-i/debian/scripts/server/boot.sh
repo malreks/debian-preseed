@@ -17,7 +17,7 @@ installer_load_data_env "$profile"
 installer_load_primary_account
 installer_assert_class_plan
 bootstrap_source_common_support_libs "$SEED_BASE" "${TMP_ENV_DIR}/server-boot-support" fetch hook target
-for module in FILE_LATE_CORE FILE_LATE_TARGET_ASSETS FILE_LATE_GRUB; do
+for module in scripts/late/core.sh scripts/late/target-assets.sh scripts/late/grub.sh; do
   module_file="${TMP_ENV_DIR}/server-boot-${module}.sh"
   installer_fetch_file "$SEED_BASE" "$(installer_repo_file_value "$module")" "$module_file.source" 0600
   installer_apply_scalar_placeholders "$module_file.source" "$module_file"
@@ -98,8 +98,8 @@ while IFS= read -r record; do
 $value
 EOF
 done <"$profile_work/map"
-installer_stage_profile_file FILE_TARGET_DEFAULT_GRUB_PROFILES_TMPL "${DIR_ETC_DEFAULT}/grub-profiles" 0600
-installer_stage_profile_file FILE_SERVER_GRUB_DEFAULT "${DIR_GRUB_DEFAULT}/05-bootprofiles.cfg" 0644
+installer_stage_profile_file hooks/target/etc/default/grub-profiles.tmpl "${DIR_ETC_DEFAULT}/grub-profiles" 0600
+installer_stage_profile_file hooks/target/etc/default/grub.d/server/05-bootprofiles.cfg.tmpl "${DIR_GRUB_DEFAULT}/05-bootprofiles.cfg" 0644
 GRUB_DISABLE_OS_PROBER=true
 if [ "$MULTIBOOT_ENABLED" = true ]; then GRUB_DISABLE_OS_PROBER=false; fi
 GRUB_MOK_MANAGER_EFI_PATH=$INSTALLER_GRUB_MOK_MANAGER_EFI_PATH
@@ -114,7 +114,7 @@ for fragment in display-1.cfg.in display-2.cfg.in snapshots.cfg.in submenu.cfg.i
   installer_stage_profile_asset "$(installer_repo_asset_path DIR_TARGET_SHARE_GRUB_PROFILES "${fragment}.tmpl")" \
     "${DIR_USR_LOCAL_SHARE}/grub-profiles/$fragment" 0644
 done
-installer_stage_profile_file FILE_TARGET_GRUB_D_40_CUSTOM_TMPL "${DIR_ETC}/grub.d/40_custom" 0755
+installer_stage_profile_file hooks/target/etc/grub.d/40_custom.tmpl "${DIR_ETC}/grub.d/40_custom" 0755
 run_in_target 'publish headless GRUB profile entries without firmware enrollment' \
   "${DIR_USR_BIN}/timeout" --signal=TERM --kill-after=15 180 "${DIR_ETC}/grub.d/40_custom" --install
 require_target_dualboot_os_prober_package

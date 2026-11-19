@@ -17,10 +17,10 @@ host_env="$tmp_env_dir/host.env"
 installer_fetch_host_env "$seed_base" "$INSTALLER_HOST_PROFILE" "$host_env" 0600
 installer_load_data_env "$host_env"
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir/support" fetch hook target ssh
-for codex_module in FILE_LATE_DEVOPS_VALIDATION_BASE FILE_LATE_DEVOPS_POLICY_RESOLUTION_TMPL \
-  FILE_LATE_DEVOPS_PUBLICATION_LAYOUT FILE_LATE_DEVOPS_TOOL_CONFIGS \
-  FILE_LATE_DEVOPS_CODEX_LAYOUT FILE_LATE_DEVOPS_CODEX_RELEASE \
-  FILE_LATE_DEVOPS_CODEX_APPSERVER FILE_LATE_DEVOPS_CODEX_PROVISION; do
+for codex_module in scripts/late/devops/validation-base.sh scripts/late/devops/policy-resolution.sh.tmpl \
+  scripts/late/devops/publication-layout.sh scripts/late/devops/tool-configs.sh \
+  scripts/late/devops/codex-layout.sh scripts/late/devops/codex-release.sh \
+  scripts/late/devops/codex-appserver.sh scripts/late/devops/codex-provision.sh; do
   bootstrap_source_module "$(installer_repo_file_value "$codex_module")" || exit "$?"
 done
 ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || installer_fatal 'Codex requires the explicit primary account'
@@ -31,11 +31,11 @@ case "$account_ids" in ''|0:*|*[!0-9:]*) devops_fatal 'Codex requires a non-root
 case "$INSTALLER_HOST_VARIANT" in
   desktop)
     DEVOPS_SKEL_DIR=$DIR_ETC_SKEL_DESKTOP
-    codex_wrapper_selector=FILE_TARGET_DATA_CODEX_LIB_CODEX_TMPL
+    codex_wrapper_selector=hooks/target/data/codex/lib/codex.tmpl
     ;;
   server)
     DEVOPS_SKEL_DIR=$DIR_ETC_SKEL_SERVER
-    codex_wrapper_selector=FILE_SERVER_CODEX_LAUNCHER
+    codex_wrapper_selector=hooks/target/usr/local/bin/server/codex.tmpl
     ;;
   *) devops_fatal 'Codex requires a registered role family' ;;
 esac
@@ -78,13 +78,13 @@ usermod -a -G devops -- "$1"
 ' sh "$ACCOUNT_USERNAME"
 devops_validate_codex_policy
 devops_codex_paths
-installer_stage_profile_file FILE_TARGET_SSH_GIT_KNOWN_HOSTS "${DIR_ETC}/ssh/git_known_hosts" 0644
+installer_stage_profile_file hooks/target/etc/ssh/git_known_hosts "${DIR_ETC}/ssh/git_known_hosts" 0644
 devops_provision_codex
 if [ "$INSTALLER_HOST_VARIANT" = server ]; then
-  installer_stage_profile_file FILE_SERVER_SKEL_PROFILE_CODEX "${DEVOPS_SKEL_DIR}/.profile.d/99-codex-srv.sh" 0644
-  installer_stage_profile_file FILE_TARGET_AA_ABSTRACTIONS_BWRAP_COMMON "${DIR_APPARMOR}/abstractions/bwrap-common" 0644
-  installer_stage_profile_file FILE_SERVER_CODEX_APPARMOR "${DIR_APPARMOR}/codex-server" 0644
-  installer_run_target_setup FILE_SERVER_SETUP 'publish the primary account Codex login environment' \
+  installer_stage_profile_file hooks/target/etc/skel-server/.profile.d/99-codex-srv.sh "${DEVOPS_SKEL_DIR}/.profile.d/99-codex-srv.sh" 0644
+  installer_stage_profile_file hooks/target/etc/apparmor.d/common/abstractions/bwrap-common "${DIR_APPARMOR}/abstractions/bwrap-common" 0644
+  installer_stage_profile_file hooks/target/etc/apparmor.d/server/codex-server.tmpl "${DIR_APPARMOR}/codex-server" 0644
+  installer_run_target_setup scripts/server/setup.py.tmpl 'publish the primary account Codex login environment' \
     codex-account server "$ACCOUNT_USERNAME"
 fi
 devops_verify_codex

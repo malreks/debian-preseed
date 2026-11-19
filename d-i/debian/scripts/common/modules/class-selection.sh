@@ -11,9 +11,9 @@ installer_auto_class_tokens() {
 
   install -d -m 0700 "$(dirname "$auto_script")" || return "$?"
   installer_ensure_log_files || return "$?"
-  installer_fetch_file "$seed_base" "$(installer_repo_file_value FILE_PRESEED_CLASS_AUTO)" "$auto_script" 0755 || return "$?"
+  installer_fetch_file "$seed_base" "$(installer_repo_file_value scripts/preseed/class-auto.sh)" "$auto_script" 0755 || return "$?"
   if command -v installer_operation_context >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_CLASS_SELECTION 16 automatic_class_detection
+    installer_operation_context_repo scripts/common/modules/class-selection.sh 16 automatic_class_detection
   fi
   if "$auto_script" classes >"$auto_classes" 2>"$auto_err"; then
     :
@@ -197,7 +197,7 @@ installer_classes_raw() {
   # A command substitution inside a here-document loses the detector status.
   # Capture it as a checked assignment before consuming any class output.
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_CLASS_SELECTION 204 class_auto
+    installer_operation_context_repo scripts/common/modules/class-selection.sh 204 class_auto
   fi
   auto_output=$(installer_auto_class_tokens "$(installer_seed_base "$seed_base")") || return "$?"
   auto_tokens=

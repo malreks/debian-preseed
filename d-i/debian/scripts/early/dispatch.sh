@@ -25,7 +25,7 @@ fi
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib "${1:-}"
 installer_init_log_file "$(installer_runtime_log_file)" "" "early dispatch" early-dispatch boot
-installer_operation_context_repo FILE_EARLY_DISPATCH 28 early_dispatch
+installer_operation_context_repo scripts/early/dispatch.sh 28 early_dispatch
 installer_ensure_log_files
 trap 'installer_finalize_log "$?"' EXIT
 
@@ -38,7 +38,7 @@ if installer_phase_stage_begin early installer.early; then :; else
 fi
 host_profile=$(installer_resolve_host_profile "")
 hook_family=${INSTALLER_HOOK_FAMILY:-${INSTALLER_HOST_FAMILY}}
-shared_hook_path=$(installer_repo_file_value FILE_INST_DI_EARLY)
+shared_hook_path=$(installer_repo_file_value hooks/installer/d-i/early.sh)
 shared_hook_dest="${RUNTIME_DIR}/bootstrap/shared-d-i-early.sh"
 
 installer_fetch_file "$seed_base" "$shared_hook_path" "$shared_hook_dest" 0755
@@ -46,12 +46,12 @@ installer_fetch_file "$seed_base" "$shared_hook_path" "$shared_hook_dest" 0755
 
 case "$hook_family" in
   btrfs|vm)
-    runtime_script_path=$(installer_repo_file_value FILE_RUNTIME_BTRFS)
+    runtime_script_path=$(installer_repo_file_value scripts/runtime/btrfs.sh)
     capture_dualboot_sizes=true
     preload_f2fs=false
     ;;
   f2fs)
-    runtime_script_path=$(installer_repo_file_value FILE_RUNTIME_F2FS)
+    runtime_script_path=$(installer_repo_file_value scripts/runtime/f2fs.sh)
     capture_dualboot_sizes=false
     preload_f2fs=true
     ;;

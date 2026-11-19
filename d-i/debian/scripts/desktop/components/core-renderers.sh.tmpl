@@ -25,7 +25,7 @@ desktop_render_labwc_default_config() {
   esac
 
   desktop_render_role_target_template \
-    FILE_TARGET_LABWC_DESKTOP_TMPL \
+    hooks/target/etc/labwc/desktop.conf.tmpl \
     "$defaults_path" \
     0644 \
     LABWC_PRIMARY_UID "$(desktop_shell_config_value "$primary_account_uid")" \
@@ -185,7 +185,7 @@ desktop_render_labwc_default_config() {
 
 desktop_render_greetd_config() {
   desktop_render_role_target_template \
-    FILE_TARGET_GREETD_CONFIG_TMPL \
+    hooks/target/etc/greetd/config.toml.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/greetd/config.toml" \
     0644 \
     LABWC_GREETER_VT "${LABWC_GREETER_VT:-1}" \
@@ -219,7 +219,7 @@ desktop_validate_cargo_policy() {
 desktop_render_cargo_config() {
   desktop_validate_cargo_policy
   desktop_render_role_target_template \
-    FILE_TARGET_SKEL_CARGO_CONFIG_TMPL \
+    hooks/target/usr/local/share/common/devops/config/cargo.toml.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/cargo/config.toml" \
     0644 \
     DEVOPS_CARGO_RUSTC_WRAPPER "$DEVOPS_CARGO_RUSTC_WRAPPER" \
@@ -239,7 +239,7 @@ desktop_render_labwc_rc_xml() {
   rc_path=__INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/labwc/rc.xml
 
   desktop_render_role_target_template_deferred \
-    FILE_TARGET_SKEL_LABWC_RC_TMPL \
+    hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl \
     "$rc_path" \
     0644 \
     LABWC_WAYLAND_APP_DEFAULT_EXEC "$(desktop_xml_attribute_escape "$LABWC_WAYLAND_APP_DEFAULT_EXEC")" \
@@ -261,7 +261,7 @@ desktop_render_labwc_rc_xml() {
     LABWC_FONT_OSD_SIZE "${LABWC_FONT_OSD_SIZE:-13}" \
     LABWC_MOUSE_POINTER_SPEED "${LABWC_MOUSE_POINTER_SPEED:-0.55}" \
     LABWC_MOUSE_ACCEL_PROFILE "${LABWC_MOUSE_ACCEL_PROFILE:-flat}"
-  desktop_assert_role_target_template_resolved FILE_TARGET_SKEL_LABWC_RC_TMPL "$rc_path"
+  desktop_assert_role_target_template_resolved hooks/target/etc/skel-desktop/.config/labwc/rc.xml.tmpl "$rc_path"
   desktop_log "rendered_labwc_rc_xml workspaces=${workspace_count}"
 }
 
@@ -269,10 +269,10 @@ desktop_render_labwc_rc_xml() {
 # is consumed only by the installer; runtime reads native Waybar JSON and CSS.
 desktop_waybar_geometry_schema() {
   if [ ! -s "$TMP_ENV_DIR/waybar-geometry.tsv" ]; then
-    fetch_hook "$(installer_repo_file_value FILE_DESKTOP_WAYBAR_GEOMETRY_TSV)" "$TMP_ENV_DIR/waybar-geometry.tsv"
+    fetch_hook "$(installer_repo_file_value scripts/desktop/waybar-geometry.tsv)" "$TMP_ENV_DIR/waybar-geometry.tsv"
   fi
   if [ ! -s "$TMP_ENV_DIR/waybar_geometry.py" ]; then
-    fetch_hook "$(installer_repo_file_value FILE_DESKTOP_WAYBAR_GEOMETRY_PY)" "$TMP_ENV_DIR/waybar_geometry.py"
+    fetch_hook "$(installer_repo_file_value scripts/desktop/waybar_geometry.py)" "$TMP_ENV_DIR/waybar_geometry.py"
   fi
 }
 
@@ -463,10 +463,10 @@ desktop_waybar_geometry_validate() (
   geometry_map_tmp=$(mktemp "$TMP_ENV_DIR/waybar-geometry.map.XXXXXX") || exit 1
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_DESKTOP_WAYBAR_GEOMETRY_PY)" \
+    "$(installer_repo_file_value scripts/desktop/waybar_geometry.py)" \
     "$geometry_stage/validator.py" 0700
   stage_target_asset \
-    "$(installer_repo_file_value FILE_DESKTOP_WAYBAR_GEOMETRY_TSV)" \
+    "$(installer_repo_file_value scripts/desktop/waybar-geometry.tsv)" \
     "$geometry_stage/schema.tsv" 0600
   write_target_file "$geometry_stage/values.tsv" 0600 <"$geometry_values"
   run_in_target "validate Waybar geometry with target Python" \
@@ -580,7 +580,7 @@ desktop_render_gtkgreet_css() {
   greeter_button_min_width=${LABWC_GREETER_BUTTON_MIN_WIDTH:-$((greeter_font_size * 13))}
 
   desktop_render_role_target_template \
-    FILE_TARGET_GREETD_GTKGREET_CSS_TMPL \
+    hooks/target/etc/greetd/gtkgreet.css.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/greetd/gtkgreet.css" \
     0644 \
     LABWC_GREETER_BACKGROUND_URL "$(desktop_double_quote_escape "$greeter_background_url")" \
@@ -600,7 +600,7 @@ desktop_render_gtkgreet_css() {
 
 desktop_render_greeter_power_rule() {
   desktop_render_role_target_template \
-    FILE_TARGET_POLKIT_1_RULES_D_10_GREETD_POWER_TMPL \
+    hooks/target/etc/polkit-1/rules.d/10-greetd-power.rules.tmpl \
     "__INSTALLER_PATH_DIR_ETC__/polkit-1/rules.d/10-greetd-power.rules" \
     0644 \
     LABWC_GREETER_USER "$(desktop_double_quote_escape "${LABWC_GREETER_USER:-greeter}")"

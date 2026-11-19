@@ -60,18 +60,22 @@ normalize_target_tmpfiles_directory_policy() {
   tmpfiles_policy_label=${2:-managed tmpfiles directory policy}
 
   validate_target_tmpfiles_policy_path "$tmpfiles_policy_path"
+  # Desktop staging may have queued this policy in the shared publication
+  # batch. The shell reads it before the target setup helper reaches
+  # target_exec, so publish pending inputs at this direct-reader boundary.
+  installer_asset_batch_flush || return $?
   [ -r "${TARGET_ROOT}${tmpfiles_policy_path}" ] ||
     installer_fatal "managed tmpfiles policy is missing before normalization: ${tmpfiles_policy_path}"
 
   # The short-lived installer program validates the complete d-row plan,
   # pins directory identities and retains durable recovery data on uncertainty.
   # Non-directory tmpfiles records remain the native tool's separate owner.
-  installer_run_target_setup FILE_LATE_TMPFILES_DIRECTORIES \
+  installer_run_target_setup scripts/late/tmpfiles-directories.py.tmpl \
     "normalize ${tmpfiles_policy_label}" "$tmpfiles_policy_path" "$tmpfiles_policy_label" || return "$?"
 }
 
 stage_target_runtime_storage_root_policy() {
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_10_RUNTIME_STORAGE_ROOTS_TMPL)" "__INSTALLER_PATH_DIR_ETC__/tmpfiles.d/10-runtime-storage-roots.conf" 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/desktop/10-runtime-storage-roots.conf.tmpl)" "__INSTALLER_PATH_DIR_ETC__/tmpfiles.d/10-runtime-storage-roots.conf" 0644
 }
 
 ensure_target_managed_runtime_storage_roots() {
@@ -177,23 +181,23 @@ validate_target_journal_storage_policy() (
 stage_target_common_storage_maintenance_assets() {
   # Shared by scheduled APT and desktop network consumers. Stage code only;
   # never probe connectivity or contact a service while preparing the target.
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_NETWORK_ONLINE_CHECK)" "${DIR_USR_LOCAL_LIBEXEC}/network-online-check" 0755 || return 1
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/network-online-check)" "${DIR_USR_LOCAL_LIBEXEC}/network-online-check" 0755 || return 1
   # Shared by both storage families. Install rules only; never retrigger live
   # installer devices or modify their PCI configuration while staging the target.
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UDEV_RULES_D_74_NVME_LINK_IDLE)" "__INSTALLER_PATH_DIR_ETC__/udev/rules.d/74-nvme-link-idle.rules" 0644 || return 1
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_SBIN_NVME_PCIE_STATUS)" "__INSTALLER_PATH_DIR_USR_LOCAL__/sbin/nvme-pcie-status" 0755 || return 1
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_INITRAMFS_HOOKS_NVME_LINK_IDLE)" "__INSTALLER_PATH_DIR_ETC__/initramfs-tools/hooks/nvme-link-idle" 0755 || return 1
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/udev/rules.d/74-nvme-link-idle.rules)" "__INSTALLER_PATH_DIR_ETC__/udev/rules.d/74-nvme-link-idle.rules" 0644 || return 1
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/sbin/common/nvme-pcie-status)" "__INSTALLER_PATH_DIR_USR_LOCAL__/sbin/nvme-pcie-status" 0755 || return 1
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/initramfs-tools/hooks/nvme-link-idle)" "__INSTALLER_PATH_DIR_ETC__/initramfs-tools/hooks/nvme-link-idle" 0755 || return 1
   stage_target_runtime_storage_root_policy
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_TMP)" "__INSTALLER_PATH_DIR_ETC__/tmpfiles.d/tmp.conf" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/tmp.conf)" "__INSTALLER_PATH_DIR_ETC__/tmpfiles.d/tmp.conf" 0644
   grep -Fxq 'D! /tmp 1777 root root 0' ${TARGET_ROOT}${DIR_ETC}/tmpfiles.d/tmp.conf &&
     grep -Fxq 'e /tmp 1777 root root 7d' ${TARGET_ROOT}${DIR_ETC}/tmpfiles.d/tmp.conf &&
     grep -Fxq 'd __INSTALLER_PATH_DIR_VAR__/tmp 1777 root root 30d' ${TARGET_ROOT}${DIR_ETC}/tmpfiles.d/tmp.conf ||
     installer_fatal "managed temporary-directory tmpfiles policy is incomplete"
   stage_target_apt_login_policy_assets
   render_target_template "$TMP_ENV_DIR/apt-daily.override.conf.tmpl" "${TARGET_ROOT}${FILE_APT_DAILY_SERVICE_OVERRIDE}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_LATE_ASSET_ETC_APT_LISTCHANGES_CONF_INSTALLER_BASE)" "${FILE_APT_LISTCHANGES_CONF}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_FSTRIM_SERVICE_D_OVERRIDE)" "${FILE_FSTRIM_SERVICE_OVERRIDE}" 0644
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_FSTRIM_TIMER_D_OVERRIDE)" "${FILE_FSTRIM_TIMER_OVERRIDE}" 0644
+  stage_target_asset "$(installer_repo_file_value scripts/late/assets/etc/apt/listchanges.conf.installer-base)" "${FILE_APT_LISTCHANGES_CONF}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/fstrim.service.d/override.conf)" "${FILE_FSTRIM_SERVICE_OVERRIDE}" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/fstrim.timer.d/override.conf)" "${FILE_FSTRIM_TIMER_OVERRIDE}" 0644
 }
 
 target_xfs_scrub_cpuaccounting_units() {
@@ -246,7 +250,7 @@ sanitize_target_xfs_scrub_systemd_units() {
   # its unit cache before the native healer starter scans existing mounts.
   if target_systemd_unit_path xfs_healer_start.service system >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
     stage_target_asset \
-      "$(installer_repo_file_value FILE_TARGET_UNIT_XFS_HEALER_START_SERVICE_D_20_REFRESH_UNIT_CACHE)" \
+      "$(installer_repo_file_value hooks/target/etc/systemd/common/system/xfs_healer_start.service.d/20-refresh-unit-cache.conf)" \
       __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_XFS_HEALER_START_DROPIN__/20-refresh-unit-cache.conf 0644 || return 1
   fi
 }

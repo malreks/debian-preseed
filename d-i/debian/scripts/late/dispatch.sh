@@ -24,14 +24,14 @@ bootstrap_source_common_lib "${1:-}"
 [ -n "${BOOTSTRAP_PREPARED_SOURCE_ROOT:-}" ] || \
   installer_fatal 'target payload must be prepared by the first base-stage hook before late_command'
 installer_init_log_file "$(installer_runtime_log_file)" "" "late dispatch" late-dispatch late_command
-installer_operation_context_repo FILE_LATE_DISPATCH 25 late_dispatch
+installer_operation_context_repo scripts/late/dispatch.sh 25 late_dispatch
 trap 'installer_finalize_log "$?"' EXIT
 
 seed_base=$(installer_seed_base "${1:-}")
 installer_ensure_context_loaded "$seed_base"
 host_profile=$(installer_resolve_host_profile "")
 hook_family=${INSTALLER_HOOK_FAMILY:-${INSTALLER_HOST_FAMILY}}
-shared_hook_path=$(installer_repo_file_value FILE_INST_LATE_COMMAND)
+shared_hook_path=$(installer_repo_file_value hooks/installer/late_command.sh)
 shared_hook_dest="${BOOTSTRAP_PREPARED_SOURCE_ROOT}/${shared_hook_path}"
 shared_module_dir="${BOOTSTRAP_PREPARED_SOURCE_ROOT}/${DIR_SCRIPTS_LATE}"
 SHARED_LATE_COMMAND=$shared_hook_dest
@@ -54,24 +54,24 @@ installer_load_data_env "$dispatch_host_env"
 
 late_dispatch_module_source() {
   case "$1" in
-    core) late_dispatch_selector=FILE_LATE_CORE ;;
-    target-assets) late_dispatch_selector=FILE_LATE_TARGET_ASSETS ;;
-    iocost) late_dispatch_selector=FILE_LATE_IOCOST ;;
-    volatile-storage) late_dispatch_selector=FILE_LATE_VOLATILE_STORAGE ;;
-    storage-maintenance) late_dispatch_selector=FILE_LATE_STORAGE_MAINTENANCE ;;
-    mullvad) late_dispatch_selector=FILE_LATE_MULLVAD ;;
-    templates) late_dispatch_selector=FILE_LATE_TEMPLATES ;;
-    network) late_dispatch_selector=FILE_LATE_NETWORK ;;
-    network-sharing) late_dispatch_selector=FILE_LATE_NETWORK_SHARING_SH ;;
-    grub) late_dispatch_selector=FILE_LATE_GRUB ;;
-    security) late_dispatch_selector=FILE_LATE_SECURITY ;;
-    dbus-broker) late_dispatch_selector=FILE_LATE_DBUS_BROKER ;;
-    podman) late_dispatch_selector=FILE_LATE_PODMAN ;;
-    zram-swap) late_dispatch_selector=FILE_LATE_ZRAM_SWAP ;;
-    btrfs-family) late_dispatch_selector=FILE_LATE_BTRFS_FAMILY ;;
-    f2fs-family) late_dispatch_selector=FILE_LATE_F2FS_FAMILY ;;
-    account) late_dispatch_selector=FILE_LATE_ACCOUNT ;;
-    cuda-legacy) late_dispatch_selector=FILE_LATE_CUDA_LEGACY ;;
+    core) late_dispatch_selector=scripts/late/core.sh ;;
+    target-assets) late_dispatch_selector=scripts/late/target-assets.sh ;;
+    iocost) late_dispatch_selector=scripts/late/iocost.sh ;;
+    volatile-storage) late_dispatch_selector=scripts/late/volatile-storage.sh ;;
+    storage-maintenance) late_dispatch_selector=scripts/late/storage-maintenance.sh ;;
+    mullvad) late_dispatch_selector=scripts/late/mullvad.sh ;;
+    templates) late_dispatch_selector=scripts/late/templates.sh ;;
+    network) late_dispatch_selector=scripts/late/network.sh ;;
+    network-sharing) late_dispatch_selector=scripts/late/network-sharing.sh ;;
+    grub) late_dispatch_selector=scripts/late/grub.sh ;;
+    security) late_dispatch_selector=scripts/late/security.sh ;;
+    dbus-broker) late_dispatch_selector=scripts/late/dbus-broker.sh ;;
+    podman) late_dispatch_selector=scripts/late/podman.sh ;;
+    zram-swap) late_dispatch_selector=scripts/late/zram-swap.sh ;;
+    btrfs-family) late_dispatch_selector=scripts/late/btrfs-family.sh ;;
+    f2fs-family) late_dispatch_selector=scripts/late/f2fs-family.sh ;;
+    account) late_dispatch_selector=scripts/late/account.sh ;;
+    cuda-legacy) late_dispatch_selector=scripts/late/cuda-legacy.sh ;;
     *) installer_fatal "unsupported shared late module: ${1:-unset}" ;;
   esac
   installer_repo_file_value "$late_dispatch_selector"
@@ -79,7 +79,7 @@ late_dispatch_module_source() {
 
 [ -f "$shared_hook_dest" ] && [ ! -L "$shared_hook_dest" ] || installer_fatal 'prepared late entrypoint is missing'
 for shared_module in $shared_modules; do
-  installer_operation_context_repo FILE_LATE_DISPATCH 96 "fetch_shared_module:${shared_module}"
+  installer_operation_context_repo scripts/late/dispatch.sh 96 "fetch_shared_module:${shared_module}"
   shared_module_source=$(late_dispatch_module_source "$shared_module") || {
     late_dispatch_status=$?
     installer_fatal_status "$late_dispatch_status" \
@@ -92,7 +92,7 @@ done
 dispatch_storage_foundation() {
 case "$hook_family" in
   btrfs|vm)
-    installer_operation_context_repo FILE_LATE_DISPATCH 113 "run_btrfs_family_late_command:${hook_family}"
+    installer_operation_context_repo scripts/late/dispatch.sh 113 "run_btrfs_family_late_command:${hook_family}"
     if INSTALLER_BOOTSTRAP_LIB=$BOOTSTRAP_LIB \
        INSTALLER_LATE_MODULE_DIR=$shared_module_dir \
        SHARED_LATE_COMMAND=$shared_hook_dest \
@@ -107,7 +107,7 @@ case "$hook_family" in
     fi
     ;;
   f2fs)
-    installer_operation_context_repo FILE_LATE_DISPATCH 128 run_f2fs_family_late_command
+    installer_operation_context_repo scripts/late/dispatch.sh 128 run_f2fs_family_late_command
     if INSTALLER_BOOTSTRAP_LIB=$BOOTSTRAP_LIB \
        INSTALLER_LATE_MODULE_DIR=$shared_module_dir \
        SHARED_LATE_COMMAND=$shared_hook_dest \
@@ -133,26 +133,25 @@ run_helper_script() {
 
   helper_dest=${BOOTSTRAP_PREPARED_SOURCE_ROOT}/${helper_path}
   [ -f "$helper_dest" ] && [ ! -L "$helper_dest" ] || installer_fatal 'prepared late stage is missing'
-  installer_operation_context_repo FILE_LATE_DISPATCH 155 "late_helper:${helper_path}"
+  installer_operation_context_repo scripts/late/dispatch.sh 155 "late_helper:${helper_path}"
   /bin/sh -eu "$helper_dest" "$@" </dev/null
 }
 
 # Every late provider is selected, ordered and deduplicated by the frozen plan.
 installer_assert_class_plan
+plan_stages="${RUNTIME_DIR}/state/late-stages.tsv"
+installer_plan_stage_records late >"$plan_stages" ||
+  installer_fatal 'invalid late stage record'
 installer_publish_class_receipt
 # Every provider, including CrowdSec and server Whisper, needs the resolved
 # identity independently of the optional desktop storage stage's execution.
 INSTALLER_LATE_ACCOUNT_ENV=${INSTALLER_LATE_ACCOUNT_ENV:-${DIR_INSTALLER_LATE_ENV}/account.env}
 export INSTALLER_LATE_ACCOUNT_ENV
-installer_operation_context_repo FILE_LATE_DISPATCH 166 prepare_late_account_env
+installer_operation_context_repo scripts/late/dispatch.sh 166 prepare_late_account_env
 installer_prepare_late_account_env "$seed_base" "$INSTALLER_LATE_ACCOUNT_ENV"
 bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/account-provisioning" target
 installer_stage_account_creation
-plan_stages="${RUNTIME_DIR}/state/late-stages.tsv"
-awk -F '\t' '$1=="stage" {split($2, fields, "|"); if(fields[2]=="late") print $2}' \
-  "$(installer_class_plan_path)" >"$plan_stages"
 while IFS='|' read -r stage_id stage_phase stage_selector || [ -n "$stage_id" ]; do
-  case "$stage_id" in ''|*[!a-z0-9.-]*) installer_fatal 'invalid stage ID' ;; esac
   if installer_phase_stage_begin "$stage_phase" "$stage_id"; then
     :
   else
@@ -189,7 +188,7 @@ done <"$plan_stages"
 # Keep them on failure for diagnosis; no installed application consumes them.
 if [ -d "${TARGET_ROOT}${DIR_INSTALLER_TARGET_DEFAULTS}" ]; then
   bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/defaults-cleanup" target
-  installer_run_target_setup FILE_COMMON_PRIMARY_DEFAULTS 'remove private primary-account payload staging' \
+  installer_run_target_setup scripts/common/primary-defaults.py 'remove private primary-account payload staging' \
     cleanup "$DIR_INSTALLER_TARGET_DEFAULTS"
 fi
 # The late phase owns all consumers of this private workspace. Preserve it on

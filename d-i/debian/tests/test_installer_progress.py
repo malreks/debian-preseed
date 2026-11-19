@@ -75,12 +75,12 @@ set -eu
 installer_error() { printf '%s\n' "$*" >&2; }
 installer_loaded_repo_file_value() {
   case "$1" in
-    FILE_COMMON_MOD_PROFILES) printf '%s\n' scripts/common/modules/profiles.sh ;;
+    scripts/common/modules/profiles.sh) printf '%s\n' scripts/common/modules/profiles.sh ;;
     *) return 90 ;;
   esac
 }
 bootstrap_repo_file_value() {
-  [ "$1" = FILE_COMMON_CREDENTIAL_DATA ] || return 90
+  [ "$1" = scripts/common/credential-data.awk ] || return 90
   printf '%s/scripts/common/credential-data.awk\n' "$FIXTURE_SOURCE"
 }
 bootstrap_parser_asset_path() { printf '%s\n' "$1"; }

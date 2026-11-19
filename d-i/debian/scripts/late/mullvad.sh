@@ -359,7 +359,7 @@ mullvad_validate_and_defer_apparmor() {
   # The package always supplies its resource, but profile installation depends
   # on the vendor postinst environment. Publish it explicitly when absent.
   # Compilation is mandatory now; kernel activation remains boot-only.
-  installer_operation_context_repo FILE_LATE_MULLVAD 381 validate_mullvad_apparmor
+  installer_operation_context_repo scripts/late/mullvad.sh 381 validate_mullvad_apparmor
   run_in_target_quiet "validate Mullvad AppArmor profile without loading installer policy" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
 umask 077
 policy_dir=__INSTALLER_PATH_DIR_APPARMOR__
@@ -484,13 +484,13 @@ else
   printf "Mullvad AppArmor: installed validated packaged policy; kernel activation deferred\n"
 fi
 ' sh || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_MULLVAD_APPARMOR_SERVICE)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/mullvad-apparmor.service)" \
     __INSTALLER_PATH_DIR_ETC__/systemd/system/mullvad-apparmor.service 0644 || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_MULLVAD_DAEMON_SERVICE_D_10_APPARMOR)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/10-apparmor.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_MULLVAD_DAEMON_DROPIN__/10-apparmor.conf 0644 || return $?
   # The logging-only override must never discard new vendor launch options.
   # Fail closed if a future package changes its ExecStart contract or flags.
-  installer_operation_context_repo FILE_LATE_MULLVAD 512 validate_mullvad_journal
+  installer_operation_context_repo scripts/late/mullvad.sh 512 validate_mullvad_journal
   run_in_target_quiet "validate Mullvad native journal logging contract" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
 unit=__INSTALLER_PATH_DIR_USR_LIB__/systemd/system/mullvad-daemon.service
 [ -f "$unit" ] || unit=__INSTALLER_PATH_DIR_LIB__/systemd/system/mullvad-daemon.service
@@ -499,7 +499,7 @@ help=$(__INSTALLER_PATH_DIR_USR_BIN__/mullvad-daemon --help)
 printf "%s\n" "$help" | grep -F -q -- --disable-log-to-file
 printf "%s\n" "$help" | grep -F -q -- --disable-stdout-timestamps
 ' sh || return $?
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_UNIT_MULLVAD_DAEMON_SERVICE_D_40_LOGGING)" \
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/40-logging.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_MULLVAD_DAEMON_DROPIN__/40-logging.conf 0644 || return $?
   run_in_target_quiet "enable checked Mullvad AppArmor activation at first boot" \
     systemctl --root=/ enable mullvad-apparmor.service || return $?

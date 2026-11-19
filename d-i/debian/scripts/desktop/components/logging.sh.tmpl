@@ -44,169 +44,169 @@ done
   # The shared logging foundation already installed rsyslog.conf and its
   # rotation callback before the selected application helpers ran.
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_15_AUDIT)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/15-audit.conf)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/15-audit.conf \
     0644
-  desktop_stage_role_asset FILE_TARGET_RSYSLOG_D_19_POWER_TMPL __INSTALLER_PATH_DIR_ETC__/rsyslog.d/19-power.conf 0644
+  desktop_stage_role_asset hooks/target/etc/rsyslog.d/19-power.conf.tmpl __INSTALLER_PATH_DIR_ETC__/rsyslog.d/19-power.conf 0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_21_APPS_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/21-apps.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/21-apps.conf 0644
-  desktop_stage_role_asset FILE_TARGET_RSYSLOG_D_22_APPS_SOCKET_TMPL __INSTALLER_PATH_DIR_ETC__/rsyslog.d/22-apps-socket.conf 0644
-  desktop_stage_role_asset FILE_TARGET_LIBEXEC_RSYSLOG_APP_RUN_TMPL __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-app-run 0755
-  desktop_stage_role_asset FILE_TARGET_LIBEXEC_RSYSLOG_APP_SOCKET_TMPL __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-app-socket 0755
-  desktop_stage_role_asset FILE_TARGET_UNIT_RSYSLOG_SERVICE_D_32_APPS_SOCKET __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/32-apps-socket.conf 0644
+  desktop_stage_role_asset hooks/target/etc/rsyslog.d/22-apps-socket.conf.tmpl __INSTALLER_PATH_DIR_ETC__/rsyslog.d/22-apps-socket.conf 0644
+  desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/rsyslog-app-run.tmpl __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-app-run 0755
+  desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/rsyslog-app-socket.tmpl __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-app-socket 0755
+  desktop_stage_role_asset hooks/target/etc/systemd/desktop/system/rsyslog.service.d/32-apps-socket.conf __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/32-apps-socket.conf 0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_20_AUTH_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/20-auth.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/20-auth.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_25_USB_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/25-usb.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/25-usb.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_30_APPARMOR_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/30-apparmor.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/30-apparmor.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_31_APPARMOR_MODES_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/31-apparmor-modes.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/31-apparmor-modes.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_35_STORAGE_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/35-storage.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/35-storage.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_37_WHISPER_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/37-whisper.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/37-whisper.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_39_SECURITY_SCANNERS_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/39-security-scanners.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/39-security-scanners.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_40_NFTABLES_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/40-nftables.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/40-nftables.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_41_FUZZEL_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/41-fuzzel.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/41-fuzzel.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_42_ADB)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/42-adb.conf)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/42-adb.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_43_DESKTOP_APPS)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/43-desktop-apps.conf)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/43-desktop-apps.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_99_DISCARD)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/99-discard.conf)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/99-discard.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.conf)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_LOGROTATE_TIMER_D_OVERRIDE_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/logrotate.timer.d/override.conf.tmpl)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LOGROTATE_TIMER_DROPIN__/override.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_RSYSLOG_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/rsyslog.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/rsyslog \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_AUDIT)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/audit)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/audit \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_AUTH_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/auth.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/auth \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_USB_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/usb.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/usb \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_APPARMOR_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/apparmor.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/apparmor \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_APPARMOR_MODES_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/apparmor-modes.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/apparmor-modes \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_STORAGE_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/storage.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/storage \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_WHISPER_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/whisper.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/whisper \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_NFTABLES_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/nftables.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/nftables \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_SECURITY_NOTIFY)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/security-notify)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/security-notify \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_SECURITY_SCANNERS_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/security-scanners.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/security-scanners \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_FUZZEL_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/fuzzel.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/fuzzel \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_ADB)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/adb)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/adb \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LOGROTATE_D_DESKTOP_APPS)" \
+    "$(installer_repo_file_value hooks/target/etc/logrotate.d/desktop-apps)" \
     __INSTALLER_PATH_DIR_ETC__/logrotate.d/desktop-apps \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_60_SECURITY_LOGS_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/60-security-logs.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/60-security-logs.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_65_AUDIT_SYSLOG)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/65-audit-syslog.conf)" \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/65-audit-syslog.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_RSYSLOG_SECURITY_SOCKET_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/rsyslog-security-socket.tmpl)" \
     __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-security-socket \
     0755
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_RSYSLOG_SERVICE_D_30_SECURITY_SCANNER_SOCKET)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/rsyslog.service.d/30-security-scanner-socket.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/30-security-scanner-socket.conf \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_BIN_LABWC_FUZZEL_LOG_TMPL \
+    hooks/target/usr/local/bin/desktop/labwc-fuzzel-log.tmpl \
     __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-fuzzel-log \
     0755
 
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_RSYSLOG_D_44_COMPONENTS_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/rsyslog.d/44-components.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/rsyslog.d/44-components.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_59_LOG_LAYOUT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/59-log-layout.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_UNIT_RSYSLOG_SERVICE_D_20_LOG_LAYOUT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/systemd/common/system/rsyslog.service.d/20-log-layout.conf.tmpl)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN__/20-log-layout.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value FILE_TARGET_LIBEXEC_LOG_LAYOUT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/common/log-layout.tmpl)" \
     __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/log-layout \
     0755
 
   if installer_plan_package_selected clamav-freshclam || installer_plan_package_selected clamav-daemon; then
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_TMPFILES_D_58_CLAMAV_LOGS_TMPL)" \
+    stage_target_asset "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/desktop/58-clamav-logs.conf.tmpl)" \
       __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/58-clamav-logs.conf 0644
     run_in_target 'create selected ClamAV writer log paths' \
       __INSTALLER_PATH_DIR_USR_BIN__/systemd-tmpfiles --create \
@@ -214,7 +214,7 @@ done
   fi
   if installer_plan_package_selected clamav-daemon; then
     stage_target_asset \
-      "$(installer_repo_file_value FILE_TARGET_AA_LOCAL_USR_SBIN_CLAMD_TMPL)" \
+      "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/local/usr.sbin.clamd.tmpl)" \
       __INSTALLER_PATH_DIR_ETC__/apparmor.d/local/usr.sbin.clamd 0644
   fi
   run_in_target "preflight protected logging destinations before tmpfiles" \

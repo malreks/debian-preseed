@@ -178,6 +178,38 @@ printf '%s\\n' "$@"
                 self.assert_ok(f'{wrapper} {args}')
                 self.assertEqual(self.progress()[-1], 'cleanup-completed')
 
+    def test_publication_barrier_precedes_every_noninteractive_target_command(self):
+        self.write('target/bin/publication-probe', '#!/bin/sh\n[ -f /tmp/publication-flushed ] || exit 82\nprintf "published-before-consumption\\n"\n')
+        for wrapper in ('target_exec', 'run_in_target', 'attempt_in_target', 'run_in_target_quiet',
+                        'capture_in_target', 'test_in_target'):
+            with self.subTest(wrapper=wrapper):
+                (self.root / 'target/tmp/publication-flushed').unlink(missing_ok=True)
+                (self.root / 'tmp/publication-flush-count').unlink(missing_ok=True)
+                args = '/bin/publication-probe' if wrapper in {'target_exec', 'test_in_target'} else 'fixture /bin/publication-probe'
+                self.assert_ok('''
+INSTALLER_ASSET_BATCH_WORK=/fixture-batch
+installer_asset_batch_flush() {
+  printf '1\\n' >>/tmp/publication-flush-count
+  : >/target/tmp/publication-flushed
+}
+''' + f'{wrapper} {args}')
+                self.assertEqual((self.root / 'tmp/publication-flush-count').read_text(), '1\n')
+
+    def test_failed_publication_prevents_target_command_and_protocol_setup(self):
+        for wrapper in ('target_exec', 'run_in_target', 'attempt_in_target', 'run_in_target_quiet',
+                        'capture_in_target', 'test_in_target'):
+            with self.subTest(wrapper=wrapper):
+                (self.root / 'target/tmp/target-progress').unlink(missing_ok=True)
+                args = '/bin/probe forbidden' if wrapper in {'target_exec', 'test_in_target'} else 'fixture /bin/probe forbidden'
+                result, timed_out, requests = self.run_code('''
+INSTALLER_ASSET_BATCH_WORK=/fixture-batch
+installer_asset_batch_flush() { return 43; }
+''' + f'{wrapper} {args}')
+                self.assertFalse(timed_out, result.stderr)
+                self.assertEqual(result.returncode, 1 if wrapper == 'test_in_target' else 43, result.stderr)
+                self.assertEqual(requests, [])
+                self.assertFalse((self.root / 'target/tmp/target-progress').exists())
+
     def test_capture_does_not_mix_protocol_requests_with_stdout(self):
         result, _ = self.assert_ok('value=$(capture_in_target fixture /bin/probe captured); printf "<%s>\\n" "$value"')
         self.assertEqual(result.stdout, '<captured>\n')

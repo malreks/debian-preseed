@@ -1,0 +1,216 @@
+{
+  "mode": "source/data only; parser-only shell/Node/Mawk calls; no managed execution",
+  "release": "a8b81c64382235d5af48d0d86b0958b4415c17738a7698f3601e1c901d0a1d35",
+  "regular_files": 3039,
+  "target_files": 1699,
+  "direct_pass_counts": {
+    "json": 236,
+    "shell_parse": 341,
+    "python_ast": 591,
+    "yaml": 46,
+    "ini": 41,
+    "toml": 10,
+    "xml": 24
+  },
+  "shell_variants": {
+    "dash -n": 334,
+    "bash -n": 7
+  },
+  "typed_raw_deferrals": [
+    {
+      "path": "d-i/debian/hooks/target/etc/NetworkManager/system-connections/wifi.nmconnection.tmpl",
+      "kind": "ini",
+      "sha256": "808b8fc5063ceab16db20e20a522471cb62685c364923b3ea9b0a1381135e9e4",
+      "passed": false,
+      "detail": "Source contains parsing errors: '<string>'\n\t[line 16]: '__INSTALLER_SECURITY__\\n'\n\t[line 31]: '__INSTALLER_IPV6__\\n'",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/app-veth.json.tmpl",
+      "kind": "json",
+      "sha256": "a84e37cd933ffdbc75212185e92c97a21070c7b71032045db1115b6a06d92617",
+      "passed": false,
+      "detail": "Expecting value: line 6 column 19 (char 156)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/greetd/config.toml.tmpl",
+      "kind": "toml",
+      "sha256": "7e304d9819b7e44497f945d0775a8da91180a18551f352558b33ad72b3e944d1",
+      "passed": false,
+      "detail": "Invalid value (at line 2, column 6)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/hardware-tuning/broker.json.tmpl",
+      "kind": "json",
+      "sha256": "5d410f17036c16ab14f161717520d2096f804c6343016d46b1dad2aee666c985",
+      "passed": false,
+      "detail": "Expecting value: line 2 column 14 (char 15)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/hardware-tuning/intel.json.tmpl",
+      "kind": "json",
+      "sha256": "4190b2325c5bf4a8688728fcca4432d722156700ae75f3aba384efd18e22492c",
+      "passed": false,
+      "detail": "Expecting value: line 2 column 14 (char 15)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/hardware-tuning/nvidia.json.tmpl",
+      "kind": "json",
+      "sha256": "04815e5c0feb6e58edb258badcd33eb9728d0628798e820ffd1f55afec713e91",
+      "passed": false,
+      "detail": "Expecting value: line 2 column 14 (char 15)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/labwc/3proxy/session.json.tmpl",
+      "kind": "json",
+      "sha256": "21189d3353d643265a7a34172aba871825f6908836f966f1f13a8700a212abaa",
+      "passed": false,
+      "detail": "Expecting value: line 2 column 23 (char 24)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/skel-desktop/.config/Code/User/settings.json.tmpl",
+      "kind": "json",
+      "sha256": "aff213b8dab2ac592e6bc71e556dc92a4d22038e785ecace802f75d9fe843d53",
+      "passed": false,
+      "detail": "Expecting value: line 9 column 35 (char 312)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/skel-desktop/.config/sleek/userData/colors.json.tmpl",
+      "kind": "json",
+      "sha256": "70df35f1ced97845b945ef956c4feb40849c8fde45bd5c451743044dd59da4d4",
+      "passed": false,
+      "detail": "Expecting value: line 31 column 21 (char 1408)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/skel-desktop/.config/wayscriber/config.toml.tmpl",
+      "kind": "toml",
+      "sha256": "6bfc155b401fff47bba5fdf5661ce1bef558991edd51860d2c5cd10b5f57979f",
+      "passed": false,
+      "detail": "Invalid value (at line 27, column 27)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/etc/tailscale/netkit.json.tmpl",
+      "kind": "json",
+      "sha256": "ac2db94d79842f4d893d795afd2cef04361ddb432a73f6c20761b7b5cb8245d2",
+      "passed": false,
+      "detail": "Expecting value: line 5 column 11 (char 175)",
+      "variant": "raw source"
+    },
+    {
+      "path": "d-i/debian/hooks/target/usr/local/share/desktop/software/software-release-policy.json.tmpl",
+      "kind": "json",
+      "sha256": "aab7797918599133e2005ff5bcb00ecaddb2dfb461539b5c327e3123d34282bb",
+      "passed": false,
+      "detail": "Expecting value: line 29 column 22 (char 999)",
+      "variant": "raw source"
+    }
+  ],
+  "unexpected_direct_failures": 0,
+  "awk_occurrences": 302,
+  "awk_unique": 156,
+  "awk_compiler_failures": [],
+  "embedded_shell_occurrences": 149,
+  "embedded_shell_unique": 148,
+  "preseed_command_strings": 16,
+  "embedded_python_unique": 22,
+  "additional_changed_shell_driver_literals": 5,
+  "node_passed": 11,
+  "node_failed": 0,
+  "retained_unchanged_auxiliary_reports": [
+    {
+      "report": "lua-syntax.json",
+      "records": 10,
+      "all_source_hashes_unchanged": true,
+      "prior_report_sha256": "6428a1de3c80fbe10ed1e4d0f699e9d59cbe0b9d96977c467a47135d75e408b4"
+    },
+    {
+      "report": "c-syntax.json",
+      "records": 2,
+      "all_source_hashes_unchanged": true,
+      "prior_report_sha256": "002bba861d94b015b826fd36d5a1fa1d38c423096409eadeb6e761f8901d8a1c"
+    },
+    {
+      "report": "css-structure.json",
+      "records": 31,
+      "all_source_hashes_unchanged": true,
+      "prior_report_sha256": "a33ecd62147c083ad39e65c0d9af405d2e0407106b8ab80a81cb94a83a3165fa"
+    },
+    {
+      "report": "desktop-syntax.json",
+      "records": 28,
+      "all_source_hashes_unchanged": true,
+      "prior_report_sha256": "e967fcff0e5c38915c67224e18b3f1b44e199a5fb53eeafa6354830e910ac2ca"
+    }
+  ],
+  "archives": [
+    {
+      "suite": "forky",
+      "release": "a8b81c64382235d5af48d0d86b0958b4415c17738a7698f3601e1c901d0a1d35",
+      "archive_sha256": "91735463de4fb13a58f56f4c371e745ea20927d2217e170b937253c93e4423b9",
+      "manifest_sha256": "0159f53cb792c87733187984a982f013b29de454a81f7cbd1f0a893e4a8fdeb8",
+      "source_fingerprint": "cc579b2be6680092eb4c1a1b0bbd843dbf3b63d894c15c43b09f7a7ca0a2b540",
+      "source_equal_archived_members": 348,
+      "literal_program_occurrences_in_equal_members": 201,
+      "critical_members_verified": [
+        "hooks/installer/base-stage.d/00rendertarget",
+        "scripts/common/modules/target-publication.sh",
+        "scripts/common/render.pl",
+        "scripts/late/crowdsec.sh"
+      ],
+      "generated_shell_products": [
+        {
+          "path": "d-i/forky/source.sh",
+          "sha256": "93acffbabc0addc077ecd7f7827a2ae5bdb1ec94c5b5dc60283da00dd73dd7fb"
+        },
+        {
+          "path": "d-i/forky/preseed.cfg",
+          "sha256": "3180bf834459113bd77d6d0997bd2bdd8aa1166decdb1df2841c9dfd5bade03f"
+        }
+      ]
+    },
+    {
+      "suite": "trixie",
+      "release": "a8b81c64382235d5af48d0d86b0958b4415c17738a7698f3601e1c901d0a1d35",
+      "archive_sha256": "91735463de4fb13a58f56f4c371e745ea20927d2217e170b937253c93e4423b9",
+      "manifest_sha256": "0159f53cb792c87733187984a982f013b29de454a81f7cbd1f0a893e4a8fdeb8",
+      "source_fingerprint": "cc579b2be6680092eb4c1a1b0bbd843dbf3b63d894c15c43b09f7a7ca0a2b540",
+      "source_equal_archived_members": 348,
+      "literal_program_occurrences_in_equal_members": 201,
+      "critical_members_verified": [
+        "hooks/installer/base-stage.d/00rendertarget",
+        "scripts/common/modules/target-publication.sh",
+        "scripts/common/render.pl",
+        "scripts/late/crowdsec.sh"
+      ],
+      "generated_shell_products": [
+        {
+          "path": "d-i/trixie/source.sh",
+          "sha256": "93acffbabc0addc077ecd7f7827a2ae5bdb1ec94c5b5dc60283da00dd73dd7fb"
+        },
+        {
+          "path": "d-i/trixie/preseed.cfg",
+          "sha256": "5d54588ec35cb9c186c23f899de989a9ad1405720752e7c3d4e2ec8b782195fd"
+        }
+      ]
+    }
+  ],
+  "changed_source_sha256": {
+    "tools/post_change_check.py": "afdded1117b7fe54d65ac7a2f52a66d4af4516186f61bd1b5143cb8025007fc2",
+    "tools/prepare_syntax_fixture.py": "42b4dcd420184b27211565ecb93a330552a7837725332781661ce8909a0a25cc",
+    "tools/tests/test_awk_literal_portability_20261119.py": "232f71edaf9c7b03cb1a4152c1926d25930be6dfad6d57e1552a0aa206d246ba",
+    "d-i/debian/scripts/common/modules/target-publication.sh": "821d8a4191c1334add3b9696055fb219b436fca1f2f5631b772b46eb541fc92e",
+    "d-i/debian/scripts/late/crowdsec.sh": "af982b434a46c3c81dc5f916365ef1f26c08584196e8c942dc6ef22f0c46cf79",
+    "d-i/debian/hooks/installer/base-stage.d/00rendertarget": "41bf76c398782a45daca67bc466d1fac705a7c9f3ebb2d693e2ed2897e488d91",
+    "d-i/debian/tests/test_renderer_provenance_20261119.py": "aad4d6c69177282a6fbbefbcdcf3ace6b0068728e62e3f5f08879a128ea2c815",
+    "d-i/debian/tests/test_target_ownership_import_20261119.py": "2f2e16128c41146f54601352dea0c51d3986dcbeb3bab54169dd80a59c44c0a6"
+  }
+}

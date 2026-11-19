@@ -15,7 +15,7 @@ installer_fetch_host_env "$SEED_BASE" "$INSTALLER_HOST_PROFILE" "$LATE_COMMAND_H
 installer_load_data_env "$LATE_COMMAND_HOST_ENV"
 installer_assert_class_plan
 bootstrap_source_common_support_libs "$SEED_BASE" "${TMP_ENV_DIR}/hardware-support" fetch hook target
-for module in FILE_LATE_CORE FILE_LATE_TARGET_ASSETS FILE_OS_HARDWARE_TUNING FILE_OS_SCX_SCHEDS; do
+for module in scripts/late/core.sh scripts/late/target-assets.sh scripts/common/hardware-tuning.sh scripts/common/scx-scheds.sh; do
   module_file="${TMP_ENV_DIR}/${module}.sh"
   installer_fetch_file "$SEED_BASE" "$(installer_repo_file_value "$module")" "$module_file.source" 0600
   installer_apply_scalar_placeholders "$module_file.source" "$module_file"
@@ -24,7 +24,7 @@ for module in FILE_LATE_CORE FILE_LATE_TARGET_ASSETS FILE_OS_HARDWARE_TUNING FIL
   . "$module_file"
 done
 ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || installer_fatal 'hardware policy requires the private operator identity'
-installer_run_target_setup FILE_SERVER_SETUP 'install profile-controlled pinned scheduler packages without starting services' \
+installer_run_target_setup scripts/server/setup.py.tmpl 'install profile-controlled pinned scheduler packages without starting services' \
   profile-packages server "$INSTALLER_ARCH_CLASS"
 profile_install_scx_scheduler
 install_profile_hardware_tuning

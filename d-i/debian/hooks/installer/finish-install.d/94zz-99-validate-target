@@ -26,7 +26,7 @@ installer_lifecycle_paths
 }
 # shellcheck disable=SC1090,SC1091
 . "${DIR_INSTALLER_ENV}/runtime.env"
-installer_operation_context_repo FILE_INST_FINISH_94ZZ_99_VALIDATE_TARGET 25 finish_install_validate_target
+installer_operation_context_repo hooks/installer/finish-install.d/94zz-99-validate-target 25 finish_install_validate_target
 tmp=
 finish_validate_target_exit() {
   finish_validate_target_status=$?
@@ -77,7 +77,8 @@ target_perl=${12}
 target_python=${13}
 target_apparmor=${14}
 target_systemd=${15}
-shift 15
+target_systemd_units=${16}
+shift 16
 audit=$(dpkg --audit)
 [ -z "$audit" ] || { printf "%s\n" "$audit" >&2; exit 1; }
 test -s "$target_etc/fstab"
@@ -105,6 +106,35 @@ for file in "$target_boot/efi/EFI/debian/shim${suffix}.efi" "$target_boot/efi/EF
   require_signature "$file"
 done
 systemctl --root=/ get-default >/dev/null
+# The desktop role publishes these two owned units before enabling them.
+# Recheck at final readiness because intervening stages can mutate the target.
+# Role gating by either installed unit is safe here: the ownership scan below
+# independently rejects removal of every published unit, including both files.
+if [ -e "$target_systemd_units/labwc-system-desktop-overrides.service" ] ||
+   [ -L "$target_systemd_units/labwc-system-desktop-overrides.service" ] ||
+   [ -e "$target_systemd_units/labwc-system-desktop-overrides.path" ] ||
+   [ -L "$target_systemd_units/labwc-system-desktop-overrides.path" ]; then
+  unit_parent="$target_systemd_units/multi-user.target.wants"
+  while [ "$unit_parent" != / ]; do
+    test -d "$unit_parent" && test ! -L "$unit_parent" || {
+      printf "%s\n" "fatal: required desktop unit ancestry is absent or indirect" >&2
+      exit 1
+    }
+    unit_parent=${unit_parent%/*}; [ -n "$unit_parent" ] || unit_parent=/
+  done
+  for unit in labwc-system-desktop-overrides.service labwc-system-desktop-overrides.path; do
+    unit_file="$target_systemd_units/$unit"
+    unit_link="$target_systemd_units/multi-user.target.wants/$unit"
+    test -f "$unit_file" && test ! -L "$unit_file" &&
+      [ "$(find -P "$unit_file" -maxdepth 0 -printf "%U:%G:%m:%n")" = "0:0:644:1" ] &&
+      test -L "$unit_link" && [ "$(readlink "$unit_link")" = "$unit_file" ] &&
+      [ "$(find -P "$unit_link" -maxdepth 0 -printf "%U:%G")" = "0:0" ] &&
+      test -r "$unit_link" || {
+        printf "fatal: required desktop unit is not safely enabled: %s\n" "$unit" >&2
+        exit 1
+      }
+  done
+fi
 ' sh \
   "$DIR_ETC" \
   "$DIR_BOOT" \
@@ -120,7 +150,8 @@ systemctl --root=/ get-default >/dev/null
   "$DIR_PERL5_SITE_PERL" \
   "$DIR_PYTHON3_SITE_PACKAGES" \
   "$DIR_APPARMOR" \
-  "$DIR_SYSTEMD_ETC"
+  "$DIR_SYSTEMD_ETC" \
+  "$DIR_SYSTEMD_SYSTEM"
 # Scan only files declared at the authenticated publication boundary. Keeping
 # the inventory in private installer state avoids package-tree traversal and
 # prevents installer environment or repository selectors entering the target.
@@ -138,54 +169,53 @@ owned_scan=${DIR_INSTALLER_RUNTIME}/bootstrap/target-owned-scan.awk
 marker_report=$(mktemp "${DIR_INSTALLER_RUNTIME}/target-marker-scan.XXXXXX")
 owned_inventory=$(mktemp "${DIR_INSTALLER_RUNTIME}/target-owned-files.XXXXXX")
 chmod 0600 "$marker_report" "$owned_inventory"
+owned_record=$(mktemp "${DIR_INSTALLER_RUNTIME}/target-owned-snapshot.XXXXXX")
+installer_target_ownership_snapshot >"$owned_record" || {
+  printf '%s\n' 'fatal: malformed or interrupted target ownership journal' >&2
+  exit 1
+}
 owned_count=0
-for owned_record in "$DIR_INSTALLER_TARGET_OWNERSHIP"/*.tsv; do
-  [ -f "$owned_record" ] && [ ! -L "$owned_record" ] &&
-    [ "$(installer_metadata_value "$owned_record" uid_gid_mode_links)" = '0:0:600:1' ] || {
-      printf '%s\n' 'fatal: unsafe or absent target ownership record' >&2
-      exit 1
-    }
+while IFS="$(printf '\t')" read -r owned_path owned_source owned_kind owned_phase owned_mode owned_extra; do
+  [ -n "$owned_source" ] && [ -n "$owned_kind" ] && [ -n "$owned_phase" ] &&
+    [ -n "$owned_mode" ] && [ -z "$owned_extra" ] || exit 1
+  case "$owned_path" in /*) ;; *) exit 1 ;; esac
+  case "$owned_path" in /|*//*|*/../*|*/..|*/./*|*/.|*[!A-Za-z0-9_./@+\ -]*) exit 1 ;; esac
   owned_count=$((owned_count + 1))
   [ "$owned_count" -le 10000 ] || { printf '%s\n' 'fatal: excessive target ownership records' >&2; exit 1; }
-  while IFS="$(printf '\t')" read -r owned_path owned_source owned_kind owned_phase owned_mode owned_extra; do
-    [ -n "$owned_source" ] && [ -n "$owned_kind" ] && [ -n "$owned_phase" ] &&
-      [ -n "$owned_mode" ] && [ -z "$owned_extra" ] || exit 1
-    case "$owned_path" in /*) ;; *) exit 1 ;; esac
-    case "$owned_path" in /|*//*|*/../*|*/..|*/./*|*/.|*[!A-Za-z0-9_./@+\ -]*) exit 1 ;; esac
-    owned_file=${target}${owned_path}
-    case "$owned_source" in repo.env|hosts/installer/runtime.env|hooks/installer/di.env)
-      printf 'fatal: installer input published into target file=%s source=%s phase=%s\n' "$owned_path" "$owned_source" "$owned_phase" >&2
-      exit 1 ;;
-    esac
-    # Typed consumer scratch inputs may already have been removed. No other
-    # missing publication is accepted as a successfully installed final file.
-    if [ "$owned_kind" = template-input ]; then
-      [ ! -e "$owned_file" ] && [ ! -L "$owned_file" ] || {
-        printf 'fatal: installer consumer input remains in target file=%s source=%s phase=%s\n' "$owned_path" "$owned_source" "$owned_phase" >&2
-        exit 1
-      }
-      continue
-    fi
-    [ -f "$owned_file" ] && [ ! -L "$owned_file" ] &&
-      [ "$(installer_metadata_value "$owned_file" links)" = 1 ] || {
-        printf 'fatal: absent or indirect owned target file=%s source=%s phase=%s\n' "$owned_path" "$owned_source" "$owned_phase" >&2
-        exit 1
-      }
-    owned_real=$(readlink -f -- "$owned_file") || exit 1
-    [ "$owned_real" = "$owned_file" ] || { printf '%s\n' 'fatal: owned target ancestry contains a symlink alias' >&2; exit 1; }
-    case "$owned_real" in "$target"/*) ;; *) printf '%s\n' 'fatal: owned target parent escapes mounted target' >&2; exit 1 ;; esac
-    owned_bytes=$(wc -c <"$owned_file")
-    [ "$owned_bytes" -le 16777216 ] || { printf '%s\n' 'fatal: excessive owned target file size' >&2; exit 1; }
-    printf '%s\t%s\t%s\t%s\t%s\n' "$owned_path" "$owned_source" "$owned_kind" "$owned_phase" "$owned_mode" >>"$owned_inventory"
-  done <"$owned_record"
-done
+  owned_file=${target}${owned_path}
+  case "$owned_source" in repo.env|hosts/installer/runtime.env|hooks/installer/di.env)
+    printf 'fatal: installer input published into target file=%s source=%s phase=%s\n' "$owned_path" "$owned_source" "$owned_phase" >&2
+    exit 1 ;;
+  esac
+  # Typed consumer scratch inputs may already have been removed. No other
+  # missing publication is accepted as a successfully installed final file.
+  if [ "$owned_kind" = template-input ]; then
+    [ ! -e "$owned_file" ] && [ ! -L "$owned_file" ] || {
+      printf 'fatal: installer consumer input remains in target file=%s source=%s phase=%s\n' "$owned_path" "$owned_source" "$owned_phase" >&2
+      exit 1
+    }
+    continue
+  fi
+  [ -f "$owned_file" ] && [ ! -L "$owned_file" ] &&
+    [ "$(installer_metadata_value "$owned_file" links)" = 1 ] || {
+      printf 'fatal: absent or indirect owned target file=%s source=%s phase=%s\n' "$owned_path" "$owned_source" "$owned_phase" >&2
+      exit 1
+    }
+  owned_real=$(readlink -f -- "$owned_file") || exit 1
+  [ "$owned_real" = "$owned_file" ] || { printf '%s\n' 'fatal: owned target ancestry contains a symlink alias' >&2; exit 1; }
+  case "$owned_real" in "$target"/*) ;; *) printf '%s\n' 'fatal: owned target parent escapes mounted target' >&2; exit 1 ;; esac
+  owned_bytes=$(wc -c <"$owned_file")
+  [ "$owned_bytes" -le 16777216 ] || { printf '%s\n' 'fatal: excessive owned target file size' >&2; exit 1; }
+  printf '%s\t%s\t%s\t%s\t%s\n' "$owned_path" "$owned_source" "$owned_kind" "$owned_phase" "$owned_mode" >>"$owned_inventory"
+done <"$owned_record"
+[ "$owned_count" -gt 0 ] || { printf '%s\n' 'fatal: empty target ownership inventory' >&2; exit 1; }
 if ! LC_ALL=C awk -v registry="$placeholder_registry" -v target_root="$target" \
     -f "$owned_scan" "$owned_inventory" >"$marker_report"; then
   cat "$marker_report" >&2
   printf 'fatal: owned target validation failed; evidence=%s inventory=%s\n' "$marker_report" "$owned_inventory" >&2
   exit 1
 fi
-rm -f "$marker_report" "$owned_inventory"
+rm -f "$marker_report" "$owned_inventory" "$owned_record"
 # Do not traverse indirect parents when writing privileged readiness state.
 path=$target_state
 while [ "$path" != / ]; do

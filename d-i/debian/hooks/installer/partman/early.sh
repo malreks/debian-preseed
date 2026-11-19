@@ -8,7 +8,7 @@ PARTMAN_EARLY_WIPEFS_WARNED=${PARTMAN_EARLY_WIPEFS_WARNED:-false}
 
 partman_early_assert_selected_disk() (
   if command -v installer_operation_context >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_INST_PARTMAN_EARLY 11 partman_early_assert_selected_disk
+    installer_operation_context_repo hooks/installer/partman/early.sh 11 partman_early_assert_selected_disk
   fi
   "${TMP_ENV_DIR:?TMP_ENV_DIR must be set}/detect-disk.sh" --verify-identity \
     "${DEV_INSTALL_DISK:?DEV_INSTALL_DISK must be set}" \
@@ -145,7 +145,7 @@ partman_early_prepare_layout() {
     installer_info 'prepared ordinary fresh layout using native partman-auto'
     return 0
   fi
-  option_source=$(installer_repo_file_value FILE_INST_PARTMAN_LAYOUT_OPTION) || return 1
+  option_source=$(installer_repo_file_value hooks/installer/partman/layout-option.sh) || return 1
   option_program="$TMP_ENV_DIR/partman-layout-option.sh"
   fetch_hook_file "$option_source" "$option_program" || return 1
   option_dir="${DIR_INSTALLER_LIB_PARTMAN}/automatically_partition/installer_target_free"

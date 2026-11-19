@@ -22,23 +22,22 @@ contract.
 
 - `di.env` is the sole source for the mounted target, installer temporary
   locations, phase hook directories, partman interfaces, and installer log.
-  It is fetched from the authenticated seed using its repository selector,
+  It is fetched from the authenticated seed as `hooks/installer/di.env`,
   validated, and sourced before installer phase dispatch.
-- Installer hook source files must not hard-code repository, target, temporary,
-  hook, or generated-state paths. Resolve source labels and operation contexts
-  through `repo.env` selectors, and resolve installer destinations from
-  `di.env`; retain a literal only for an immutable Debian partman/package
-  interface and document that interface beside the use.
-- `repo.env` owns only checkout-relative `DIR_*`/`FILE_*` selectors and is never
-  sourced on the installed target. `hosts/installer/runtime.env` owns target
-  filesystem paths and target policy/state; `di.env` owns d-i-only paths. Do
-  not publish `di.env` values into target runtime configuration or introduce
-  aliases that repeat a root.
+- Hook source members and stable internal leaf names may be documented local
+  constants. Resolve shared repository roots from the restricted `repo.env`
+  contract, installer destinations from `di.env`, and installed paths from
+  `runtime.env`. Never duplicate configurable roots or use developer-machine
+  paths. Source labels and operation contexts name the physical member.
+- `repo.env` owns repository defaults and shared relative `DIR_*` roots, never
+  a `FILE_*` inventory or installed settings. Use `source_load_repo_env` rather
+  than dot-sourcing or `eval`. Do not publish `di.env` values into target runtime
+  configuration or introduce aliases that repeat a root.
 - If a target asset is staged from an installer hook, preserve its
   `__INSTALLER_PATH_*__` placeholder until the shared publication renderer
   resolves it once. Reject unresolved tokens and do not substitute paths
   locally in an individual hook.
-- Keep repository selectors in `repo.env` and installed-system target roots in
+- Keep shared repository roots and defaults in `repo.env` and installed-system target roots in
   `hosts/installer/runtime.env`. Do not duplicate a root across these
   contracts or add variable-only aliases.
 - Installer hooks may use target roots only through the mounted-target value
@@ -51,30 +50,37 @@ contract.
 - Preserve phase boundaries and the static-only validation boundary. Do not
   execute hooks, package scripts, services, D-Bus, hardware, or host helpers.
 
-## Source selector naming and staging
+## Repository configuration and source staging
 
-- Every published source directory and file has a `DIR_*` or `FILE_*` entry
-  in `repo.env`. Use concise role/component names such as
-  `DIR_TARGET_SKEL_PROFILE`, `FILE_TARGET_SKEL_DIRCOLORS`,
-  `FILE_TARGET_SKEL_PROFILE_71_DEVOPS_DE`, and `FILE_LATE_CORE`; do not encode
-  the entire filesystem hierarchy or duplicate extensions in a selector name.
-- File entries name physical payload members, including `.tmpl` when present,
-  and derive from their nearest directory selector. Fixed installer callers
-  resolve `FILE_*` through `installer_repo_file_value`,
-  `bootstrap_repo_file_value`, or the preseed entrypoint equivalent. Dynamic
-  source choices use `installer_repo_asset_path` and the cached FILE catalog;
-  directory operations use DIR selectors. Do not reconstruct a fixed source
-  filename or a static directory prefix at a staging call site.
-- Repository selectors remain installer acquisition data. Installed paths and
-  target policy stay in `hosts/installer/runtime.env`; d-i destinations and
-  state stay in `hooks/installer/di.env`. Profiles and themes retain their
-  policy/appearance ownership. Installed programs must not source any of these
-  installer input files or receive repository selectors as runtime settings.
-- Keep FILE and DIR diagnostic interfaces distinct: FILE context calls pass
-  selector, source line, and operation; DIR context calls additionally pass a
-  relative leaf. Diagnostic lookup is advisory and must never trigger a fetch,
-  fail a valid operation, or report a line belonging to a different source.
-- A selector change requires an audit of fixed and dynamic callers, source
-  labels, loader/template suffix handling, fixtures, and generated products.
-  Preserve Dash/BusyBox compatibility; do not add `stat`, Bash features,
-  environment-size limits, or a second path renderer to the installer.
+- `repo.env` contains the supported repository defaults and genuinely shared
+  `DIR_*` roots. It is restricted assignment data, not shell code. Keep shared
+  roots parent-derived; do not restore a `FILE_*` inventory, aliases for every
+  file, or a second configuration authority.
+- Stable source members are documented root-relative interfaces at their
+  callers, including the physical `.tmpl` suffix where present. Local constants
+  and literal leaves are allowed when that interface has no supported
+  variability. Keep suite/profile/site choices, configurable roots and policy
+  in their owning contracts; never substitute a developer-machine path or
+  duplicate a shared root.
+- Preseed, bootstrap and common adapters share `source_load_repo_env`. Its
+  restricted AWK parser rejects executable syntax, unknown/duplicate/missing
+  keys, undefined parents and unsafe relative paths. Never dot-source or
+  `eval` repository configuration, and never load it on the installed target.
+- Build validates supported configuration and physical source members, and
+  compiles `catalog/compiled/source-members.tsv` from the captured snapshot.
+  Selected APT publication uses the smaller `apt-assets.tsv` table. Those
+  generated indexes carry membership data; they are not exported environment
+  variables or an alternative authored path contract.
+- Resolve dynamic members against the captured membership table at the owning
+  loader/publication boundary. Retain containment, direct-file, template,
+  ownership and permission checks there. Diagnostics name the resolved physical
+  root-relative member and source line, remain advisory, and never trigger a
+  fetch or change a successful operation into a failure.
+- Installed paths and policy remain in `hosts/installer/runtime.env`; d-i-only
+  destinations and state remain in `hooks/installer/di.env`. Profiles and themes
+  retain policy/appearance ownership. Installed programs receive concrete
+  rendered configuration and must not source these installer input files.
+- A configuration or member change requires a consumer, diagnostic, fixture and
+  generated-product audit. Preserve Dash/BusyBox compatibility, phase and
+  target-root boundaries, and the single target-placeholder renderer. Do not
+  add a large exported environment or an installer `stat` dependency.

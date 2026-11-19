@@ -71,82 +71,25 @@ desktop_assert_no_unresolved_template_placeholders() {
   target_asset_assert_no_unresolved_installer_placeholders "$rendered_path" "$label"
 }
 
-# Only Labwc's three declared XML line blocks are deferred past scalar
-# replacement. Complete them in the private candidate, before publication.
-desktop_render_declared_template_blocks() (
-  block_source=$1; block_candidate=$2
-  [ "$block_source" = "$(installer_repo_file_value FILE_TARGET_SKEL_LABWC_RC_TMPL)" ] || {
-    installer_fatal 'desktop template has no declared deferred consumer'; return 1;
-  }
-  replace_placeholder_line_block "$block_candidate" \
-    '__INSTALLER_LABWC_WORKSPACE_NAME_LINES__' "$(desktop_labwc_workspace_name_lines)" required || return 1
-  replace_placeholder_line_block "$block_candidate" \
-    '__INSTALLER_LABWC_WORKSPACE_KEYBIND_LINES__' "$(desktop_labwc_workspace_keybind_lines)" required || return 1
-  replace_placeholder_line_block "$block_candidate" \
-    '__INSTALLER_LABWC_RECORDING_KEYBIND_LINES__' "$(desktop_labwc_recording_keybind_lines)" required
-)
-
+# A desktop render becomes one declarative publication record. The shared
+# Perl batch preserves primary-account values and separately renders reusable
+# future-account templates. Labwc line blocks share that same in-memory pass.
 desktop_render_target_template_impl() {
-  source_path=$1
-  target_path=$2
-  mode=$3
-  allow_deferred_placeholders=$4
+  desktop_plan_source=$1; desktop_plan_target=$2; desktop_plan_mode=$3
+  desktop_plan_deferred=$4
   shift 4
-  tmp_source="${TMP_ENV_DIR}/desktop-template.$$.src"
-  tmp_rendered="${TMP_ENV_DIR}/desktop-template.$$.dst"
-
-  [ $(( $# % 2 )) -eq 0 ] || installer_fatal "desktop template placeholders must be name/value pairs: ${source_path}"
-  if ! fetch_hook "$source_path" "$tmp_source"; then
-    rm -f "$tmp_source" "$tmp_rendered"
-    return 1
+  [ $(( $# % 2 )) -eq 0 ] || installer_fatal 'desktop template placeholders must be name/value pairs'
+  if [ "$desktop_plan_deferred" = true ]; then
+    set -- "$@" \
+      BLOCK_LABWC_WORKSPACE_NAME_LINES "$(desktop_labwc_workspace_name_lines)" \
+      BLOCK_LABWC_WORKSPACE_KEYBIND_LINES "$(desktop_labwc_workspace_keybind_lines)" \
+      BLOCK_LABWC_RECORDING_KEYBIND_LINES "$(desktop_labwc_recording_keybind_lines)"
+    desktop_plan_kind=scalar-blocks
+  else
+    desktop_plan_kind=scalar
   fi
-  if ! installer_apply_scalar_placeholders "$tmp_source" "$tmp_rendered" "$@"; then
-    rm -f "$tmp_source" "$tmp_rendered"
-    installer_fatal "failed to render desktop template ${source_path}"
-  fi
-
-  if [ "$allow_deferred_placeholders" = true ]; then
-    desktop_render_declared_template_blocks "$source_path" "$tmp_rendered" || return 1
-  fi
-  desktop_assert_no_unresolved_template_placeholders "$tmp_rendered" "desktop template ${source_path}"
-  ensure_target_asset_parent "$target_path"
-  rendered_target=$(target_asset_host_path "$target_path")
-  # The primary user's fully configured input is retained independently from
-  # the private future-user template. Both are rendered from tmp_source with
-  # the same shared renderer; neither reads the installed template as input.
-  installer_capture_primary_default "$tmp_rendered" "$target_path" "$mode"
-  case "$rendered_target" in
-    "${TARGET_ROOT}${DIR_ETC_SKEL_DESKTOP}/"*)
-      future_fields=$#
-      future_changed=false
-      while [ "$future_fields" -gt 0 ]; do
-        future_key=$1; future_value=$2; shift 2
-        future_fields=$((future_fields - 2))
-        case "$future_key" in
-          ACCOUNT_HOME) future_value='$HOME'; future_changed=true ;;
-          ACCOUNT_USERNAME) future_value='$USER'; future_changed=true ;;
-          DIR_HOME_*)
-            future_value=$(desktop_account_relative_home_path "$future_value") || return 1
-            future_changed=true
-            ;;
-        esac
-        set -- "$@" "$future_key" "$future_value"
-      done
-      if [ "$future_changed" = true ]; then
-        if ! installer_apply_scalar_placeholders "$tmp_source" "$tmp_rendered" "$@"; then
-          rm -f "$tmp_source" "$tmp_rendered"
-          installer_fatal "failed to render reusable account template ${source_path}"
-        fi
-        desktop_assert_no_unresolved_template_placeholders "$tmp_rendered" "future account template ${source_path}"
-      fi
-      ;;
-  esac
-  # A named stdin source is an authenticated, completely rendered candidate.
-  # The shared boundary owns its atomic rename and final ownership record;
-  # the primary/future-account split above has already captured its default.
-  publish_target_asset "$source_path" "$target_path" "$mode" stdin <"$tmp_rendered" || return 1
-  rm -f "$tmp_source" "$tmp_rendered"
-  desktop_log "rendered_template source=${source_path} target=${target_path} mode=${mode}"
+  installer_asset_publish "$desktop_plan_kind" "$desktop_plan_source" \
+    "$desktop_plan_target" "$desktop_plan_mode" "$@"
 }
 
 desktop_render_target_template() {
@@ -173,7 +116,7 @@ desktop_render_role_target_template() {
   mode=$3
   desktop_role_owns_target "$target_path" || return 0
   shift 3
-  source_path=$(installer_repo_asset_path DIR_HOOKS_TARGET "$role_relpath")
+  source_path=$role_relpath
 
   desktop_render_target_template "$source_path" "$target_path" "$mode" "$@"
 }
@@ -184,7 +127,7 @@ desktop_render_role_target_template_deferred() {
   mode=$3
   desktop_role_owns_target "$target_path" || return 0
   shift 3
-  source_path=$(installer_repo_asset_path DIR_HOOKS_TARGET "$role_relpath")
+  source_path=$role_relpath
 
   desktop_render_target_template_deferred "$source_path" "$target_path" "$mode" "$@"
 }
@@ -194,7 +137,7 @@ desktop_render_shared_target_template() {
   target_path=$2
   mode=$3
   shift 3
-  source_path=$(installer_repo_asset_path DIR_HOOKS_TARGET "$shared_relpath")
+  source_path=$shared_relpath
 
   desktop_render_target_template "$source_path" "$target_path" "$mode" "$@"
 }
@@ -377,17 +320,17 @@ usermod -a -G usbmedia "$account_user"
     "${TARGET_ROOT}${DIR_POLKIT_RULES_D}" \
     "${TARGET_ROOT}${DIR_POLKIT_LOCAL_RULES_D}"
 
-  desktop_stage_role_asset FILE_TARGET_UDISKS2 "$FILE_UDISKS2_CONF" 0644
-  desktop_stage_role_asset FILE_TARGET_UDISKS2_MOUNT_OPTIONS "$FILE_UDISKS2_MOUNT_OPTIONS_CONF" 0644
-  desktop_stage_role_asset FILE_TARGET_UDEV_RULES_D_90_UDISKS_BEHAVIOR "$FILE_UDEV_UDISKS_BEHAVIOR_RULES" 0644
+  desktop_stage_role_asset hooks/target/etc/udisks2/udisks2.conf "$FILE_UDISKS2_CONF" 0644
+  desktop_stage_role_asset hooks/target/etc/udisks2/mount_options.conf "$FILE_UDISKS2_MOUNT_OPTIONS_CONF" 0644
+  desktop_stage_role_asset hooks/target/etc/udev/rules.d/90-udisks-behavior.rules "$FILE_UDEV_UDISKS_BEHAVIOR_RULES" 0644
   desktop_render_role_target_template \
-    FILE_TARGET_TMPFILES_D_70_POLKIT_RUNTIME_TMPL \
+    hooks/target/etc/tmpfiles.d/common/70-polkit-runtime.conf.tmpl \
     "$FILE_POLKIT_RUNTIME_TMPFILES" \
     0644 \
     DIR_POLKIT_RUNTIME_RULES_D "$DIR_POLKIT_RUNTIME_RULES_D" \
     DIR_POLKIT_LOCAL_RULES_D "$DIR_POLKIT_LOCAL_RULES_D"
   desktop_render_role_target_template \
-    FILE_TARGET_TMPFILES_D_25_DESKTOP_MEDIA_RUNTIME_TMPL \
+    hooks/target/etc/tmpfiles.d/desktop/25-desktop-media-runtime.conf.tmpl \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/25-desktop-media-runtime.conf \
     0644 \
     DIR_RUN_MEDIA "$DIR_RUN_MEDIA" \
@@ -416,7 +359,7 @@ desktop_stage_primary_account_pool_storage_policy() {
     installer_fatal "desktop account pool storage requires the shared tmpfiles normalizer"
 
   desktop_render_role_target_template \
-    FILE_TARGET_TMPFILES_D_75_DESKTOP_POOL_STORAGE_TMPL \
+    hooks/target/etc/tmpfiles.d/desktop/75-desktop-pool-storage.conf.tmpl \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/75-desktop-pool-storage.conf \
     0644 \
     ACCOUNT_USERNAME "$ACCOUNT_USERNAME" \
@@ -435,7 +378,7 @@ desktop_stage_network_profile_storage_policy() {
     installer_fatal "desktop network profile storage requires the shared tmpfiles normalizer"
 
   desktop_stage_role_asset \
-    FILE_TARGET_TMPFILES_D_40_NETWORK_PROFILES \
+    hooks/target/etc/tmpfiles.d/common/40-network-profiles.conf \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/40-network-profiles.conf \
     0644
   normalize_target_tmpfiles_directory_policy \
@@ -467,11 +410,11 @@ done
 ' sh
 
   desktop_stage_role_asset \
-    FILE_TARGET_TMPFILES_D_50_DESKTOP_VAR_CACHE \
+    hooks/target/etc/tmpfiles.d/desktop/50-desktop-var-cache.conf \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/50-desktop-var-cache.conf \
     0644
   desktop_stage_role_asset \
-    FILE_TARGET_TMPFILES_D_MAN_DB \
+    hooks/target/etc/tmpfiles.d/common/man-db.conf \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/man-db.conf \
     0644
   normalize_target_tmpfiles_directory_policy \

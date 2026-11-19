@@ -17,7 +17,7 @@ installer_fetch_host_env "$SEED_BASE" "$INSTALLER_HOST_PROFILE" "$LATE_COMMAND_H
 installer_load_data_env "$LATE_COMMAND_HOST_ENV"
 installer_assert_class_plan
 bootstrap_source_common_support_libs "$SEED_BASE" "${TMP_ENV_DIR}/profile-service-support" fetch hook target
-for module in FILE_LATE_CORE FILE_LATE_TARGET_ASSETS FILE_LATE_NETWORK_SHARING_SH FILE_OS_FILEN; do
+for module in scripts/late/core.sh scripts/late/target-assets.sh scripts/late/network-sharing.sh scripts/common/filen.sh; do
   module_file="${TMP_ENV_DIR}/${module}.sh"
   installer_fetch_file "$SEED_BASE" "$(installer_repo_file_value "$module")" "$module_file.source" 0600
   installer_apply_scalar_placeholders "$module_file.source" "$module_file"
@@ -30,11 +30,11 @@ ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || installer_fatal 'sha
 printf '%s\n' "$ACCOUNT_USERNAME" | LC_ALL=C grep -Eq '^[a-z_][a-z0-9_-]{0,31}$' || installer_fatal 'invalid sharing operator identity'
 case "$ACCOUNT_USERNAME" in root|nobody|nogroup) installer_fatal 'sharing requires a human operator' ;; esac
 ACCOUNT_HOME="${DIR_HOME}/$ACCOUNT_USERNAME"
-installer_stage_profile_file FILE_TARGET_PY_NETWORK_SHARING "${DIR_PYTHON3_SITE_PACKAGES}/managed_network_sharing.py" 0644
-installer_stage_profile_file FILE_TARGET_BIN_NETWORK_SHARING "${DIR_USR_LOCAL_BIN}/network-sharing" 0755
-installer_stage_profile_file FILE_TARGET_BIN_NFSMNT "${DIR_USR_LOCAL_BIN}/nfsmnt" 0755
-installer_stage_profile_file FILE_TARGET_BIN_FILENMNT "${DIR_USR_LOCAL_BIN}/filenmnt" 0755
-installer_stage_profile_file FILE_TARGET_AA_NETWORK_SHARING "${DIR_APPARMOR}/network-sharing" 0644
+installer_stage_profile_file hooks/target/usr/local/lib/common/python3/dist-packages/managed_network_sharing.py "${DIR_PYTHON3_SITE_PACKAGES}/managed_network_sharing.py" 0644
+installer_stage_profile_file hooks/target/usr/local/bin/common/network-sharing "${DIR_USR_LOCAL_BIN}/network-sharing" 0755
+installer_stage_profile_file hooks/target/usr/local/bin/common/nfsmnt "${DIR_USR_LOCAL_BIN}/nfsmnt" 0755
+installer_stage_profile_file hooks/target/usr/local/bin/common/filenmnt "${DIR_USR_LOCAL_BIN}/filenmnt" 0755
+installer_stage_profile_file hooks/target/etc/apparmor.d/common/network-sharing "${DIR_APPARMOR}/network-sharing" 0644
 configure_target_network_sharing
 install_profile_filen
 if [ "$INSTALLER_HOST_VARIANT" = server ]; then

@@ -39,8 +39,8 @@ class ProfileManagementTests(unittest.TestCase):
         with profile.SourceCapture(ROOT) as capture:
             cls.sources, _compiler = capture.read()
             capture.verify()
-        cls.paths = profile.selectors(cls.sources['repo.env'].decode(), profile.SUITES[0])
-        registered = {item['id'] for item in json.loads(cls.sources[cls.paths['FILE_SELECTION_REGISTRY']])['profiles']}
+        cls.paths = profile.repo_paths(cls.sources, profile.SUITES[0])
+        registered = {item['id'] for item in json.loads(cls.sources['catalog/selection.json'])['profiles']}
         cls.hostname = next(name for name in (f'z{number:04d}' for number in range(10000)) if all(
             f'{filesystem}-{tag}-{name}{suffix}' not in registered
             for filesystem in ('btrfs', 'f2fs')
@@ -54,7 +54,7 @@ class ProfileManagementTests(unittest.TestCase):
         changes = profile.deletion_candidate(self.sources, [self.base + '-trio'])
         self.assertEqual(sum(data is None for data in changes.values()), 3)
         remaining = apply_changes(self.sources, changes)
-        registry = json.loads(remaining[self.paths['FILE_SELECTION_REGISTRY']])
+        registry = json.loads(remaining['catalog/selection.json'])
         registered = {item['id'] for item in registry['profiles']}
         self.assertIn(self.base, registered)
         self.assertIn(self.base + '-duo', registered)
@@ -73,7 +73,7 @@ class ProfileManagementTests(unittest.TestCase):
         self.assertEqual(sum(data is None for data in changes.values()), 9)
         remaining = apply_changes(self.sources, changes)
         for suite in profile.SUITES:
-            paths = profile.selectors(remaining['repo.env'].decode(), suite)
+            paths = profile.repo_paths(remaining, suite)
             for identifier in self.group:
                 self.assertNotIn(paths['DIR_CLASSES_PROFILE_DESKTOP'] + '/' + identifier + '.cfg', remaining)
 
@@ -94,17 +94,18 @@ class ProfileManagementTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'missing or shared'):
             profile.deletion_candidate({key: value for key, value in self.sources.items() if key != missing}, [selected])
         sources = dict(self.sources)
-        token = self.base.upper().replace('-', '_') + '_TRIO'
-        sources['scripts/profile-reference-fixture.sh'] = (': "${FILE_HOST_PROFILE_' + token + '}"\n').encode()
+        member = self.paths['DIR_HOSTS_PROFILES_DESKTOP'] + '/' + selected + '.env'
+        sources['scripts/profile-reference-fixture.sh'] = (': "' + member + '"\n').encode()
         with self.assertRaisesRegex(ValueError, 'remaining source references'):
             profile.deletion_candidate(sources, [selected])
 
-    def test_selector_aliases_for_deleted_members_are_removed_together(self):
-        sources = dict(self.sources)
-        token = self.base.upper().replace('-', '_') + '_TRIO'
-        sources['repo.env'] += ('FILE_PROFILE_DELETE_ALIAS="${FILE_HOST_PROFILE_' + token + '}"\n').encode()
-        changes = profile.deletion_candidate(sources, [self.base + '-trio'])
-        self.assertNotIn(b'FILE_PROFILE_DELETE_ALIAS=', changes['repo.env'])
+    def test_profile_membership_changes_do_not_rewrite_configuration(self):
+        created = profile.candidate(self.sources, 'f2fs', 'server', ['normal'], self.hostname)
+        deleted = profile.deletion_candidate(self.sources, [self.base + '-trio'])
+        for changes in (created, deleted):
+            self.assertNotIn('repo.env', changes)
+            self.assertIn(self.paths['DIR_CATALOG'] + '/selection.json', changes)
+            self.assertEqual(apply_changes(self.sources, changes)['repo.env'], self.sources['repo.env'])
 
     @contextmanager
     def private_publication(self, changes):

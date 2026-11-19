@@ -23,6 +23,10 @@ SEED = ROOT / 'd-i/debian'
 GENERATED = {'preseed.cfg', 'payload.tar.gz', 'payload.manifest'}
 EXCLUDED_DIRS = {'tests', '__pycache__', '.git', '.pytest_cache', 'releases', 'publications'}
 PRIVATE_INPUT_NAMES = {'preseed.env', 'git_ed25519', 'git_ed25519.pub', 'id_git_ed25519'}
+# Developer validation reads the full JSON from the checkout. Runtime owner
+# diagnostics use the separately validated TSV, which remains authenticated
+# payload data. Keep this exclusion exact: other catalog JSON is runtime input.
+DEVELOPMENT_ONLY_MEMBERS = {'catalog/placeholder-registry.json'}
 PRIVATE_KEY_HEADER = re.compile(rb'-----BEGIN (?:OPENSSH |RSA |EC |DSA |ENCRYPTED )?PRIVATE KEY-----')
 SAFE_PATH = re.compile(r'[A-Za-z0-9_./@+-]+\Z')
 ALLOWED_PAYLOAD_PATHS = {
@@ -59,7 +63,7 @@ def directory_identity(info: os.stat_result) -> tuple[int, ...]:
 
 
 class SourceCapture:
-    """One bounded, descriptor-relative capture for every authored build input.
+    """One bounded capture for authored runtime sources and compiler inputs.
 
     Linux O_PATH pins a leaf without opening a substituted device or FIFO.
     Reads promote only a checked regular-file descriptor through the kernel's
@@ -170,7 +174,7 @@ class SourceCapture:
                 for name in sorted(names):
                     child = relative + '/' + name
                     member = prefix + '/' + name if prefix else name
-                    if shared and member in GENERATED:
+                    if shared and (member in GENERATED or member in DEVELOPMENT_ONLY_MEMBERS):
                         continue
                     pinned = os.open(name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptor)
                     try:
@@ -301,6 +305,7 @@ def generate_preseed(archive_sha: str, manifest_sha: str,
         '[ "$(cat "$boot/source.release")" != "$INSTALLER_RELEASE_ID" ]; then '
         'source_transfer "$base" source.sh "$boot/source.sh" || exit 1; '
         'printf "%s\\012" "$INSTALLER_RELEASE_ID" >"$boot/source.release"; fi; '
+        f'source_verify_sha256 "$boot/source.sh" {sha(source.encode())} "bootstrap source" || exit 1; '
         '. "$boot/source.sh"; '
         f'source_bootstrap "$base" {archive_sha} {manifest_sha} {suite}; '
         'installer_lifecycle_complete')
@@ -380,19 +385,8 @@ def serialize(contents: dict[str, bytes], compiler_inputs: dict[str, bytes]
         if name in contents:
             raise ValueError('generated catalog collides with authored source')
         contents[name] = data
-    # Generated leaves receive one catalog selector, consumed by the cached
-    # existing FILE index. They never become executable role/profile input.
-    selector_lines = []
-    selector_names = set()
-    for name in sorted(compiled):
-        token = re.sub(r'[^A-Z0-9]+', '_', name.removeprefix('catalog/compiled/').upper()).strip('_')
-        selector = 'FILE_COMPILED_' + token
-        if selector in selector_names:
-            raise ValueError('compiled selector collision')
-        selector_names.add(selector)
-        selector_path = ('${DIR_FRONTENDS}/' + name.removeprefix('frontends/')) if name.startswith('frontends/') else ('${DIR_CATALOG_COMPILED}/' + name.removeprefix('catalog/compiled/'))
-        selector_lines.append(f'{selector}="{selector_path}"\n')
-    contents['repo.env'] += ''.join(selector_lines).encode()
+    # Generated source membership is data in the compiler catalogs. The public
+    # configuration bytes remain exactly the authored small repo.env contract.
     identity_lines = [f'{sha(data)}  source/{name}\n' for name, data in sorted(captured.items())]
     identity_lines += [f'{sha(data)}  compiler/{name}\n' for name, data in sorted(compiler_inputs.items())]
     input_fingerprint = sha(''.join(sorted(identity_lines)).encode())

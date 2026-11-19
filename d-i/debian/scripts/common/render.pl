@@ -6,6 +6,7 @@ use warnings;
 use bytes;
 use Fcntl qw(O_RDONLY O_WRONLY O_CREAT O_EXCL O_NOFOLLOW O_NONBLOCK :mode);
 use File::Temp qw(tempdir tempfile);
+use IO::Handle ();
 
 use constant FILE_LIMIT => 16 * 1024 * 1024;
 use constant BYTE_LIMIT => 256 * 1024 * 1024;
@@ -15,14 +16,14 @@ use constant ENTRY_LIMIT => 20000;
 sub fail { die "$_[0]\n"; }
 sub relative {
     my ($path) = @_;
-    defined($path) && length($path) <= 4096 && $path =~ m{\A[A-Za-z0-9_./@+ -]+\z}
+    defined($path) && length($path) <= 4096 && $path =~ m{\A[A-Za-z0-9_./\@+ -]+\z}
         && $path !~ m{\A/|(?:\A|/)(?:\.?\.?)(?:/|\z)}
         or fail('invalid relative source selector');
     return $path;
 }
 sub absolute {
     my ($path) = @_;
-    defined($path) && $path =~ m{\A/[A-Za-z0-9_./@+ -]*\z}
+    defined($path) && $path =~ m{\A/[A-Za-z0-9_./\@+ -]*\z}
         && length($path) <= 4096 && ($path eq '/' || $path !~ m{/$})
         && $path !~ m{(?:\A|/)(?:\.|\.\.)(?:/|\z)|//}
         or fail('invalid absolute publication path');
@@ -64,7 +65,7 @@ sub read_regular {
     return $data;
 }
 sub write_file {
-    my ($path, $data, $replace, $mode) = @_;
+    my ($path, $data, $replace, $mode, $policy) = @_;
     length($data) <= FILE_LIMIT or fail('render output exceeds byte limit');
     my @before;
     if ($replace) {
@@ -78,7 +79,7 @@ sub write_file {
     # intact. Stage beside the destination, then recheck identities before the
     # single rename. New files use an exclusive link to avoid an overwrite race.
     my $parent = parent_path($path);
-    directory($parent, 0, 0);
+    directory($parent, 0, 0, $policy);
     my @parent_before = lstat($parent);
     my ($stream, $temporary) = tempfile('.render-XXXXXX', DIR => $parent, UNLINK => 0);
     my $error;
@@ -90,9 +91,12 @@ sub write_file {
             defined($count) && $count > 0 or fail('cannot write render output');
             $offset += $count;
         }
+        if ($policy) {
+            chown(0, 0, $temporary) == 1 or fail('cannot set publication ownership');
+        }
         chmod($mode // 0600, $stream) == 1 or fail('cannot set render output mode');
         close($stream) or fail('cannot close render output');
-        directory($parent, 0, 0);
+        directory($parent, 0, 0, $policy);
         my @parent_after = lstat($parent);
         for my $index (0, 1, 2, 4, 5) {
             $parent_before[$index] == $parent_after[$index]
@@ -123,7 +127,7 @@ sub value_map {
         my ($key, $value) = ($1, $2);
         !exists($values{$key}) or fail('duplicate render-map key');
         if ($key =~ /\APATH_(?:DIR_|FILE_)/) {
-            length($value) && $value =~ m{\A/[A-Za-z0-9_./@+ -]*\z}
+            length($value) && $value =~ m{\A/[A-Za-z0-9_./\@+ -]*\z}
                 && ($value eq '/' || $value !~ m{/$})
                 && $value !~ m{(?:\A|/)(?:\.|\.\.)(?:/|\z)|//}
                 or fail('invalid normalized path render-map value');
@@ -383,18 +387,24 @@ sub theme_bytes {
     return $data;
 }
 sub directory {
-    my ($path, $create, $private) = @_;
+    my ($path, $create, $private, $policy) = @_;
     absolute($path);
     my $current = '';
     for my $leaf ('', grep { length } split m{/}, $path) {
         $current = $leaf eq '' ? '/' : ($current eq '/' ? "/$leaf" : "$current/$leaf");
         my @info = lstat($current);
+        return if !@info && $create < 0; # Preflight stops at the first absent parent.
         if (!@info && $create) {
-            mkdir($current, 0755) or fail('cannot create publication directory');
-            chmod(0755, $current) == 1 or fail('cannot set publication directory mode');
+            my $mode = $policy && ($current eq $policy->{defaults}
+                || index($current, "$policy->{defaults}/") == 0
+                || grep { $current eq $_ } @{$policy->{skeletons}}) ? 0700 : 0755;
+            mkdir($current, $mode) or fail('cannot create publication directory');
+            chmod($mode, $current) == 1 or fail('cannot set publication directory mode');
             @info = lstat($current);
         }
-        @info && S_ISDIR($info[2]) && $info[4] == $> && !($info[2] & 0022)
+        my $shared_temporary = $policy && $current eq $policy->{temporary}
+            && @info && ($info[2] & 07777) == 01777;
+        @info && S_ISDIR($info[2]) && $info[4] == $> && (!($info[2] & 0022) || $shared_temporary)
             or fail('unsafe publication ancestry');
     }
     if ($private) {
@@ -595,7 +605,7 @@ sub source_provenance {
     my ($root, $report) = @_;
     return unless lstat("$root/identity");
     my $identity = read_regular("$root/identity", 8192);
-    $identity =~ /\A([a-f0-9]{64}) ([a-f0-9]{64}) ([A-Za-z0-9:\/._+?%#@ -]+)\n\z/
+    $identity =~ /\Averified-v1 ([a-f0-9]{64}) ([a-f0-9]{64}) ([A-Za-z0-9:\/._+?%#@ -]+)\n\z/
         or fail('prepared payload identity is malformed');
     $report->{source_archive_sha256} = $1;
     $report->{source_manifest_sha256} = $2;
@@ -621,8 +631,425 @@ sub cleanup_workspace {
         for sort { length($b) <=> length($a) } @$directories;
     rmdir($root) or fail('cannot remove completed workspace');
 }
+
+# A publication plan is private, bounded data. Its length-prefixed fields carry
+# line blocks without quoting or a shell-evaluated configuration language.
+# The shell owns role selection and dependency barriers; this process owns the
+# selected immutable source snapshot, rendering and each atomic destination.
+sub publication_plan {
+    my ($path) = @_;
+    my $data = read_regular($path, FILE_LIMIT);
+    $data =~ s/\Apublication-plan-v1\n// or fail('unsupported publication plan');
+    my (@rows, $offset, $fields_total);
+    ($offset, $fields_total) = (0, 0);
+    while ($offset < length($data)) {
+        pos($data) = $offset;
+        $data =~ /\G([1-9][0-9]{0,3})\n/gc or fail('malformed publication field count');
+        my $count = 0 + $1;
+        $count >= 9 && $count <= 1033 && ($count - 9) % 2 == 0
+            && @rows < MEMBER_LIMIT && ($fields_total += $count) <= 100000
+            or fail('excessive publication plan');
+        $offset = pos($data);
+        my @fields;
+        for (1 .. $count) {
+            pos($data) = $offset;
+            $data =~ /\G(0|[1-9][0-9]{0,6}):/gc or fail('malformed publication field length');
+            my $length = 0 + $1;
+            $offset = pos($data);
+            $length <= 1024 * 1024 && $offset + $length < length($data)
+                && substr($data, $offset + $length, 1) eq ','
+                or fail('truncated or excessive publication field');
+            my $value = substr($data, $offset, $length);
+            index($value, "\0") < 0 && index($value, "\r") < 0
+                or fail('invalid publication field bytes');
+            push @fields, $value;
+            $offset += $length + 1;
+        }
+        push @rows, \@fields;
+    }
+    return \@rows;
+}
+sub publication_markers {
+    my ($data, $kind, $source) = @_;
+    return if index($data, "\0") >= 0; # Preserve binary assets byte for byte.
+    if ($kind eq 'template-input') {
+        $data !~ /__INSTALLER_(?:PATH_|APPARMOR_PROFILE_|GITBUILD_DISTRIBUTION)/
+            or fail("unresolved canonical template-input field: $source");
+        return;
+    }
+    if ($kind eq 'appearance-registry') {
+        $data =~ s/__INSTALLER_LABWC_WAYBAR_((INTERNAL|EXTERNAL)_(ACTIVE|PANEL)|SHARED_MENU(_HOVER)?)_SHADOW__//g;
+    }
+    $data !~ /__INSTALLER_[A-Za-z0-9_]/ or fail("unresolved target installer field: $source");
+}
+sub publication_render {
+    my ($data, $kind, $values, $blocks, $paths) = @_;
+    return $data if index($data, "\0") >= 0;
+    $data = known_scalar_bytes($data, scalar_token_map($values))
+        if $kind eq 'scalar' || $kind eq 'scalar-blocks' || $kind eq 'resources';
+    for my $name (sort keys %$blocks) {
+        my $token = '__INSTALLER_' . $name . '__';
+        my $value = $blocks->{$name};
+        $value .= "\n" if length($value) && $value !~ /\n\z/;
+        my $count = ($data =~ s{^\Q$token\E(?:\n|\z)}{$value}mg);
+        $count == 1 or fail('declared publication line block must occur exactly once: ' . $name);
+    }
+    if ($kind eq 'resources') {
+        for my $controller (qw(IO CPU)) {
+            my $enabled = mapped($values, 'SYSTEMD_' . $controller . 'WEIGHT_ENABLE');
+            $enabled =~ /\A(?:true|false)\z/ or fail('invalid resource controller switch');
+            $data =~ s{^[\t ]*(?:Startup)?\Q$controller\EWeight[\t ]*=[^\n]*(?:\n|\z)}{}mg
+                if $enabled eq 'false';
+        }
+    }
+    return path_bytes($data, $paths);
+}
+sub publication_destination {
+    my ($path, $policy, $create) = @_;
+    absolute($path);
+    $path ne '/' or fail('publication destination is the target root');
+    # The target Perl is already chrooted. No mounted-target prefix is ever
+    # accepted here, and all filesystem checks remain relative to this root.
+    $path =~ m{\A/(?:bin|boot|dev|etc|home|lib|lib64|opt|proc|root|run|sbin|srv|sys|tmp|usr|var|pool|data)/}
+        or fail('publication destination is outside the target namespace');
+    directory(parent_path($path), $create, 0, $policy);
+    my @info = lstat($path);
+    regular_metadata(\@info, FILE_LIMIT) if @info;
+    return \@info;
+}
+# Durability belongs to the batch commit, not to transient render candidates.
+# Keep one sync per written file and one per distinct directory; no data is read
+# or hashed again and no process is launched to flush the target filesystem.
+sub publication_sync {
+    my ($path, $is_directory, $policy) = @_;
+    directory($is_directory ? $path : parent_path($path), 0, 0, $policy);
+    sysopen(my $stream, $path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        or fail('cannot open publication for synchronization');
+    my @before = stat($stream);
+    if ($is_directory) {
+        @before && S_ISDIR($before[2]) && $before[4] == $>
+            or fail('unsafe publication directory during synchronization');
+    } else {
+        regular_metadata(\@before, FILE_LIMIT);
+    }
+    $stream->sync or fail('cannot synchronize published target state');
+    my @after = lstat($path);
+    same_metadata(\@before, \@after);
+    close($stream) or fail('cannot close publication synchronization handle');
+}
+
+# Source family directories are acquisition interfaces, not installed paths.
+# The shell passes their existing shared root owners once. Logical leaf names
+# use a small fixed interface table; all selection is exact-key in memory.
+sub publication_source {
+    my ($requested, $members, $context, $families) = @_;
+    relative($requested);
+    my @choices;
+    my $physical = index($requested, "$context->{SOURCE_TARGET_ROOT}/") == 0
+        || $requested =~ m{\A(?:scripts|hosts|catalog|frontends)/};
+    if ($physical) {
+        # A fixed physical filename has an explicit owner. Preserve source_fetch
+        # suffix handling only when that exact member is absent.
+        @choices = ($members->{$requested} ? $requested : "${requested}.tmpl");
+    } else {
+        for my $entry (@$families) {
+            my ($logical, $root) = @$entry;
+            next unless index($requested, "$logical/") == 0;
+            my $leaf = substr($requested, length($logical) + 1);
+            @choices = $leaf =~ m{\A(?:common|desktop|server)/}
+                ? ("$root/$leaf") : ("$root/common/$leaf", "$root/$context->{FAMILY}/$leaf");
+            last;
+        }
+        if (!@choices && $requested =~ m{\Aetc/systemd/([^/]+)/(.*)\z}) {
+            my ($scope, $leaf) = ($1, $2);
+            $scope =~ /\A(?:system|user|system\.conf\.d|user\.conf\.d|journald\.conf\.d|coredump\.conf\.d|resolved\.conf\.d|logind\.conf\.d)\z/
+                or fail('invalid logical systemd asset scope');
+            @choices = ("$context->{SOURCE_SYSTEMD_COMMON}/$scope/$leaf",
+                        $context->{'SOURCE_SYSTEMD_' . uc($context->{FAMILY})} . "/$scope/$leaf");
+        }
+        if (!@choices && $requested =~ m{\Aetc/apt/(.*)\z}) {
+            my $leaf = $1;
+            @choices = ($context->{'SOURCE_APT_' . uc($context->{FAMILY})} . "/$leaf");
+            unshift @choices, "$context->{SOURCE_APT_ROOT}/$leaf" if index($leaf, 'apt.conf.d/') == 0;
+        }
+        @choices = ("$context->{SOURCE_TARGET_ROOT}/$requested") unless @choices;
+        @choices = map { ($_, "${_}.tmpl") } @choices;
+    }
+    my %seen;
+    my @selected = grep { !$seen{$_}++ && $members->{$_} } @choices;
+    @selected == 1 or fail("missing or ambiguous publication source owner: $requested");
+    my $source = $selected[0];
+    for my $entry (@$families) {
+        my $root = $entry->[1];
+        next unless index($source, "$root/") == 0;
+        my $leaf = substr($source, length($root) + 1);
+        $leaf =~ m{\A(?:common|\Q$context->{FAMILY}\E)/}
+            or fail('publication source belongs to an incompatible or missing role family');
+    }
+    if (index($source, "$context->{SOURCE_SYSTEMD_ROOT}/") == 0) {
+        (index($source, "$context->{SOURCE_SYSTEMD_COMMON}/") == 0
+            || index($source, $context->{'SOURCE_SYSTEMD_' . uc($context->{FAMILY})} . '/') == 0)
+            or fail('publication source belongs to an incompatible systemd role');
+    }
+    if ($source =~ m{\Afrontends/}) {
+        index($source, "$context->{SOURCE_FRONTEND_ROOT}/") == 0
+            or fail('publication source belongs to another suite');
+    }
+    for my $family (qw(desktop server)) {
+        next if $family eq $context->{FAMILY};
+        (index($source, $context->{'SOURCE_APT_' . uc($family)} . '/') != 0
+            && index($source, "$context->{SOURCE_TARGET_ROOT}/etc/skel-$family/") != 0)
+            or fail('publication source belongs to an incompatible target role');
+    }
+    $source !~ m{\A(?:repo\.env|hosts/installer/runtime\.env|hooks/installer/di\.env)\z}
+        or fail('installer authority cannot be published as target configuration');
+    return $source;
+}
+
+sub publish_assets {
+    my ($work, $root) = @_;
+    my $started = time;
+    directory($root, 0, 1);
+    directory($work, 0, 1);
+    index($work, "$root/inputs/publish.") == 0 && parent_path($work) eq "$root/inputs"
+        or fail('publication work is outside the prepared input owner');
+    my $context = value_map("$work/context");
+    my @source_keys = qw(SOURCE_TARGET_ROOT SOURCE_AA_ROOT SOURCE_APPARMOR_ROOT SOURCE_TMPFILES_ROOT
+                         SOURCE_SYSCTL_ROOT SOURCE_BIN_ROOT SOURCE_SBIN_ROOT SOURCE_LIBEXEC_ROOT
+                         SOURCE_LIB_ROOT SOURCE_SHARE_ROOT SOURCE_SYSTEMD_ROOT SOURCE_SYSTEMD_COMMON
+                         SOURCE_SYSTEMD_DESKTOP SOURCE_SYSTEMD_SERVER SOURCE_APT_ROOT SOURCE_APT_DESKTOP
+                         SOURCE_APT_SERVER SOURCE_FRONTEND_ROOT);
+    my @context_keys = (qw(FORMAT SUITE FAMILY PHASE GROUP DEFAULTS_ROOT TEMP_ROOT SKELETON_BASE
+                           SKELETON_DESKTOP SKELETON_SERVER ACCOUNT_HOME SOURCE_ARCHIVE_SHA256), @source_keys);
+    keys(%$context) == @context_keys or fail('publication context has unsupported fields');
+    mapped($context, $_) for @context_keys;
+    $context->{FORMAT} eq '1' && $context->{FAMILY} =~ /\A(?:desktop|server)\z/
+        && $context->{SUITE} =~ /\A(?:forky|trixie)\z/
+        && $context->{PHASE} =~ m{\A[-A-Za-z0-9_.\x2f\x40+:]+\z}
+        && $context->{GROUP} =~ /\A[a-z][a-z0-9-]{0,63}\z/
+        && $context->{SOURCE_ARCHIVE_SHA256} =~ /\A[a-f0-9]{64}\z/
+        or fail('invalid selected publication context');
+    my %provenance;
+    source_provenance($root, \%provenance);
+    ($provenance{source_archive_sha256} // '') eq $context->{SOURCE_ARCHIVE_SHA256}
+        or fail('publication plan belongs to another prepared payload');
+    my $policy = {defaults => absolute($context->{DEFAULTS_ROOT}),
+                  temporary => absolute($context->{TEMP_ROOT}),
+                  skeletons => [map { absolute($context->{$_}) } qw(SKELETON_BASE SKELETON_DESKTOP SKELETON_SERVER)]};
+    absolute($context->{ACCOUNT_HOME});
+    relative($context->{$_}) for @source_keys;
+    my @family_interfaces = (
+        ['etc/apparmor.d', $context->{SOURCE_AA_ROOT}], ['etc/apparmor', $context->{SOURCE_APPARMOR_ROOT}],
+        ['etc/tmpfiles.d', $context->{SOURCE_TMPFILES_ROOT}], ['etc/sysctl.d', $context->{SOURCE_SYSCTL_ROOT}],
+        ['usr/local/bin', $context->{SOURCE_BIN_ROOT}], ['usr/local/sbin', $context->{SOURCE_SBIN_ROOT}],
+        ['usr/local/libexec', $context->{SOURCE_LIBEXEC_ROOT}], ['usr/local/lib', $context->{SOURCE_LIB_ROOT}],
+        ['usr/local/share', $context->{SOURCE_SHARE_ROOT}]);
+    my $paths = value_map("$root/inputs/paths.map");
+    my %members;
+    for my $member (split /\n/, read_regular("$root/inputs/prepared-members", 4 * 1024 * 1024)) {
+        relative($member);
+        !$members{$member}++ && keys(%members) <= MEMBER_LIMIT
+            or fail('invalid prepared source membership');
+    }
+    my %published;
+    for my $line (split /\n/, read_regular("$root/inputs/published-assets.tsv", 4 * 1024 * 1024)) {
+        my @fields = split /\t/, $line, -1;
+        @fields == 3 && $fields[2] eq '0644' && !exists($published{$fields[1]})
+            or fail('invalid prepared publication inventory');
+        relative($fields[0]); absolute($fields[1]);
+        $published{$fields[1]} = $fields[0];
+    }
+    my (%sources, %candidates, %candidate_sources, %primary, %ownership, $resources);
+    my ($input_bytes, $output_bytes, $source_reads, $rows) = (0, 0, 0, 0);
+    for my $row (@{publication_plan("$work/plan")}) {
+        my ($kind, $source, $target, $mode, $owner, $family, $suite, $phase, $dependency, @pairs) = @$row;
+        ++$rows;
+        $kind =~ /\A(?:plain|scalar|scalar-blocks|stdin|template-input|appearance-registry|resources)\z/
+            && $mode =~ /\A0?[0-7]{3}\z/ && $owner eq '0:0'
+            && $family eq $context->{FAMILY} && $suite eq $context->{SUITE}
+            && $phase eq $context->{PHASE} && $dependency eq $context->{GROUP}
+            or fail('invalid publication operation or dependency context');
+        $target = absolute(path_bytes($target, $paths));
+        if ($kind ne 'stdin') {
+            $source = publication_source($source, \%members, $context, \@family_interfaces);
+        }
+        if ($kind eq 'template-input') {
+            $target =~ m{\A\Q$policy->{temporary}\E/installer-[A-Za-z0-9.-]+/}
+                or fail('template input is outside a private target consumer workspace');
+        }
+        my (%values, %blocks);
+        while (@pairs) {
+            my ($key, $value) = splice(@pairs, 0, 2);
+            $key =~ /\A[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*\z/
+                && !exists($values{$key}) && !exists($blocks{$key})
+                or fail('invalid or duplicate publication scalar field');
+            if ($key =~ /\ABLOCK_(LABWC_WORKSPACE_NAME_LINES|LABWC_WORKSPACE_KEYBIND_LINES|LABWC_RECORDING_KEYBIND_LINES)\z/) {
+                $kind eq 'scalar-blocks' && !exists($blocks{$1})
+                    or fail('unexpected or duplicate deferred publication block');
+                $blocks{$1} = $value;
+            } else {
+                index($value, "\n") < 0 or fail('publication scalar field must be one line');
+                $values{$key} = $value;
+            }
+        }
+        if ($kind eq 'scalar-blocks') {
+            keys(%blocks) == 3 && $source =~ m{/etc/skel-desktop/\.config/labwc/rc\.xml\.tmpl\z}
+                or fail('publication blocks require the declared Labwc template');
+        }
+        my $data;
+        if ($kind eq 'stdin') {
+            keys(%values) == 1 && $values{INPUT_FILE} =~ /\Ainput\.[A-Za-z0-9]+\z/
+                or fail('generated publication requires one private input');
+            $data = read_regular("$work/$values{INPUT_FILE}");
+            $input_bytes += length($data);
+            ++$source_reads;
+            $source eq '-' || $members{$source} or fail('unknown generated publication source');
+            %values = ();
+        } else {
+            relative($source);
+            $members{$source} or fail("publication source is absent from the prepared payload: $source");
+            if (!exists($sources{$source})) {
+                directory(parent_path("$root/source/$source"), 0, 0);
+                $sources{$source} = read_regular("$root/source/$source");
+                $input_bytes += length($sources{$source});
+                ++$source_reads;
+            }
+            $data = $sources{$source};
+        }
+        $input_bytes <= BYTE_LIMIT or fail('publication source bytes exceed batch limit');
+        if ($kind eq 'resources') {
+            !keys(%values) or fail('resource publication cannot override its owner');
+            $resources //= value_map("$root/inputs/resources.map");
+            %values = %$resources;
+        }
+        my $result = publication_render($data, $kind, \%values, \%blocks, $paths);
+        publication_markers($result, $kind, $source);
+        length($result) <= FILE_LIMIT && ($output_bytes += length($result)) <= BYTE_LIMIT
+            or fail('publication outputs exceed batch limit');
+        my $primary_path;
+        for my $family_name (qw(desktop server)) {
+            my $skeleton = $context->{'SKELETON_' . uc($family_name)};
+            next unless index($target, "$skeleton/") == 0;
+            $primary_path = "$policy->{defaults}/$family_name/" . substr($target, length($skeleton) + 1);
+        }
+        if (defined($primary_path) && ($kind ne 'stdin' || $source eq '-')) {
+            $primary{$primary_path} = [$result, oct($mode)];
+            if ($kind eq 'scalar' || $kind eq 'scalar-blocks') {
+                my %future = %values;
+                $future{ACCOUNT_HOME} = '$HOME' if exists($future{ACCOUNT_HOME});
+                $future{ACCOUNT_USERNAME} = '$USER' if exists($future{ACCOUNT_USERNAME});
+                for my $key (grep { /\ADIR_HOME_/ } keys %future) {
+                    index($future{$key}, "$context->{ACCOUNT_HOME}/") == 0
+                        or fail('future-account directory escapes the primary account HOME');
+                    $future{$key} = '$HOME/' . relative(substr($future{$key}, length($context->{ACCOUNT_HOME}) + 1));
+                }
+                $result = publication_render($data, $kind, \%future, \%blocks, $paths);
+                publication_markers($result, $kind, $source);
+            }
+        }
+        $candidates{$target} = [$result, oct($mode)];
+        $candidate_sources{$target} = $source;
+        my $owned_kind = $kind;
+        $owned_kind = 'template-input' if $target =~ m{\A\Q$policy->{temporary}\E/(?:installer-[^/]+|install-[^/]+/)};
+        $source = 'generated' if $source eq '-';
+        $ownership{$target} = join("\t", $target, $source, $owned_kind, $phase, sprintf('%04o', oct($mode))) . "\n";
+    }
+    $rows or fail('empty publication plan');
+    my $candidate_bytes = 0;
+    for my $candidate (values %primary, values %candidates) {
+        length($candidate->[0]) <= FILE_LIMIT && ($candidate_bytes += length($candidate->[0])) <= BYTE_LIMIT
+            or fail('primary and future publication outputs exceed batch limit');
+    }
+    # Validate every candidate before any mutation, then keep the plan and
+    # proposed ownership on failure. Atomicity is per file; a failed batch is
+    # never reported as rolled back or eligible for automatic replay.
+    for my $path (keys %primary, keys %candidates) {
+        my $before = publication_destination($path, $policy, -1);
+        if (exists($published{$path}) && @$before
+                && ($candidate_sources{$path} // '') eq $published{$path}) {
+            ($before->[2] & 07777) == 0644 && $before->[4] == 0 && $before->[5] == 0
+                or fail('published prepared Perl member metadata changed');
+        }
+    }
+    write_file("$work/ownership.pending", join('', @ownership{sort keys %ownership}), 0, 0600);
+    publication_sync("$work/$_", 0, $policy) for qw(plan context ownership.pending);
+    publication_sync($work, 1, $policy);
+    my (%written, %changed_parents);
+    my ($written_files, $written_bytes, $reused_files, $destination_reads, $destination_bytes) = (0, 0, 0, 0, 0);
+    for my $path ((sort keys %primary), (sort keys %candidates)) {
+        my $candidate = exists($primary{$path}) ? $primary{$path} : $candidates{$path};
+        my $before = publication_destination($path, $policy, 1);
+        for my $skeleton (@{$policy->{skeletons}}) {
+            next unless index($path, "$skeleton/") == 0;
+            chmod(0700, $skeleton) == 1 or fail('cannot preserve private account template root');
+        }
+        # Debian systemd's configuration roots are public directories; private
+        # credentials below other roots retain their existing modes.
+        my $systemd = $paths->{PATH_DIR_SYSTEMD_ETC} // '';
+        if (length($systemd) && $path =~ m{\A\Q$systemd\E/(?:system|user)/}) {
+            chmod(0755, $systemd) == 1 or fail('cannot normalize systemd configuration root');
+            my ($scope) = $path =~ m{\A\Q$systemd\E/(system|user)/};
+            chmod(0755, "$systemd/$scope") == 1 or fail('cannot normalize systemd configuration scope');
+        }
+        my $perl_root = $paths->{PATH_DIR_PERL5_SITE_PERL} // '';
+        if (length($perl_root) && index($path, "$perl_root/") == 0) {
+            my $parent = parent_path($path);
+            my $base = parent_path($perl_root);
+            while (1) {
+                chmod(0755, $parent) == 1 or fail('cannot normalize managed Perl directory mode');
+                last if $parent eq $base;
+                $parent = parent_path($parent);
+            }
+        }
+        # Base-stage already published complete Perl namespaces. Preserve that
+        # optimization, but compare current bytes with the protected candidate
+        # when a later publication encounters a mutable installed destination.
+        if (exists($published{$path}) && @$before
+                && ($candidate_sources{$path} // '') eq $published{$path}
+                && $candidate->[1] == 0644) {
+            ($before->[2] & 07777) == 0644 && $before->[4] == 0 && $before->[5] == 0
+                or fail('published prepared Perl member metadata changed');
+            my $current = read_regular($path);
+            ++$destination_reads;
+            $destination_bytes += length($current);
+            if ($current eq $candidate->[0]) {
+                ++$reused_files;
+                next;
+            }
+        }
+        write_file($path, $candidate->[0], scalar(@$before) ? 1 : 0, $candidate->[1], $policy);
+        ++$written_files;
+        $written_bytes += length($candidate->[0]);
+        $written{$path} = 1;
+        my $changed_parent = parent_path($path);
+        while (1) {
+            $changed_parents{$changed_parent} = 1;
+            last if $changed_parent eq '/';
+            $changed_parent = parent_path($changed_parent);
+        }
+    }
+    publication_sync($_, 0, $policy) for sort keys %written;
+    publication_sync($_, 1, $policy)
+        for sort { length($b) <=> length($a) || $a cmp $b } keys %changed_parents;
+    rename("$work/ownership.pending", "$work/ownership.tsv") or fail('cannot complete publication ownership');
+    publication_sync($work, 1, $policy);
+    my $elapsed = time - $started;
+    $elapsed = 0 if $elapsed < 0;
+    write_file("$work/report", "format=1\noperations=$rows\nfiles=" . scalar(keys %candidates)
+        . "\nsource_reads=$source_reads\ninput_bytes=$input_bytes\noutput_bytes=$written_bytes\nwritten_files=$written_files\nreused_files=$reused_files\ndestination_reads=$destination_reads\ndestination_bytes=$destination_bytes\nperl_launches=1\nelapsed_seconds=$elapsed\n", 0, 0600);
+    print STDERR "asset_batch phase=$context->{PHASE} barrier=$context->{GROUP} records=$rows files=", scalar(keys %candidates),
+        " source_reads=$source_reads unique_input_bytes=$input_bytes written_bytes=$written_bytes reused_files=$reused_files destination_bytes=$destination_bytes elapsed_seconds=$elapsed\n"
+        or fail('cannot report publication batch');
+}
+
 sub main {
     umask 0077;
+    if (@ARGV && $ARGV[0] eq '--publish') {
+        shift @ARGV;
+        @ARGV == 2 or fail('publication requires a private plan and prepared root');
+        publish_assets(absolute($ARGV[0]), absolute($ARGV[1]));
+        return;
+    }
     if (@ARGV && $ARGV[0] eq '--file') {
         shift @ARGV;
         @ARGV == 2 or fail('file rendering requires a private workspace and kind');

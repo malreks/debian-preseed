@@ -196,6 +196,49 @@ printf returned
         self.assertIn('Type: error\n', template.read_text())
         self.assertEqual(stat.S_IMODE(template.stat().st_mode), 0o600)
 
+    def test_fatal_frontend_keeps_a_structured_component_for_descriptive_log_context(self):
+        cases = (
+            ('prepare target payload before all other base hooks', 'target-render',
+             'hook-base-00rendertarget', 'target-render'),
+            ('desktop.software', 'late-command', 'late', 'desktop.software'),
+            ('https://fixture.invalid/private-component', 'target-render',
+             'hook-base-00rendertarget', 'target-render'),
+            ('x' * 241, 'unsafe tag', 'hook-base-00rendertarget',
+             'hook-base-00rendertarget'),
+            ('unsafe component', '', '', 'unknown'),
+        )
+        for component, tag, phase, expected in cases:
+            with self.subTest(expected=expected, component_length=len(component)):
+                state = self.box.runtime / 'state'
+                if state.exists():
+                    shutil.rmtree(state)
+                code = '''. /tmp/lifecycle.sh
+installer_lifecycle_paths || exit 91
+exec 8<&0
+INSTALLER_DEBCONF_STDIN_SAVED=1
+INSTALLER_FAILURE_SOURCE=hooks/installer/base-stage.d/00rendertarget
+INSTALLER_FAILURE_LINE=10
+INSTALLER_FAILURE_OPERATION=prepare_target_payload
+'''
+                code += 'INSTALLER_LOG_TAG=' + Q(tag) + '\n'
+                code += 'INSTALLER_PHASE=' + Q(phase) + '\n'
+                code += 'installer_record_failure 37 ' + Q(component) + ' private-fixture-detail || exit 92\n'
+                code += 'installer_record_failure 99 cleanup later-failure || exit 93\n'
+                code += 'installer_failure_frontend </dev/null || exit 94\n'
+                result, session = self.run_code(code, override=lambda _: b'0 OK',
+                                                expected_failure_record=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                requests = b'\n'.join(session.requests).decode()
+                self.assertIn('SUBST unattended-installer/fatal-error COMPONENT ' + expected,
+                              requests)
+                self.assertIn('SUBST unattended-installer/fatal-error STATUS 37', requests)
+                self.assertNotIn('private-component', requests + result.stdout + result.stderr)
+                self.assertNotIn('private-fixture-detail', requests)
+                record = (state / 'first-failure').read_text()
+                self.assertIn('component=' + expected + '\n', record)
+                self.assertIn('status=37\n', record)
+                self.assertNotIn('later-failure', record)
+
     def test_fatal_frontend_setup_failure_is_not_retried_or_reported_as_success(self):
         code = '''. /tmp/lifecycle.sh
 installer_lifecycle_paths || exit 91

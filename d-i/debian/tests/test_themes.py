@@ -44,6 +44,15 @@ Q = shlex.quote
 
 
 class ThemeValidationTests(unittest.TestCase):
+    def test_lock_and_login_sources_remain_independently_selectable(self):
+        values = dict(VALUES)
+        values['LABWC_WALLPAPER_LOGIN_GTKGREET'] = values['LABWC_WALLPAPER_DESKTOP_SWAYBG']
+        lock = CHECKER['render_text']('__THEME_TARGET_PATH_LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK__', values)
+        login = CHECKER['render_text']('__THEME_TARGET_PATH_LABWC_WALLPAPER_LOGIN_GTKGREET__', values)
+        self.assertEqual(lock, values['LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK'].removeprefix('hooks/target'))
+        self.assertEqual(login, values['LABWC_WALLPAPER_DESKTOP_SWAYBG'].removeprefix('hooks/target'))
+        self.assertNotEqual(lock, login)
+
     def test_quick_controls_share_a_visible_outline_on_both_outputs(self):
         color = VALUES['WAYBAR_QUICK_CONTROLS_CONTAINER_NORMAL_OUTLINE_COLOR']
         self.assertEqual(color, VALUES['WAYBAR_BUTTON_SYSTEM_HOVER_OUTLINE_COLOR'])
@@ -344,7 +353,7 @@ fetch_hook hooks/target/etc/skel-desktop/.config/swaylock/config "$TMP_ENV_DIR/l
 stage_target_asset hooks/target/etc/skel-desktop/.config/mako/config /etc/xdg/mako/config 0644
 '''))
         lock = (self.staging / 'lock').read_text()
-        self.assertIn('/usr/share/backgrounds/login/lock-1920x1080.png', lock)
+        self.assertIn(VALUES['LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK'].removeprefix('hooks/target'), lock)
         self.assertNotIn('__THEME_', lock)
         mako = self.target / 'etc/xdg/mako/config'
         self.assertNotIn('__THEME_', mako.read_text())
@@ -508,15 +517,45 @@ desktop_stage_waybar_theme_icons
             self.assertEqual(line, f'etc/skel-desktop/.config/waybar/icons/{name}|'
                              f'/etc/skel-desktop/.config/waybar/icons/{name}|0644')
 
+    def test_wallpaper_staging_reuses_only_identical_source_destination_pairs(self):
+        source_a = 'hooks/target/usr/share/backgrounds/desktop/a.jpeg'
+        source_b = 'hooks/target/usr/share/backgrounds/login/b.jpeg'
+        source_c = 'hooks/target/usr/share/backgrounds/login/c.jpeg'
+        cases = (
+            (((source_a, '/a'), (source_b, '/b'), (source_b, '/b')), (0, 1)),
+            (((source_a, '/a'), (source_b, '/b'), (source_c, '/c')), (0, 1, 2)),
+            (((source_a, '/a'), (source_a, '/a'), (source_a, '/a')), (0,)),
+            (((source_a, '/a'), (source_a, '/b'), (source_a, '/c')), (0, 1, 2)),
+            (((source_a, '/a'), (source_b, '/a'), (source_c, '/a')), (0, 1, 2)),
+        )
+        keys = (
+            ('LABWC_WALLPAPER_DESKTOP_SWAYBG', 'LABWC_WALLPAPER_PATH'),
+            ('LABWC_WALLPAPER_LOCKSCREEN_SWAYLOCK', 'LABWC_LOCK_BACKGROUND_PATH'),
+            ('LABWC_WALLPAPER_LOGIN_GTKGREET', 'LABWC_GREETER_BACKGROUND_PATH'),
+        )
+        for pairs, selected in cases:
+            with self.subTest(pairs=pairs):
+                assignments = '\n'.join(f'{key}={Q(value)}' for names, pair in zip(keys, pairs)
+                                        for key, value in zip(names, pair))
+                code = r'''
+desktop_stage_role_asset() { printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$TARGET_COMMAND_LOG"; }
+: > "$TARGET_COMMAND_LOG"
+DIR_HOOKS_TARGET=hooks/target
+''' + assignments + '\ndesktop_stage_wallpaper_defaults\n'
+                self.ok(self.shell(code))
+                expected = [f'{pairs[index][0].removeprefix("hooks/target/")}|{pairs[index][1]}|0644'
+                            for index in selected]
+                self.assertEqual((self.root / 'commands').read_text().splitlines(), expected)
+
     def test_custom_wallpaper_is_public_readable_and_binary_identical(self):
-        relative = 'hooks/target/usr/share/backgrounds/custom/nested/welcome.png'
-        fixture = self.staging / 'wallpaper.png'
-        original = (TARGET / 'usr/share/backgrounds/login/welcome-1920x1080.png').read_bytes()
+        relative = 'hooks/target/usr/share/backgrounds/custom/nested/welcome.jpeg'
+        fixture = self.staging / 'wallpaper.jpeg'
+        original = (SEED / VALUES['LABWC_WALLPAPER_LOGIN_GTKGREET']).read_bytes()
         fixture.write_bytes(original)
         preamble = SHELL_PREAMBLE.replace(
             'fetch_hook_file() { installer_fetch_seed_path "$INSTALLER_SOURCE_ROOT" "$1" "$2"; }',
             'fetch_hook_file() { case "$1" in ' + relative + ') '
-            'cp "$TMP_ENV_DIR/wallpaper.png" "$2" ;; *) '
+            'cp "$TMP_ENV_DIR/wallpaper.jpeg" "$2" ;; *) '
             'installer_fetch_seed_path "$INSTALLER_SOURCE_ROOT" "$1" "$2" ;; esac; }')
         destination = '/' + relative.removeprefix('hooks/target/')
         self.ok(self.shell('stage_target_asset ' + Q(relative) + ' ' + Q(destination) + ' 0644',

@@ -1609,29 +1609,29 @@ write_target_secure_boot_payloads() {
   esac
 
   ensure_target_secure_boot_state_dirs
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_INSTALL_TOOLS_SECURE_BOOT_TOOL_TMPL)" "${FILE_SECURE_BOOT_TOOL}" 0755
-  stage_target_asset "$(installer_repo_file_value FILE_TARGET_INSTALL_TOOLS_VERIFY_MODULE_SIGNATURE)" "${DIR_LIBEXEC_INSTALL_TOOLS}/verify-module-signature.py" 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/usr/libexec/install-tools/secure-boot-tool.tmpl)" "${FILE_SECURE_BOOT_TOOL}" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/libexec/install-tools/verify-module-signature.py)" "${DIR_LIBEXEC_INSTALL_TOOLS}/verify-module-signature.py" 0644
   render_target_asset_with_placeholder_map \
-    "$(installer_repo_file_value FILE_TARGET_SECURE_BOOT_TMPL)" \
+    "$(installer_repo_file_value hooks/target/etc/secure-boot.conf.tmpl)" \
     "${FILE_SECURE_BOOT_CONFIG}" \
     0600 \
     secure_boot_config_placeholder_map
 
   if [ "$secure_boot_state_mode" = luks ]; then
-    render_target_asset "$(installer_repo_file_value FILE_TARGET_SBIN_LUKS_MOK_OPEN_TMPL)" "${FILE_LUKS_MOK_OPEN_HELPER}" 0755
-    render_target_asset "$(installer_repo_file_value FILE_TARGET_SBIN_LUKS_MOK_CLOSE_TMPL)" "${FILE_LUKS_MOK_CLOSE_HELPER}" 0755
-    render_target_asset "$(installer_repo_file_value FILE_TARGET_SBIN_LUKS_MOK_PASSWD_TMPL)" "${FILE_LUKS_MOK_PASSWD_HELPER}" 0755
-    stage_target_asset "$(installer_repo_file_value FILE_TARGET_LIBEXEC_APT_MOK_PREHOOK)" "${DIR_USR_LOCAL_LIBEXEC}/apt-mok-prehook" 0755
-    stage_target_asset "$(installer_repo_apt_file APT_CONF_D_99MOK_MAINTENANCE)" __INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/99mok-maintenance 0644
-    stage_target_asset "$(installer_repo_apt_file APT_CONF_D_01MOK_MAINTENANCE_CLEANUP)" __INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/01mok-maintenance-cleanup 0644
+    render_target_asset "$(installer_repo_file_value hooks/target/usr/local/sbin/common/luks-mok-open.tmpl)" "${FILE_LUKS_MOK_OPEN_HELPER}" 0755
+    render_target_asset "$(installer_repo_file_value hooks/target/usr/local/sbin/common/luks-mok-close.tmpl)" "${FILE_LUKS_MOK_CLOSE_HELPER}" 0755
+    render_target_asset "$(installer_repo_file_value hooks/target/usr/local/sbin/common/luks-mok-passwd.tmpl)" "${FILE_LUKS_MOK_PASSWD_HELPER}" 0755
+    stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/apt-mok-prehook)" "${DIR_USR_LOCAL_LIBEXEC}/apt-mok-prehook" 0755
+    stage_target_asset "$(installer_repo_apt_file apt.conf.d/99mok-maintenance)" __INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/99mok-maintenance 0644
+    stage_target_asset "$(installer_repo_apt_file apt.conf.d/01mok-maintenance-cleanup)" __INSTALLER_PATH_DIR_ETC__/apt/apt.conf.d/01mok-maintenance-cleanup 0644
   fi
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_DKMS_FRAMEWORK_CONF_D_90_SECURE_BOOT_TMPL)" "${FILE_DKMS_FRAMEWORK_SECURE_BOOT}" 0644
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/dkms/framework.conf.d/90-secure-boot.conf.tmpl)" "${FILE_DKMS_FRAMEWORK_SECURE_BOOT}" 0644
 }
 
 install_target_secure_boot_kernel_hooks() {
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_KERNEL_POSTINST_D_ZZ_SIGN_KERNEL_TMPL)" "${FILE_KERNEL_POSTINST_SIGN}" 0755
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_KERNEL_POSTRM_D_ZZ_SIGN_KERNEL_CLEANUP_TMPL)" "${FILE_KERNEL_POSTRM_SIGN}" 0755
-  render_target_asset "$(installer_repo_file_value FILE_TARGET_KERNEL_HEADER_POSTINST_D_ZZ_SIGN_KERNEL_HEADERS_TMPL)" "${FILE_KERNEL_HEADER_POSTINST_SIGN}" 0755
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/kernel/postinst.d/zz-sign-kernel.tmpl)" "${FILE_KERNEL_POSTINST_SIGN}" 0755
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/kernel/postrm.d/zz-sign-kernel-cleanup.tmpl)" "${FILE_KERNEL_POSTRM_SIGN}" 0755
+  render_target_asset "$(installer_repo_file_value hooks/target/etc/kernel/header_postinst.d/zz-sign-kernel-headers.tmpl)" "${FILE_KERNEL_HEADER_POSTINST_SIGN}" 0755
 }
 
 ensure_target_secure_boot_packages() {

@@ -5,7 +5,7 @@ installer_profile_plan_policy() (
   set -eu
   policy_seed=$1
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 8 profile_policy
+    installer_operation_context_repo scripts/common/modules/profiles.sh 8 profile_policy
   fi
   policy_file=$(mktemp "$(installer_runtime_state_dir)/profile-policy.XXXXXX") || exit "$?"
   trap 'rm -f "$policy_file"' 0
@@ -136,7 +136,7 @@ installer_load_data_env() {
     installer_data_had_context=1
   fi
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 129 load_data_env
+    installer_operation_context_repo scripts/common/modules/profiles.sh 129 load_data_env
   fi
   installer_data_path=$1
   [ -f "$installer_data_path" ] && [ ! -L "$installer_data_path" ] || return 1
@@ -159,7 +159,7 @@ installer_load_data_env() {
     # Exact byte equality binds this input to the once-validated private map.
     installer_data_records=$(cat "$installer_data_snapshot") || return "$?"
   else
-    if installer_data_parser=$(bootstrap_parser_asset_path "$(bootstrap_repo_file_value FILE_COMMON_CREDENTIAL_DATA)"); then
+    if installer_data_parser=$(bootstrap_parser_asset_path "$(bootstrap_repo_file_value scripts/common/credential-data.awk)"); then
       :
     else
       installer_data_parser_status=$?
@@ -219,7 +219,7 @@ installer_fetch_host_env() {
     host_fetch_had_context=1
   fi
   if command -v installer_operation_context_repo >/dev/null 2>&1; then
-    installer_operation_context_repo FILE_COMMON_MOD_PROFILES 196 fetch_host_env
+    installer_operation_context_repo scripts/common/modules/profiles.sh 196 fetch_host_env
   fi
   host_seed_base=$1
   host_profile=$2
@@ -288,7 +288,7 @@ installer_prepare_late_account_env() (
   umask 077
   late_account_seed=$1
   late_account_destination=$2
-  installer_operation_context_repo FILE_COMMON_MOD_PROFILES 265 prepare_late_account_env
+  installer_operation_context_repo scripts/common/modules/profiles.sh 265 prepare_late_account_env
   installer_apt_safe_path "$late_account_destination" ||
     installer_fatal 'unsafe resolved account snapshot destination'
   if [ -e "$late_account_destination" ] || [ -L "$late_account_destination" ]; then
@@ -336,7 +336,7 @@ installer_prepare_late_account_env() (
   installer_load_data_env "$late_account_work/profile.env" || exit "$?"
   installer_fetch_account_env "$late_account_seed" "$late_account_work/policy.env" 0600 || exit "$?"
   installer_load_data_env "$late_account_work/policy.env" || exit "$?"
-  for late_account_selector in FILE_RUNTIME_COMMON FILE_RUNTIME_ACCOUNT; do
+  for late_account_selector in scripts/runtime/common.sh scripts/runtime/account.sh; do
     late_account_module=$(installer_repo_file_value "$late_account_selector") || exit "$?"
     if bootstrap_source_module "$late_account_module"; then
       :

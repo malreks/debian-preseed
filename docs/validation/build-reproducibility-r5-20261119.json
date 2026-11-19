@@ -1,0 +1,30 @@
+{
+  "changed": [],
+  "first_generation_changed_only_authorized_products": [
+    "d-i/forky/payload.manifest",
+    "d-i/forky/payload.tar.gz",
+    "d-i/forky/preseed.cfg",
+    "d-i/forky/receipt.json",
+    "d-i/trixie/payload.manifest",
+    "d-i/trixie/payload.tar.gz",
+    "d-i/trixie/preseed.cfg",
+    "d-i/trixie/receipt.json"
+  ],
+  "identical": true,
+  "products_compared": 12,
+  "second_generation_changed_no_files": true,
+  "sha256": {
+    "d-i/forky/payload.manifest": "0159f53cb792c87733187984a982f013b29de454a81f7cbd1f0a893e4a8fdeb8",
+    "d-i/forky/payload.tar.gz": "91735463de4fb13a58f56f4c371e745ea20927d2217e170b937253c93e4423b9",
+    "d-i/forky/preseed.cfg": "3180bf834459113bd77d6d0997bd2bdd8aa1166decdb1df2841c9dfd5bade03f",
+    "d-i/forky/receipt.json": "99ed9955e3a1067f20d776efe13be5845bf7823966f4e6f15bd5f30636f5c468",
+    "d-i/forky/source.sh": "93acffbabc0addc077ecd7f7827a2ae5bdb1ec94c5b5dc60283da00dd73dd7fb",
+    "d-i/forky/support-matrix.json": "d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef",
+    "d-i/trixie/payload.manifest": "0159f53cb792c87733187984a982f013b29de454a81f7cbd1f0a893e4a8fdeb8",
+    "d-i/trixie/payload.tar.gz": "91735463de4fb13a58f56f4c371e745ea20927d2217e170b937253c93e4423b9",
+    "d-i/trixie/preseed.cfg": "5d54588ec35cb9c186c23f899de989a9ad1405720752e7c3d4e2ec8b782195fd",
+    "d-i/trixie/receipt.json": "99ed9955e3a1067f20d776efe13be5845bf7823966f4e6f15bd5f30636f5c468",
+    "d-i/trixie/source.sh": "93acffbabc0addc077ecd7f7827a2ae5bdb1ec94c5b5dc60283da00dd73dd7fb",
+    "d-i/trixie/support-matrix.json": "d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef"
+  }
+}

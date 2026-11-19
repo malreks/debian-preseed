@@ -34,7 +34,7 @@ if [ -r "$BOOTSTRAP_LIB" ]; then
   RUNTIME_ENV="${ENV_DIR}/runtime.env"
   STATE_RUNTIME_ENV="${DIR_INSTALLER_RUNTIME_STATE}/runtime.env"
   TARGET_LOG_FILE="${TARGET}${DIR_VAR_LIB_INSTALLER_STATE}/installer.log"
-  installer_operation_context_repo FILE_INST_FINISH_99_NORMALIZE_FINISH 37 finish_install_normalize
+  installer_operation_context_repo hooks/installer/finish-install.d/99-normalize-finish 37 finish_install_normalize
 else
   normalize_finish_message=$(printf '%s' "installer common library is unavailable: ${BOOTSTRAP_LIB}" | tr '\r\n\t' '   ')
   printf '[finish-install:normalize] fatal: %s\n' "$normalize_finish_message" >&2

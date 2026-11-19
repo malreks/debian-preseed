@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 use lib '__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/runtime';
-use Managed::Process qw(capture_command);
+use Managed::Process qw(capture_command status_from_wait);
 use Moo;
 use MooX::StrictConstructor;
 use MooX::TypeTiny;
@@ -21,14 +21,6 @@ has path => (
     isa     => Str,
     default => sub { $ENV{PATH} // '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/bin:/bin' },
 );
-
-sub _status {
-    my ($status) = @_;
-
-    return 255 if !defined($status) || $status == -1;
-    return 128 + ($status & 127) if $status & 127;
-    return $status >> 8;
-}
 
 sub executable {
     my ($self, $name) = @_;
@@ -58,7 +50,7 @@ sub run {
     @argv && defined($argv[0]) && $argv[0] ne q{}
         or die "cannot run an empty command\n";
     system { $argv[0] } @argv;
-    return _status($?);
+    return status_from_wait($?);
 }
 
 sub run_or_die {
@@ -87,6 +79,6 @@ sub capture {
         timeout => $args{timeout} // 120,
         limit => $self->capture_limit_bytes(),
     );
-    return (_status($result->{status}), $result->{stdout});
+    return (status_from_wait($result->{status}), $result->{stdout});
 }
 1;

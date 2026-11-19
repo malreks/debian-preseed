@@ -33,14 +33,14 @@ if not Path("__INSTALLER_PATH_DIR_OPT__/incus/ui/index.html").is_file():
 if "INCUS_UI=__INSTALLER_PATH_DIR_OPT__/incus/ui/" not in Path("__INSTALLER_PATH_DIR_OPT__/incus/lib/systemd/incusd").read_text():
     raise SystemExit("Incus package wrapper does not select its packaged Web UI")
 '
-  installer_stage_profile_file FILE_TARGET_INCUS_DESKTOP_UI_CHECK "${DIR_USR_LOCAL_LIBEXEC}/incus-desktop-ui-check" 0755
-  installer_stage_profile_file FILE_TARGET_AA_INCUS_DESKTOP_UI "${DIR_APPARMOR}/incus-desktop-ui" 0644
-  installer_stage_profile_file FILE_TARGET_UNIT_INCUS_DESKTOP_UI "${DIR_SYSTEMD_SYSTEM}/incus-desktop-ui-check.service" 0644
-  installer_stage_profile_file FILE_TARGET_INCUS_DESKTOP_USER_UI "${DIR_SYSTEMD_SYSTEM_INCUS_USER_DROPIN}/60-desktop-ui.conf" 0644
+  installer_stage_profile_file hooks/target/usr/local/libexec/desktop/incus-desktop-ui-check "${DIR_USR_LOCAL_LIBEXEC}/incus-desktop-ui-check" 0755
+  installer_stage_profile_file hooks/target/etc/apparmor.d/desktop/incus-desktop-ui "${DIR_APPARMOR}/incus-desktop-ui" 0644
+  installer_stage_profile_file hooks/target/etc/systemd/desktop/system/incus-desktop-ui-check.service "${DIR_SYSTEMD_SYSTEM}/incus-desktop-ui-check.service" 0644
+  installer_stage_profile_file hooks/target/etc/systemd/desktop/system/incus-user.service.d/60-desktop-ui.conf "${DIR_SYSTEMD_SYSTEM_INCUS_USER_DROPIN}/60-desktop-ui.conf" 0644
 fi
   # Only desktop logins publish the desktop work-root selector functions.
   # Server clients use their native private HOME configuration and cache.
-  installer_stage_profile_file FILE_TARGET_SKEL_PROFILE_72_INCUS_TMPL \
+  installer_stage_profile_file hooks/target/etc/skel-desktop/.profile.d/72-incus.sh.tmpl \
     "${DIR_ETC_SKEL_DESKTOP}/.profile.d/72-incus.sh" 0644
   account=$(awk -F: -v user="$operator" '$1==user {print $3 ":" $4 ":" $6; count++} END {if(count!=1) exit 1}' "${TARGET_ROOT}${DIR_ETC}/passwd") ||
     installer_fatal 'virtualization operator passwd record is ambiguous'
