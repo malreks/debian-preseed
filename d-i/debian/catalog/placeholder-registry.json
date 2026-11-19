@@ -40,25 +40,26 @@
       },
       "default_policy": "fail-closed",
       "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "final_assertion": "runtime ruleset field allowed only in declared literal source members; app-veth consumes it before nft; installer markers remain forbidden",
       "literal_members": [
+        "hooks/target/etc/app-veth.nft.tmpl",
         "hooks/target/usr/local/sbin/desktop/app-veth"
       ],
       "must_be_absent_from_final_target": true,
       "name": "APP_INTERFACES",
       "namespace": "SCALAR",
       "owner": {
-        "function": "typed-consumer",
-        "module": "hooks/target/etc/app-veth.nft.tmpl",
+        "function": "apply_network_identity",
+        "module": "hooks/target/usr/local/sbin/desktop/app-veth",
         "phase": "target-asset"
       },
-      "producer_map": "typed consumer contract",
+      "producer_map": "read_configuration: validated app-veth network identity",
       "publication_kind": "template",
       "required": true,
       "source_family": [
         "target-asset"
       ],
-      "syntax": "consumer-defined-validated-scalar-or-block",
+      "syntax": "validated reserved interface-name set",
       "token": "__APP_INTERFACES__"
     },
     {
@@ -212,23 +213,25 @@
       },
       "default_policy": "fail-closed",
       "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
+      "final_assertion": "runtime ruleset field allowed only in declared literal source members; app-veth consumes it before nft; installer markers remain forbidden",
+      "literal_members": [
+        "hooks/target/etc/app-veth.nft.tmpl"
+      ],
       "must_be_absent_from_final_target": true,
       "name": "DNS_ADDRESS",
       "namespace": "SCALAR",
       "owner": {
-        "function": "typed-consumer",
-        "module": "hooks/target/etc/app-veth.nft.tmpl",
+        "function": "apply_network_identity",
+        "module": "hooks/target/usr/local/sbin/desktop/app-veth",
         "phase": "target-asset"
       },
-      "producer_map": "typed consumer contract",
+      "producer_map": "read_configuration: validated app-veth network identity",
       "publication_kind": "template",
       "required": true,
       "source_family": [
         "target-asset"
       ],
-      "syntax": "consumer-defined-validated-scalar-or-block",
+      "syntax": "validated private IPv4 DNS address",
       "token": "__DNS_ADDRESS__"
     },
     {
@@ -240,23 +243,25 @@
       },
       "default_policy": "fail-closed",
       "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
+      "final_assertion": "runtime ruleset field allowed only in declared literal source members; app-veth consumes it before nft; installer markers remain forbidden",
+      "literal_members": [
+        "hooks/target/etc/app-veth.nft.tmpl"
+      ],
       "must_be_absent_from_final_target": true,
       "name": "DNS_HOST_ADDRESS",
       "namespace": "SCALAR",
       "owner": {
-        "function": "typed-consumer",
-        "module": "hooks/target/etc/app-veth.nft.tmpl",
+        "function": "apply_network_identity",
+        "module": "hooks/target/usr/local/sbin/desktop/app-veth",
         "phase": "target-asset"
       },
-      "producer_map": "typed consumer contract",
+      "producer_map": "read_configuration: validated app-veth network identity",
       "publication_kind": "template",
       "required": true,
       "source_family": [
         "target-asset"
       ],
-      "syntax": "consumer-defined-validated-scalar-or-block",
+      "syntax": "validated loopback IPv4 DNS listener",
       "token": "__DNS_HOST_ADDRESS__"
     },
     {
@@ -268,23 +273,25 @@
       },
       "default_policy": "fail-closed",
       "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
+      "final_assertion": "runtime ruleset field allowed only in declared literal source members; app-veth consumes it before nft; installer markers remain forbidden",
+      "literal_members": [
+        "hooks/target/etc/app-veth.nft.tmpl"
+      ],
       "must_be_absent_from_final_target": true,
       "name": "DNS_HOST_PORT",
       "namespace": "SCALAR",
       "owner": {
-        "function": "typed-consumer",
-        "module": "hooks/target/etc/app-veth.nft.tmpl",
+        "function": "apply_network_identity",
+        "module": "hooks/target/usr/local/sbin/desktop/app-veth",
         "phase": "target-asset"
       },
-      "producer_map": "typed consumer contract",
+      "producer_map": "read_configuration: validated app-veth network identity",
       "publication_kind": "template",
       "required": true,
       "source_family": [
         "target-asset"
       ],
-      "syntax": "consumer-defined-validated-scalar-or-block",
+      "syntax": "validated decimal DNS listener port in 1024..65535",
       "token": "__DNS_HOST_PORT__"
     },
     {
@@ -109193,7 +109200,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "648b34f8810c075c15e560dd432d26728f423de3f2c4ff07f2c9dcd31ae1f412",
+  "source_fingerprint": "dc4f4c9de7a0e0bd1277385446c2f5cfc84f04145756023110f1536f4bc65fb8",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

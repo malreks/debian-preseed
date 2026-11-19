@@ -206,6 +206,28 @@ installer_target_ownership_snapshot >"$HOME/owned-snapshot.tsv"
                              '# __DESKTOP_APPARMOR_STATE__\n')])
         self.assertNotEqual(result.returncode, 0)
 
+    def test_app_veth_runtime_template_passes_final_ownership_scan(self):
+        source = 'hooks/target/etc/app-veth.nft.tmpl'
+        data = (SEED / source).read_text(encoding='utf-8').replace(
+            '__INSTALLER_PROXY3_PORTS_ALLOW_WEB_BROWSER__', '443,8443,53443')
+        result = self.scan([('/etc/app-veth.nft', source, 'template', data)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_app_veth_runtime_fields_are_forbidden_in_unrelated_sources(self):
+        for name in ('APP_INTERFACES', 'DNS_ADDRESS', 'DNS_HOST_ADDRESS', 'DNS_HOST_PORT'):
+            with self.subTest(name=name):
+                result = self.scan([('/etc/unrelated.nft', 'generated', 'stdin',
+                                     '__' + name + '__\n')])
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_app_veth_template_does_not_allow_unknown_or_installer_markers(self):
+        source = 'hooks/target/etc/app-veth.nft.tmpl'
+        for marker in ('__UNKNOWN_FIXTURE__', '__INSTALLER_PROXY3_PORTS_ALLOW_WEB_BROWSER__',
+                       '__INSTALLER_PATH_DIR_ETC__'):
+            with self.subTest(marker=marker):
+                result = self.scan([('/etc/app-veth.nft', source, 'template', marker + '\n')])
+                self.assertNotEqual(result.returncode, 0)
+
     def test_installer_environment_and_repository_files_fail(self):
         for destination, data in (('/etc/repo.env', 'FILE_TARGET_TEST="hooks/target/test"\n'),
                                   ('/etc/di.env', 'TARGET_ROOT="/target"\n'),

@@ -91,6 +91,14 @@ chown 1000:1000 "$target/home/fixture" "$target/home/fixture/.config" \
 printf 'owned fixture asset\n' >"$target/usr/local/share/fixture.txt"
 chmod 0644 "$target/usr/local/share/fixture.txt"
 printf '/usr/local/share/fixture.txt\tgenerated\tasset\tlate-command\t0644\n' >"$runtime/state/target-assets/journal.tsv"
+case "$fixture_case" in
+  chain-app-veth|baseline-app-veth|reject-app-veth-marker)
+    cp /snapshot/rendered-app-veth.nft "$target/etc/app-veth.nft"
+    chmod 0644 "$target/etc/app-veth.nft"
+    printf '/etc/app-veth.nft\thooks/target/etc/app-veth.nft.tmpl\ttemplate\tlate\t0644\n' \
+      >>"$runtime/state/target-assets/journal.tsv"
+    ;;
+esac
 printf 'stale tmp content\n' >"$target/tmp/stale"
 printf 'stale var tmp content\n' >"$target/var/tmp/stale"
 printf 'deb https://deb.debian.org/debian %s main\n' "$fixture_suite" >"$target/etc/apt/sources.list"
@@ -147,10 +155,15 @@ validator=$source_root/hooks/installer/finish-install.d/94zz-99-validate-target
 case "$fixture_case" in
   baseline-normalizer) normalizer=/snapshot/before/99-normalize-finish ;;
   baseline-validator) validator=/snapshot/before/94zz-99-validate-target ;;
+  baseline-app-veth)
+    cp /snapshot/before/placeholder-registry.tsv "$runtime/bootstrap/placeholder-registry.tsv"
+    chmod 0600 "$runtime/bootstrap/placeholder-registry.tsv"
+    ;;
+  reject-app-veth-marker) printf '__INSTALLER_PATH_DIR_ETC__\n' >>"$target/etc/app-veth.nft" ;;
   missing-host) rm "$policy/host.env" ;;
   invalid-host) printf "DIR_ETC='\$(touch %s)'\nbroken assignment\n" "$work/evaluated" >"$policy/host.env" ;;
   incomplete-host) printf "DIR_ETC='/etc'\n" >"$policy/host.env" ;;
-  chain|missing-validator-host|invalid-validator-host|incomplete-validator-host) ;;
+  chain|chain-app-veth|missing-validator-host|invalid-validator-host|incomplete-validator-host) ;;
   *) exit 64 ;;
 esac
 case "$fixture_case" in
@@ -169,7 +182,7 @@ case "$fixture_case" in
     invoke_hook "$normalizer" || status=$?
     [ "$status" -ne 0 ] && [ -f "$target/tmp/stale" ] && [ ! -e "$work/evaluated" ]
     ;;
-  chain)
+  chain|chain-app-veth|baseline-app-veth|reject-app-veth-marker)
     invoke_hook "$source_root/hooks/installer/finish-install.d/09-cuda-legacy-cleanup"
     invoke_hook "$normalizer"
     grep -Fq 'completed final target normalization hook' "$work/installer.log"
@@ -180,14 +193,34 @@ case "$fixture_case" in
     [ "$(cat "$target/home/fixture/.config/settings")" = 'preserve account data' ]
     invoke_hook "$source_root/hooks/installer/finish-install.d/95-normalize-apt"
     [ "$(wc -l <"$work/apt.calls")" -eq 3 ]
-    invoke_hook "$validator"
-    grep -Fqx state=TARGET_VALIDATED "$runtime/state/target-validated"
-    grep -Fqx installation_success=not_yet "$target/var/lib/installer-state/target-validated"
-    [ ! -e "$runtime/state/installation.success" ] && [ -s "$work/chroot.calls" ]
+    case "$fixture_case" in
+      baseline-app-veth|reject-app-veth-marker)
+        status=0
+        invoke_hook "$validator" || status=$?
+        [ "$status" -ne 0 ] && [ -s "$work/chroot.calls" ]
+        [ ! -e "$runtime/state/target-validated" ] &&
+          [ ! -e "$target/var/lib/installer-state/target-validated" ] &&
+          [ ! -e "$runtime/state/installation.success" ]
+        grep -Fq 'unresolved target marker file=/etc/app-veth.nft' "$work/stderr"
+        case "$fixture_case" in
+          baseline-app-veth)
+            [ "$(grep -c 'fatal: unresolved target marker file=' "$work/stderr")" -eq 12 ]
+            printf 'BASELINE_REPRODUCED app-veth final validation markers=12 status=%s\n' "$status"
+            ;;
+          reject-app-veth-marker) grep -Fq '__INSTALLER_PATH_DIR_ETC__' "$work/stderr" ;;
+        esac
+        ;;
+      *)
+        invoke_hook "$validator"
+        grep -Fqx state=TARGET_VALIDATED "$runtime/state/target-validated"
+        grep -Fqx installation_success=not_yet "$target/var/lib/installer-state/target-validated"
+        [ ! -e "$runtime/state/installation.success" ] && [ -s "$work/chroot.calls" ]
+        ;;
+    esac
     ;;
 esac
 case "$fixture_case" in
-  baseline-*)
+  baseline-normalizer|baseline-validator)
     grep -Fq 'DIR_VAR_LIB_INSTALLER_STATE' "$work/stderr"
     printf 'BASELINE_REPRODUCED case=%s status=%s\n' "$fixture_case" "$status"
     head -n 2 "$work/stderr"

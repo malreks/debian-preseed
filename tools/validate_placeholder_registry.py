@@ -124,8 +124,22 @@ APPEARANCE_SHADOWS = {
 }
 # A consumer may retain an exact marker as program data. This is separate
 # from the same marker's template inputs, which must be absent when rendered.
+APP_VETH_RULESET = "hooks/target/etc/app-veth.nft.tmpl"
+APP_VETH_CONSUMER = "hooks/target/usr/local/sbin/desktop/app-veth"
+APP_VETH_RUNTIME_FIELDS = {
+    "APP_INTERFACES": "validated reserved interface-name set",
+    "DNS_ADDRESS": "validated private IPv4 DNS address",
+    "DNS_HOST_ADDRESS": "validated loopback IPv4 DNS listener",
+    "DNS_HOST_PORT": "validated decimal DNS listener port in 1024..65535",
+}
+# This installed file is input to apply_network_identity, not a final nft
+# program. The service fills these four fields from read_configuration before
+# invoking nft; its installer-owned port allowlist must already be rendered.
 LITERAL_CONSUMERS = {
-    "APP_INTERFACES": {"hooks/target/usr/local/sbin/desktop/app-veth"},
+    "APP_INTERFACES": {APP_VETH_RULESET, APP_VETH_CONSUMER},
+    "DNS_ADDRESS": {APP_VETH_RULESET},
+    "DNS_HOST_ADDRESS": {APP_VETH_RULESET},
+    "DNS_HOST_PORT": {APP_VETH_RULESET},
 }
 BLOCK_CONSUMERS = {
     "INSTALLER_FSTAB_RECORDS": (
@@ -316,6 +330,11 @@ def build_registry() -> dict:
             owner = {"module": "scripts/common/target-owned-scan.awk",
                      "function": "source-scoped-application-grammar", "phase": "target-asset"}
             producer = "declared language/package consumer"
+        elif name in APP_VETH_RUNTIME_FIELDS:
+            syntax = APP_VETH_RUNTIME_FIELDS[name]
+            owner = {"module": APP_VETH_CONSUMER,
+                     "function": "apply_network_identity", "phase": "target-asset"}
+            producer = "read_configuration: validated app-veth network identity"
         elif name == "DESKTOP_APPARMOR_STATE":
             syntax = "enforce-or-complain"
             owner = {"module": "scripts/common/render.pl",
@@ -348,7 +367,12 @@ def build_registry() -> dict:
             "syntax": syntax,
             "encoding": "UTF-8",
             "must_be_absent_from_final_target": ns in {"PATH", "APPARMOR_PROFILE", "GITBUILD_DISTRIBUTION", "SCALAR", "THEME"},
-            "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+            "final_assertion": (
+                "runtime ruleset field allowed only in declared literal source members; "
+                "app-veth consumes it before nft; installer markers remain forbidden"
+                if name in APP_VETH_RUNTIME_FIELDS else
+                "forbidden installer marker absent from every project-owned final target file"
+            ),
         })
 
     return {
@@ -552,6 +576,12 @@ def validate(registry: dict) -> dict:
             allowed_literal.add(APPEARANCE_REGISTRY)
         if not set(literal_members) <= allowed_literal & set(members):
             raise ValueError("undeclared literal consumer grammar: " + token)
+        if name in APP_VETH_RUNTIME_FIELDS:
+            if (set(literal_members) != LITERAL_CONSUMERS[name] or
+                    not LITERAL_CONSUMERS[name] <= set(members) or
+                    owner != {"module": APP_VETH_CONSUMER,
+                              "function": "apply_network_identity", "phase": "target-asset"}):
+                raise ValueError("incomplete app-veth runtime ruleset ownership: " + token)
         by_token[token] = entry
 
     occurrences: dict[str, list[str]] = {}
