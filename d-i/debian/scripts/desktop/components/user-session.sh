@@ -181,8 +181,17 @@ desktop_stage_kwallet_dbus_activation_assets() {
   [ -x ${TARGET_ROOT}${DIR_USR_BIN}/busctl ] ||
     installer_fatal "systemd D-Bus inspection client is missing from the target"
 
-  # Debian already owns the portal, compatibility, and kwalletd6 service names.
-  # Add only the Secret Service alias that the package does not provide.
+  # ksecretd owns Secret Service, the portal alias and its own compatibility
+  # name. Account-local overrides route all three through one durable unit.
+  # kwalletd6 is a separate package daemon and retains its vendor activation.
+  for activation in org.freedesktop.impl.portal.desktop.kwallet org.kde.secretservicecompat; do
+    desktop_stage_role_asset \
+      "hooks/target/etc/skel-desktop/.local/share/dbus-1/services/${activation}.service" \
+      "${DIR_ETC}/skel-desktop/.local/share/dbus-1/services/${activation}.service" 0644
+    desktop_stage_role_asset \
+      "hooks/target/etc/skel-desktop/.local/share/dbus-1/services/${activation}.service" \
+      "${DIR_USR_LOCAL_SHARE}/labwc-app/defaults/${activation}.service" 0644
+  done
   desktop_stage_role_asset \
     hooks/target/etc/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service \

@@ -30,6 +30,40 @@ record() {
 }
 
 failures=0
+settled_state=starting
+settled_boot_id=$(cat __INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id) || exit 1
+case "$settled_boot_id" in ''|*[!0-9a-f-]*) exit 1 ;; esac
+[ "${#settled_boot_id}" -eq 36 ] || exit 1
+# Installation renders the frozen release identity; boot never loads class data.
+settled_release='__INSTALLER_FIRSTBOOT_RELEASE_ID__'
+case "$settled_release" in ''|*[!0-9a-f]*) exit 64 ;; esac
+[ "${#settled_release}" -eq 64 ] || exit 64
+
+write_settled_receipt() {
+  settled_candidate=$(mktemp "${FIRSTBOOT_DATA_DIR}/.settled-boot.XXXXXX") || return 1
+  {
+    printf 'format=1\nboot_id=%s\nrelease=%s\n' "$settled_boot_id" "$settled_release"
+    printf 'state=%s\nfailures=%s\n' "$settled_state" "$failures"
+    printf 'timestamp=%s\n' "$(timestamp)"
+  } >"$settled_candidate" && chmod 0600 "$settled_candidate" &&
+    mv -fT -- "$settled_candidate" "${FIRSTBOOT_DATA_DIR}/settled-boot.env" || {
+      rm -f -- "$settled_candidate"
+      return 1
+    }
+}
+# Invalidate earlier boot/release evidence before any fallible check. Stages
+# 01/02 already captured early boot; Type=exec lets multi-user.target settle
+# while this bounded diagnostic process continues.
+write_settled_receipt || exit 1
+settled_wait_status=0
+timeout --signal=TERM --kill-after=2s 120s systemctl is-system-running --wait \
+  >"${FIRSTBOOT_DATA_DIR}/settled-system-state.txt" 2>&1 || settled_wait_status=$?
+case "$settled_wait_status" in
+  0) settled_state=verified ;;
+  124|137) settled_state=timeout; failures=$((failures + 1)) ;;
+  *) settled_state=failed; failures=$((failures + 1)) ;;
+esac
+record "settled_system_state=${settled_state} status=${settled_wait_status}"
 
 check_path() {
   label=$1
@@ -55,31 +89,6 @@ check_absent_path() {
   fi
 }
 
-desktop_read_selected_role() (
-  # The installer receipt is restricted non-secret data, never shell input.
-  receipt_field=${1:-role}
-  case "$receipt_field" in role|suite) ;; *) return 1 ;; esac
-  receipt=__INSTALLER_PATH_FILE_INSTALLER_CLASSES__
-  [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
-  receipt_metadata=$(find -P "$receipt" -maxdepth 0 -printf '%U:%G:%m:%n:%s') || return 1
-  case "$receipt_metadata" in 0:0:644:1:*) ;; *) return 1 ;; esac
-  receipt_size=${receipt_metadata##*:}
-  case "$receipt_size" in ''|*[!0-9]*) return 1 ;; esac
-  [ "$receipt_size" -gt 0 ] && [ "$receipt_size" -le 262144 ] || return 1
-  awk -F '\t' -v field="$receipt_field" '
-    NR>4096 || length($0)>4096 {bad=1; exit 1}
-    $1=="format" {if(NF!=2 || $2!="2" || ++formats!=1) bad=1}
-    $1=="family" {if(NF!=2 || $2!="desktop" || ++families!=1) bad=1}
-    $1=="suite" {if(NF!=2 || $2 !~ /^(forky|trixie)$/ || ++suites!=1) bad=1; suite=$2}
-    $1=="role" {if(NF!=2 || ++roles!=1) bad=1; role=$2}
-    $1=="class" && $2 ~ /^role\// {if(NF!=2 || ++classes!=1) bad=1; selected=substr($2,6)}
-    END {
-      if(bad || formats!=1 || families!=1 || suites!=1 || roles!=1 || classes!=1 || selected!=role ||
-         role !~ /^desktop\/(base|medium|full)$/) exit 1
-      print (field=="suite" ? suite : role)
-    }
-  ' "$receipt"
-)
 
 desktop_role_excludes_path() {
   [ "${desktop_selected_role:-}" = desktop/base ] || return 1
@@ -116,6 +125,303 @@ check_command() {
     log_line validation error "$label" "status=${status}"
     failures=$((failures + 1))
   fi
+}
+
+validate_selected_unit_states() {
+  # The installer already encoded selection in systemd's enabled unit links.
+  # Batch-read that supported interface; do not load class or renderer inputs.
+  __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B - <<'PY'
+import os
+from pathlib import Path
+import re
+import selectors
+import stat
+import subprocess
+import sys
+import time
+
+MANAGER = '__INSTALLER_PATH_DIR_USR_BIN__/systemctl'
+DEADLINE = time.monotonic() + 45
+LIMIT = 2 * 1024 * 1024
+CAPTURE_BYTES = 0
+UNIT = re.compile(r'[A-Za-z0-9_@.\\:-]{1,255}')
+STRICT = {'apparmor.service', 'auditd.service', 'journal-sealing.service',
+          'nftables.service', 'rsyslog.service',
+          'rsyslog-journal-forwarding.service', 'syslog.socket'}
+PROPERTIES = ('Id', 'Names', 'Requires', 'LoadState', 'ActiveState', 'SubState', 'Result', 'Type',
+              'ExecMainStartTimestampMonotonic', 'ConditionResult', 'AssertResult',
+              'ConditionTimestampMonotonic', 'AssertTimestampMonotonic',
+              'TriggeredBy', 'WantedBy', 'RequiredBy')
+
+
+class CleanupUnknown(Exception):
+    pass
+
+
+def capture(arguments):
+    global CAPTURE_BYTES
+    remaining = DEADLINE - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError
+    process = subprocess.Popen([MANAGER, '--no-pager', '--no-ask-password', *arguments],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT,
+                               env={'PATH': '__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_BIN__',
+                                    'LC_ALL': 'C', 'SYSTEMD_COLORS': '0'})
+    try:
+        output = bytearray()
+        os.set_blocking(process.stdout.fileno(), False)
+        with selectors.DefaultSelector() as reader:
+            reader.register(process.stdout, selectors.EVENT_READ)
+            while reader.get_map():
+                remaining = DEADLINE - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError
+                for key, unused in reader.select(min(remaining, 0.2)):
+                    block = os.read(key.fd, 65536)
+                    if not block:
+                        reader.unregister(key.fileobj)
+                    else:
+                        CAPTURE_BYTES += len(block)
+                        if len(output) + len(block) > LIMIT or CAPTURE_BYTES > 8 * LIMIT:
+                            raise ValueError('bounded-output-exceeded')
+                        output.extend(block)
+            remaining = DEADLINE - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            if process.wait(timeout=remaining):
+                raise ValueError('manager-query-failed')
+        return output.decode('ascii')
+    finally:
+        try:
+            if process.poll() is None:
+                process.kill()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired as error:
+                    raise CleanupUnknown from error
+        finally:
+            process.stdout.close()
+
+
+def template_instances(templates):
+    found = set()
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    count = 0
+    roots = ('__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__',
+             '__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_LIB__',
+             '__INSTALLER_PATH_DIR_RUN_SYSTEMD__/system')
+    for root in roots:
+        try:
+            for parent in reversed((Path(root), *Path(root).parents)):
+                info = parent.lstat()
+                if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or
+                        info.st_gid != 0 or info.st_mode & 0o022):
+                    raise ValueError('unsafe-unit-link-ancestry')
+            descriptor = os.open(root, flags)
+        except FileNotFoundError:
+            continue
+        try:
+            with os.scandir(descriptor) as entries:
+                for entry in entries:
+                    count += 1
+                    if count > 16384:
+                        raise ValueError('unit-link-inventory-limit')
+                    if time.monotonic() >= DEADLINE:
+                        raise TimeoutError
+                    if not entry.name.endswith(('.wants', '.requires')):
+                        continue
+                    child = os.open(entry.name, flags, dir_fd=descriptor)
+                    try:
+                        info = os.fstat(child)
+                        if info.st_uid != 0 or info.st_gid != 0 or info.st_mode & 0o022:
+                            raise ValueError('unsafe-unit-link-directory')
+                        with os.scandir(child) as links:
+                            for link in links:
+                                count += 1
+                                if count > 16384:
+                                    raise ValueError('unit-link-inventory-limit')
+                                if time.monotonic() >= DEADLINE:
+                                    raise TimeoutError
+                                stem, at, instance = link.name.partition('@')
+                                if not at or '.' not in instance:
+                                    continue
+                                suffix = instance.rsplit('.', 1)[1]
+                                if stem + '@.' + suffix not in templates:
+                                    continue
+                                info = link.stat(follow_symlinks=False)
+                                if (not UNIT.fullmatch(link.name) or instance.startswith('.') or
+                                        not stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or
+                                        info.st_gid != 0 or info.st_nlink != 1):
+                                    raise ValueError('unsafe-template-instance-link')
+                                found.add(link.name)
+                    finally:
+                        os.close(child)
+        finally:
+            os.close(descriptor)
+    resolved = {name.split('@', 1)[0] + '@.' + name.rsplit('.', 1)[1] for name in found}
+    if resolved != templates:
+        raise ValueError('enabled-template-without-instance')
+    return found
+
+
+def enabled_units():
+    selected = set()
+    for line in capture(['list-unit-files', '--state=enabled,enabled-runtime',
+                         '--no-legend', '--plain']).splitlines():
+        fields = line.split()
+        if (len(fields) not in (2, 3) or not UNIT.fullmatch(fields[0]) or
+                fields[1] not in ('enabled', 'enabled-runtime')):
+            raise ValueError('malformed-enabled-inventory')
+        selected.add(fields[0])
+        if len(selected) > 2048:
+            raise ValueError('too-many-selected-units')
+    if not selected:
+        raise ValueError('empty-enabled-inventory')
+    templates = {name for name in selected if '@.' in name}
+    return (selected - templates) | (template_instances(templates) if templates else set()), templates
+
+
+def show(units):
+    records = {}
+    properties = [argument for name in PROPERTIES for argument in ('--property', name)]
+    text = capture(['show', *properties, '--', *sorted(units)])
+    for block in text.strip().split('\n\n'):
+        record = {}
+        for line in block.splitlines():
+            key, separator, value = line.partition('=')
+            if not separator or key not in PROPERTIES or key in record:
+                raise ValueError('malformed-unit-properties')
+            record[key] = value
+        name = record.get('Id', '')
+        aliases = record.get('Names', '').split()
+        if (not UNIT.fullmatch(name) or name not in aliases or
+                any(not UNIT.fullmatch(alias) for alias in aliases) or
+                'LoadState' not in record or 'ActiveState' not in record):
+            raise ValueError('invalid-unit-identity')
+        if name in records and records[name] != record:
+            raise ValueError('unit-changed-during-query')
+        records[name] = record
+    mapped = {}
+    used = set()
+    for requested in units:
+        matches = [record for record in records.values()
+                   if requested in record['Names'].split()]
+        if len(matches) != 1:
+            raise ValueError('incomplete-unit-properties')
+        mapped[requested] = matches[0]
+        used.add(matches[0]['Id'])
+    if used != set(records):
+        raise ValueError('unexpected-unit-properties')
+    return mapped
+
+
+def dependencies(record):
+    names = set()
+    for key in ('Requires', 'TriggeredBy', 'WantedBy', 'RequiredBy'):
+        for name in record.get(key, '').split():
+            if not UNIT.fullmatch(name):
+                raise ValueError('invalid-related-unit')
+            names.add(name)
+    return names
+
+
+def classify(name, record, related):
+    active = record['ActiveState']
+    if record['LoadState'] != 'loaded' or active == 'failed':
+        return 'failed', 'load-or-execution-failed'
+    if active in ('activating', 'deactivating', 'refreshing', 'maintenance'):
+        return 'pending', active
+    if (record.get('AssertResult') == 'no' and
+            record.get('AssertTimestampMonotonic', '0').isdecimal() and
+            int(record.get('AssertTimestampMonotonic', '0')) > 0):
+        return 'failed', 'assertion-failed'
+    if record.get('Result', 'success') != 'success':
+        return 'failed', 'unsuccessful-result'
+    if active in ('active', 'reloading'):
+        return 'verified', active
+    # Cleanup is intentionally gated on this validator's final completion.
+    # Its earlier inactivity cannot be a reason to block that completion.
+    if name == 'secondboot.service':
+        return 'expected', 'completion-gated-cleanup'
+    if active != 'inactive':
+        return 'failed', 'unknown-active-state'
+    if (record.get('ConditionResult') == 'no' and
+            record.get('ConditionTimestampMonotonic', '0').isdecimal() and
+            int(record.get('ConditionTimestampMonotonic', '0')) > 0):
+        return ('failed', 'required-condition-failed') if name in STRICT else (
+            'expected', 'condition-not-applicable')
+    stamp = record.get('ExecMainStartTimestampMonotonic', '0')
+    if (record.get('Type') == 'oneshot' and stamp.isdecimal() and int(stamp) > 0
+            and record.get('Result') == 'success'):
+        return 'verified', 'oneshot-completed'
+    triggers = record.get('TriggeredBy', '').split()
+    if triggers and any(related[item]['ActiveState'] == 'active' for item in triggers):
+        return 'expected', 'armed-by-active-trigger'
+    parents = (record.get('WantedBy', '') + ' ' + record.get('RequiredBy', '')).split()
+    if name not in STRICT and parents and all(
+            related[item]['LoadState'] == 'loaded' and
+            related[item]['ActiveState'] == 'inactive' for item in parents):
+        return 'expected', 'armed-for-inactive-target'
+    return 'failed', 'selected-unit-did-not-run'
+
+
+def main():
+    selected, templates = enabled_units()
+    required = selected | STRICT
+    records = show(required)
+    # Required static dependencies can lose a boot job without appearing in
+    # --failed. Include their complete bounded closure, resolving package aliases
+    # through systemd's Names property rather than guessing canonical names.
+    for unused in range(32):
+        extra = set()
+        for record in records.values():
+            dependencies(record)
+            extra.update(record.get('Requires', '').split())
+        extra -= required
+        if not extra:
+            break
+        if len(required) + len(extra) > 4096:
+            raise ValueError('too-many-required-units')
+        records.update(show(extra))
+        required.update(extra)
+    else:
+        raise ValueError('required-dependency-depth-exceeded')
+    extra = set().union(*(dependencies(record) for record in records.values())) - required
+    if len(extra) > 8192:
+        raise ValueError('too-many-related-units')
+    related = {**records, **(show(extra) if extra else {})}
+    if enabled_units() != (selected, templates):
+        print('selected_units_state=pending reason=inventory-changed')
+        return 75
+    bad = False
+    pending = False
+    for name in sorted(templates):
+        print('unit=' + name + ' state=expected reason=template-with-installed-instances')
+    for name, record in sorted(records.items()):
+        state, reason = classify(name, record, related)
+        print('unit=' + name + ' state=' + state + ' reason=' + reason)
+        bad |= state == 'failed'
+        pending |= state == 'pending'
+    print('selected_units_count=' + str(len(required)))
+    return 1 if bad else 75 if pending else 0
+
+
+try:
+    sys.exit(main())
+except CleanupUnknown:
+    print('selected_units_state=outcome-unknown reason=manager-child-reap-unproven')
+    sys.exit(75)
+except (TimeoutError, subprocess.TimeoutExpired):
+    print('selected_units_state=timeout reason=operation-deadline')
+    sys.exit(124)
+except (OSError, UnicodeError, ValueError) as error:
+    reason = str(error) if isinstance(error, ValueError) else type(error).__name__
+    if re.fullmatch(r'[A-Za-z0-9-]{1,80}', reason) is None:
+        reason = 'invalid-manager-output'
+    print('selected_units_state=failed reason=' + reason)
+    sys.exit(1)
+PY
 }
 
 validate_stubby_boot_order() {
@@ -173,7 +479,15 @@ apparmor_log_delivery() {
         [ ! -L "$audit_candidate" ] || return 1
         if [ -e "$audit_candidate" ]; then
           [ -f "$audit_candidate" ] && [ -r "$audit_candidate" ] || return 1
-          apparmor_sample=$(sed -n '/apparmor=/h; /type=1400/h; /type=APPARMOR/h; ${g;p;}' "$audit_candidate") || return 1
+          # Match the same authoritative header as the rsyslog input. EXECVE
+          # arguments can contain denial-looking text and must not become the
+          # delivery sample merely because they occur later in the audit file.
+          apparmor_sample=$(sed -nE '
+            /^(node=[^ ]+ )?type=(AVC|1400|APPARMOR[A-Z_]*) msg=audit\([0-9]+\.[0-9]+:[0-9]+\): / {
+              /apparmor=|type=(1400|APPARMOR)/h
+            }
+            ${g;p;}
+          ' "$audit_candidate") || return 1
           [ -z "$apparmor_sample" ] || break
         fi
         audit_index=$((audit_index + 1))
@@ -316,26 +630,39 @@ check_desktop_command_optional_any() {
 
 validate_desktop_role() {
   if [ ! -r __INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf ]; then
-    log_line validation info desktop "desktop_role=not-selected"
-    return 0
+    case '__INSTALLER_FIRSTBOOT_HOST_VARIANT__' in
+      server)
+        log_line validation info desktop 'desktop_role=not-selected'
+        return 0 ;;
+      *)
+        record 'FAIL desktop-defaults: selected desktop policy is unavailable'
+        log_line validation error desktop 'desktop_defaults_unavailable=true'
+        failures=$((failures + 1))
+        return 1 ;;
+    esac
   fi
 
   record "desktop_role=selected"
   log_line validation info desktop "desktop_role=selected"
-  if desktop_selected_role=$(desktop_read_selected_role) &&
-     desktop_selected_suite=$(desktop_read_selected_role suite); then
-    record "desktop_class=${desktop_selected_role}"
-  else
-    record 'FAIL desktop-class-receipt: missing, unsafe or inconsistent selected class'
-    log_line validation error desktop 'selected_class_receipt_invalid=true'
-    failures=$((failures + 1))
-    return 1
-  fi
+  desktop_selected_role='__INSTALLER_FIRSTBOOT_ROLE_IDS__'
+  desktop_selected_suite='__INSTALLER_FIRSTBOOT_SUITE__'
+  desktop_expected_family='__INSTALLER_FIRSTBOOT_HOST_VARIANT__'
+  case "$desktop_expected_family:$desktop_selected_role:$desktop_selected_suite" in
+    desktop:desktop/base:forky|desktop:desktop/medium:forky|desktop:desktop/full:forky|\
+    desktop:desktop/base:trixie|desktop:desktop/medium:trixie|desktop:desktop/full:trixie)
+      record "desktop_class=${desktop_selected_role}" ;;
+    *)
+      record 'FAIL desktop-rendered-policy: invalid installation-time expectations'
+      log_line validation error desktop 'rendered_desktop_policy_invalid=true'
+      failures=$((failures + 1))
+      return 1 ;;
+  esac
+  desktop_metadata_failures=$failures
   check_command desktop-defaults-metadata \
     __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
       [ -f __INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf ]
       [ ! -L __INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf ]
-      [ "$(find -P __INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf -maxdepth 0 -printf "%U:%G:%m")" = "0:0:644" ]
+      [ "$(find -P __INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf -maxdepth 0 -size -1048577c -printf "%U:%G:%m:%n")" = "0:0:644:1" ]
     ' sh
   check_command desktop-skeleton-metadata \
     __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
@@ -344,6 +671,13 @@ validate_desktop_role() {
       [ ! -L "$skeleton" ]
       [ "$(find -P "$skeleton" -maxdepth 0 -printf "%U:%G:%m")" = "0:0:700" ]
     ' sh
+  if [ "$failures" -ne "$desktop_metadata_failures" ]; then
+    # Keep independent boot/security collection running, but never source or
+    # inspect dependent desktop inputs after their trust boundary failed.
+    record 'SKIP desktop-config-dependent-checks: unsafe defaults metadata'
+    log_line validation error desktop 'desktop_config_checks_skipped=untrusted_metadata'
+    return 1
+  fi
   desktop_account_user=$(
     __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
       . __INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf
@@ -625,6 +959,8 @@ printf "desktop_kanshi_verification enabled=%s\n" "$enabled"
     __INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/btop/btop.conf \
     __INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/btop/btop-cpu.conf \
     __INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/btop/btop-memory.conf \
+    __INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/btop/profiles/cpu/btop/btop.conf \
+    __INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/btop/profiles/memory/btop/btop.conf \
     __INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/wayscriber/config.toml \
     __INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/fzf/default-opts \
     __INSTALLER_PATH_DIR_ETC_XDG__/gtk-3.0/settings.ini \
@@ -1028,6 +1364,8 @@ printf "desktop_kanshi_verification enabled=%s\n" "$enabled"
       .config/btop/btop.conf \
       .config/btop/btop-cpu.conf \
       .config/btop/btop-memory.conf \
+      .config/btop/profiles/cpu/btop/btop.conf \
+      .config/btop/profiles/memory/btop/btop.conf \
       .config/wayscriber/config.toml \
       .config/fzf/default-opts
     do
@@ -1482,7 +1820,10 @@ if command -v systemctl >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
       failures=$((failures + 1))
       ;;
   esac
-  failed_units=$(systemctl --failed --no-legend --plain 2>__INSTALLER_PATH_DIR_DEV__/null | sed -n '1,20p' || true)
+  failed_units=$(timeout --signal=TERM --kill-after=2s 10s systemctl --failed --no-legend --plain 2>__INSTALLER_PATH_DIR_DEV__/null) || {
+    record "FAIL failed-unit-query"
+    failures=$((failures + 1))
+  }
   if [ -n "$failed_units" ]; then
     record "FAIL failed-units-present"
     printf '%s\n' "$failed_units" >>"$VALIDATION_FILE"
@@ -1491,6 +1832,18 @@ if command -v systemctl >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
   else
     record "PASS failed-units-absent"
   fi
+  pending_jobs=$(timeout --signal=TERM --kill-after=2s 10s systemctl list-jobs --no-legend --plain) || {
+    record "FAIL pending-job-query"
+    failures=$((failures + 1))
+  }
+  if [ -n "$pending_jobs" ]; then
+    record "PENDING systemd-jobs"
+    printf '%s\n' "$pending_jobs" >>"$VALIDATION_FILE"
+    settled_state=pending
+    failures=$((failures + 1))
+  fi
+  capture settled-enabled-units.txt systemctl list-unit-files --state=enabled,enabled-runtime --no-legend --plain
+  capture settled-failure-journal.txt journalctl -b -u firstboot.service -u wifi-firstboot.service -u swap-fallback.service -u crowdsec-firstboot.service --no-pager -n 160
   if [ -f __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_STUBBY_DROPIN__/60-app-veth.conf ]; then
     # A job deleted to break an ordering cycle need not appear in --failed.
     check_command managed-stubby-boot-order validate_stubby_boot_order
@@ -1543,12 +1896,36 @@ check_command journal-forwarding-policy __INSTALLER_PATH_DIR_USR_BIN__/timeout -
 check_command syslog-socket __INSTALLER_PATH_DIR_USR_BIN__/timeout --kill-after=2s 10s __INSTALLER_PATH_DIR_USR_BIN__/systemctl is-active --quiet syslog.socket
 capture logging-units.txt __INSTALLER_PATH_DIR_USR_BIN__/systemctl status rsyslog.service rsyslog-journal-forwarding.service syslog.socket --no-pager --lines=40
 
+selected_unit_failures=$failures
+check_command selected-unit-states validate_selected_unit_states
+if [ "$failures" -ne "$selected_unit_failures" ]; then
+  case "${status:-1}" in
+    75|124|137)
+      if [ "$selected_unit_failures" -eq 0 ]; then
+        case "$status" in
+          75) settled_state=pending ;;
+          *) settled_state=timeout ;;
+        esac
+      else
+        # A later retry/timeout must not relabel an earlier hard failure as
+        # merely pending. Preserve a prior pending/timeout state otherwise.
+        [ "$settled_state" != verified ] || settled_state=failed
+      fi
+      ;;
+    *) settled_state=failed ;;
+  esac
+fi
+
 if [ "$failures" -eq 0 ]; then
+  settled_state=verified
+  write_settled_receipt || exit 1
   record "validation_status=pass"
   log_line validation info validation "validation_status=pass"
   exit 0
 fi
 
+[ "$settled_state" != verified ] || settled_state=failed
+write_settled_receipt || exit 1
 record "validation_status=fail failures=${failures}"
 log_line validation error validation "validation_status=fail failures=${failures}"
 exit 1

@@ -12,16 +12,42 @@ _require_test_isolation()
 
 from functools import lru_cache
 from pathlib import Path
+import atexit
 import os
 import json
 import re
+import shlex
 import subprocess
+import tarfile
 import tempfile
-from payload_fixture import installed_argv, read_text
+from payload_fixture import read_text, source_path
+from fixture_render import compiled_profile_values, render_scalar_fixture
 from theme_fixture import render_theme_defaults
 
 FORKY = Path(__file__).resolve().parents[1]
 TARGET = FORKY / 'hooks/target'
+
+
+def profile_values(profile):
+    """Read a private literal snapshot; never source supplied fixture text."""
+    profile = Path(profile)
+    if not profile.is_file() or profile.is_relative_to(FORKY / 'hosts/profiles'):
+        return compiled_profile_values(profile.name)
+    if profile.is_symlink() or profile.stat().st_size > 1024 * 1024:
+        raise ValueError('unsafe fixture profile')
+    result = {}
+    for line in profile.read_text(encoding='utf-8').splitlines():
+        if not line or line.startswith('#'):
+            continue
+        key, separator, raw = line.partition('=')
+        words = shlex.split(raw)
+        if not separator or not re.fullmatch(r'[A-Z][A-Z0-9_]*', key) or len(words) != 1:
+            raise ValueError('invalid literal fixture profile')
+        # Tests may deliberately append a field override. Serialize it again
+        # as literal data before the production shell renderer consumes it.
+        result[key] = words[0]
+    return result
+
 
 @lru_cache(maxsize=32)
 def native_assets(profile, count=None, theme_items=()):
@@ -29,15 +55,19 @@ def native_assets(profile, count=None, theme_items=()):
     profile = Path(profile)
     script = r'''
 . "$1"
-. "$2/detect.sh"
-. "$2/components.sh"
+. "$2"
+fixture_source_root=$4
 if [ "$3" != profile ]; then
   LABWC_WORKSPACE_COUNT_INTERNAL=$3
   LABWC_WORKSPACE_COUNT_EXTERNAL=$3
 fi
-DIR_SCRIPTS_DESKTOP=$2
-installer_repo_join_var() { printf '%s/%s\n' "$DIR_SCRIPTS_DESKTOP" "$2"; }
+installer_repo_file_value() { printf '%s/%s\n' "$fixture_source_root" "$1"; }
 fetch_hook() { cp "$1" "$2"; }
+target_private_stage_dir() { mktemp -d "$TMP_ENV_DIR/geometry.XXXXXX"; }
+target_asset_host_path() { printf '%s\n' "$1"; }
+stage_target_asset() { cp "$1" "$2"; chmod "$3" "$2"; }
+write_target_file() { cat >"$1"; chmod "$2" "$1"; }
+run_in_target() { shift; "$@"; }
 desktop_fatal() { printf '%s\n' "$*" >&2; exit 1; }
 desktop_render_role_target_template() { printf '%s\0' "$@"; printf '\0'; }
 desktop_render_role_target_template_deferred() { desktop_render_role_target_template "$@"; }
@@ -46,39 +76,53 @@ desktop_log() { :; }
 installer_warn() { :; }
 desktop_render_waybar_config
 desktop_render_waybar_style
-for menu in audio bluetooth calendar notifications power screenshot system tomat; do
+for menu in audio battery bluetooth brightness calendar launcher notifications power screenshot system tomat wayscriber; do
     desktop_render_waybar_asset "${menu}-menu.xml"
 done
 '''
     with tempfile.TemporaryDirectory() as tmp:
-        response = subprocess.run(installed_argv([
-            '/bin/sh','-eu','-c',script,'output-class-render',str(profile),
-            str(FORKY/'scripts/desktop'),'profile' if count is None else str(count)]),
-            env={'PATH':'/usr/bin:/bin','TMP_ENV_DIR':tmp},
+        work = Path(tmp)
+        values = profile_values(profile)
+        assignments = work / 'profile.env'
+        assignments.write_text(''.join(key + '=' + shlex.quote(value) + '\n'
+                                       for key, value in values.items()), encoding='utf-8')
+        definitions = work / 'components.sh'
+        raw_definitions = work / 'components-source'
+        raw_definitions.write_text(read_text(FORKY / 'scripts/desktop/detect.sh') + '\n' +
+                                   read_text(FORKY / 'scripts/desktop/components.sh'), encoding='utf-8')
+        definitions.write_bytes(render_scalar_fixture(raw_definitions, work, values))
+        # Only staging/transport is adapted. The actual shell renderer and its
+        # target Python geometry validator run inside the reviewed test guest.
+        response = subprocess.run([
+            '/bin/sh','-eu','-c',script,'output-class-render',str(assignments),
+            str(definitions),'profile' if count is None else str(count), str(FORKY)],
+            env={'PATH':'/usr/bin:/bin','HOME':tmp,'TMP_ENV_DIR':tmp,
+                 'TMPDIR':tmp,'TMP':tmp,'TEMP':tmp,'LC_ALL':'C.UTF-8'},
             capture_output=True,check=True,timeout=15)
-    result = {}
-    for record in response.stdout.decode().split('\0\0'):
-        if not record: continue
-        fields=record.split('\0')
-        source,dest,mode,*pairs=fields
-        if len(pairs)%2: raise AssertionError('incomplete renderer record')
-        values=dict(zip(pairs[::2],pairs[1::2]))
-        text=render_theme_defaults(read_text(TARGET/source), dict(theme_items))
-        text=re.sub(r'__INSTALLER_([A-Z0-9_]+)__',lambda m:values[m[1]],text)
-        if '__INSTALLER_' in text or '__THEME_' in text:
-            raise AssertionError('unresolved source '+source)
-        relative = Path(dest).relative_to('/etc/skel-desktop/.config/waybar').as_posix()
-        if relative == 'config' or relative.startswith('modules/'):
-            def unique_keys(pairs):
-                values = {}
-                for key, value in pairs:
-                    if key in values: raise AssertionError('duplicate Waybar key: ' + key)
-                    values[key] = value
-                return values
-            json.loads(text, object_pairs_hook=unique_keys)
-        if relative in result:
-            raise AssertionError('duplicate rendered Waybar destination: ' + relative)
-        result[relative]=text
+        result = {}
+        for record in response.stdout.decode().split('\0\0'):
+            if not record: continue
+            fields=record.split('\0')
+            source,dest,mode,*pairs=fields
+            if len(pairs)%2: raise AssertionError('incomplete renderer record')
+            fields=dict(zip(pairs[::2],pairs[1::2]))
+            text=render_scalar_fixture(source_path(TARGET/source), work,
+                                       {**values, **fields}).decode('utf-8')
+            text=render_theme_defaults(text, dict(theme_items))
+            if '__INSTALLER_' in text or '__THEME_' in text:
+                raise AssertionError('unresolved source '+source)
+            relative = Path(dest).relative_to('/etc/skel-desktop/.config/waybar').as_posix()
+            if relative == 'config' or relative.startswith('modules/'):
+                def unique_keys(pairs):
+                    fields = {}
+                    for key, value in pairs:
+                        if key in fields: raise AssertionError('duplicate Waybar key: ' + key)
+                        fields[key] = value
+                    return fields
+                json.loads(text, object_pairs_hook=unique_keys)
+            if relative in result:
+                raise AssertionError('duplicate rendered Waybar destination: ' + relative)
+            result[relative]=text
     return result
 
 
@@ -126,9 +170,27 @@ def rendered_assets(profile, count=None, theme_items=()):
     assets['style.css'] = stylesheet('style.css')
     return assets
 
+@lru_cache(maxsize=1)
 def profiles():
-    return [p for p in sorted((FORKY/'hosts/profiles').glob('*.env'))
-            if 'LABWC_WAYBAR_EXTERNAL_FONT_SIZE=' in p.read_text()]
+    """Materialize generated desktop profiles, including inherited defaults."""
+    temporary = tempfile.TemporaryDirectory(prefix='waybar-compiled-profiles-')
+    atexit.register(temporary.cleanup)
+    directory = Path(temporary.name)
+    prefix = 'catalog/compiled/forky/profiles/desktop/'
+    with tarfile.open(FORKY.parent / 'forky/payload.tar.gz', 'r:gz') as archive:
+        names = [member.name.removeprefix(prefix) for member in archive
+                 if member.name.startswith(prefix) and member.name.endswith('.env')
+                 and not member.name.endswith('.account.env')]
+    if len(names) != len(set(names)) or not 0 < len(names) <= 32:
+        raise ValueError('invalid compiled desktop profile inventory')
+    result = []
+    for name in sorted(names):
+        values = compiled_profile_values(name)
+        path = directory / name
+        path.write_text(''.join(key + '=' + shlex.quote(value) + '\n'
+                                for key, value in values.items()), encoding='utf-8')
+        result.append(path)
+    return result
 
 def style(profile, output_class):
     assets=rendered_assets(profile)

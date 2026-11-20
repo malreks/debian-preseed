@@ -304,8 +304,8 @@ desktop_write_labwc_plans_config() {
       LABWC_PLANS_ENABLED "$(desktop_shell_config_value "$LABWC_PLANS_ENABLED")" \
       LABWC_PLANS_TELEGRAM_ENABLED "$(desktop_shell_config_value "$plans_telegram_enabled")" \
       LABWC_PLANS_TELEGRAM_API_BASE "$(desktop_shell_config_value "$LABWC_PLANS_TELEGRAM_API_BASE")" \
-      TELEGRAM_API_KEY "$DESKTOP_TELEGRAM_API_KEY" \
-      TELEGRAM_CHAT_ID "$DESKTOP_TELEGRAM_CHAT_ID" \
+      TELEGRAM_API_KEY "$(desktop_shell_config_value "$DESKTOP_TELEGRAM_API_KEY")" \
+      TELEGRAM_CHAT_ID "$(desktop_shell_config_value "$DESKTOP_TELEGRAM_CHAT_ID")" \
       LABWC_PLANS_NTFY_ENABLED "$(desktop_shell_config_value "$LABWC_PLANS_NTFY_ENABLED")" \
       LABWC_PLANS_NTFY_BASE_URL "$(desktop_shell_config_value "$LABWC_PLANS_NTFY_BASE_URL")" \
       LABWC_PLANS_NTFY_READER_ACCESS_CONFIRMED "$(desktop_shell_config_value "$LABWC_PLANS_NTFY_READER_ACCESS_CONFIRMED")"

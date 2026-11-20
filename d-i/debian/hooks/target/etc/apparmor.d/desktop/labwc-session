@@ -104,7 +104,6 @@ profile waybar __INSTALLER_PATH_DIR_USR__/{bin/waybar,local/libexec/labwc-waybar
   # fallback would create a null child and audit Python imports in complain mode.
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-battery rPx -> labwc-waybar-battery,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events rPx -> labwc-waybar-events,
-  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu rPx -> labwc-waybar-menu,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state rPx -> labwc-waybar-state,
   # Native Bluetooth status uses only BlueZ object/property notifications.
   __INSTALLER_PATH_DIR_RUN__/dbus/system_bus_socket rw,
@@ -119,6 +118,12 @@ profile waybar __INSTALLER_PATH_DIR_USR__/{bin/waybar,local/libexec/labwc-waybar
   # The Python status trampoline probes this root-owned import directory.
   # Directory metadata only: no new recursive read or write permission.
   __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,
+  # Debian's site.py also probes the minor-version local site root (3.14 on
+  # the captured Forky target). These are directory reads, never imports.
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIB__/python3.[0-9]*/ r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIB__/python3.[0-9]*/dist-packages/ r,
+  # Debian's versioned sitecustomize.py is a package-owned symlink into /etc.
+  __INSTALLER_PATH_DIR_ETC__/python3.[0-9]*/sitecustomize.py r,
   # Click callbacks dispatch through this user manager, not panel-owned children.
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/systemd/private rw,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-fuzzel.pid r,
@@ -186,45 +191,15 @@ profile labwc-waybar-run __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-r
   include if exists <local/usr.local.libexec.labwc-waybar-run>
 }
 
-profile labwc-waybar-menu __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu flags=(attach_disconnected) {
-  # The popup owner reads only the user-owned rendered XML/module contract and
-  # delegates every selected action back through labwc-waybar-run.
-  #include <abstractions/wrapper-python>
-  # GTK/XKB resources are scoped by the repository's GUI wrapper abstraction;
-  # it grants the package-owned schema, icon, theme and XKB roots read-only.
-  # No generic __INSTALLER_PATH_DIR_USR__/share tree is exposed to the popup domain.
-  #include <abstractions/wrapper-gui>
-  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu rix,
-  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu r,
-  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run rPx -> labwc-waybar-run,
-  __INSTALLER_PATH_DIR_PYTHON3_SYSTEM_PACKAGES__/gi/{,**} mr,
-  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/ r,
-  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/{Gdk,Gtk,Gio,GLib,GLibUnix,GObject,GModule,GIRepository}-*.typelib mr,
-  owner @{HOME}/.config/waybar/modules/{notifications,power,tomat,wayscriber} r,
-  owner @{HOME}/.config/waybar/gtk/{notifications,power,tomat,wayscriber}-menu.xml r,
-  owner @{HOME}/.config/waybar/style/gtk.css r,
-  # xkbcommon first resolves the package symlink through the canonical X11
-  # root; keep that package-owned tree read-only and scoped to this popup.
-  __INSTALLER_PATH_DIR_USR_SHARE_X11__/ r,
-  __INSTALLER_PATH_DIR_USR_SHARE_XKB__/ r,
-  __INSTALLER_PATH_DIR_USR_SHARE_XKB__/** r,
-  signal (receive) set=(int, term, hup, kill) peer=unconfined,
-  signal (send) set=(chld) peer=waybar,
-  include if exists <local/usr.local.libexec.labwc-waybar-menu>
-}
-
 profile labwc-waybar-events __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events flags=(attach_disconnected) {
   #include <abstractions/wrapper-python>
   include if exists <abstractions/dbus-session-strict>
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events r,
-  __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_waybar_state.py r,
   __INSTALLER_PATH_DIR_USR__/lib/** mr,
   __INSTALLER_PATH_DIR_USR_SHARE_GLIB_SCHEMAS__/gschemas.compiled r,
   __INSTALLER_PATH_DIR_ETC__/machine-id r,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/bus rw,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
-  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-waybar-state/ r,
-  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-waybar-state/{,**} r,
   network unix stream,
   dbus (send) bus=session path=/fr/emersion/Mako
     interface=fr.emersion.Mako member=ListModes peer=(name=org.freedesktop.Notifications),
@@ -232,11 +207,11 @@ profile labwc-waybar-events __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wayba
     interface=org.freedesktop.DBus.Properties member=PropertiesChanged peer=(name=org.freedesktop.Notifications),
   dbus (send) bus=session path=/org/freedesktop/systemd1
     interface=org.freedesktop.systemd1.Manager member=Subscribe peer=(name=org.freedesktop.systemd1),
-  dbus (send) bus=session path=/org/freedesktop/systemd1/unit/labwc_2dscreen_2drecording_2eservice
+  dbus (send) bus=session path=/org/freedesktop/systemd1/unit/{labwc_2dscreen_2drecording_2eservice,wayscriber_2eservice}
     interface=org.freedesktop.DBus.Properties member=Get peer=(name=org.freedesktop.systemd1),
   dbus (receive) bus=session path=/org/freedesktop/systemd1
     interface=org.freedesktop.systemd1.Manager member={UnitNew,UnitRemoved} peer=(name=org.freedesktop.systemd1),
-  dbus (receive) bus=session path=/org/freedesktop/systemd1/unit/labwc_2dscreen_2drecording_2eservice
+  dbus (receive) bus=session path=/org/freedesktop/systemd1/unit/{labwc_2dscreen_2drecording_2eservice,wayscriber_2eservice}
     interface=org.freedesktop.DBus.Properties member=PropertiesChanged peer=(name=org.freedesktop.systemd1),
   dbus (receive) bus=session path=/org/freedesktop/DBus
     interface=org.freedesktop.DBus member=NameOwnerChanged peer=(name=org.freedesktop.DBus),

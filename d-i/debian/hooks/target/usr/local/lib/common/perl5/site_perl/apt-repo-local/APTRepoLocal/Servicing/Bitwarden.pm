@@ -56,7 +56,8 @@ sub policy_valid {
             [
                 'def bitwarden_session_unit_argv(',
                 '"--property=After=labwc-session.target labwc-kwallet-portal.service"',
-                '"--property=Requisite=labwc-session.target labwc-kwallet-portal.service"',
+                '"--property=Requisite=labwc-session.target"',
+                '"--property=Requires=labwc-kwallet-portal.service"',
                 '"--property=PartOf=labwc-session.target labwc-kwallet-portal.service"',
             ],
         ],
@@ -77,6 +78,14 @@ sub policy_valid {
                 'QT_QPA_PLATFORM=wayland',
                 'SystemdService=labwc-kwallet-portal.service',
             ],
+        ],
+        [
+            '__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/defaults/org.freedesktop.impl.portal.desktop.kwallet.service',
+            ['Name=org.freedesktop.impl.portal.desktop.kwallet', 'SystemdService=labwc-kwallet-portal.service'],
+        ],
+        [
+            '__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/defaults/org.kde.secretservicecompat.service',
+            ['Name=org.kde.secretservicecompat', 'SystemdService=labwc-kwallet-portal.service'],
         ],
         [
             '__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/defaults/kwalletrc',

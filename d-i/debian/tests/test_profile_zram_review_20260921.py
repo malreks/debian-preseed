@@ -94,7 +94,8 @@ class ProfileWiringReviewTests(unittest.TestCase):
 class TailAlignmentReviewTests(unittest.TestCase):
     def check_size(self, delta, *, target='/dev/fixturep13', shell='dash', context=''):
         code = f'''set -eu
-. {shlex.quote(str(FORKY/'scripts/late/zram-swap.sh'))}
+DIR_DEV=/dev
+. {shlex.quote(str(FORKY/'scripts/common/modules/raw-storage.sh'))}
 DEV_PART_RAW_ZRAM=/dev/fixturep13
 RUNTIME_DEBIAN_START_SLOT=3
 RUNTIME_DEBIAN_END_SLOT=13

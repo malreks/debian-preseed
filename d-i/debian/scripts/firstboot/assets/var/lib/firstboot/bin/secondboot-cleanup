@@ -153,8 +153,14 @@ regular_file_exists() {
 }
 
 firstboot_completed_successfully() {
-  regular_file_exists "$1" &&
-    grep -F -x -q 'status=0' "$1"
+  regular_file_exists "$1" || return 1
+  IFS= read -r cleanup_boot_id <"$(root_path __INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id)" || return 1
+  case "$cleanup_boot_id" in ''|*[!0-9a-f-]*) return 1 ;; esac
+  [ "${#cleanup_boot_id}" -eq 36 ] || return 1
+  cleanup_release='__INSTALLER_FIRSTBOOT_RELEASE_ID__'
+  grep -F -x -q 'status=0' "$1" &&
+    grep -F -x -q "boot_id=${cleanup_boot_id}" "$1" &&
+    grep -F -x -q "release=${cleanup_release}" "$1"
 }
 
 cleanup_deferred=false

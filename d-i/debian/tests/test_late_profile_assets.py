@@ -82,13 +82,18 @@ installer_class_metadata_read_path() {
   printf '%s/%s\n' "$FIXTURE_SOURCE" "$(installer_repo_file_value "$1")"
 }
 installer_snapshots_enabled() { [ "$TIMESHIFT_ENABLE" = true ]; }
-installer_publish_class_receipt() { : >"$FIXTURE_ROOT/receipt-published"; }
 sync() { :; } # The isolated fixture checks publication, not storage durability.
 # Device identity and the mount record are private fixture data. No actual
 # device discovery or target management command is used by this fixture.
 blkid() { printf '%s\n' 00000000-0000-0000-0000-000000000001; }
+validate_raw_storage_partition() {
+  [ "$1" = "$DEV_PART_RAW_SWAP" ] && [ "$2" = "$DEV_PART_RAW_SWAP_MB" ]
+}
+raw_partition_partuuid() { blkid "$1"; }
+stable_raw_partition_path() { printf '%s/disk/by-partuuid/%s\n' "$DIR_DEV" "$(raw_partition_partuuid "$1")"; }
 . "$FIXTURE_SOURCE/scripts/common/system-foundation.sh"
-[ -f "$FIXTURE_ROOT/receipt-published" ]
+[ ! -e "$TARGET_ROOT$DIR_VAR_LIB_INSTALLER_STATE/classes.tsv" ]
+grep -Fq '/disk/by-partuuid/00000000-0000-0000-0000-000000000001' "$TARGET_ROOT$FILE_SWAP_FALLBACK_CONFIG"
 for unit in "$FILE_ZRAM_WRITEBACK_SERVICE" "$FILE_ZRAM_WRITEBACKD_SERVICE" \
   "$FILE_ZRAM_IDLE_WRITEBACK_TIMER" "$FILE_ZRAM_COLD_TIER_TIMER"; do
   grep -Fq "After=${FILE_ZRAM_SETUP_SERVICE##*/}" "$TARGET_ROOT$unit"
@@ -302,7 +307,7 @@ esac
                             self.assertFalse(fields - configured - produced,
                                              f'{stage}: {asset}: {sorted(fields - configured - produced)}')
 
-    def test_foundation_reaches_its_receipt_after_all_assets_and_links(self) -> None:
+    def test_foundation_publishes_assets_without_an_installed_class_catalog(self) -> None:
         for family, profile in (('desktop', 'btrfs-de'), ('server', 'btrfs-srv-flex')):
             with tempfile.TemporaryDirectory(prefix='late-foundation-') as temporary:
                 boundary = Path(temporary)
@@ -330,6 +335,7 @@ esac
                     "ZRAM_BACKING_RAW_DEVICE='/dev/fixture-zram'\nZRAM_SWAP_DEVICE='/dev/zram0'\n"
                     "ZRAM_BACKING_DEVICE='/dev/mapper/fixture-zram'\n"
                     "ZRAM_BACKING_MAPPER_NAME='fixture-zram'\nSWAP_FALLBACK_RAW_DEVICE='/dev/fixture-swap'\n"
+                    "DEV_PART_RAW_SWAP='/dev/fixture-swap'\nDEV_PART_RAW_SWAP_MB='6443'\n"
                     "SWAP_FALLBACK_MAPPER_NAME='fixture-swap'\nROOT_CRYPT_NAME='fixture-root'\n"
                     "DEV_PART_ROOT='/dev/fixture-root'\nDEV_PART_BOOT='/dev/fixture-boot'\n"
                     "DEV_PART_EFI='/dev/fixture-efi'\n", encoding='ascii')

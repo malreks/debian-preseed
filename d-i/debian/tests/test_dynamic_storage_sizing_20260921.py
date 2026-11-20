@@ -335,9 +335,60 @@ class LogicalPolicyTests(unittest.TestCase):
 
 
 class RawPartitionValidationTests(unittest.TestCase):
+    def test_producer_binds_both_fields_to_one_verified_partuuid_lookup(self):
+        source = payload_read_text(FORKY / 'scripts/late/zram-swap.sh')
+        match = re.search(r'^write_target_swap_fallback_config\(\) \{.*?^\}', source, re.M | re.S)
+        self.assertIsNotNone(match)
+        for lookup in ('valid', 'missing', 'failed-with-output'):
+            with self.subTest(lookup=lookup), tempfile.TemporaryDirectory(prefix='swap-producer-') as temporary:
+                root = Path(temporary)
+                code = r'''
+set -eu
+. "$1"
+DIR_DEV=/dev
+SWAP_FALLBACK_RAW_DEVICE=/dev/fixturep9
+DEV_PART_RAW_SWAP_MB=1024
+FILE_SWAP_FALLBACK_CONFIG=/fixture-managed.conf
+installer_fatal() { printf 'fatal: %s\n' "$*" >&2; exit 1; }
+validate_raw_storage_partition() { :; } # Size/alignment cases are tested separately.
+function [ {
+  if [[ "$1" == -b ]]; then return 0; fi
+  builtin [ "$@"
+}
+'''
+                # No native block command executes: only these explicit fake
+                # replies may describe the synthetic partition and stable link.
+                code += 'blkid() { printf "lookup\\n" >>' + Q(str(root / 'lookups')) + '; '
+                if lookup != 'missing':
+                    code += "printf '%s\\n' 11111111-2222-3333-4444-555555555555; "
+                code += ('return 0; }\n' if lookup == 'valid' else 'return 1; }\n')
+                code += r'''
+readlink() { printf '%s\n' /dev/fixturep9; }
+installer_repo_file_value() { printf '%s\n' "$1"; }
+render_target_asset_with_placeholder_map() {
+  printf '%s\n%s\n' "$SWAP_FALLBACK_RAW_DEVICE" "$SWAP_FALLBACK_RAW_PARTUUID"
+}
+'''
+                code += match[0] + '\nwrite_target_swap_fallback_config\n'
+                result = subprocess.run(['bash', '-c', code, 'swap-producer',
+                                         str(FORKY / 'scripts/common/modules/raw-storage.sh')],
+                                        cwd=root, env={'PATH': '/usr/bin:/bin', 'HOME': str(root),
+                                                       'TMPDIR': str(root), 'TMP': str(root), 'TEMP': str(root)},
+                                        text=True, capture_output=True, timeout=5, check=False)
+                self.assertEqual((root / 'lookups').read_text().splitlines(), ['lookup'])
+                if lookup == 'valid':
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(), [
+                        '/dev/disk/by-partuuid/11111111-2222-3333-4444-555555555555',
+                        '11111111-2222-3333-4444-555555555555'])
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, '')  # No publication after identity failure.
+
     def validate(self,mb,actual,*,block=True,device='/dev/fixture'):
         return shell(f'''
-. {Q(str(FORKY/'scripts/late/zram-swap.sh'))}
+DIR_DEV=/dev
+. {Q(str(FORKY/'scripts/common/modules/raw-storage.sh'))}
 installer_fatal() {{ printf 'fatal: %s\\n' "$*" >&2; exit 1; }}
 installer_warn() {{ :; }}
 function [ {{

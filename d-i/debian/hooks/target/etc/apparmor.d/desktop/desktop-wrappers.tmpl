@@ -1888,6 +1888,9 @@ profile labwc-keyboard-layout __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-keyboar
   #include <abstractions/wrapper-terminal>
   #include <abstractions/wrapper-desktop>
 
+  # GNU find saves its initial working directory during the metadata probe.
+  owner @{HOME}/ r,
+
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-keyboard-layout rix,
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action rPx -> labwc-system-action,
   __INSTALLER_PATH_DIR_USR__/bin/{find,flock,install,mv,notify-send,rm,sleep,timeout} rix,
@@ -4056,7 +4059,7 @@ profile network-wifi-configure __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-
   __INSTALLER_PATH_DIR_SYS__/devices/**/net/*/carrier r,
   / r,
   __INSTALLER_PATH_DIR_RUN__/ r,
-  __INSTALLER_PATH_DIR_RUN__/lock/ r,
+  __INSTALLER_PATH_DIR_RUN_NETWORK_WIFI__/ r,
   __INSTALLER_PATH_DIR_ETC__/ r,
   __INSTALLER_PATH_DIR_ETC__/network/ r,
   __INSTALLER_PATH_DIR_ETC__/network/interfaces.d/ r,
@@ -4073,7 +4076,7 @@ profile network-wifi-configure __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-
   __INSTALLER_PATH_DIR_VAR_LIB__/network-wifi/ rw,
   __INSTALLER_PATH_DIR_VAR_LIB__/network-wifi/firstboot.complete rw,
   __INSTALLER_PATH_DIR_VAR_LIB__/network-wifi/.wifi-* rw,
-  __INSTALLER_PATH_DIR_RUN__/lock/wifi.lock rwk,
+  __INSTALLER_PATH_DIR_RUN_NETWORK_WIFI__/policy.lock rwk,
   __INSTALLER_PATH_DIR_USR__/sbin/rfkill PUx,
   __INSTALLER_PATH_DIR_USR__/bin/{nmcli,nmtui} PUx,
   signal (send) set=(term, kill),
@@ -4430,7 +4433,7 @@ profile apt-repo-local-software-update __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/
   __INSTALLER_PATH_DIR_USR_SHARE__/keyrings/chatgpt-archive-keyring.gpg rw,
   __INSTALLER_PATH_DIR_USR_SHARE__/applications/{Filen.desktop,Zoom.desktop,bitwarden.desktop,md.obsidian.Obsidian.desktop,obsidian.desktop,sleek.desktop,tuta-mail.desktop} r,
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications/{discord,postman,ledger-live,tutanota-desktop}.desktop r,
-  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/defaults/{kwalletrc,labwc-kwallet-portal.service,org.freedesktop.secrets.service} r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-app/defaults/{kwalletrc,labwc-kwallet-portal.service,org.freedesktop.secrets.service,org.freedesktop.impl.portal.desktop.kwallet.service,org.kde.secretservicecompat.service} r,
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications/ rw,
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications/chatgpt.desktop{,.tmp.*} rw,
   __INSTALLER_PATH_DIR_USR_SHARE__/icons/hicolor/512x512/apps/{ledger-live-desktop.png,tuta-mail.png} rw,

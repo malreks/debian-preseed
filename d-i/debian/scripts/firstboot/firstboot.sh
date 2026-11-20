@@ -35,9 +35,19 @@ exec 9>>"$FIRSTBOOT_STATE_DIR/lock" || exit 1
 flock -n 9 || { printf '%s\n' 'firstboot: another invocation holds the lock' >&2; exit 75; }
 chmod 0600 "$FIRSTBOOT_STATE_DIR/lock" || exit 1
 [ ! -L "$FIRSTBOOT_COMPLETE_FILE" ] || exit 1
-if [ -f "$FIRSTBOOT_COMPLETE_FILE" ] && grep -Fqx 'status=0' "$FIRSTBOOT_COMPLETE_FILE"; then
+current_boot_id=$(cat __INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id) || exit 1
+current_release='__INSTALLER_FIRSTBOOT_RELEASE_ID__'
+case "$current_release" in ''|*[!0-9a-f]*) exit 64 ;; esac
+[ "${#current_release}" -eq 64 ] || exit 64
+if [ -f "$FIRSTBOOT_COMPLETE_FILE" ] && grep -Fqx 'status=0' "$FIRSTBOOT_COMPLETE_FILE" &&
+   grep -Fqx "boot_id=${current_boot_id}" "$FIRSTBOOT_COMPLETE_FILE" &&
+   [ "$current_release" != unavailable ] && grep -Fqx "release=${current_release}" "$FIRSTBOOT_COMPLETE_FILE"; then
   printf '%s\n' 'firstboot: successful completion already recorded'
   exit 0
+fi
+if [ -f "$FIRSTBOOT_COMPLETE_FILE" ]; then
+  # Retain stale evidence, but do not let it authorize concurrent cleanup.
+  mv -fT -- "$FIRSTBOOT_COMPLETE_FILE" "${FIRSTBOOT_COMPLETE_FILE}.stale.${current_boot_id}" || exit 1
 fi
 child_pid=
 tmp_status=

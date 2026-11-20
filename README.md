@@ -10,6 +10,17 @@ This repository provisions fresh installations. Installer policy and saved runti
 state use their current formats. New installations use explicit role and host
 profile selections; host-specific identities are never role defaults.
 
+Class selection and its frozen plan stay in the installer. The installer renders
+the component settings and boot expectations before reboot; it does not install
+`classes.tsv` or a runtime class reader. Firstboot collects and checks the running
+target and handles selected online bootstrap work. It does not render the
+installed desktop configuration again.
+
+The [2026-11-20 fresh-install correction record](docs/validation/fresh-install-log-remediation-20261120/README.md)
+tracks the current source changes, complete log coverage and outstanding native
+acceptance gates. It does not qualify hardware or full installations from static
+checks, extracted-package fixtures or generated payload equality.
+
 The [2026-11-19 log-driven renderer repair](IMPLEMENTATION_LOG_REPAIR_20261119.md)
 fixes the complete-program Perl syntax failure reported by the new installer
 logs, corrects service-name validation and command argument handling, and replaces
@@ -168,7 +179,7 @@ rendered into concrete installed values. `hooks/installer/di.env` remains the
 installer mount, temporary state, hook and log contract. Installed programs do
 not depend on any of these authored installer inputs. Profiles, themes and the
 protected credential channel retain their existing owners. See the
-[configuration ownership matrix and migration rationale](docs/implementation/installer-configuration-20261119.md)
+[configuration ownership matrix](docs/implementation/installer-configuration-20261119.md)
 and the [measured log baseline and validation limits](docs/validation/installer-performance-evidence-20261119.md).
 
 ```text

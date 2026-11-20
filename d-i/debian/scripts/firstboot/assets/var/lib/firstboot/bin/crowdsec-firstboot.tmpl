@@ -15,35 +15,38 @@ CROWDSEC_CAPI_ACTIVATED_FILE=${CROWDSEC_STATE_DIR}/capi-activated
 CROWDSEC_ENROLL_TOKEN_FILE=${CROWDSEC_ENROLL_TOKEN_FILE:-${CROWDSEC_STATE_DIR}/enroll.token}
 CROWDSEC_HOST_VARIANT=__INSTALLER_CROWDSEC_HOST_VARIANT__
 CROWDSEC_EXPECTED_RELEASE=__INSTALLER_CROWDSEC_RELEASE_ID__
-CROWDSEC_CLASS_RECEIPT=__INSTALLER_PATH_FILE_INSTALLER_CLASSES__
 CROWDSEC_SSH_SERVER_ENABLE=__INSTALLER_SSH_SERVER_ENABLE__
 case "$CROWDSEC_SSH_SERVER_ENABLE" in true|false) ;; *) exit 1 ;; esac
 CROWDSEC_ENROLL_ATTEMPTS=${CROWDSEC_ENROLL_ATTEMPTS:-1}
 CROWDSEC_ENROLL_RETRY_DELAY_SECONDS=${CROWDSEC_ENROLL_RETRY_DELAY_SECONDS:-10}
 
+preflight_fail() {
+  # Fixed reason codes only; paths and protected enrollment inputs stay private.
+  printf 'stage=bootstrap level=error component=crowdsec phase=preflight reason=%s\n' "$1" >&2
+  exit 1
+}
+
+case "$CROWDSEC_EXPECTED_RELEASE" in ''|*[!0-9a-f]*) preflight_fail invalid-release-policy ;; esac
+[ "${#CROWDSEC_EXPECTED_RELEASE}" -eq 64 ] || preflight_fail invalid-release-policy
+
 # State is root-only; never continue after failure to retain diagnostics.
-for path in "$CROWDSEC_STATE_DIR" "$CROWDSEC_STATUS_FILE" "$CROWDSEC_COMPLETE_FILE" "$CROWDSEC_CORE_READY_FILE" "$CROWDSEC_CAPI_ACTIVATED_FILE" "$CROWDSEC_ENROLL_TOKEN_FILE" "$CROWDSEC_CLASS_RECEIPT"; do
-  case "$path" in /*) ;; *) exit 1 ;; esac
-  case "$path" in *'/../'*|*'/./'*|*/..|*/.) exit 1 ;; esac
+for path in "$CROWDSEC_STATE_DIR" "$CROWDSEC_STATUS_FILE" "$CROWDSEC_COMPLETE_FILE" "$CROWDSEC_CORE_READY_FILE" "$CROWDSEC_CAPI_ACTIVATED_FILE" "$CROWDSEC_ENROLL_TOKEN_FILE"; do
+  case "$path" in /*) ;; *) preflight_fail relative-path ;; esac
+  case "$path" in *'/../'*|*'/./'*|*/..|*/.) preflight_fail path-traversal ;; esac
   parent=$path
   while [ "$parent" != / ]; do
-    [ ! -L "$parent" ] || exit 1
+    [ ! -L "$parent" ] || preflight_fail symlink-ancestor
     if [ -e "$parent" ]; then
-      [ "$(find -P "$parent" -maxdepth 0 -printf %U)" = 0 ] || exit 1
-      case "$(find -P "$parent" -maxdepth 0 -printf %m)" in *[2367][0-7]|*[0-7][2367]) exit 1 ;; esac
+      [ "$(find -P "$parent" -maxdepth 0 -printf %U)" = 0 ] || preflight_fail unsafe-owner
+      case "$(find -P "$parent" -maxdepth 0 -printf %m)" in *[2367][0-7]|*[0-7][2367]) preflight_fail writable-ancestor ;; esac
     fi
     parent=${parent%/*}; [ -n "$parent" ] || parent=/
   done
 done
-[ -f "$CROWDSEC_CLASS_RECEIPT" ] && [ ! -L "$CROWDSEC_CLASS_RECEIPT" ] || exit 1
-[ "$(wc -c <"$CROWDSEC_CLASS_RECEIPT")" -le 65536 ] || exit 1
-awk -F '\t' -v family="$CROWDSEC_HOST_VARIANT" -v release="$CROWDSEC_EXPECTED_RELEASE" '
-  $1=="format" {if($2!="2" || ++formats!=1) bad=1}
-  $1=="family" {if($2!=family || ++families!=1) bad=1}
-  $1=="release" {if($2!=release || ++releases!=1) bad=1}
-  $1=="role" {if($2 !~ /^(desktop\/(base|medium|full)|server\/(devops|github-actions|gitlab-cicd|technitium))$/ || roles[$2]++) bad=1; count++}
-  END {exit bad || formats!=1 || families!=1 || releases!=1 || count<1 || (family=="desktop" && count!=1)}
-' "$CROWDSEC_CLASS_RECEIPT" || exit 1
+# The installer resolves optional collections from its frozen selection.
+# Installed bootstraps consume concrete policy, never installer class data.
+CROWDSEC_DESKTOP_TOOLS=__INSTALLER_CROWDSEC_DESKTOP_TOOLS_ENABLE__
+case "$CROWDSEC_DESKTOP_TOOLS" in true|false) ;; *) preflight_fail invalid-collection-policy ;; esac
 install -d -m 0700 "$CROWDSEC_STATE_DIR"
 for marker in "$CROWDSEC_CORE_READY_FILE" "$CROWDSEC_CAPI_ACTIVATED_FILE"; do
   if [ -e "$marker" ]; then
@@ -90,27 +93,29 @@ require_positive_integer() {
 write_status() {
   status_value=$1
   enrollment_value=$2
-  tmp_status=$(mktemp "${CROWDSEC_STATUS_FILE}.XXXXXX") || return $?
+  tmp_status=$(mktemp "$work_dir/status.XXXXXX") || return $?
   {
+    printf 'format=1\nrelease=%s\n' "$CROWDSEC_EXPECTED_RELEASE"
     printf 'timestamp=%s\n' "$(timestamp)"
     printf 'status=%s\n' "$status_value"
     printf 'enrollment=%s\n' "$enrollment_value"
   } >"$tmp_status" || return $?
   chmod 0600 "$tmp_status" || return $?
-  mv -f "$tmp_status" "$CROWDSEC_STATUS_FILE"
+  mv -fT -- "$tmp_status" "$CROWDSEC_STATUS_FILE"
 }
 
 write_complete_marker() {
   enrollment_value=$1
-  tmp_complete=$(mktemp "${CROWDSEC_COMPLETE_FILE}.XXXXXX") || return $?
+  tmp_complete=$(mktemp "$work_dir/complete.XXXXXX") || return $?
   {
+    printf 'format=1\nrelease=%s\n' "$CROWDSEC_EXPECTED_RELEASE"
     printf 'timestamp=%s\n' "$(timestamp)"
     printf 'host_variant=%s\n' "$CROWDSEC_HOST_VARIANT"
     printf 'enrollment=%s\n' "$enrollment_value"
     printf 'log_file=%s\n' "$CROWDSEC_LOG_FILE"
   } >"$tmp_complete" || return $?
   chmod 0600 "$tmp_complete" || return $?
-  mv -f "$tmp_complete" "$CROWDSEC_COMPLETE_FILE"
+  mv -fT -- "$tmp_complete" "$CROWDSEC_COMPLETE_FILE"
 }
 
 write_core_ready_marker() {
@@ -137,7 +142,7 @@ install_detection_policy() {
   run_required_crowdsec_command collections-install \
     cscli collections install crowdsecurity/auditd crowdsecurity/iptables \
       crowdsecurity/whitelist-good-actors || return 1
-  if awk -F '\t' '$1=="class" && ($2=="role/desktop/medium" || $2=="role/desktop/full") {found=1} END {exit !found}' "$CROWDSEC_CLASS_RECEIPT"; then
+  if [ "$CROWDSEC_DESKTOP_TOOLS" = true ]; then
     run_required_crowdsec_command qbittorrent-collection-install \
       cscli collections install gilbsgilbs/qbittorrent || return 1
   fi

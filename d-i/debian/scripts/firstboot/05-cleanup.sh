@@ -30,10 +30,18 @@ unset firstboot_logging
 write_complete_marker() {
   # Missing status is not proof of successful provisioning.
   [ "${FIRSTBOOT_OVERALL_STATUS:-unknown}" = 0 ] || return 1
+  settled_receipt="${FIRSTBOOT_DATA_DIR}/settled-boot.env"
+  [ -f "$settled_receipt" ] && [ ! -L "$settled_receipt" ] || return 1
+  grep -Fqx 'state=verified' "$settled_receipt" || return 1
+  cleanup_boot_id=$(cat __INSTALLER_PATH_DIR_PROC__/sys/kernel/random/boot_id) || return 1
+  grep -Fqx "boot_id=${cleanup_boot_id}" "$settled_receipt" || return 1
+  cleanup_release='__INSTALLER_FIRSTBOOT_RELEASE_ID__'
+  grep -Fqx "release=${cleanup_release}" "$settled_receipt" || return 1
   tmp_complete=$(mktemp "${FIRSTBOOT_COMPLETE_FILE}.tmp.XXXXXX") || return 1
   {
     printf 'timestamp=%s\n' "$(timestamp)"
     printf 'status=%s\n' "${FIRSTBOOT_OVERALL_STATUS:-unknown}"
+    printf 'boot_id=%s\nrelease=%s\n' "$cleanup_boot_id" "$cleanup_release"
     printf 'log_dir=%s\n' "$FIRSTBOOT_LOG_DIR"
   } >"$tmp_complete" 2>__INSTALLER_PATH_DIR_DEV__/null || return 1
   chmod 0600 "$tmp_complete" || return 1

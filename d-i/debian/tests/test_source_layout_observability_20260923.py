@@ -80,9 +80,10 @@ class SourceLayout(unittest.TestCase):
 class OutputGeometry(unittest.TestCase):
     def test_all_profiles_have_complete_independent_literal_sizing(self):
         keys=[line.split('\t')[0] for line in (FORKY/'scripts/desktop/waybar-geometry.tsv').read_text().splitlines() if line and not line.startswith('#')]
-        self.assertEqual(len(profiles()),10)
+        self.assertEqual(len(profiles()),15)
         for p in profiles():
-            assignments=dict(re.findall(r'^(LABWC_WAYBAR_[A-Z0-9_]+)="([^"\n]*)"$',p.read_text(),re.M))
+            from waybar_fixture import profile_values
+            assignments=profile_values(p)
             for cls in ('INTERNAL','EXTERNAL'):
                 for key in keys:
                     name='LABWC_WAYBAR_'+cls+'_'+key
@@ -113,7 +114,7 @@ class OutputGeometry(unittest.TestCase):
             p=Path(tmp)/'profile.env';text=profiles()[0].read_text()
             for cls,height,font in (('INTERNAL',39,13),('EXTERNAL',61,23)):
                 for key,value in (('HEIGHT',height),('FONT_SIZE',font)):
-                    text=re.sub(r'^LABWC_WAYBAR_'+cls+'_'+key+r'="[^"]*"$',f'LABWC_WAYBAR_{cls}_{key}="{value}"',text,flags=re.M)
+                    text=re.sub(r'^LABWC_WAYBAR_'+cls+'_'+key+r'=[^\n]*$',f'LABWC_WAYBAR_{cls}_{key}="{value}"',text,flags=re.M)
             p.write_text(text);assets=rendered_assets(p)
             bars={bar['name']:bar for bar in json.loads(assets['config'])}
             for cls,height,font in (('internal',39,13),('external',61,23)):
@@ -122,14 +123,14 @@ class OutputGeometry(unittest.TestCase):
     def test_detached_native_popup_divergence_is_rejected_not_silently_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'profile.env'
-            p.write_text(re.sub(r'^LABWC_WAYBAR_EXTERNAL_TOOLTIP_FONT_SIZE="[^"]*"$',
+            p.write_text(re.sub(r'^LABWC_WAYBAR_EXTERNAL_TOOLTIP_FONT_SIZE=[^\n]*$',
                                'LABWC_WAYBAR_EXTERNAL_TOOLTIP_FONT_SIZE="21"',profiles()[0].read_text(),flags=re.M))
             with self.assertRaises(subprocess.CalledProcessError): rendered_assets(p)
     def test_invalid_geometry_is_rejected_before_publishing(self):
         for value in ('-1','012','20000','1; touch /tmp/unsafe','12px',''):
             with self.subTest(value=value),tempfile.TemporaryDirectory() as tmp:
                 p=Path(tmp)/'profile.env'
-                p.write_text(re.sub(r'^LABWC_WAYBAR_INTERNAL_HEIGHT="[^"]*"$',f'LABWC_WAYBAR_INTERNAL_HEIGHT="{value}"',profiles()[0].read_text(),flags=re.M))
+                p.write_text(re.sub(r'^LABWC_WAYBAR_INTERNAL_HEIGHT=[^\n]*$',f'LABWC_WAYBAR_INTERNAL_HEIGHT="{value}"',profiles()[0].read_text(),flags=re.M))
                 with self.assertRaises(subprocess.CalledProcessError):rendered_assets(p)
     def test_hotplug_refresh_reuses_native_service_lifecycle(self):
         service=read_text(TARGET/'etc/skel-desktop/.config/systemd/user/waybar.service')

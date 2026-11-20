@@ -76,7 +76,7 @@ profile firstboot __INSTALLER_PATH_FILE_FIRSTBOOT_HELPER__ flags=(attach_disconn
   __INSTALLER_PATH_DIR_DEV__/null rw,
   __INSTALLER_PATH_DIR_ETC__/ r,
   __INSTALLER_PATH_DIR_ETC__/** r,
-  __INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf rw,
+  __INSTALLER_PATH_DIR_ETC_LABWC__/desktop.conf r,
   __INSTALLER_PATH_DIR_HOME__/*/.config/qt6ct/qt6ct.conf r,
   # Root firstboot enumerates the user-owned unit directory; owner would not match.
   @{HOME}/.config/systemd/user/ r,
@@ -101,8 +101,13 @@ profile firstboot __INSTALLER_PATH_FILE_FIRSTBOOT_HELPER__ flags=(attach_disconn
   __INSTALLER_PATH_DIR_FIRSTBOOT__/ r,
   __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/ rw,
   __INSTALLER_PATH_DIR_FIRSTBOOT_STATE__/** rwkl,
-  __INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/ rw,
-  __INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/** rwkl,
+  # Installer selection/state is not boot policy. Only this logger's subtree
+  # is writable; sibling installer receipts and policy inputs stay unwritable.
+  __INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB_INSTALLER_STATE__/installer.log r,
+  __INSTALLER_PATH_DIR_STATE_LOG__/ r,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_LOG__/ rw,
+  __INSTALLER_PATH_DIR_FIRSTBOOT_LOG__/** rwkl,
   __INSTALLER_PATH_DIR_VAR_LOG__/ r,
   __INSTALLER_PATH_DIR_VAR_LOG__/** r,
   __INSTALLER_LOG_INITRAMFS_DIR__/ rw,
@@ -169,7 +174,7 @@ profile crowdsec-firstboot __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/crowdsec-firstbo
   __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/crowdsec-firstboot rix,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/crowdsec-bouncer-verify rix,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/ r,
-  __INSTALLER_PATH_DIR_USR_BIN__/{awk,chmod,date,dirname,getent,grep,hostname,install,mawk,mkdir,mktemp,mv,rm,sha256sum,sleep,ss,find,systemctl,timeout} rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/{chmod,date,dirname,getent,grep,hostname,install,mkdir,mktemp,mv,rm,sha256sum,sleep,ss,find,systemctl,timeout} rix,
   __INSTALLER_PATH_DIR_USR__/{bin,sbin,local/bin,local/sbin}/cscli rix,
   __INSTALLER_PATH_DIR_USR_BIN__/crowdsec rix,
   __INSTALLER_PATH_DIR_USR_BIN__/cmp rix,
@@ -177,6 +182,9 @@ profile crowdsec-firstboot __INSTALLER_PATH_DIR_FIRSTBOOT_BIN__/crowdsec-firstbo
   __INSTALLER_PATH_DIR_ETC_CROWDSEC__/ rw,
   __INSTALLER_PATH_DIR_ETC_CROWDSEC__/** rwkl,
   __INSTALLER_PATH_DIR_ETC__/machine-id r,
+  # Root-owned state ancestry checked before the bootstrap writes state.
+  __INSTALLER_PATH_DIR_VAR__/ r,
+  __INSTALLER_PATH_DIR_VAR_LIB__/ r,
   __INSTALLER_PATH_DIR_ETC__/resolv.conf r,
   __INSTALLER_PATH_DIR_ETC__/ssl/ r,
   __INSTALLER_PATH_DIR_ETC__/ssl/** r,

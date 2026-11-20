@@ -30,6 +30,7 @@ import tempfile
 import unittest
 from unittest import mock
 import xml.etree.ElementTree as ET
+from fixture_render import render_scalar_fixture
 
 from test_native_tomat_20260920 import FORKY, SKEL, bars, load
 
@@ -71,19 +72,17 @@ class NotificationsFollowupTests(unittest.TestCase):
             self.assertIn('tray', bar['modules-left'] + bar['modules-right'])
 
     def test_every_host_profile_declares_the_same_enabled_tray_policy(self):
-        profiles = sorted((FORKY / 'hosts/profiles').glob('*.env'))
-        self.assertTrue(profiles)
-        for profile in profiles:
-            matches = re.findall(
-                r'(?m)^LABWC_WAYBAR_TRAY_ENABLE="([^"]*)"$',
-                profile.read_text(encoding='utf-8'),
-            )
-            self.assertEqual(matches, ['true'], profile.name)
+        from waybar_fixture import profiles
+        host_profiles = profiles()
+        self.assertEqual(len(host_profiles), 15)
+        for profile in host_profiles:
+            values = dict(line.split('=', 1) for line in profile.read_text().splitlines())
+            self.assertEqual(shlex.split(values['LABWC_WAYBAR_TRAY_ENABLE']), ['true'], profile.name)
 
     def test_json_bell_is_outside_the_drawer_on_every_output_profile(self):
         from waybar_fixture import profiles, rendered_assets
         host_profiles = profiles()
-        self.assertEqual(len(host_profiles), 10)
+        self.assertEqual(len(host_profiles), 15)
         for profile in host_profiles:
             configurations = json.loads(rendered_assets(profile)['config'])
             self.assertEqual([bar['name'] for bar in configurations], ['internal', 'external'])
@@ -222,7 +221,7 @@ class NotificationsFollowupTests(unittest.TestCase):
                 text=True, capture_output=True, timeout=45)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             report = json.loads(result.stdout)
-            self.assertEqual(report['gtk_cases'], 10 * 2 * 2 * 2)
+            self.assertEqual(report['gtk_cases'], 15 * 2 * 2 * 2)
             self.assertEqual(len(report['records']), report['gtk_cases'])
             for record in report['records']:
                 if record['hover']:
@@ -454,6 +453,59 @@ class NotificationExpiryQueueTests(unittest.TestCase):
         match = re.search(r'^' + re.escape(name) + r'\(\) \{.*?^\}', source, re.M | re.S)
         self.assertIsNotNone(match, name)
         return match[0]
+
+    def test_security_reader_failure_survives_conditional_shell_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            signal = root / 'auth.signal'
+            signal.write_text('fixture\n')
+            source = render_scalar_fixture(
+                FORKY / 'hooks/target/usr/local/bin/desktop/labwc-health-notify.tmpl', root).decode()
+            function = re.search(r'^check_security_signal\(\) \{.*?^\}', source, re.M | re.S)[0]
+            witness = root / 'unexpected-action'
+            script = function + '''
+SECURITY_SIGNAL_DIR=$1
+SECURITY_SIGNAL_STATE_DIR=$1
+ROOT_EVENT_OWNER_UID=$2
+WITNESS=$3
+security_boot_id=11111111-1111-1111-1111-111111111111
+read_state() { return 1; }
+notify() { printf 'unexpected notification\n' >"$WITNESS"; }
+atomic_state() { printf 'unexpected write\n' >"$WITNESS"; }
+if check_security_signal auth critical icon category summary fixture.log; then exit 90; else exit "$?"; fi
+'''
+            result = subprocess.run(['/bin/sh', '-eu', '-c', script, 'state-read',
+                                     str(root), str(os.getuid()), str(witness)],
+                                    env={'PATH': '/usr/bin:/bin', 'HOME': str(root), 'LC_ALL': 'C'},
+                                    cwd=root, capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn('reason=unsafe-security-state', result.stderr)
+            self.assertFalse(witness.exists())
+
+    def test_one_failed_security_signal_does_not_hide_failure_or_skip_later_signals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            boot = root / 'proc/sys/kernel/random/boot_id'
+            boot.parent.mkdir(parents=True)
+            boot.write_text('11111111-1111-1111-1111-111111111111\n')
+            source = render_scalar_fixture(
+                FORKY / 'hooks/target/usr/local/bin/desktop/labwc-health-notify.tmpl', root,
+                {'PATH_DIR_PROC': str(root / 'proc')}).decode()
+            function = re.search(r'^check_security_signals\(\) \{.*?^\}', source, re.M | re.S)[0]
+            calls = root / 'calls'
+            script = function + '''
+SECURITY_SIGNAL_DIR=$1
+ROOT_EVENT_OWNER_UID=$2
+CALLS=$3
+check_security_signal() { printf '%s\\n' "$1" >>"$CALLS"; [ "$1" != auth ]; }
+if check_security_signals; then exit 90; else exit "$?"; fi
+'''
+            result = subprocess.run(['/bin/sh', '-eu', '-c', script, 'signal-checks',
+                                     str(root), str(os.getuid()), str(calls)],
+                                    env={'PATH': '/usr/bin:/bin', 'HOME': str(root), 'LC_ALL': 'C'},
+                                    cwd=root, capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(calls.read_text().splitlines(), ['auth', 'usb', 'storage', 'apparmor', 'firewall'])
 
     def test_queue_writer_serializes_content_without_expiry(self):
         source = (FORKY / 'hooks/target/usr/local/sbin/desktop/labwc-notify.tmpl').read_text()

@@ -1,6 +1,34 @@
 #!/bin/sh
 # Sourced installer module; edit this file directly.
 
+# Native btop versions share the XDG config contract. Keep one authored copy
+# per profile; relative views survive fresh account copying
+# and appearance updates without runtime config publication.
+desktop_stage_btop_profiles() {
+  for btop_profile in cpu memory; do
+    btop_config_host=$(target_asset_host_path "__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/btop/btop-${btop_profile}.conf") || return $?
+    [ -f "$btop_config_host" ] && [ ! -L "$btop_config_host" ] || {
+      installer_fatal "btop profile config is unavailable or unsafe: $btop_profile"
+      return 1
+    }
+    btop_target="../../../btop-${btop_profile}.conf"
+    btop_destination="__INSTALLER_PATH_DIR_ETC_SKEL_DESKTOP_CONFIG__/btop/profiles/${btop_profile}/btop/btop.conf"
+    # Native btop owns its theme directory; packaged/builtin themes retain
+    # their normal lookup. Only regular config files are relative link targets.
+    ensure_target_asset_parent "${btop_destination%/*}/themes/.installer-parent" || return $?
+    btop_host=$(target_asset_entry_host_path "$btop_destination") || return $?
+    if [ -L "$btop_host" ] && [ "$(readlink -- "$btop_host")" = "$btop_target" ]; then
+      continue
+    fi
+    if [ -e "$btop_host" ] || [ -L "$btop_host" ]; then
+      installer_fatal "btop profile view conflicts with a staged asset: ${btop_profile}/btop.conf"
+      return 1
+    fi
+    ln -sT -- "$btop_target" "$btop_host" || return $?
+  done
+  unset btop_profile btop_target btop_destination btop_host btop_config_host
+}
+
 desktop_stage_session_repairs() {
   for public_directory in __INSTALLER_PATH_DIR_ETC__/udev __INSTALLER_PATH_DIR_ETC__/udev/hwdb.d; do
     ensure_target_asset_parent "${public_directory}/.installer-parent"
@@ -514,7 +542,6 @@ desktop_stage_target_assets() {
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-session-check __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-session-check 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-primary-gpg __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-primary-gpg 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-waybar-exec __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-exec 0755
-  desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-waybar-menu __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-menu 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-waybar-run __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-run 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-waybar-state __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-state 0755
   desktop_stage_role_asset hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_waybar_state.py "${DIR_PYTHON3_SITE_PACKAGES}/labwc_waybar_state.py" 0644
@@ -772,6 +799,9 @@ if len(source) > 16384 or re.search(rb"__[A-Z][A-Z0-9_]{2,}__", source):
     ACCOUNT_HOME "$ACCOUNT_HOME"
   desktop_render_waybar_config
   desktop_render_waybar_style
+  installer_asset_batch_flush || return $?
+  installer_run_target_setup scripts/desktop/waybar-menus.py 'validate rendered native Waybar menus and fixed dispatch' \
+    "${DIR_ETC_SKEL_DESKTOP}/.config/waybar" "${DIR_USR_LOCAL_LIBEXEC}/labwc-waybar-run"
   desktop_render_kanshi_config
   desktop_render_terminal_configs
   desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/mpv/mpv.conf.tmpl __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/mpv/mpv.conf 0644
@@ -881,6 +911,7 @@ __INSTALLER_PATH_DIR_USR_BIN__/update-mime-database __INSTALLER_PATH_DIR_USR_SHA
   desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/btop/btop.conf.tmpl __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/btop/btop.conf 0644
   desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/btop/btop-cpu.conf.tmpl __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/btop/btop-cpu.conf 0644
   desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/btop/btop-memory.conf.tmpl __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/btop/btop-memory.conf 0644
+  desktop_stage_btop_profiles
   desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/fzf/default-opts.tmpl __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/fzf/default-opts 0644
   desktop_render_fuzzel_configs
   desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/Thunar/uca.xml __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/Thunar/uca.xml 0644

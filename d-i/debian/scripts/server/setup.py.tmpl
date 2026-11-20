@@ -38,7 +38,8 @@ SYSTEMD = Path('__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__')
 ETC = Path('__INSTALLER_PATH_DIR_ETC__')
 RUN = Path('__INSTALLER_PATH_DIR_RUN__')
 POOL_ROOT = Path('__INSTALLER_PATH_DIR_POOL__')
-RECEIPT = Path('__INSTALLER_PATH_FILE_INSTALLER_CLASSES__')
+# Rendered from the frozen plan before activation; no installed class catalog.
+SELECTED_ROLES = tuple('__INSTALLER_SERVER_SELECTED_ROLES__'.split())
 UPLINK_POLICY = Path('__INSTALLER_PATH_FILE_NETWORK_UPLINK_POLICY__')
 DNS_RESOLVED = Path('__INSTALLER_PATH_FILE_SERVER_DNS_RESOLVED__')
 DNS_POLICY = Path('__INSTALLER_PATH_FILE_SERVER_DNS_POLICY__')
@@ -1307,8 +1308,7 @@ def runner_admin_policy(account: pwd.struct_passwd) -> None:
 
 
 def codex_account(username: str) -> None:
-    records = regular(RECEIPT, maximum=65536).decode().splitlines()
-    if records.count('codex_enable\ttrue') != 1:
+    if '__INSTALLER_SERVER_CODEX_ENABLE__' != 'true':
         raise ValueError('Codex account configuration is absent from the frozen plan')
     if re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', username) is None:
         raise ValueError('invalid Codex operator identity')
@@ -1474,19 +1474,9 @@ def install(role: str, arch: str) -> None:
 
 
 def selected_server_roles() -> list[str]:
-    for parent in RECEIPT.parents:
-        info = parent.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
-            raise ValueError('untrusted runtime receipt ancestry')
-    records = regular(RECEIPT, maximum=65536).decode().splitlines()
-    if records.count('format\t2') != 1 or records.count('family\tserver') != 1:
-        raise ValueError('unsupported server class receipt')
-    roles = [line.removeprefix('role\t') for line in records if line.startswith('role\t')]
+    roles = list(SELECTED_ROLES)
     if not roles or len(roles) != len(set(roles)) or any(role not in ROLES for role in roles):
-        raise ValueError('invalid server role selection in runtime receipt')
-    classes = {line.removeprefix('class\t') for line in records if line.startswith('class\t')}
-    if {ref for ref in classes if ref.startswith('role/')} != {'role/' + role for role in roles}:
-        raise ValueError('runtime roles and physical classes disagree')
+        raise ValueError('invalid rendered server service selection')
     return roles
 
 
@@ -1693,7 +1683,7 @@ def setup_main() -> int:
             dns_account_identity()
         family_operation = args.operation in ('foundation', 'profile-packages', 'account', 'codex-account')
         if (family_operation and args.role != 'server') or (not family_operation and args.role not in roles):
-            raise ValueError('setup role is absent from the frozen class receipt')
+            raise ValueError('setup role is absent from rendered installation policy')
         with ownership_lock():
             if args.operation == 'foundation':
                 foundation(roles, args.argument or '', args.private_input or '')

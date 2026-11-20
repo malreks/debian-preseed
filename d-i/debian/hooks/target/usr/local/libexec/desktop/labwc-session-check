@@ -1,11 +1,48 @@
 #!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
 """Fixed-operation user-service checks; no generic command or shell interface."""
 import os
+import re
 from pathlib import Path
 import signal
 import stat
 import subprocess
 import sys
+
+
+def kwallet_ready() -> int:
+    """Check the actual Secret Service owner against the managed main process.
+
+    Introspection proves interface readiness, not wallet unlock. No collection
+    or credential is opened by this check, and a foreign provider fails closed.
+    """
+    def capture(argv):
+        result = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                timeout=3, check=False)
+        if result.returncode or len(result.stdout) > 256:
+            raise ValueError('wallet provider ownership is unavailable')
+        return result.stdout.decode('ascii').strip()
+
+    manager = ['__INSTALLER_PATH_DIR_USR_BIN__/systemctl', '--user', 'show',
+               'labwc-kwallet-portal.service', '--property=MainPID', '--value']
+    pid = capture(manager)
+    if not pid.isdecimal() or int(pid) <= 1:
+        return 1
+    bus = ['__INSTALLER_PATH_DIR_USR_BIN__/busctl', '--user', '--timeout=2', 'call',
+           'org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus']
+    owner = capture([*bus, 'GetNameOwner', 's', 'org.freedesktop.secrets'])
+    if re.fullmatch(r's ":\d+\.\d+"', owner) is None:
+        return 1
+    unique = owner.split('"')[1]
+    if capture([*bus, 'GetConnectionUnixProcessID', 's', unique]) != 'u ' + pid:
+        return 1
+    ready = subprocess.run(['__INSTALLER_PATH_DIR_USR_BIN__/busctl', '--user', '--timeout=2',
+                            'introspect', unique, '/org/freedesktop/secrets',
+                            'org.freedesktop.Secret.Service'], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=3, check=False)
+    return int(ready.returncode != 0 or capture(manager) != pid or
+               capture([*bus, 'GetNameOwner', 's', 'org.freedesktop.secrets']) != owner)
 
 
 def main(args: list[str]) -> int:
@@ -38,10 +75,7 @@ def main(args: list[str]) -> int:
     elif args == ["compositor-config"]:
         return int(not os.access(Path.home() / ".config/labwc/rc.xml", os.R_OK))
     elif args == ["kwallet-ready"]:
-        command = ["__INSTALLER_PATH_DIR_USR__/bin/busctl", "--user", "--timeout=10", "introspect",
-                   "org.freedesktop.secrets", "/org/freedesktop/secrets",
-                   "org.freedesktop.Secret.Service"]
-        timeout = 12
+        return kwallet_ready()
     elif len(args) == 2 and args[0] == "reload-waybar":
         if not args[1].isascii() or not args[1].isdigit() or not 1 < int(args[1]) <= 2_147_483_647:
             return 1

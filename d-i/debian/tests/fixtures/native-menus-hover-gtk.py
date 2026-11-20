@@ -187,7 +187,8 @@ assets = root / 'hooks/target/etc/skel-desktop/.config/waybar'
 source = (root / 'scripts/desktop/components.sh').read_text()
 staging = source.split('run_in_target "configure optional native audio menu" /usr/bin/python3 -I -c \'\n', 1)[1].split("\n' \"$native_menu_whisper\"", 1)[0]
 modules = [('custom/tomat', 'tomat'), ('clock', 'calendar'), ('pulseaudio', 'audio'),
-           ('custom/notifications', 'notifications'), ('custom/power', 'power')]
+           ('custom/notifications', 'notifications'), ('custom/power', 'power'),
+           ('custom/wayscriber', 'wayscriber')]
 report = {'profiles': len(profiles), 'themes': ['Adwaita', 'Adwaita-dark'],
           'menu_roots': 0, 'activations': 0, 'center_activations': 0,
           'highlight_states': 0, 'disabled_states': 0, 'submenu_headers': 0,
@@ -223,7 +224,7 @@ with tempfile.TemporaryDirectory() as temporary:
                     for module, menu_name in modules:
                         builder = builder_new()
                         error = C.POINTER(Error)()
-                        path = staged_audio[optional_enabled] if menu_name == 'audio' else assets / 'menus' / (menu_name + '-menu.xml')
+                        path = staged_audio[optional_enabled] if menu_name == 'audio' else assets / 'gtk' / (menu_name + '-menu.xml')
                         assert build(builder, str(path).encode(), C.byref(error)) and not error
                         menu = get_object(builder, b'menu')
                         assert menu

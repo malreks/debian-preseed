@@ -142,7 +142,6 @@ installer_assert_class_plan
 plan_stages="${RUNTIME_DIR}/state/late-stages.tsv"
 installer_plan_stage_records late >"$plan_stages" ||
   installer_fatal 'invalid late stage record'
-installer_publish_class_receipt
 # Every provider, including CrowdSec and server Whisper, needs the resolved
 # identity independently of the optional desktop storage stage's execution.
 INSTALLER_LATE_ACCOUNT_ENV=${INSTALLER_LATE_ACCOUNT_ENV:-${DIR_INSTALLER_LATE_ENV}/account.env}

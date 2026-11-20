@@ -69,9 +69,17 @@ class AgentGuardTests(unittest.TestCase):
             with self.subTest(record=record), self.assertRaises(ValueError):
                 self.m.check_metadata(record)
 
-    def test_same_version_with_toolkit_or_wrong_dependencies_is_rejected(self):
-        for depends in ('libhyprtoolkit6, libpolkit-qt6-1-1, libqt6quickcontrols2-6, polkitd',
-                        'libaquamarine14, libpolkit-qt6-1-1, libqt6quickcontrols2-6, polkitd',
+    def test_signed_native_toolkit_contract_accepts_suite_library_abis(self):
+        for abi in (1, 6, 13):
+            depends = (f'libhyprtoolkit{abi}, libhyprlang2, libhyprutils13, '
+                       'libsdbus-c++2, polkitd')
+            with self.subTest(abi=abi):
+                self.assertEqual(self.m.check_metadata(metadata('0.2.0-1', depends)), '0.2.0-1')
+
+    def test_incomplete_native_or_wrong_dependencies_are_rejected(self):
+        for depends in ('libhyprtoolkit6, polkitd', 'libhyprtoolkit6, libhyprlang2, libhyprutils13, polkitd',
+                        'libhyprlang2, libhyprutils13, libsdbus-c++2, polkitd',
+                        'libhyprtoolkit6, libhyprlang2, libhyprutils13, libsdbus-c++2',
                         'libpolkit-agent-1-0, libc6', 'libpolkit-qt6-1-1'):
             with self.subTest(depends=depends), self.assertRaises(ValueError):
                 self.m.check_metadata(metadata(depends=depends))

@@ -432,10 +432,12 @@ installer_run_target_setup() (
   }
   trap setup_cleanup 0
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
-  installer_stage_profile_file "$setup_selector" "$setup_program" 0600
   if [ "$setup_selector" = scripts/server/setup.py.tmpl ]; then
+    SERVER_SELECTED_ROLES=$INSTALLER_ROLE_IDS
+    SERVER_CODEX_ENABLE=$(installer_plan_value codex_enable) || exit "$?"
     set -- --defaults-root "${DIR_INSTALLER_TARGET_DEFAULTS}/server" "$@"
   fi
+  installer_stage_profile_file "$setup_selector" "$setup_program" 0600
   run_in_target "$setup_context" "${DIR_USR_BIN}/python3" -I -B "$setup_program" "$@"
 )
 

@@ -4036,19 +4036,34 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
                 raise ValueError('a headless server tuple includes the desktop Incus Web UI')
         if plan['codex_only_enable'] not in ('true', 'false') or plan['codex_enable'] not in ('true', 'false'):
             raise ValueError('tuple omits explicit Codex profile and resolved role policy')
-        if plan.get('whisper_enable') not in ('true', 'false') or plan.get('llama_enable') not in ('true', 'false'):
-            raise ValueError('tuple omits explicit Whisper/Llama profile policy')
+        ai_fields = ('requested_whisper_enable', 'requested_llama_enable',
+                     'whisper_enable', 'llama_enable')
+        if any(plan.get(field) not in ('true', 'false') for field in ai_fields):
+            raise ValueError('tuple omits requested or effective Whisper/Llama policy')
+        # A profile request and a role-derived capability describe different
+        # facts. Desktop DevOps owns Llama independently of server opt-ins.
+        expected_whisper = bool(stages & {'desktop.whisper', 'server.whisper'})
+        expected_llama = ('server.llama' in stages or
+                          plan['family'] == 'desktop' and 'desktop.devops' in stages)
+        if ((plan['whisper_enable'] == 'true') != expected_whisper
+                or (plan['llama_enable'] == 'true') != expected_llama):
+            raise ValueError('effective AI capability differs from selected implementation stages')
+        serialized = [line.split('\t') for line in members[row['plan'].removesuffix('.json') + '.tsv'].decode().splitlines()]
+        for field in ai_fields:
+            if [values for values in serialized if values[0] == field] != [[field, plan[field]]]:
+                raise ValueError('AI singleton is duplicated or differs between JSON and TSV: ' + field)
         if plan['family'] == 'server':
             ai_stages = stages & {'server.whisper', 'server.llama'}
             expected_ai = set()
-            if plan['whisper_enable'] == 'true':
+            if plan['requested_whisper_enable'] == 'true':
                 expected_ai.add('server.whisper')
-            if plan['llama_enable'] == 'true':
+            if plan['requested_llama_enable'] == 'true':
                 expected_ai.add('server.llama')
             if ai_stages != expected_ai:
                 raise ValueError('server AI stage differs from profile enablement')
-        elif plan['whisper_enable'] != 'false' or plan['llama_enable'] != 'false':
-            raise ValueError('desktop tuple carries server-only AI enablement')
+        elif (plan['requested_whisper_enable'] != 'false'
+              or plan['requested_llama_enable'] != 'false'):
+            raise ValueError('desktop tuple carries server-only AI profile requests')
         codex = (plan['family'] == 'server' and plan['codex_only_enable'] == 'true'
                  or bool(set(plan['roles']) & {'desktop/medium', 'desktop/full', 'server/devops'}))
         if (plan['codex_enable'] == 'true') != codex or ('os.codex' in stages) != codex:
@@ -4150,9 +4165,11 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
         raise ValueError('specialist staging is not owned by physical medium/full classes')
     firstboot = members['scripts/firstboot/04-validation.sh.tmpl'].decode()
     for contract in (
-            'desktop_selected_role=$(desktop_read_selected_role)',
-            '0:0:644:1:*', '"$receipt_size" -le 262144', 'NR>4096 || length($0)>4096',
-            'selected!=role', 'role !~ /^desktop\\/(base|medium|full)$/',
+            "desktop_selected_role='__INSTALLER_FIRSTBOOT_ROLE_IDS__'",
+            "desktop_selected_suite='__INSTALLER_FIRSTBOOT_SUITE__'",
+            "desktop_expected_family='__INSTALLER_FIRSTBOOT_HOST_VARIANT__'",
+            'desktop:desktop/base:forky|desktop:desktop/medium:forky|desktop:desktop/full:forky|',
+            'desktop:desktop/base:trixie|desktop:desktop/medium:trixie|desktop:desktop/full:trixie)',
             '[ "${desktop_selected_role:-}" = desktop/base ] || return 1',
             'check_desktop_role_path "desktop-path-${desktop_path}" "$desktop_path"',
             '"desktop-user-unit-${desktop_user_unit_path}"',
@@ -4177,7 +4194,19 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
                  '/user/labwc-calendar-credentials.service', '/bin/tomat', '/bin/sleek'):
         if any(fnmatch.fnmatchcase(path, pattern) for pattern in firstboot_patterns):
             raise ValueError('firstboot excludes an essential desktop path: ' + path)
-    counts['firstboot_desktop_class_receipt_contracts'] = 1
+    for name, data in members.items():
+        if name.startswith(('hooks/target/', 'scripts/firstboot/')) and (
+                b'FILE_INSTALLER_CLASSES' in data or b'installer-class-receipt' in data):
+            raise ValueError('installed runtime still depends on installer-only class data: ' + name)
+    if (b'installer_publish_class_receipt' in members['scripts/common/modules/installation-plan.sh']
+            or b'FILE_INSTALLER_CLASSES=' in members['hosts/installer/runtime.env']):
+        raise ValueError('installer class data must not have a target publication contract')
+    firstboot_staging = members['scripts/late/core.sh'].decode()
+    for field in ('FIRSTBOOT_ROLE_IDS "$firstboot_roles"', 'FIRSTBOOT_RELEASE_ID "$INSTALLER_RELEASE_ID"',
+                  'FIRSTBOOT_HOST_VARIANT "$INSTALLER_HOST_VARIANT"', 'FIRSTBOOT_SUITE "$INSTALLER_SUITE"'):
+        if field not in firstboot_staging:
+            raise ValueError('installation does not render boot expectations: ' + field)
+    counts['firstboot_rendered_desktop_policy_contracts'] = 1
     counts['firstboot_desktop_absence_patterns'] = len(firstboot_patterns)
     if any(any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns) for path in (
             '/skel/.local/share/applications/tutanota-desktop.desktop',

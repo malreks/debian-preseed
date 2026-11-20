@@ -27,7 +27,6 @@ import subprocess
 import sys
 import time
 
-from labwc_waybar_state import active as waybar_popup_active
 import tomllib
 
 UNIT = "labwc-tomat.service"
@@ -129,8 +128,6 @@ def status_markup(value: object) -> dict:
     pattern = "|".join(re.escape(glyph) for glyph in sorted(icons, key=len, reverse=True))
     text = re.sub(pattern, lambda match: icon_markup(*icons[match[0]]), text)
     classes = [state]
-    if waybar_popup_active("tomat"):
-        classes.insert(0, "active")
     result = {"text": text, "class": classes if len(classes) > 1 else classes[0],
               "tooltip": escaped_status_text(value.get("tooltip", ""))}
     if "percentage" in value:

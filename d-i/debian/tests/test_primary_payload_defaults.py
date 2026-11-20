@@ -16,6 +16,7 @@ require_test_isolation()
 import importlib.util
 import os
 import stat
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -31,7 +32,7 @@ class PrimaryPayloadPublication(unittest.TestCase):
         self.assertIsNotNone(spec.loader)
         self.program = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.program)
-        parent = ROOT / '.build/primary-defaults-fixtures'
+        parent = ROOT / '.build/validation/primary-defaults-fixtures'
         parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(prefix='publication-', dir=parent)
         self.addCleanup(self.temporary.cleanup)
@@ -77,6 +78,67 @@ class PrimaryPayloadPublication(unittest.TestCase):
             self.assertEqual((self.home / name).read_bytes(), (self.source / name).read_bytes())
         self.assertEqual(self.input.stat().st_uid, 0)
         self.assert_no_candidates()
+
+    def test_account_btop_views_are_owned_idempotent_and_reject_unsafe_paths(self):
+        config = self.source / '.config/btop'
+        config.mkdir(parents=True)
+        for profile in ('cpu', 'memory'):
+            (config / ('btop-' + profile + '.conf')).write_text('shown_boxes = "proc"\n')
+        self.publish()
+        probe = self.root / 'btop-view-probe.py'
+        probe.write_text("import importlib.util,os,sys\nfrom types import SimpleNamespace\n"
+                         "sys.path.insert(0,sys.argv[3])\n"
+                         "from isolation import require_test_isolation\nrequire_test_isolation()\n"
+                         "spec=importlib.util.spec_from_file_location('actual_primary',sys.argv[1])\n"
+                         "module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)\n"
+                         "home=os.open(sys.argv[2],module.FLAGS)\n"
+                         "os.setgid(12346);os.setuid(12345)\n"
+                         "try:module.btop_profiles(home,SimpleNamespace(pw_uid=12345,pw_gid=12346))\n"
+                         "finally:os.close(home)\n")
+
+        def invoke():
+            return subprocess.run([sys.executable, '-I', '-B', str(probe),
+                                   str(ROOT / 'd-i/debian/scripts/common/primary-defaults.py'),
+                                   str(self.home), str(ROOT / 'tools')],
+                                  env={'PATH': '/usr/bin:/bin', 'HOME': str(self.home),
+                                       'TMPDIR': str(self.root), 'TMP': str(self.root), 'TEMP': str(self.root)},
+                                  stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
+        # This fixture checks the unprivileged writer. Native CLI replay also
+        # checks root validation and permanent group/UID drop at its entrypoint.
+        first = {}
+        for attempt in range(2):
+            result = invoke()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for profile in ('cpu', 'memory'):
+                link = self.home / '.config/btop/profiles' / profile / 'btop/btop.conf'
+                info = link.lstat()
+                self.assertEqual((info.st_uid, info.st_gid, info.st_nlink), (12345, 12346, 1))
+                self.assertEqual(link.readlink(), Path('../../../btop-' + profile + '.conf'))
+                self.assertEqual(link.read_bytes(), (self.home / '.config/btop' / ('btop-' + profile + '.conf')).read_bytes())
+                if not attempt:
+                    first[profile] = info.st_ino
+                else:
+                    self.assertEqual(info.st_ino, first[profile])
+        link = self.home / '.config/btop/profiles/cpu/btop/btop.conf'
+        link.unlink()
+        link.write_bytes(b'preserve deliberate conflict')
+        os.chown(link, 12345, 12346)
+        self.assertNotEqual(invoke().returncode, 0)
+        self.assertEqual(link.read_bytes(), b'preserve deliberate conflict')
+        link.unlink()
+        link.symlink_to('../../../btop-cpu.conf')
+        os.lchown(link, 12345, 12346)
+        profiles = self.home / '.config/btop/profiles'
+        retained = profiles.with_name('retained-profiles')
+        profiles.rename(retained)
+        sibling = self.root / 'sibling'
+        sibling.mkdir()
+        profiles.symlink_to(sibling)
+        self.assertNotEqual(invoke().returncode, 0)
+        self.assertEqual(list(sibling.iterdir()), [])
+        profiles.unlink()
+        retained.rename(profiles)
+        self.assertEqual(invoke().returncode, 0)
 
     def test_failed_replace_preserves_previous_bytes_and_rendered_input(self):
         target = self.previous()

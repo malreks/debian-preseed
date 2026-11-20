@@ -1,5 +1,5 @@
 #!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
-"""Validate the packaged Qt agent, then exec it in the existing user service.
+"""Validate the signed-suite agent, then exec it in the existing user service.
 
 --check is read-only and needs no display; installation/firstboot use it too.
 This is a compatibility gate, not a replacement authentication implementation.
@@ -33,16 +33,22 @@ def check_metadata(record: str) -> str:
         raise ValueError('hyprpolkitagent is not fully installed')
     version, depends = fields[1:]
     # Debian owns the candidate version. Compatibility is a dependency contract,
-    # never an exact version gate. The selected signed backports package retains
-    # the Qt implementation used by this Labwc Wayland session.
+    # never an exact version gate. Trixie backports and Forky carry different
+    # supported implementations of the same PolicyKit agent protocol.
     if not re.fullmatch(r'[0-9][0-9A-Za-z.+:~_-]{0,127}', version):
         raise ValueError('invalid native hyprpolkitagent version metadata')
     packages = {item.strip().split()[0].split(':')[0]
                 for item in re.split(r'[,|]', depends) if item.strip()}
-    if any(package.startswith(('libhyprtoolkit', 'hyprtoolkit', 'libaquamarine')) for package in packages):
-        raise ValueError('hyprtoolkit agent requires protocol compatibility review for Labwc')
-    if not {'libpolkit-qt6-1-1', 'libqt6quickcontrols2-6', 'polkitd'} <= packages:
-        raise ValueError('packaged agent does not provide the reviewed Qt/PolicyKit implementation')
+    qt = {'libpolkit-qt6-1-1', 'libqt6quickcontrols2-6', 'polkitd'} <= packages
+    # The native toolkit uses standard xdg-shell and the same freedesktop
+    # AuthenticationAgent D-Bus protocol; a toolkit change is not a Hyprland
+    # compositor requirement. Keep the complete native dependency shape.
+    native = ('polkitd' in packages and all(
+        any(re.fullmatch(pattern, package) for package in packages)
+        for pattern in (r'libhyprtoolkit[0-9]+', r'libhyprlang[0-9]+',
+                        r'libhyprutils[0-9]+', r'libsdbus-c\+\+[0-9]+')))
+    if not (qt or native):
+        raise ValueError('packaged agent lacks a supported toolkit/PolicyKit dependency contract')
     return version
 
 
@@ -85,7 +91,7 @@ def main(argv: list[str]) -> int:
     try:
         version = check()
         if argv == ['--check']:
-            print(f'hyprpolkitagent {version}: packaged Qt implementation and ownership verified')
+            print(f'hyprpolkitagent {version}: packaged dependency contract and ownership verified; session acceptance required')
             return 0
         # Replace this process: the vendor agent remains systemd's main PID.
         os.execve(str(BINARY), [str(BINARY)], launch_environment())

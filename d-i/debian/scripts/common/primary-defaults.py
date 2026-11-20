@@ -159,9 +159,64 @@ def cleanup(source: int, device: int, depth: int = 0, budget: list[int] | None =
             os.unlink(name, dir_fd=source)
 
 
+def btop_profiles(home: int, account) -> None:
+    """Create the two fixed XDG config views after dropping root permanently.
+
+    Publication has already installed the regular authored files. This operation
+    selects them; it never parses, renders, copies or executes user config.
+    """
+    require(os.geteuid() == account.pw_uid, 'btop views require the account identity')
+    descriptors = []
+
+    def directory(parent: int, name: str) -> int:
+        try:
+            os.mkdir(name, 0o700, dir_fd=parent)
+        except FileExistsError:
+            pass
+        descriptor = os.open(name, FLAGS, dir_fd=parent)
+        try:
+            info = os.fstat(descriptor)
+            require(info.st_uid == account.pw_uid and info.st_gid == account.pw_gid
+                    and not info.st_mode & 0o022, 'unsafe btop view directory')
+            os.fchmod(descriptor, 0o700)
+        except BaseException:
+            os.close(descriptor)
+            raise
+        descriptors.append(descriptor)
+        return descriptor
+
+    try:
+        config = directory(home, '.config')
+        btop = directory(config, 'btop')
+        profiles = directory(btop, 'profiles')
+        for profile in ('cpu', 'memory'):
+            info = os.stat('btop-' + profile + '.conf', dir_fd=btop, follow_symlinks=False)
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                    and info.st_uid == account.pw_uid and info.st_gid == account.pw_gid
+                    and not info.st_mode & 0o022 and 0 < info.st_size <= 1024 * 1024,
+                    'unsafe btop profile config')
+            selected = directory(directory(profiles, profile), 'btop')
+            directory(selected, 'themes')
+            target = '../../../btop-' + profile + '.conf'
+            try:
+                os.symlink(target, 'btop.conf', dir_fd=selected)
+            except FileExistsError:
+                current = os.stat('btop.conf', dir_fd=selected, follow_symlinks=False)
+                require(stat.S_ISLNK(current.st_mode) and current.st_nlink == 1
+                        and current.st_uid == account.pw_uid and current.st_gid == account.pw_gid
+                        and os.readlink('btop.conf', dir_fd=selected) == target,
+                        'conflicting btop config view')
+            os.fsync(selected)
+        for descriptor in reversed(descriptors):
+            os.fsync(descriptor)
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('publish', 'cleanup'))
+    parser.add_argument('operation', choices=('publish', 'cleanup', 'btop-profiles'))
     parser.add_argument('source', type=Path)
     parser.add_argument('username', nargs='?')
     parser.add_argument('home', type=Path, nargs='?')
@@ -200,12 +255,25 @@ def main() -> None:
                     'primary account home has unsafe ownership or permissions')
             os.fchown(home, account.pw_uid, account.pw_gid)
             os.fchmod(home, 0o700)
-            publish(source, home, account, [0, 0], selected=selected)
+            if args.operation == 'btop-profiles':
+                # The validated root-owned source is no longer needed. Do not
+                # retain its read authority in the account-owned phase.
+                closed_source, source = source, -1
+                os.close(closed_source)
+                # No privilege restoration or user-code import follows this
+                # boundary. Relative operations remain pinned to the HOME fd.
+                os.setgroups([])
+                os.setgid(account.pw_gid)
+                os.setuid(account.pw_uid)
+                btop_profiles(home, account)
+            else:
+                publish(source, home, account, [0, 0], selected=selected)
             os.fsync(home)
         finally:
             os.close(home)
     finally:
-        os.close(source)
+        if source >= 0:
+            os.close(source)
 
 
 if __name__ == '__main__':

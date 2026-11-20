@@ -80,6 +80,8 @@ trap 'rm -f "$u_input"' 0
 installer_run_target_setup scripts/common/network-profile-stage.py.tmpl 'publish physical network policy without activating adapters' "${u_input#"$TARGET_ROOT"}"
 rm -f "$u_input"
 installer_stage_profile_file hooks/target/usr/local/libexec/common/network-wifi-configure "${DIR_USR_LOCAL_LIBEXEC}/network-wifi-configure" 0755
+installer_stage_profile_file hooks/target/etc/tmpfiles.d/common/41-network-wifi.conf.tmpl \
+  "${DIR_TMPFILES_D}/41-network-wifi.conf" 0644
 installer_stage_profile_file hooks/target/etc/NetworkManager/dispatcher.d/90-managed-wifi-preference \
   "${DIR_NETWORKMANAGER}/dispatcher.d/90-managed-wifi-preference" 0755
 installer_stage_profile_file hooks/target/etc/systemd/common/system/wifi-firstboot.service "${DIR_SYSTEMD_SYSTEM}/wifi-firstboot.service" 0644

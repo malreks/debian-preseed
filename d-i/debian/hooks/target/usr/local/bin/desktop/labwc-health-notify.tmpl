@@ -140,11 +140,11 @@ ensure_state_dir() (
   ancestor=$parent
   while [ "$ancestor" != / ]; do
     [ ! -L "$ancestor" ] && [ -d "$ancestor" ] || exit 1
-    owner=$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$ancestor" -maxdepth 0 -printf %U)
-    [ "$owner" = 0 ] || [ "$owner" = "$USER_UID" ] || exit 1
     # A world-writable ancestor can redirect future operations even when the
-    # leaf is private. Desktop state belongs under a trusted home/state root.
-    [ -z "$(__INSTALLER_PATH_DIR_USR__/bin/find "$ancestor" -maxdepth 0 -perm /022 -print)" ] || exit 1
+    # leaf is private. Check type, owner and permissions in one metadata probe;
+    # do not cache trust between state directories or notification cycles.
+    [ "$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$ancestor" -maxdepth 0 -type d \
+      \( -uid 0 -o -uid "$USER_UID" \) ! -perm /022 -printf safe)" = safe ] || exit 1
     ancestor=${ancestor%/*}
     [ -n "$ancestor" ] || ancestor=/
   done
@@ -152,8 +152,12 @@ ensure_state_dir() (
     __INSTALLER_PATH_DIR_USR__/bin/mkdir -m 0700 -- "$directory" || [ -d "$directory" ]
   fi
   [ -d "$directory" ] && [ ! -L "$directory" ] || exit 1
-  [ "$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$directory" -maxdepth 0 -printf %U)" = "$USER_UID" ] || exit 1
-  __INSTALLER_PATH_DIR_USR__/bin/chmod 0700 -- "$directory"
+  directory_metadata=$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$directory" -maxdepth 0 -printf '%U:%m')
+  case "$directory_metadata" in
+    "$USER_UID:700") ;;
+    "$USER_UID:"*) __INSTALLER_PATH_DIR_USR__/bin/chmod 0700 -- "$directory" ;;
+    *) exit 1 ;;
+  esac
 )
 
 USER_UID=$(__INSTALLER_PATH_DIR_USR__/bin/id -u)
@@ -190,8 +194,11 @@ read_state() (
   source=$1
   [ -e "$source" ] || { [ ! -L "$source" ] && exit 0; exit 1; }
   [ ! -L "$source" ] && [ -f "$source" ] || exit 1
-  [ "$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$source" -maxdepth 0 -printf '%U:%n:%m')" = "$USER_UID:1:600" ] || exit 1
-  [ "$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$source" -maxdepth 0 -printf %s)" -le 4096 ] || exit 1
+  metadata=$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$source" -maxdepth 0 -printf '%U:%n:%m:%s')
+  case "$metadata" in "$USER_UID:1:600:"*) ;; *) exit 1 ;; esac
+  size=${metadata##*:}
+  case "$size" in ''|*[!0-9]*) exit 1 ;; esac
+  [ "$size" -le 4096 ] || exit 1
   __INSTALLER_PATH_DIR_USR__/bin/head -c 4096 -- "$source"
 )
 
@@ -234,7 +241,10 @@ send_notification() {
   body=$6
   notification_state_file="${STATE_DIR}/${key}.state"
   notification_payload=$(printf '%s\n%s\n%s\n%s\n%s\n' "$urgency" "$icon" "$category" "$summary" "$body")
-  previous_notification_payload=$(read_state "$notification_state_file")
+  previous_notification_payload=$(read_state "$notification_state_file") || {
+    printf '%s\n' 'health-notify: phase=state reason=unsafe-notification-state' >&2
+    return 1
+  }
 
   [ "$previous_notification_payload" = "$notification_payload" ] && return 0
 
@@ -510,7 +520,10 @@ check_mailbox() {
   esac
 
   mail_count_state_file="${STATE_DIR}/mail-count.state"
-  previous_count=$(read_state "$mail_count_state_file")
+  previous_count=$(read_state "$mail_count_state_file") || {
+    printf '%s\n' 'health-notify: phase=state reason=unsafe-mail-state' >&2
+    return 1
+  }
   case "$previous_count" in
     ''|*[!0-9]*) previous_count=0 ;;
   esac
@@ -522,7 +535,8 @@ check_mailbox() {
       "${MAILBOX} now contains ${mail_count} message(s)." || return 1
   fi
 
-  printf '%s\n' "$mail_count" | atomic_state "$mail_count_state_file" || return 1
+  [ "$mail_count" = "$previous_count" ] ||
+    { printf '%s\n' "$mail_count" | atomic_state "$mail_count_state_file" || return 1; }
 }
 
 check_timeshift_events() {
@@ -931,7 +945,10 @@ check_security_signal() {
     ''|*[!0-9]*) return 0 ;;
   esac
 
-  previous_state=$(read_state "$state_path")
+  previous_state=$(read_state "$state_path") || {
+    printf '%s\n' 'health-notify: phase=state reason=unsafe-security-state' >&2
+    return 1
+  }
   previous_identity=${previous_state%%|*}
   previous_count=${previous_state#*|}
   if [ "$previous_count" = "$previous_state" ]; then
@@ -946,7 +963,8 @@ check_security_signal() {
     previous_count=0
   fi
   if [ "$current_count" -le "$previous_count" ]; then
-    printf '%s|%s\n' "$current_identity" "$current_count" | atomic_state "$state_path" || return 1
+    [ "$previous_state" = "${current_identity}|${current_count}" ] ||
+      { printf '%s|%s\n' "$current_identity" "$current_count" | atomic_state "$state_path" || return 1; }
     return 0
   fi
 
@@ -989,26 +1007,28 @@ check_security_signals() {
   printf '%s\n' "$security_boot_id" | __INSTALLER_PATH_DIR_USR__/bin/grep -Eq \
     '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || return 1
 
+  security_signal_failures=0
   check_security_signal \
     auth normal dialog-password system.security.auth \
     "Failed authentication detected" \
-    __INSTALLER_LOG_AUTH_FILE__
+    __INSTALLER_LOG_AUTH_FILE__ || security_signal_failures=1
   check_security_signal \
     usb normal drive-removable-media device.added \
     "USB or hardware hotplug activity detected" \
-    __INSTALLER_LOG_USB_FILE__
+    __INSTALLER_LOG_USB_FILE__ || security_signal_failures=1
   check_security_signal \
     storage critical __THEME_MAKO_DESKTOP_HEALTH_ERROR_ICON_NAME__ device.error \
     "Storage error detected" \
-    __INSTALLER_LOG_STORAGE_FILE__
+    __INSTALLER_LOG_STORAGE_FILE__ || security_signal_failures=1
   check_security_signal \
     apparmor critical security-high system.security \
     "AppArmor policy denial detected" \
-    __INSTALLER_LOG_APPARMOR_FILE__
+    __INSTALLER_LOG_APPARMOR_FILE__ || security_signal_failures=1
   check_security_signal \
     firewall normal security-medium system.security.network \
     "Firewall blocked network traffic" \
-    __INSTALLER_LOG_NFTABLES_FILE__
+    __INSTALLER_LOG_NFTABLES_FILE__ || security_signal_failures=1
+  return "$security_signal_failures"
 }
 
 check_system_events || notification_failures=1

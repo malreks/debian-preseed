@@ -95,8 +95,19 @@ Source-local APT slot numbers are compacted across fragments rather than
 overwriting other classes' repositories. Package lists merge by stable union;
 scalar debconf answers and `seen` records preserve their separate semantics.
 
-The frozen plan and the non-secret installed receipt use format 2, with one
+The frozen format-2 plan stays in the Debian Installer environment, with one
 `role` record per selected role and one `class` record per resolved class.
+The installer never publishes `classes.tsv` onto the installed system. It
+renders concrete component choices and boot-validation expectations from the
+frozen plan before reboot. CrowdSec receives its selected collection switches;
+the server controller receives its supported service selection; firstboot
+receives the expected desktop tier, suite and release in its rendered scripts.
+These consumers do not load an installer class catalog or choose installation
+policy after boot. Firstboot validates installed files and running services,
+records boot-specific results, and retains failed-bootstrap evidence. Desktop
+configuration ownership and modes are established during installation; the
+early boot collector verifies them without repairing configuration.
+
 There is no first-server-role shortcut. Server identity setup and Bash account
 publication run once, while each selected runner/DNS/DevOps installation keeps
 its own identity, artifact release, credentials, subordinate IDs, storage and

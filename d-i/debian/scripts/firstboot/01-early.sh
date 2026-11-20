@@ -28,15 +28,11 @@ if [ -e "$desktop_defaults" ] || [ -L "$desktop_defaults" ]; then
     log_line early error desktop-defaults "unsafe_path=${desktop_defaults}"
     exit 1
   fi
-  chown root:root "$desktop_defaults" || {
-    log_line early error desktop-defaults "owner_normalization_failed=${desktop_defaults}"
+  if [ "$(find -P "$desktop_defaults" -maxdepth 0 -printf '%U:%G:%m:%n')" != 0:0:644:1 ]; then
+    log_line early error desktop-defaults 'installed_metadata_invalid=true'
     exit 1
-  }
-  chmod 0644 "$desktop_defaults" || {
-    log_line early error desktop-defaults "mode_normalization_failed=${desktop_defaults}"
-    exit 1
-  }
-  log_line early info desktop-defaults "normalized=${desktop_defaults} owner=root:root mode=0644"
+  fi
+  log_line early info desktop-defaults 'installed_metadata_verified=true owner=root:root mode=0644'
 fi
 unset desktop_defaults
 

@@ -68,8 +68,12 @@ installer_apt_install_target_policy "$TARGET_ROOT" install
 # The raw fallback is distinct from the writeback device; both identities come
 # from the frozen partman layout. Never activate swap in the installer here.
 : "${SWAP_FALLBACK_RAW_DEVICE:?missing raw swap partition}"
-SWAP_FALLBACK_RAW_PARTUUID=$(blkid -s PARTUUID -o value "$SWAP_FALLBACK_RAW_DEVICE")
-case "$SWAP_FALLBACK_RAW_PARTUUID" in ''|*[!a-fA-F0-9-]*) installer_fatal 'invalid raw swap PARTUUID' ;; esac
+[ "$SWAP_FALLBACK_RAW_DEVICE" = "$DEV_PART_RAW_SWAP" ] || installer_fatal 'swap fallback differs from frozen raw partition'
+validate_raw_storage_partition "$SWAP_FALLBACK_RAW_DEVICE" "$DEV_PART_RAW_SWAP_MB"
+SWAP_FALLBACK_RAW_DEVICE=$(stable_raw_partition_path "$SWAP_FALLBACK_RAW_DEVICE")
+# Bind both rendered fields to the same verified identity, without a second
+# blkid lookup that could disagree if the device identity changed in between.
+SWAP_FALLBACK_RAW_PARTUUID=${SWAP_FALLBACK_RAW_DEVICE##*/}
 SWAP_FALLBACK_MAPPER="${DIR_DEV}/mapper/${SWAP_FALLBACK_MAPPER_NAME}"
 installer_stage_profile_file hooks/target/etc/swap-fallback.conf.tmpl "$FILE_SWAP_FALLBACK_CONFIG" 0600
 installer_stage_profile_file hooks/target/usr/local/libexec/common/swap-fallback-setup.tmpl "$FILE_SWAP_FALLBACK_HELPER" 0755
@@ -93,5 +97,4 @@ installer_stage_profile_file hooks/target/etc/systemd/common/system/zram-cold-ti
 for unit_path in "$FILE_ZRAM_SETUP_SERVICE" "$FILE_ZRAM_WRITEBACKD_SERVICE" "$FILE_ZRAM_IDLE_WRITEBACK_TIMER" "$FILE_ZRAM_COLD_TIER_TIMER" "$FILE_SWAP_FALLBACK_SERVICE"; do
   installer_stage_offline_unit_link "$unit_path"
 done
-installer_publish_class_receipt
 installer_info 'universal Perl runtime and zram staged for the selected role family'

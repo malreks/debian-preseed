@@ -52,7 +52,7 @@ MODULES = (('custom/tomat', 'tomat', 'on-click'),
            ('pulseaudio', 'audio', 'on-click'),
            ('custom/notifications', 'notifications', 'on-click'),
            ('custom/power', 'power', 'on-click'),
-           ('clock', 'calendar', 'on-click-release'),
+           ('clock', 'calendar', 'on-click'),
            ('custom/wayscriber', 'wayscriber', 'on-click'))
 
 RELEASE_BINDINGS = (
@@ -62,14 +62,16 @@ RELEASE_BINDINGS = (
     ('bluetooth', 'on-click-right-release', 'on-click-right'),
     ('custom/screenshot', 'on-click-release', 'on-click'),
     ('custom/screenshot', 'on-click-right-release', 'on-click-right'),
-    ('backlight', 'on-click-release', 'on-click'),
-    ('custom/battery', 'on-click-release', 'on-click'),
 )
 
 
 class MenuContractTests(unittest.TestCase):
     def test_release_binding_matrix_preserves_native_controls(self):
         for bar in bars():
+            for module in ('backlight', 'custom/battery', 'clock'):
+                self.assertEqual(bar[module]['menu'], 'on-click')
+                self.assertNotIn('on-click', bar[module])
+                self.assertNotIn('on-click-release', bar[module])
             for module, release, press in RELEASE_BINDINGS:
                 self.assertIn(release, bar[module])
                 self.assertNotIn(press, bar[module])
@@ -108,7 +110,7 @@ class MenuContractTests(unittest.TestCase):
                     self.assertEqual(argv[:boundary], ['/usr/local/libexec/labwc-waybar-run'])
                     self.assertGreater(len(argv[boundary + 1:]), 0)
                     count += 1
-        self.assertEqual(count, 108)
+        self.assertEqual(count, 118)
 
     def test_calendar_mapping_and_secondary_clicks(self):
         for bar in bars():

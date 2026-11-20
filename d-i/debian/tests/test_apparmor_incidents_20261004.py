@@ -60,6 +60,30 @@ def chatgpt_handoff_paths():
                              '.partial', 'a file.txt', 'literal[brackets].txt')]
 
 
+class WaybarPythonSiteProbeTests(unittest.TestCase):
+    def test_versioned_site_probes_stay_local_and_read_only(self):
+        from fixture_render import rendered_path_text
+        policy = rendered_path_text(body('labwc-session', 'waybar'))
+        rules = {line.strip() for line in policy.splitlines()
+                 if line.strip() and not line.lstrip().startswith('#')}
+        self.assertIn('/usr/local/lib/python3/dist-packages/ r,', rules)
+        self.assertIn('/usr/local/lib/python3.[0-9]*/ r,', rules)
+        self.assertIn('/usr/local/lib/python3.[0-9]*/dist-packages/ r,', rules)
+        # Debian's stdlib entry is a symlink to this exact package-owned file.
+        self.assertIn('/etc/python3.[0-9]*/sitecustomize.py r,', rules)
+        self.assertNotIn('/usr/local/lib/python3.[0-9]*/** r,', rules)
+        self.assertNotIn('/etc/python3.[0-9]*/** r,', rules)
+        self.assertNotRegex(policy, r'(?m)^\s*owner @\{HOME\}/\.local/lib/.*[rixw]')
+
+    def test_trampoline_keeps_isolation_and_managed_pth_consumers(self):
+        from fixture_render import rendered_path_text
+        helper = rendered_path_text(read_text(
+            SEED / 'hooks/target/usr/local/libexec/desktop/labwc-waybar-exec'))
+        self.assertTrue(helper.startswith('#!/usr/bin/python3 -IB\n'))
+        self.assertNotIn('python3 -S', helper)
+        self.assertNotIn('sys.path.insert', helper)
+
+
 class CalendarProcessMetadataDenialsTests(unittest.TestCase):
     def test_complete_october_25_capture_and_exact_profile_grants(self):
         self.assertEqual(OCTOBER_25['record_counts'], {'STATUS': 451, 'DENIED': 504})
@@ -550,9 +574,11 @@ class SuppliedDenialTests(unittest.TestCase):
                 self.assertEqual(event['class'], 'file', event)
 
     def test_codex_apt_state_read_and_btop_transition_do_not_add_privilege(self):
-        runtime = read_text(AA / 'abstractions/codex-runtime')
+        from fixture_render import rendered_path_text, render_scalar_fixture
+        import shlex
+        runtime = rendered_path_text(read_text(AA / 'abstractions/codex-runtime'))
         self.assertIn('/var/lib/apt/extended_states r,', runtime)
-        monitor = body('desktop-utilities', 'desktop-btop')
+        monitor = rendered_path_text(body('desktop-utilities', 'desktop-btop'))
         self.assertIn('signal (send),', monitor)
         self.assertIn('ptrace (read),', monitor)
         self.assertNotRegex(monitor, r'(?m)^\s*capability (?:kill|setuid|setgid),')
@@ -563,28 +589,49 @@ class SuppliedDenialTests(unittest.TestCase):
         self.assertIn('@{PROC}/[0-9]*/{cmdline,comm,exe,limits,loginuid,oom_score,oom_score_adj,stat,statm,status,io,sched,schedstat,smaps_rollup,wchan,cgroup} r,', monitor)
         self.assertNotRegex(monitor, r'(?m)^\s*(?:allow )?ptrace\s*\([^)]*\btrace\b')
         self.assertNotRegex(monitor, r'(?m)^\s*/(?:usr/bin|bin)/[^\n]*\s+[^,]*x')
-        self.assertIn('/usr/bin/btop rPx -> desktop-btop,', body('desktop-utilities', 'desktop-launcher'))
-        self.assertIn('/usr/bin/btop rPx -> desktop-btop,', body('labwc-session', 'waybar'))
-        receiver = read_text(AA / 'abstractions/base.d/process-monitor')
+        self.assertIn('/usr/bin/btop rPx -> desktop-btop,', rendered_path_text(body('desktop-utilities', 'desktop-launcher')))
+        self.assertIn('/usr/bin/btop rPx -> desktop-btop,', rendered_path_text(body('labwc-session', 'waybar')))
+        receiver = rendered_path_text(read_text(AA / 'abstractions/base.d/process-monitor'))
         self.assertIn('signal (receive) peer=desktop-btop,', receiver)
         self.assertIn('ptrace (readby) peer=desktop-btop,', receiver)
         self.assertNotRegex(receiver, r'(?m)^\s*(?:signal \(send|ptrace \(trace|capability|/[^\n]+\s+[^,]*[wx])')
-        stages = read_text(SEED / 'scripts/late/security.sh')
+        stages = rendered_path_text(read_text(SEED / 'scripts/late/security.sh'))
         self.assertIn('"/etc/apparmor.d/abstractions/base.d/process-monitor" 0644', stages)
-        waybar = read_text(SEED / 'hooks/target/etc/skel-desktop/.config/waybar/config.tmpl')
-        btop_actions = [line for line in waybar.splitlines() if 'labwc-terminal -e btop' in line]
-        self.assertEqual(len(btop_actions), 4)
-        for action in btop_actions:
-            self.assertIn('"on-click": "/usr/local/bin/labwc-terminal -e btop"', action)
-        terminal = read_text(SEED / 'hooks/target/usr/local/bin/desktop/labwc-terminal')
-        self.assertIn('exec /usr/local/bin/labwc-wayland-app auto -- "$terminal_exec" -e "$@"', terminal)
-        with mock.patch.object(sys, 'path', [str(python_library(
-                SEED / 'hooks/target/usr/local/lib/python3/dist-packages')), *sys.path]):
-            from labwc_managed_app import generic
-        with mock.patch.object(generic, 'assert_launch_allowed'), \
-             mock.patch.object(generic, 'menu_action_wait_arguments', return_value=[]):
-            for executable in ('/usr/bin/foot', '/usr/bin/kitty', '/usr/bin/terminal-emulator'):
-                argv = generic.transient_argv('wayland', 'auto', [executable, '-e', 'btop'], {})
+        with tempfile.TemporaryDirectory(prefix='btop-transition-') as temporary:
+            root = Path(temporary)
+            for name in ('cpu', 'memory'):
+                source = SEED / ('hooks/target/etc/skel-desktop/.config/waybar/modules/' + name + '.tmpl')
+                value = json.loads(render_scalar_fixture(source, root))[name]
+                self.assertEqual(shlex.split(value['on-click-release']), [
+                    '/usr/local/libexec/labwc-waybar-run', '--',
+                    '/usr/local/bin/labwc-terminal', '-e', 'btop', '--config',
+                    '~/.config/btop/btop-' + name + '.conf'])
+            terminal = render_scalar_fixture(
+                SEED / 'hooks/target/usr/local/bin/desktop/labwc-terminal', root).decode('utf-8')
+            self.assertIn('exec /usr/local/bin/labwc-wayland-app auto -- "$terminal_exec" -e "$@"', terminal)
+            self.assertIn('"$terminal_exec" --title "$terminal_title" -e "$@"', terminal)
+            # Import only a complete production-rendered private package. The
+            # transient constructor is inspected as argv, never executed.
+            library = root / 'library'
+            package = SEED / 'hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app'
+            for source in sorted([*package.rglob('*.py'), *package.rglob('*.py.tmpl')]):
+                target = library / 'labwc_managed_app' / source.relative_to(package).as_posix().removesuffix('.tmpl')
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(render_scalar_fixture(source, root))
+            probe = root / 'transient-probe.py'
+            probe.write_text("import json,sys\nfrom unittest import mock\n"
+                             "sys.path.insert(0,sys.argv[1])\n"
+                             "from labwc_managed_app import generic\n"
+                             "with mock.patch.object(generic,'assert_launch_allowed'), "
+                             "mock.patch.object(generic,'menu_action_wait_arguments',return_value=[]):\n"
+                             " print(json.dumps([generic.transient_argv('wayland','auto',[path,'-e','btop'],{}) "
+                             "for path in ('/usr/bin/foot','/usr/bin/kitty','/usr/bin/terminal-emulator')]))\n")
+            result = subprocess.run([sys.executable, '-I', '-B', str(probe), str(library)],
+                                    env={'PATH': '/usr/bin:/bin', 'HOME': str(root),
+                                         'TMPDIR': str(root), 'TMP': str(root), 'TEMP': str(root)},
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                    check=True, timeout=15)
+            for argv in json.loads(result.stdout):
                 for property_ in ('ExitType=main', 'ProtectProc=default', 'ProcSubset=all'):
                     self.assertIn('--property=' + property_, argv)
 

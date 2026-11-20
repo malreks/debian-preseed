@@ -162,7 +162,6 @@ installer_prepare_class_plan() (
     printf 'crypto_root\t%s\ncrypto_home\t%s\nwifi_enable\t%s\nprimary_iface\t%s\nipv6_enable\t%s\n' \
       "$plan_crypto_root" "$plan_crypto_home" "$plan_wifi_enable" "$plan_primary_iface" "$plan_ipv6_enable"
     printf 'ssh_enable\t%s\nssh_port\t%s\n' "$plan_ssh_enable" "$plan_ssh_port"
-    printf 'whisper_enable\t%s\nllama_enable\t%s\n' "$plan_whisper_enable" "$plan_llama_enable"
     printf 'partman_ceiling_enable\t%s\npartman_ceiling_mb\t%s\npartman_reuse_enable\t%s\npartman_reuse_start\t%s\n' \
       "$INSTALLER_PROFILE_PARTMAN_CEILING_ENABLE" "$INSTALLER_PROFILE_PARTMAN_CEILING_MB" \
       "$INSTALLER_PROFILE_PARTMAN_REUSE_ENABLE" "$INSTALLER_PROFILE_PARTMAN_REUSE_START"
@@ -209,19 +208,6 @@ installer_assert_class_plan() {
     installer_fatal 'validated installation plan is unavailable'
   [ "$(installer_plan_value suite)" = "$INSTALLER_SUITE" ] &&
     [ "$(installer_plan_value release)" = "$INSTALLER_RELEASE_ID" ] || installer_fatal 'installation plan/release mismatch'
-}
-
-installer_publish_class_receipt() {
-  installer_assert_class_plan || return "$?"
-  receipt_target=${INSTALLER_TARGET_DIR:-${TARGET_ROOT}}
-  receipt_path="$receipt_target${FILE_INSTALLER_CLASSES:?target receipt path required}"
-  receipt_parent=${receipt_path%/*}
-  install -d -m 0755 "$receipt_parent" || return "$?"
-  [ ! -L "$receipt_parent" ] && [ ! -L "$receipt_path" ] || return 1
-  receipt_work=$(mktemp "$receipt_parent/.classes.XXXXXX") || return "$?"
-  awk -F '\t' '$1 ~ /^(format|suite|role|family|architecture|profile|release|mode|partman_ceiling_enable|partman_ceiling_mb|partman_reuse_enable|partman_reuse_start|snapshots|timeshift_enable|crypto_root|crypto_home|wifi_enable|primary_iface|ipv6_enable|ssh_enable|ssh_port|codex_only_enable|codex_enable|whisper_enable|llama_enable|class|omission)$/ {print}' \
-    "$(installer_class_plan_path)" >"$receipt_work" || return "$?"
-  chmod 0644 "$receipt_work" && mv -f "$receipt_work" "$receipt_path"
 }
 
 # Phase entrypoints and each selected helper use the same release-bound owner

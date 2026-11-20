@@ -29,19 +29,246 @@ import tempfile
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest import mock
+from fixture_render import render_scalar_fixture, rendered_path_text
+from payload_fixture import source_path
 
 
-SOURCE = (Path(__file__).resolve().parents[1]
-          / 'hooks/target/usr/local/bin/desktop/labwc-window-switcher')
-LIBEXEC = SOURCE.parents[1] / 'libexec'
+TARGET = Path(__file__).resolve().parents[1] / 'hooks/target'
+SOURCE = source_path(TARGET / 'usr/local/bin/labwc-window-switcher')
+LIBEXEC = TARGET / 'usr/local/libexec'
+
+
+def target_source(relative):
+    return source_path(TARGET / relative)
+
+
+def target_text(relative):
+    with tempfile.TemporaryDirectory(prefix='waybar-target-render-') as temporary:
+        return render_scalar_fixture(target_source(relative), Path(temporary)).decode('utf-8')
+
+
+class FixedShellArgumentFixtures(unittest.TestCase):
+    def test_every_configured_trampoline_status_call_crosses_the_shell_and_allowlist(self):
+        seed = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix='waybar-status-shell-') as temporary:
+            root = Path(temporary)
+            source = seed / 'hooks/target/usr/local/libexec/desktop/labwc-waybar-exec'
+            trampoline = ModuleType('fixed_status_trampoline')
+            exec(compile(render_scalar_fixture(source, root), str(source), 'exec'), vars(trampoline))
+            sink = root / 'argument sink'
+            sink.write_text('#!/usr/bin/python3 -IB\nimport json,os,sys\n'
+                            'with open(os.environ["ARGV_RESULT"],"w") as f: json.dump(sys.argv[1:],f)\n')
+            sink.chmod(0o700)
+            count = 0
+            for module in sorted((seed / 'hooks/target/etc/skel-desktop/.config/waybar/modules').glob('*.tmpl')):
+                if 'labwc-waybar-exec ' not in module.read_text():
+                    continue
+                for entry in json.loads(render_scalar_fixture(module, root)).values():
+                    command = entry.get('exec', '')
+                    prefix = '/usr/local/libexec/labwc-waybar-exec '
+                    if not command.startswith(prefix) or command == prefix + 'menu-state':
+                        continue  # Launcher state is the wrapper's separate fixed interface.
+                    result = root / 'arguments.json'
+                    subprocess.run(['/bin/sh', '-eu', '-c', command.replace(prefix, shlex.quote(str(sink)) + ' ', 1)],
+                                   cwd=root, env={'PATH': '/usr/bin:/bin', 'HOME': str(root / 'home ;literal'),
+                                                  'ARGV_RESULT': str(result), 'TMPDIR': str(root),
+                                                  'TMP': str(root), 'TEMP': str(root)}, check=True, timeout=5)
+                    arguments = json.loads(result.read_text())
+                    with self.subTest(module=module.name):
+                        self.assertTrue(trampoline.command(arguments))
+                        with self.assertRaises(ValueError):
+                            trampoline.command(arguments + ['extra'])
+                    count += 1
+            self.assertGreaterEqual(count, 6)
+            for removed in ('power', 'wayscriber'):
+                with self.assertRaises(ValueError):
+                    trampoline.command(['/usr/local/libexec/labwc-waybar-state', 'status', removed])
+
+    def test_rendered_cpu_memory_commands_cross_the_real_shell_without_expansion(self):
+        seed = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix='waybar-shell-') as temporary:
+            root = Path(temporary)
+            runner_path = seed / 'hooks/target/usr/local/libexec/desktop/labwc-waybar-run'
+            runner = ModuleType('fixed_shell_runner')
+            exec(compile(render_scalar_fixture(runner_path, root), str(runner_path), 'exec'), vars(runner))
+            sink = root / 'argument sink'
+            sink.write_text('#!/usr/bin/python3 -IB\nimport json,os,sys\n'
+                            'with open(os.environ["ARGV_RESULT"],"w") as f: json.dump(sys.argv[1:],f)\n')
+            sink.chmod(0o700)
+            for button in ('cpu', 'memory'):
+                source = seed / ('hooks/target/etc/skel-desktop/.config/waybar/modules/' + button + '.tmpl')
+                value = json.loads(render_scalar_fixture(source, root))[button]
+                command = value['on-click-release']
+                self.assertTrue(command.startswith('/usr/local/libexec/labwc-waybar-run '))
+                command = command.replace('/usr/local/libexec/labwc-waybar-run', shlex.quote(str(sink)), 1)
+                for home in ('home with spaces', "home [literal] ;$(false) ' !"):
+                    result = root / 'arguments.json'
+                    subprocess.run(['/bin/sh', '-eu', '-c', command], cwd=root,
+                                   env={'PATH': '/usr/bin:/bin', 'HOME': str(root / home),
+                                        'ARGV_RESULT': str(result), 'TMPDIR': str(root),
+                                        'TMP': str(root), 'TEMP': str(root)}, check=True, timeout=5)
+                    arguments = json.loads(result.read_text())
+                    normalized, output_class = runner.normalize_command(arguments)
+                    self.assertIsNone(output_class)
+                    self.assertEqual(normalized, ('/usr/local/bin/labwc-terminal', '-e', 'btop', '--config',
+                                                  '~/.config/btop/btop-' + button + '.conf'))
+                    for bad in (arguments + ['extra'], arguments + [';', 'false'],
+                                ['--', '/usr/local/bin/../bin/labwc-terminal', *normalized[1:]],
+                                ['--', '/usr/local/bin/labwc-terminal-modified', *normalized[1:]],
+                                ['--', *normalized[:-1], str(root / 'arbitrary.conf')]):
+                        with self.assertRaises(ValueError):
+                            runner.normalize_command(bad)
 
 
 def load_helper(name):
-    path = LIBEXEC / name
+    path = source_path(LIBEXEC / name)
     module = ModuleType('fixture_' + name.replace('-', '_').replace('.', '_'))
     module.__file__ = str(path)
-    exec(compile(path.read_bytes(), str(path), 'exec'), module.__dict__)
+    with tempfile.TemporaryDirectory(prefix='waybar-helper-render-') as temporary:
+        rendered = render_scalar_fixture(path, Path(temporary))
+    exec(compile(rendered, str(path), 'exec'), module.__dict__)
     return module
+
+
+class ConfiguredFootCloseFixtures(unittest.TestCase):
+    def test_actual_terminal_wrapper_selects_portable_config_without_a_shell_fragment(self):
+        seed = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix='portable-btop-') as temporary:
+            root = Path(temporary)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            foot = bindir / 'foot'
+            foot.write_text('#!/bin/sh\nexit 99\n')  # Discovery only; delegate captures argv.
+            foot.chmod(0o700)
+            delegate = bindir / 'labwc-wayland-app'
+            delegate.write_text('#!/usr/bin/python3 -IB\nimport json,os,sys\n'
+                                'with open(os.environ["ARGV_RESULT"],"w") as f:json.dump(sys.argv[1:],f)\n')
+            delegate.chmod(0o700)
+            wrapper = root / 'terminal.sh'
+            wrapper.write_bytes(render_scalar_fixture(
+                seed / 'hooks/target/usr/local/bin/desktop/labwc-terminal', root,
+                {'PATH_DIR_ETC': str(root / 'etc'), 'PATH_DIR_USR_LOCAL_BIN': str(bindir)}))
+            output = root / 'argv.json'
+            for button in ('cpu', 'memory'):
+                title = 'Labwc-' + ('CPU' if button == 'cpu' else 'Memory') + '-01234567'
+                operand = '~/.config/btop/btop-' + button + '.conf'
+                for home in (str(root / 'home with spaces'), str(root / "home ;$(literal) ! ' []")):
+                    environment = {'PATH': str(bindir) + ':/usr/bin:/bin', 'HOME': home,
+                                   'LANG': 'C.UTF-8', 'LABWC_TERMINAL_TITLE': title,
+                                   'ARGV_RESULT': str(output), 'TMPDIR': str(root),
+                                   'TMP': str(root), 'TEMP': str(root)}
+                    result = subprocess.run(['/bin/sh', str(wrapper), '-e', 'btop', '--config', operand],
+                                            env=environment, stdin=subprocess.DEVNULL,
+                                            capture_output=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(output.read_text()), [
+                        'auto', '--', 'foot', '--title', title, '-e', '/usr/bin/env',
+                        'XDG_CONFIG_HOME=' + home + '/.config/btop/profiles/' + button, 'btop'])
+                    output.unlink()
+                    rejected = subprocess.run(['/bin/sh', str(wrapper), '-e', 'btop', '--config', operand, 'extra'],
+                                              env=environment, stdin=subprocess.DEVNULL,
+                                              capture_output=True, timeout=5)
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertFalse(output.exists())
+
+    def test_real_transient_only_accepts_identity_bound_cpu_memory_close(self):
+        seed = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix='configured-foot-') as temporary:
+            root = Path(temporary)
+            library = root / 'library'
+            package = seed / 'hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app'
+            for source in sorted([*package.rglob('*.py'), *package.rglob('*.py.tmpl')]):
+                target = library / 'labwc_managed_app' / source.relative_to(package).as_posix().removesuffix('.tmpl')
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(render_scalar_fixture(source, root))
+            cases = []
+            identity = '01234567' + 'a' * 24
+            for button in ('cpu', 'memory'):
+                for home in ('/home/fixture', "/home/with spaces ;$(literal) ! ' [punctuation]"):
+                    title = 'Labwc-' + ('CPU' if button == 'cpu' else 'Memory') + '-' + identity[:8]
+                    environment = {'HOME': home, 'LABWC_WAYBAR_STATE_BUTTON': button,
+                                   'LABWC_WAYBAR_ACTION_ID': identity, 'LABWC_TERMINAL_TITLE': title}
+                    arguments = ['/usr/bin/foot', '--title', title, '-e', '/usr/bin/env',
+                                 'XDG_CONFIG_HOME=' + home + '/.config/btop/profiles/' + button, 'btop']
+                    cases.append((arguments, environment, True))
+                    for argv, changes in (
+                        (arguments + ['extra'], {}),
+                        ([arguments[0] + '-modified', *arguments[1:]], {}),
+                        ([*arguments[:5], 'XDG_CONFIG_HOME=' + home + '/.config/btop/profiles/../' + button, 'btop'], {}),
+                        ([*arguments[:5], 'XDG_CONFIG_HOME=/arbitrary', 'btop'], {}),
+                        (arguments, {'LABWC_WAYBAR_ACTION_ID': 'f' * 32}),
+                        (arguments, {'LABWC_TERMINAL_TITLE': title + 'x'}),
+                        (arguments, {'HOME': '/home/../fixture'}),
+                        ([*arguments[:4], 'sh', '-c', 'exit 1'], {}),
+                    ):
+                        cases.append((argv, {**environment, **changes}, False))
+            probe = root / 'probe.py'
+            probe.write_text("import json,sys\nfrom unittest import mock\n"
+                             "sys.path.insert(0,sys.argv[1])\n"
+                             "from labwc_managed_app import generic\n"
+                             "result=[]\n"
+                             "with mock.patch.object(generic,'assert_launch_allowed'), "
+                             "mock.patch.object(generic,'menu_action_wait_arguments',return_value=[]):\n"
+                             " for arguments,environment,_ in json.load(sys.stdin):\n"
+                             "  result.append(generic.transient_argv('wayland','auto',arguments,environment))\n"
+                             "print(json.dumps(result))\n")
+            result = subprocess.run([sys.executable, '-I', '-B', str(probe), str(library)],
+                                    input=json.dumps(cases), text=True, capture_output=True,
+                                    env={'PATH': '/usr/bin:/bin', 'HOME': str(root),
+                                         'TMPDIR': str(root), 'TMP': str(root), 'TEMP': str(root)},
+                                    check=True, timeout=15)
+            replies = json.loads(result.stdout)
+            self.assertEqual(len(replies), len(cases))
+            for (arguments, environment, expected), command in zip(cases, replies):
+                with self.subTest(arguments=arguments, title=environment['LABWC_TERMINAL_TITLE']):
+                    self.assertEqual('--property=SuccessExitStatus=1' in command, expected)
+                    self.assertNotIn('--property=SuccessExitStatus=230', command)
+                    self.assertNotIn('--property=SuccessExitStatus=7', command)
+                    if expected:
+                        for operation, phase in (('ExecStartPre', 'start'), ('ExecStopPost', 'cleanup')):
+                            self.assertIn('--property=' + operation + '=/usr/local/libexec/labwc-waybar-state '
+                                          + phase + ' ' + environment['LABWC_WAYBAR_STATE_BUTTON']
+                                          + ' ' + identity, command)
+
+
+class StateMarkerReadFixtures(unittest.TestCase):
+    def test_actual_reader_rejects_unsafe_and_oversize_markers(self):
+        module = ModuleType('waybar_marker_reader_fixture')
+        source = target_text('usr/local/lib/python3/dist-packages/labwc_waybar_state.py')
+        exec(compile(source, 'rendered-marker-reader', 'exec'), vars(module))
+        with tempfile.TemporaryDirectory(prefix='waybar-marker-read-') as temporary:
+            root = Path(temporary)
+            markers = root / 'markers'
+            markers.mkdir(mode=0o700)
+            identity = 'a' * 32
+            marker = markers / f'cpu-{identity}.json'
+            valid = {'version': 1, 'button': 'cpu', 'id': identity, 'uid': os.getuid(), 'pid': 1}
+
+            def publish(data):
+                marker.write_text(json.dumps(data), encoding='ascii')
+                marker.chmod(0o600)
+
+            with mock.patch.object(module, 'state_directory', return_value=markers):
+                publish(valid)
+                self.assertTrue(module.active('cpu'))
+                for bad in ({**valid, 'id': 'b' * 32}, {**valid, 'version': True},
+                            {**valid, 'uid': str(os.getuid())}):
+                    publish(bad)
+                    self.assertFalse(module.active('cpu'))
+                marker.write_bytes(b'x' * 4097)
+                self.assertFalse(module.active('cpu'))
+                publish(valid)
+                outside = root / 'outside'
+                marker.rename(outside)
+                marker.symlink_to(outside)
+                self.assertFalse(module.active('cpu'))
+                marker.unlink()
+                os.link(outside, marker)
+                self.assertFalse(module.active('cpu'))
+                marker.unlink()
+                publish(valid)
+                marker.chmod(0o644)
+                self.assertFalse(module.active('cpu'))
 
 
 class DesktopRuntimeIdentityFixtures(unittest.TestCase):
@@ -158,7 +385,7 @@ esac
                 # Capture the fixed timeout/wtype argv; execute neither program.
                 '/usr/bin/timeout': '#!/bin/sh\nprintf "%s\\n" "$@"\n',
             }
-            source = SOURCE.read_text(encoding='utf-8')
+            source = target_text('usr/local/bin/labwc-window-switcher')
             original = 'runtime_root="/run/user/$runtime_uid"'
             self.assertEqual(source.count(original), 1)
             source = source.replace(original, 'runtime_root="$FIXTURE_ROOT/1000"')
@@ -275,12 +502,13 @@ class WaybarSeparationFixtures(unittest.TestCase):
 
     def test_every_native_menu_leaf_has_one_scoped_action(self):
         import xml.etree.ElementTree as ET
-        root = SOURCE.parents[3] / 'etc/skel-desktop/.config/waybar'
+        root = TARGET / 'etc/skel-desktop/.config/waybar'
         count = 0
         for path in sorted((root / 'modules').glob('*.tmpl')):
-            # Only a brightness/format scalar can be unquoted here. No
-            # installer renderer or repository module is executed.
-            text = re.sub(r'__[A-Z0-9_]+__(?=\s*[,}\]])', '0', path.read_text())
+            # This checks authored leaf/action identity. The native fixture
+            # separately exercises the complete producer and final rendering.
+            text = rendered_path_text(path.read_text(encoding='utf-8'))
+            text = re.sub(r'__[A-Z0-9_]+__(?=\s*[,}\]])', '0', text)
             for entry in json.loads(text).values():
                 if 'menu-file' not in entry:
                     continue
@@ -297,10 +525,10 @@ class WaybarSeparationFixtures(unittest.TestCase):
                     self.assertEqual(argv[0], '/usr/local/libexec/labwc-waybar-run')
                     self.assertEqual(argv[:argv.index('--')], ['/usr/local/libexec/labwc-waybar-run'])
                 count += 1
-        self.assertEqual(count, 8)
+        self.assertEqual(count, 13)
 
     def test_pointer_cursor_is_explicit_for_status_and_popup_controls(self):
-        root = SOURCE.parents[3] / 'etc/skel-desktop/.config/waybar/modules'
+        root = TARGET / 'etc/skel-desktop/.config/waybar/modules'
         expected = ('disk.tmpl', 'cpu.tmpl', 'memory.tmpl', 'backlight.tmpl',
                     'power.tmpl', 'notifications.tmpl', 'tomat.tmpl')
         for name in expected:
@@ -312,10 +540,12 @@ class WaybarSeparationFixtures(unittest.TestCase):
 
     @staticmethod
     def dispatcher():
-        path = SOURCE.with_name('labwc-system-menu-action')
+        path = target_source('usr/local/bin/labwc-system-menu-action')
         module = ModuleType('system_menu_fixture')
         module.__file__ = str(path)
-        exec(compile(path.read_bytes(), str(path), 'exec'), module.__dict__)
+        with tempfile.TemporaryDirectory(prefix='fixed-dispatcher-render-') as temporary:
+            rendered = render_scalar_fixture(path, Path(temporary))
+        exec(compile(rendered, str(path), 'exec'), module.__dict__)
         return module
 
     def test_status_and_reload_actions_do_not_restart_services(self):
@@ -332,7 +562,7 @@ class WaybarSeparationFixtures(unittest.TestCase):
         for key, action in (('capture_ocr', 'ocr-capture'), ('capture_ocr_last', 'ocr-last'),
                             ('capture_open_folder', 'open-folder'), ('capture_copy_last_path', 'copy-last-path')):
             self.assertEqual(helper.COMMANDS[key], ('/usr/local/bin/labwc-capture', action))
-        root = SOURCE.parents[3] / 'etc/skel-desktop/.config/waybar'
+        root = TARGET / 'etc/skel-desktop/.config/waybar'
         entry = json.loads((root / 'modules/system.tmpl').read_text())['custom/settings']
         self.assertNotIn('capture_copy_last_path', entry['menu-actions'])
         self.assertIn('capture_screenshot_full', entry['menu-actions'])
@@ -346,7 +576,7 @@ class WaybarSeparationFixtures(unittest.TestCase):
         for command in (first, second):
             self.assertIn('--property=ExitType=cgroup', command)
             self.assertIn('--property=KillMode=control-group', command)
-            self.assertIn('--property=PartOf=labwc-session.target', command)
+            self.assertIn('--property=PartOf=labwc-session.target waybar.service', command)
             self.assertIn(
                 '--property=ConditionPathExists=!/run/user/' + str(os.getuid())
                 + '/labwc-session-closing', command)
@@ -374,11 +604,9 @@ class WaybarSeparationFixtures(unittest.TestCase):
                 self.assertEqual(helper.COMMANDS[key], command)
 
     def test_reminder_manager_routes_have_real_filters_and_selected_operations(self):
-        local = (SOURCE.parents[3] /
-                 'usr/local/lib/python3/dist-packages/labwc_local_reminders.py').read_text()
-        gtk = (SOURCE.parents[3] /
-               'usr/local/lib/python3/dist-packages/labwc_calendar_reminders_gtk.py').read_text()
-        manager = (SOURCE.parents[3] / 'usr/local/libexec/labwc-reminder-manager').read_text()
+        local = target_text('usr/local/lib/python3/dist-packages/labwc_local_reminders.py')
+        gtk = target_text('usr/local/lib/python3/dist-packages/labwc_calendar_reminders_gtk.py')
+        manager = target_text('usr/local/libexec/labwc-reminder-manager')
         for contract in ('def filtered(self, view: str)', 'def clear_expired(self) -> int',
                          'def clear_paused(self) -> int',
                          'datetime.fromisoformat(item[\'due\'])'):
@@ -416,12 +644,13 @@ class WaybarSeparationFixtures(unittest.TestCase):
 
     @staticmethod
     def network_menu():
-        path = SOURCE.with_name('labwc-network-control-menu')
+        path = target_source('usr/local/bin/labwc-network-control-menu')
         module = ModuleType('network_menu_fixture')
         module.__file__ = str(path)
         runtime = ModuleType('labwc_desktop_runtime')
+        rendered = target_text('usr/local/bin/labwc-network-control-menu')
         with mock.patch.dict(sys.modules, {'labwc_desktop_runtime': runtime}):
-            exec(compile(path.read_bytes(), str(path), 'exec'), module.__dict__)
+            exec(compile(rendered, str(path), 'exec'), module.__dict__)
         return module
 
     def test_wireguard_native_actions_keep_selected_identity_and_failure_result(self):
@@ -504,14 +733,15 @@ class LocalReminderFailureFixtures(unittest.TestCase):
 
     @contextmanager
     def private_store(self):
-        path = SOURCE.parents[3] / 'usr/local/lib/python3/dist-packages/labwc_local_reminders.py'
+        path = target_source('usr/local/lib/python3/dist-packages/labwc_local_reminders.py')
         helper = ModuleType('local_reminder_failure_fixture')
         helper.__file__ = str(path)
+        source = target_text('usr/local/lib/python3/dist-packages/labwc_local_reminders.py')
         with ExitStack() as stack:
             stack.enter_context(mock.patch.dict(os.environ, {}, clear=True))
             stack.enter_context(mock.patch.object(subprocess, 'run',
                                 side_effect=AssertionError('external command prohibited')))
-            exec(compile(path.read_bytes(), str(path), 'exec'), helper.__dict__)
+            exec(compile(source, str(path), 'exec'), helper.__dict__)
             stack.enter_context(mock.patch.object(helper.pwd, 'getpwuid',
                                 side_effect=AssertionError('host account lookup prohibited')))
             stack.enter_context(mock.patch.object(helper, '_home',
@@ -842,9 +1072,8 @@ class LocalReminderDeliveryFixtures(unittest.TestCase):
                 self.assertEqual(events, ['reserve', 'send', status] + (['advance'] if result is True else []))
 
     def test_ledger_authority_and_restart_prevention_are_staged(self):
-        target = SOURCE.parents[3]
-        unit = (target / 'etc/skel-desktop/.config/systemd/user/labwc-local-reminders.service').read_text(encoding='utf-8')
-        policy = (target / 'etc/apparmor.d/calendars').read_text(encoding='utf-8')
+        unit = target_text('etc/skel-desktop/.config/systemd/user/labwc-local-reminders.service')
+        policy = target_text('etc/apparmor.d/calendars')
         self.assertIn('RestartPreventExitStatus=4', unit)
         self.assertEqual(policy.count('{local-reminder-deliveries.json,.local-reminder-deliveries.json.*.tmp} rwk,'), 2)
 
@@ -960,14 +1189,15 @@ class ReminderActivationFixtures(unittest.TestCase):
     """Unexecuted activation logic with no GTK, bus, store or child processes."""
 
     def setUp(self):
+        source = target_source('usr/local/lib/python3/dist-packages/labwc_calendar_reminders_gtk.py')
+        rendered = target_text('usr/local/lib/python3/dist-packages/labwc_calendar_reminders_gtk.py')
         environment = mock.patch.dict(os.environ, {}, clear=True)
         environment.start()
         self.addCleanup(environment.stop)
         commands = mock.patch.object(subprocess, 'run', side_effect=AssertionError('external command'))
         commands.start()
         self.addCleanup(commands.stop)
-        source = SOURCE.parents[3] / 'usr/local/lib/python3/dist-packages/labwc_calendar_reminders_gtk.py'
-        self.tree = ast.parse(source.read_text(encoding='utf-8'), filename=str(source))
+        self.tree = ast.parse(rendered, filename=str(source))
         main = next(node for node in self.tree.body
                     if isinstance(node, ast.FunctionDef) and node.name == 'main')
         self.classes = {node.name: node for node in main.body if isinstance(node, ast.ClassDef)}

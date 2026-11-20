@@ -374,6 +374,31 @@ def run_configured_network(arguments: list[str]) -> int:
                                                   app=options.app, network=policy["network"])
 
 
+def foot_window_close_is_expected(arguments: list[str], environment: dict[str, str]) -> bool:
+    """Limit Foot's observed PTY-HUP close status to reviewed invocations.
+
+    The fixed CPU/memory action owns the config leaf, title and state identity.
+    A title or config operand alone must never relax another terminal command.
+    Failed exec and compositor disconnect retain Foot's distinct status 230.
+    """
+    foot = "__INSTALLER_PATH_DIR_USR__/bin/foot"
+    if arguments in ([foot], [foot, "-e", "btop"]):
+        return True
+    button = environment.get("LABWC_WAYBAR_STATE_BUTTON", "")
+    identity = environment.get("LABWC_WAYBAR_ACTION_ID", "")
+    home = environment.get("HOME", "")
+    if (button not in {"cpu", "memory"} or not WAYBAR_STATE_ID.fullmatch(identity)
+            or not home.startswith("/") or len(home) > 4096
+            or any(part in {"", ".", ".."} for part in home.split("/")[1:])
+            or any(ord(char) < 32 or ord(char) == 127 for char in home)):
+        return False
+    title = "Labwc-" + ("CPU" if button == "cpu" else "Memory") + "-" + identity[:8]
+    return (environment.get("LABWC_TERMINAL_TITLE") == title and arguments == [
+        foot, "--title", title, "-e", "__INSTALLER_PATH_DIR_USR_BIN__/env",
+        "XDG_CONFIG_HOME=" + home + "/.config/btop/profiles/" + button, "btop",
+    ])
+
+
 def transient_argv(kind: str, mode: str, arguments: list[str], environment: dict[str, str],
                    *, application_arguments: list[str] | None = None) -> list[str]:
     assert_launch_allowed()
@@ -514,12 +539,11 @@ def transient_argv(kind: str, mode: str, arguments: list[str], environment: dict
         "--property=LimitCORE=0", "--property=NoNewPrivileges=no",
         # Signal the supervisor first; it forwards the signal to Foot so Foot
         # can close/reap its PTY client. systemd owns final cgroup cleanup.
-        # Only the argument-free
-        # default shell or btop gets the observed close-window HUP status (1).
+        # Accept the observed PTY-HUP close only for the existing default
+        # forms or the identity-bound fixed CPU/memory profile invocation.
         # Other commands/options and Foot internal errors (230) stay errors.
-        *(["--property=SuccessExitStatus=1"] if is_foot and (
-            len(arguments) == 1 or arguments == ["__INSTALLER_PATH_DIR_USR__/bin/foot", "-e", "btop"]
-        ) else []),
+        *(["--property=SuccessExitStatus=1"] if is_foot and
+          foot_window_close_is_expected(arguments, environment) else []),
         # The managed Edge client returns 1 when its browser process closes as
         # the session target is stopped. Accept it only for this transient
         # browser family; other launch failures remain failures.

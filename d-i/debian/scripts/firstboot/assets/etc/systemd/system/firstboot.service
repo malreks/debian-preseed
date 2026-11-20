@@ -1,5 +1,7 @@
 [Unit]
-Description=First boot provisioning and validation wrapper
+Description=First boot runtime validation and diagnostics
+StartLimitIntervalSec=30min
+StartLimitBurst=3
 Documentation=man:systemd.service(5)
 
 # Collect persistent diagnostics even when the collector cannot start.
@@ -18,6 +20,8 @@ Before=shutdown.target
 # Do not use oneshot here: multi-user.target waits only for the successful
 # exec transition, not for the wrapper's complete diagnostic runtime.
 Type=exec
+Restart=on-failure
+RestartSec=60s
 # Reload the staged source, not a possibly older boot/cache generation. This
 # runs outside the firstboot attachment and must succeed before validation.
 # Rebuild the cache; --skip-cache conflicts with parser.conf's write-cache.

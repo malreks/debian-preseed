@@ -15,11 +15,13 @@ from isolation import require_test_isolation
 require_test_isolation()
 
 
-@lru_cache(maxsize=1)
-def compiled_runtime_paths() -> dict[str, str]:
-    """Read fixture path values from the current generated profile, as data."""
+@lru_cache(maxsize=16)
+def compiled_profile_values(name='btrfs-de-p15s.env') -> dict[str, str]:
+    """Read the current public generated profile as bounded assignment data."""
     seed = Path(__file__).resolve().parents[1]
-    member = 'catalog/compiled/forky/profiles/desktop/btrfs-de-p15s.env'
+    if not re.fullmatch(r'(?:btrfs|f2fs)-de(?:-[a-z0-9]+)*\.env', name):
+        raise ValueError('invalid compiled desktop fixture profile')
+    member = 'catalog/compiled/forky/profiles/desktop/' + name
     with tarfile.open(seed.parent / 'forky/payload.tar.gz', 'r:gz') as archive:
         info = archive.getmember(member)
         if not info.isfile() or info.size > 1024 * 1024:
@@ -34,10 +36,34 @@ def compiled_runtime_paths() -> dict[str, str]:
         if not separator or key in profile_values or len(words) != 1:
             raise ValueError('invalid compiled fixture assignment')
         profile_values[key] = words[0]
+    return profile_values
+
+
+@lru_cache(maxsize=1)
+def compiled_runtime_paths() -> dict[str, str]:
+    seed = Path(__file__).resolve().parents[1]
+    profile_values = compiled_profile_values()
     schema = seed / 'catalog/runtime-paths.tsv'
     fields = dict(line.split('\t') for line in schema.read_text(encoding='utf-8').splitlines()
                   if line and not line.startswith('#'))
     return {token: profile_values[owner] for token, owner in fields.items()}
+
+
+def render_scalar_fixture(source: Path, directory: Path, fields=None) -> bytes:
+    """Use the production renderer, without running the rendered target helper."""
+    values = {**compiled_profile_values(), **compiled_runtime_paths(), **(fields or {})}
+    with tempfile.TemporaryDirectory(prefix='scalar-', dir=directory) as temporary:
+        operation = Path(temporary)
+        (operation / 'input').write_bytes(source.read_bytes())
+        if any('\n' in value or '\0' in value for value in values.values()):
+            raise ValueError('invalid scalar fixture value')
+        (operation / 'map').write_text(''.join(key + '=' + value + '\n' for key, value in values.items()), encoding='utf-8')
+        env = {'PATH': '/usr/bin:/bin', 'HOME': str(directory), 'TMPDIR': str(directory),
+               'TMP': str(directory), 'TEMP': str(directory), 'LC_ALL': 'C'}
+        renderer = Path(__file__).resolve().parents[1] / 'scripts/common/render.pl'
+        subprocess.run(['/usr/bin/perl', str(renderer), '--file', temporary, 'scalar'],
+                       env=env, capture_output=True, check=True, timeout=15)
+        return (operation / 'output').read_bytes()
 
 
 def rendered_path_text(text: str) -> str:

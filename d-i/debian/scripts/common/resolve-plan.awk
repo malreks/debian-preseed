@@ -158,8 +158,12 @@ END {
   print "format","2"; print "suite",suite; print "family",family; print "architecture",architecture
   print "codex_only_enable",profile_codex_only
   print "codex_enable",(codex_enabled ? "true" : "false")
-  print "whisper_enable",profile_whisper_enable
-  print "llama_enable",profile_llama_enable
+  # Profile opt-ins and role-derived capabilities are different contracts.
+  # Emit each singleton once; consumers use the effective capability keys.
+  print "requested_whisper_enable",profile_whisper_enable
+  print "requested_llama_enable",profile_llama_enable
+  print "whisper_enable",(("desktop.whisper" in stages || "server.whisper" in stages) ? "true" : "false")
+  print "llama_enable",(((family=="desktop" && "desktop.devops" in stages) || "server.llama" in stages) ? "true" : "false")
   for(i=1;i<=requested_count;i++) print "role",requested_roles[i]
   for(j=1;j<=classcount;j++) {
     ref=order[j]

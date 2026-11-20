@@ -15,8 +15,8 @@ KillMode=control-group
 Type=dbus
 BusName=org.freedesktop.secrets
 ExecCondition=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check session-ready
-# Let Labwc, Waybar and the portal stack settle before KWallet can prompt.
-ExecStartPre=__INSTALLER_PATH_DIR_USR__/bin/sleep 5s
+# Type=dbus and the ownership/introspection check below establish readiness.
+# All ksecretd activation aliases name this same durable unit.
 Environment=QT_QPA_PLATFORM=wayland
 Environment=QT_NO_XDG_DESKTOP_PORTAL=1
 ExecStart=__INSTALLER_PATH_DIR_USR__/bin/ksecretd

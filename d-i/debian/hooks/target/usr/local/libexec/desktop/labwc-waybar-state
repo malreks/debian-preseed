@@ -18,7 +18,7 @@ import uuid
 from labwc_waybar_state import BUTTONS, ID_RE, active as marker_active
 RUNTIME_ROOT = Path("__INSTALLER_PATH_DIR_RUN_USER__")
 STATE_NAME = "labwc-waybar-state"
-NOTIFY_BUTTONS = frozenset({"notifications", "power", "taskview", "tomat", "wayscriber"})
+NOTIFY_BUTTONS = frozenset({"taskview"})
 WAYBAR_SIGNAL = ("__INSTALLER_PATH_DIR_USR__/bin/systemctl", "--user", "--quiet", "kill",
                  "--kill-whom=main", "--signal=RTMIN+8", "waybar.service")
 
@@ -92,22 +92,29 @@ def start(button: str, invocation: str) -> None:
 def cleanup(button: str, invocation: str) -> None:
     path = marker(button, invocation)
     try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except FileNotFoundError:
         return
     try:
         info = os.fstat(descriptor)
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600):
+                or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 4096):
             raise ValueError("unsafe Waybar state marker")
-        data = json.load(os.fdopen(descriptor, "r", encoding="ascii"))
-        descriptor = -1
-        if (not isinstance(data, dict) or data.get("version") != 1
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            raw = stream.read(4097)
+            after = os.fstat(stream.fileno())
+        if (len(raw) != info.st_size or info.st_size != after.st_size
+                or info.st_mtime_ns != after.st_mtime_ns or info.st_ctime_ns != after.st_ctime_ns):
+            raise ValueError("Waybar state marker changed during read")
+        data = json.loads(raw.decode("ascii"))
+        if (not isinstance(data, dict) or type(data.get("version")) is not int or data["version"] != 1
                 or data.get("button") != button or data.get("id") != invocation
-                or data.get("uid") != os.getuid()):
+                or type(data.get("uid")) is not int or data["uid"] != os.getuid()):
             raise ValueError("Waybar state marker identity changed")
         current = path.stat(follow_symlinks=False)
-        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+        if ((current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns, current.st_ctime_ns)
+                != (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)):
             raise ValueError("Waybar state marker was replaced")
         path.unlink()
         notify_waybar(button)

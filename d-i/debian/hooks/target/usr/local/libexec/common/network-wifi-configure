@@ -1,12 +1,15 @@
-#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IBS
 """Apply the shared physical-uplink policy and open the authorized native UI.
 
 The public policy contains addresses and adapter identities, never AP secrets.
 NetworkManager owns association, saved secrets and link activation. Both links
 may stay connected; route metrics choose the primary and preserve the fallback.
+All imports are standard-library modules; -S avoids unrelated package and .pth
+initialization while -I and -B retain isolated imports and no bytecode writes.
 """
 from __future__ import annotations
 import configparser
+import errno
 import fcntl
 import ipaddress
 import json
@@ -28,6 +31,7 @@ PROFILE_UUID = '3f1b70be-cc3f-4e77-9e31-66f7a5e16994'
 ENVIRONMENT = {'PATH': '__INSTALLER_PATH_DIR_USR_SBIN__:__INSTALLER_PATH_DIR_USR_BIN__:/sbin:/bin', 'LC_ALL': 'C.UTF-8'}
 NMCLI = '__INSTALLER_PATH_DIR_USR_BIN__/nmcli'
 LOCK_WAIT_TIMEOUT = 45.0
+PHASE = 'preflight'
 
 
 class ConfigurationError(ValueError):
@@ -177,7 +181,11 @@ def run(argv, *, output=False, timeout=32):
                             data.extend(chunk)
         status = process.wait(timeout=max(0.001, deadline - time.monotonic()))
         if status:
-            raise ConfigurationError('native network operation failed; activation may require operator review')
+            # Report nmcli's exit class without its potentially private output.
+            reason = ({3: 'native-command-timeout', 4: 'authentication-or-activation-failed',
+                       8: 'network-manager-unavailable', 10: 'interface-or-profile-unavailable'}.get(
+                           status, 'nmcli-failed') if argv[0] == NMCLI else 'native-command-failed')
+            raise ConfigurationError(f'{reason} native_exit={status}')
         return data.decode('utf-8') if output else ''
     finally:
         if process.poll() is None:
@@ -194,6 +202,7 @@ def run(argv, *, output=False, timeout=32):
 def saved_profile(policy, *, allow_empty=False):
     source = PROFILE if PROFILE.exists() or PROFILE.is_symlink() else PREPARED
     if not source.exists() and not source.is_symlink():
+        print('physical-network phase=saved-profile reason=missing status=not-configured', file=sys.stderr)
         return False
     text = read_owned(source)
     parser = configparser.ConfigParser(interpolation=None, strict=True, delimiters=('=',))
@@ -205,6 +214,7 @@ def saved_profile(policy, *, allow_empty=False):
         raise ConfigurationError('saved Wi-Fi profile differs from its physical adapter owner')
     if source == PREPARED:
         if not parser.get('wifi', 'ssid', fallback='') and not allow_empty:
+            print('physical-network phase=saved-profile reason=empty-ssid status=not-configured', file=sys.stderr)
             return False
         PROFILE.parent.mkdir(mode=0o700, exist_ok=True)
         publish(PROFILE, text)
@@ -280,7 +290,8 @@ def reconcile(policy, interface):
 
 
 def firstboot(policy):
-    saved_profile(policy)
+    if not saved_profile(policy):
+        print('physical-network phase=saved-profile reason=not-configured; Ethernet priority still applies', file=sys.stderr)
     for link in policy['links'].values():
         reconcile(policy, link['iface'])
     FIRSTBOOT_DONE.parent.mkdir(mode=0o700, exist_ok=True)
@@ -304,6 +315,7 @@ def configure(policy, interface, ui_args=()):
 
 
 def main():
+    global PHASE
     args = sys.argv[1:]
     boot = args == ['--firstboot']
     dispatcher = len(args) == 3 and args[0] == '--dispatcher' and args[2] in ('up', 'down', 'dhcp4-change', 'dhcp6-change')
@@ -320,25 +332,35 @@ def main():
               or re.fullmatch(r'[1-9][0-9]*', os.environ.get('PKEXEC_UID', '')) is None):
             raise ConfigurationError('use the authorized desktop Wi-Fi action')
     os.umask(0o077)
-    lock_path = Path('__INSTALLER_PATH_DIR_RUN__/lock/wifi.lock')
+    # tmpfiles owns this root-only directory for the whole boot. A oneshot
+    # RuntimeDirectory would remove it while another entrypoint holds its lock.
+    PHASE = 'lock'
+    lock_path = Path('__INSTALLER_PATH_DIR_RUN_NETWORK_WIFI__/policy.lock')
     owned_parents(lock_path)
-    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600)
     with os.fdopen(fd, 'r+') as lock:
         info = os.fstat(lock.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1 or info.st_mode & 0o077:
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) != 0o600):
             raise ConfigurationError('unsafe shared physical-network lock')
-        deadline = time.monotonic() + (LOCK_WAIT_TIMEOUT if boot else 0)
+        deadline = time.monotonic() + (LOCK_WAIT_TIMEOUT if boot or interactive else 0)
         while True:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                current = lock_path.lstat()
+                if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino) or current.st_nlink != 1:
+                    raise ConfigurationError('physical-network lock identity changed')
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
                     if dispatcher or carrier:
+                        print('physical-network phase=lock reason=busy status=deferred', file=sys.stderr)
                         return
                     raise ConfigurationError('physical-network policy is busy')
                 time.sleep(0.1)
+        PHASE = 'policy'
         policy = uplinks()
+        PHASE = 'reconcile'
         if dispatcher:
             if args[2] != 'down':
                 reconcile(policy, args[1])
@@ -355,7 +377,23 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (OSError, ValueError, KeyError, TypeError, RuntimeError, configparser.Error,
-            subprocess.TimeoutExpired, EOFError, KeyboardInterrupt, TimeoutError):
-        print('physical-network policy did not complete; review the owned policy and native NetworkManager state', file=sys.stderr)
+    except ConfigurationError as exc:
+        # ConfigurationError messages are fixed local diagnostics, never native
+        # output or credential-bearing parser text.
+        print(f'physical-network phase={PHASE} reason={str(exc)[:192]} status=failed exit=1', file=sys.stderr)
+        raise SystemExit(1)
+    except (subprocess.TimeoutExpired, TimeoutError):
+        print(f'physical-network phase={PHASE} reason=deadline-exceeded status=failed exit=1', file=sys.stderr)
+        raise SystemExit(1)
+    except OSError as exc:
+        reason = {errno.ELOOP: 'unsafe-path', errno.ENOTDIR: 'unsafe-path',
+                  errno.EISDIR: 'unsafe-path', errno.EACCES: 'access-denied',
+                  errno.EPERM: 'access-denied', errno.ENOENT: 'required-path-unavailable'}.get(
+                      exc.errno, 'io-failure')
+        print(f'physical-network phase={PHASE} reason={reason} status=failed exit=1', file=sys.stderr)
+        raise SystemExit(1)
+    except (ValueError, KeyError, TypeError, RuntimeError, configparser.Error,
+            EOFError, KeyboardInterrupt):
+        reason = 'malformed-policy' if PHASE == 'policy' else 'invalid-input'
+        print(f'physical-network phase={PHASE} reason={reason} status=failed exit=1', file=sys.stderr)
         raise SystemExit(1)

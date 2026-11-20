@@ -4,13 +4,9 @@
 runtime_class_selected() {
   runtime_class=$1
   case "$runtime_class" in ''|*[!a-z0-9/-]*|*../*|*/..|*//*|/*) return 1 ;; esac
-  if command -v installer_class_selected >/dev/null 2>&1; then
-    installer_class_selected "$runtime_class"
-    return "$?"
-  fi
-  runtime_receipt="__INSTALLER_PATH_FILE_INSTALLER_CLASSES__"
-  [ -f "$runtime_receipt" ] && [ ! -L "$runtime_receipt" ] || return 1
-  awk -F '\t' -v ref="$runtime_class" '$1=="format" {if($2!="2" || ++formats!=1) bad=1} $1=="class" && $2==ref {found=1} END {exit bad || formats!=1 || !found}' "$runtime_receipt"
+  command -v installer_class_selected >/dev/null 2>&1 ||
+    runtime_fatal 'installer class selection is unavailable before storage provisioning'
+  installer_class_selected "$runtime_class"
 }
 
 runtime_dualboot_class_selected() {

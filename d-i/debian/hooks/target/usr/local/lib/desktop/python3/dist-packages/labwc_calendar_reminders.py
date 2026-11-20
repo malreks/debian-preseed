@@ -467,7 +467,7 @@ def read_policy(path=Path('__INSTALLER_PATH_DIR_ETC__/labwc/plans.conf')):
     for line in raw.decode('utf-8').splitlines():
         if not line.strip() or line.lstrip().startswith('#'):
             continue
-        match = re.fullmatch(r"(LABWC_PLANS_[A-Z_]+)='([^'\r\n]*)'", line)
+        match = re.fullmatch(r"(LABWC_PLANS_[A-Z_]+)='([^'\x00-\x1f\x7f]*)'", line)
         require(match is not None and match[1] not in result, 'reminder-policy')
         result[match[1]] = match[2]
     return result

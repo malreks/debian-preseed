@@ -1,0 +1,167 @@
+{
+  "format": 1,
+  "scope": "isolated native extracted-package fixture; no physical desktop performance or enforcing-policy claim",
+  "image": "native-run-35.gz",
+  "image_sha256": "d781a99ec672b67b1c50cb73fc33962fa39c12898a8798b2129c4e67cb02ffbc",
+  "kernel": "6.12.107+deb13-amd64",
+  "auditd_package": "1:4.1.2-1+b2",
+  "audit_policy": "actual rendered ENRICHED production template; private log path, group and retention fixtures",
+  "execution_auditing_enabled": true,
+  "audit_records_lost": 0,
+  "audit_cleanup_exit": 0,
+  "samples_per_unchanged_case": 3,
+  "elapsed_excludes": "systemd deliberate delay and post-cycle fixture collection sleep",
+  "memory_limit": "per-child process-tree high-water includes fixture launcher and timeout; no claim of reduced application memory",
+  "wakeups_limit": "voluntary/involuntary context switches are scheduling measurements; timer wakeups require a session benchmark",
+  "before_sha256": "3ea2c065d44d91845f46952774dbfcad28b375574cdd146723c0909fb035c44a",
+  "after_sha256": "5eb49092ae83c24cadc0f657a0e8d7b8c761b6dd19bbf760377f7208f3aa5774",
+  "results": {
+    "before": {
+      "unchanged_cycles": [
+        {
+          "elapsed_seconds": 2.4405237679999985,
+          "cpu_seconds": 1.9401479999999998,
+          "voluntary_wakeups": 579,
+          "involuntary_wakeups": 1570,
+          "peak_rss_kib_wait4": 22172,
+          "output_blocks": 0,
+          "audit_bytes": 253425,
+          "audit_exec_records": 141
+        },
+        {
+          "elapsed_seconds": 2.1482186579999976,
+          "cpu_seconds": 1.701887,
+          "voluntary_wakeups": 571,
+          "involuntary_wakeups": 1482,
+          "peak_rss_kib_wait4": 22172,
+          "output_blocks": 0,
+          "audit_bytes": 253425,
+          "audit_exec_records": 141
+        },
+        {
+          "elapsed_seconds": 2.0945203000000063,
+          "cpu_seconds": 1.6655179999999998,
+          "voluntary_wakeups": 572,
+          "involuntary_wakeups": 1447,
+          "peak_rss_kib_wait4": 22172,
+          "output_blocks": 0,
+          "audit_bytes": 253425,
+          "audit_exec_records": 141
+        }
+      ],
+      "median": {
+        "elapsed_seconds": 2.1482186579999976,
+        "cpu_seconds": 1.701887,
+        "voluntary_wakeups": 572,
+        "involuntary_wakeups": 1482,
+        "peak_rss_kib_wait4": 22172,
+        "output_blocks": 0,
+        "audit_bytes": 253425,
+        "audit_exec_records": 141
+      },
+      "syscalls": "% time     seconds  usecs/call     calls    errors syscall\n------ ----------- ----------- --------- --------- ----------------\n 79.81    6.667648       17780       375       176 wait4\n  5.36    0.447518         117      3796           mmap\n  3.92    0.327413         113      2886       426 openat\n  2.07    0.173036        1235       140           execve\n  1.78    0.148341          44      3357        15 close\n  1.54    0.128757          52      2443           fstat\n  0.92    0.076964         506       152           clone\n  0.82    0.068320         102       665           mprotect\n  0.68    0.056843          72       779           read\n  0.34    0.028722          33       865           rt_sigaction\n  0.31    0.025796          60       424           brk\n  0.25    0.020648          94       218       218 access\n  0.24    0.019866          83       237        25 newfstatat\n  0.23    0.018890         120       157       156 statfs\n  0.23    0.018860          29       637           rt_sigprocmask\n  0.16    0.013750          49       280           pread64\n  0.13    0.011102          93       119           pipe2\n  0.13    0.010579         246        43           vfork\n  0.11    0.009184          47       195         5 rt_sigreturn\n  0.10    0.008120          50       162       162 ioctl\n  0.09    0.007922          88        90           write\n  0.09    0.007129          48       146           getrandom\n  0.08    0.006315          21       292           set_robust_list\n  0.07    0.005869          42       137           futex\n  0.07    0.005741          41       140           arch_prctl\n  0.07    0.005582          39       140           prlimit64\n  0.06    0.005394          38       140           rseq\n  0.06    0.005273          37       140           set_tid_address\n  0.05    0.003808          20       183           dup2\n  0.04    0.003242          46        70           fchdir\n  0.03    0.002758          38        71           uname\n  0.02    0.001815          24        73         1 fcntl\n  0.02    0.001625         270         6           renameat\n  0.02    0.001607          89        18           splice\n  0.01    0.001230         111        11           fchmodat\n  0.01    0.001179         147         8           munmap\n  0.01    0.000830         138         6         6 renameat2\n  0.01    0.000804          50        16           getdents64\n  0.01    0.000732          43        17        11 fadvise64\n  0.01    0.000707         117         6         6 unlinkat\n  0.01    0.000658          38        17           umask\n  0.00    0.000397          99         4         4 rt_sigsuspend\n  0.00    0.000388          38        10           geteuid\n  0.00    0.000361          90         4         1 faccessat2\n  0.00    0.000355          50         7           getpid\n  0.00    0.000354         177         2         2 connect\n  0.00    0.000263          65         4           timer_create\n  0.00    0.000257          64         4           timer_settime\n  0.00    0.000251         125         2           socket\n  0.00    0.000232          38         6         1 lseek\n  0.00    0.000216          54         4           setpgid\n  0.00    0.000172          86         2         2 readlink\n  0.00    0.000120          17         7           getppid\n  0.00    0.000115          57         2           setgid\n  0.00    0.000114          38         3           getuid\n  0.00    0.000111          37         3           getgid\n  0.00    0.000107          53         2           setuid\n  0.00    0.000083          41         2           sigaltstack\n  0.00    0.000081          40         2           dup\n  0.00    0.000065          65         1           flock\n  0.00    0.000062          62         1           getcwd\n  0.00    0.000037          37         1           getegid\n  0.00    0.000000           0         4           prctl\n------ ----------- ----------- --------- --------- ----------------\n100.00    8.354718         423     19734      1217 total\n",
+      "event_cycle": {
+        "elapsed_seconds": 2.8369388410000056,
+        "cpu_seconds": 2.289606,
+        "voluntary_wakeups": 786,
+        "involuntary_wakeups": 1923,
+        "peak_rss_kib_wait4": 22172,
+        "output_blocks": 0,
+        "audit_bytes": 342559,
+        "audit_exec_records": 193
+      },
+      "negative_cases": [
+        {
+          "failure": "hardlink",
+          "exit": 0
+        },
+        {
+          "failure": "oversize",
+          "exit": 0
+        },
+        {
+          "failure": "symlink",
+          "exit": 0
+        },
+        {
+          "failure": "writable-ancestor",
+          "exit": 1
+        }
+      ]
+    },
+    "after": {
+      "unchanged_cycles": [
+        {
+          "elapsed_seconds": 1.2649609599999962,
+          "cpu_seconds": 1.013624,
+          "voluntary_wakeups": 373,
+          "involuntary_wakeups": 888,
+          "peak_rss_kib_wait4": 22172,
+          "output_blocks": 0,
+          "audit_bytes": 150370,
+          "audit_exec_records": 81
+        },
+        {
+          "elapsed_seconds": 1.2206178889999961,
+          "cpu_seconds": 0.999343,
+          "voluntary_wakeups": 377,
+          "involuntary_wakeups": 707,
+          "peak_rss_kib_wait4": 22172,
+          "output_blocks": 0,
+          "audit_bytes": 150370,
+          "audit_exec_records": 81
+        },
+        {
+          "elapsed_seconds": 1.252403110000003,
+          "cpu_seconds": 1.0084089999999999,
+          "voluntary_wakeups": 376,
+          "involuntary_wakeups": 867,
+          "peak_rss_kib_wait4": 22172,
+          "output_blocks": 0,
+          "audit_bytes": 150370,
+          "audit_exec_records": 81
+        }
+      ],
+      "median": {
+        "elapsed_seconds": 1.252403110000003,
+        "cpu_seconds": 1.0084089999999999,
+        "voluntary_wakeups": 376,
+        "involuntary_wakeups": 867,
+        "peak_rss_kib_wait4": 22172,
+        "output_blocks": 0,
+        "audit_bytes": 150370,
+        "audit_exec_records": 81
+      },
+      "syscalls": "% time     seconds  usecs/call     calls    errors syscall\n------ ----------- ----------- --------- --------- ----------------\n 77.93    3.466230       14749       235       109 wait4\n  5.65    0.251345         116      2151           mmap\n  3.99    0.177545         109      1627       234 openat\n  2.45    0.108907        1361        80           execve\n  1.86    0.082754          42      1968         9 close\n  1.54    0.068429          49      1383           fstat\n  1.18    0.052295         507       103           clone\n  0.90    0.039920          77       515           read\n  0.85    0.037584          97       386           mprotect\n  0.58    0.025973          32       811           rt_sigaction\n  0.32    0.014109          57       244           brk\n  0.31    0.013633          82       165        19 newfstatat\n  0.30    0.013137         138        95        94 statfs\n  0.28    0.012497          98       127       127 access\n  0.26    0.011441          28       406           rt_sigprocmask\n  0.18    0.008033          50       160           pread64\n  0.17    0.007579          99        76           pipe2\n  0.14    0.006106          84        72           write\n  0.11    0.005069          41       122         6 rt_sigreturn\n  0.11    0.005063          50       100       100 ioctl\n  0.09    0.003879          48        80           getrandom\n  0.08    0.003501          19       183           set_robust_list\n  0.08    0.003377         177        19           vfork\n  0.07    0.003140          39        80           rseq\n  0.07    0.003100          38        80           set_tid_address\n  0.07    0.003065          38        80           prlimit64\n  0.07    0.002999          37        80           arch_prctl\n  0.07    0.002965          38        77           futex\n  0.05    0.002338          18       128           dup2\n  0.05    0.002016          44        45           fchdir\n  0.04    0.001928          41        46           uname\n  0.03    0.001392         174         8           munmap\n  0.03    0.001198          21        55         1 fcntl\n  0.02    0.000832          52        16           getdents64\n  0.01    0.000418          38        11         5 fadvise64\n  0.01    0.000400         100         4         1 faccessat2\n  0.01    0.000356          89         4         4 rt_sigsuspend\n  0.01    0.000317          52         6           umask\n  0.01    0.000308         154         2         2 connect\n  0.01    0.000283          40         7           getpid\n  0.01    0.000274          68         4           timer_settime\n  0.01    0.000263          65         4           timer_create\n  0.00    0.000217          72         3           getgid\n  0.00    0.000201         100         2           socket\n  0.00    0.000196          32         6         1 lseek\n  0.00    0.000172          43         4           setpgid\n  0.00    0.000137          68         2         2 readlink\n  0.00    0.000129          18         7           getppid\n  0.00    0.000116          29         4           geteuid\n  0.00    0.000114          57         2           setgid\n  0.00    0.000108          54         2           setuid\n  0.00    0.000078          39         2           sigaltstack\n  0.00    0.000046          23         2           dup\n  0.00    0.000045          11         4           prctl\n  0.00    0.000038          12         3           getuid\n  0.00    0.000037          37         1           flock\n  0.00    0.000036          36         1           getegid\n  0.00    0.000000           0         1           getcwd\n------ ----------- ----------- --------- --------- ----------------\n100.00    4.447668         374     11891       714 total\n",
+      "event_cycle": {
+        "elapsed_seconds": 1.9964561889999999,
+        "cpu_seconds": 1.616736,
+        "voluntary_wakeups": 581,
+        "involuntary_wakeups": 1368,
+        "peak_rss_kib_wait4": 22172,
+        "output_blocks": 0,
+        "audit_bytes": 239199,
+        "audit_exec_records": 133
+      },
+      "negative_cases": [
+        {
+          "failure": "hardlink",
+          "exit": 1
+        },
+        {
+          "failure": "oversize",
+          "exit": 1
+        },
+        {
+          "failure": "symlink",
+          "exit": 1
+        },
+        {
+          "failure": "writable-ancestor",
+          "exit": 1
+        }
+      ]
+    }
+  },
+  "measurement_overhead": "Absolute timings include TCG emulation and fixed private command stubs. Fork/write/audit comparisons are bounded fixture results; they are not physical desktop speed or timer-wakeup claims."
+}

@@ -917,6 +917,7 @@ def compile_classes(sources: dict[str, bytes]) -> tuple[dict[str, bytes], dict[s
                 packages.extend(record['packages'])
             packages = list(dict.fromkeys(packages))
             stages = ordered_class_stages(records)
+            stage_ids = {stage['id'] for stage in stages}
             answers = compose_class_answers([(record['path'], record['text']) for record in records])
             profile_policy = {
                 'ssh_enable': profile_values['SSH_SERVER_ENABLE'],
@@ -930,8 +931,11 @@ def compile_classes(sources: dict[str, bytes]) -> tuple[dict[str, bytes], dict[s
                 'timeshift_enable': profile_values['TIMESHIFT_ENABLE'],
                 'codex_only_enable': codex_only,
                 'codex_enable': 'true' if codex_enabled else 'false',
-                'whisper_enable': whisper_enable,
-                'llama_enable': llama_enable,
+                'requested_whisper_enable': whisper_enable,
+                'requested_llama_enable': llama_enable,
+                'whisper_enable': 'true' if stage_ids & {'desktop.whisper', 'server.whisper'} else 'false',
+                'llama_enable': 'true' if ('server.llama' in stage_ids or
+                    family == 'desktop' and 'desktop.devops' in stage_ids) else 'false',
             }
             plan = {'format': 2, 'suite': suite, 'roles': roles, 'family': family,
                     'architecture': 'amd64', 'classes': selected_refs, 'profile': family + '/' + profile_id,

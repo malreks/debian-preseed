@@ -32,9 +32,6 @@ ALIASES = {
     "labwc-terminal": "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal",
     "pavucontrol": "__INSTALLER_PATH_DIR_USR__/bin/pavucontrol",
 }
-MENU_BUTTONS = frozenset({
-    "notifications", "power", "tomat", "wayscriber",
-})
 BLOCKED_ENVIRONMENT = (
     "LD_PRELOAD", "LD_AUDIT", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONHOME",
     "GI_TYPELIB_PATH", "GIO_MODULE_DIR", "GTK_MODULES", "DISPLAY", "XAUTHORITY",
@@ -42,11 +39,6 @@ BLOCKED_ENVIRONMENT = (
 
 
 def normalize_command(arguments: list[str]) -> tuple[tuple[str, ...], str | None]:
-    if len(arguments) == 1 and arguments[0].startswith("--menu="):
-        button = arguments[0].removeprefix("--menu=")
-        if button not in MENU_BUTTONS:
-            raise ValueError("invalid Waybar popup button")
-        return ("__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu", button), None
     if "--" not in arguments:
         raise ValueError("usage: labwc-waybar-run [--output-class=CLASS] -- COMMAND [ARGUMENT ...]")
     separator = arguments.index("--")
@@ -78,8 +70,6 @@ def normalize_command(arguments: list[str]) -> tuple[tuple[str, ...], str | None
 
 def allowed(command: tuple[str, ...]) -> bool:
     executable, *arguments = command
-    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu":
-        return len(arguments) == 1 and arguments[0] in MENU_BUTTONS
     if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-menu-action":
         # The dispatcher has its own exact action table.  The wrapper accepts
         # only its identifier-shaped argument and never forwards extra words.
@@ -193,13 +183,10 @@ def systemd_command(command: tuple[str, ...], output_class: str | None) -> list[
     family = Path(command[0]).name.removeprefix('labwc-')
     if command[0] == '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-menu-action':
         action = command[1]
-    elif command[0] == '__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu':
-        action = 'menu-' + command[1]
     else:
         action = family
     label = re.sub(r'[^a-z0-9-]', '-', action.lower())[:64]
     invocation_id = uuid.uuid4().hex
-    popup_owner = command[0] == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu"
     state_button = None
     if command[:4] == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal", "-e", "btop", "--config"):
         state_button = "cpu" if command[-1].endswith("btop-cpu.conf") else "memory"
@@ -207,17 +194,10 @@ def systemd_command(command: tuple[str, ...], output_class: str | None) -> list[
         state_button = "storage"
     elif command == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-window-switcher",):
         state_button = "taskview"
-    elif command == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayscriber-toggle",):
-        state_button = "wayscriber"
-    elif command[0] == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu":
-        state_button = command[1]
     nested_state = state_button in {"cpu", "memory", "storage"}
     options = [
         SYSTEMD_RUN, "--user", "--quiet", "--collect",
-        # Popup owners are singleton services. A fixed unit identity makes a
-        # second click fail closed while the first GTK menu still owns the
-        # marker; ordinary actions retain unique units for concurrency.
-        "--unit=labwc-waybar-" + label + (".service" if popup_owner else "-" + invocation_id + ".service"),
+        "--unit=labwc-waybar-" + label + "-" + invocation_id + ".service",
         "--description=Waybar action: " + label,
         "--service-type=exec", "--expand-environment=no", "--slice=app.slice",
         "--property=Requisite=labwc-session.target",
@@ -250,11 +230,6 @@ def systemd_command(command: tuple[str, ...], output_class: str | None) -> list[
     elif command == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-system-action", "storage-overview"):
         options.append("--setenv=LABWC_TERMINAL_TITLE=Labwc-Storage-" + invocation_id[:8])
     executable = command[0]
-    if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu":
-        options[options.index("--property=TimeoutStartSec=10s")] = "--property=TimeoutStartSec=5s"
-        options[options.index("--property=TimeoutStopSec=20s")] = "--property=TimeoutStopSec=3s"
-        options.extend(("--property=RuntimeMaxSec=15s", "--property=StandardInput=null",
-                        "--property=StandardOutput=null", "--property=StandardError=journal"))
     if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu":
         options.append("--property=SuccessExitStatus=3")
         options.append("--setenv=LABWC_FUZZEL_OUTPUT_CLASS=" + str(output_class))

@@ -25,8 +25,10 @@ from theme_fixture import render_theme_defaults, render_theme_bytes
 
 from contextlib import ExitStack, redirect_stdout, redirect_stderr
 import io
+import fcntl
 import json
 import os
+import pty
 from pathlib import Path
 import re
 import shlex
@@ -1362,6 +1364,135 @@ target_managed_network_link_types
             self.assertIn('.config/wayscriber/config.toml', render_theme_defaults(payload_read_text(FORKY / path)))
 
 
+class PhysicalNetworkLockTests(unittest.TestCase):
+    """Real flock/FD behavior, with policy dispatch confined to fixture files."""
+
+    def setUp(self):
+        from fixture_render import render_scalar_fixture
+        self.temporary = tempfile.TemporaryDirectory(prefix='network-lock-', dir='/workspace')
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.directory = self.root / 'runtime'
+        self.directory.mkdir(mode=0o700)
+        self.lock = self.directory / 'policy.lock'
+        self.lock.touch(mode=0o600)
+        self.trace = self.root / 'dispatch'
+        self.helper = self.root / 'helper.py'
+        source = FORKY / 'hooks/target/usr/local/libexec/common/network-wifi-configure'
+        self.helper.write_bytes(render_scalar_fixture(source, self.root,
+            {'PATH_DIR_RUN_NETWORK_WIFI': str(self.directory)}))
+        self.driver = self.root / 'driver.py'
+        self.driver.write_text('''import fcntl,os,pathlib,sys,time,types
+sys.path.insert(0,'/workspace/repository/tools')
+from isolation import require_test_isolation
+require_test_isolation()
+os.environ['PKEXEC_UID']='1000'
+trace=pathlib.Path(sys.argv[2])
+lockfile=pathlib.Path(sys.argv[1]).parent/'runtime/policy.lock'
+m=types.ModuleType('network_lock_fixture')
+exec(compile(pathlib.Path(sys.argv[1]).read_bytes(),sys.argv[1],'exec'),vars(m))
+m.LOCK_WAIT_TIMEOUT=0.4 if sys.argv[3]=='timeout' else 4
+m.uplinks=lambda: {'links':{'wifi':{'iface':'wifi0'}}}
+def dispatch(*args,**kwargs):
+ found=False
+ for name in os.listdir('/proc/self/fd'):
+  try:info=os.fstat(int(name))
+  except OSError:continue
+  if info.st_ino==lockfile.stat().st_ino and info.st_dev==lockfile.stat().st_dev:
+   assert fcntl.fcntl(int(name),fcntl.F_GETFD)&fcntl.FD_CLOEXEC;found=True
+ assert found
+ with trace.open('a',encoding='ascii') as stream:stream.write('dispatch\\n')
+m.firstboot=m.configure=m.reconcile=dispatch
+entry=sys.argv[3]
+sys.argv=[sys.argv[1],*({'boot':['--firstboot'],'manual':['wifi0'],
+ 'dispatcher':['--dispatcher','wifi0','up'],'timeout':['--firstboot']}[entry])]
+try:m.main()
+except (OSError,ValueError):raise SystemExit(1)
+''', encoding='utf-8')
+        self.children = []
+        self.addCleanup(self.stop_children)
+
+    def stop_children(self):
+        for child, master in self.children:
+            if child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait(timeout=2)
+            if master is not None:
+                os.close(master)
+
+    def start(self, entry):
+        master, slave = pty.openpty() if entry == 'manual' else (None, None)
+        child = subprocess.Popen([sys.executable, '-I', '-S', '-B', str(self.driver),
+                                  str(self.helper), str(self.trace), entry],
+                                 stdin=slave if slave is not None else subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 env={'PATH':'/usr/bin:/bin','HOME':str(self.root),'PKEXEC_UID':'1000',
+                                      'TMPDIR':str(self.root),'TMP':str(self.root),'TEMP':str(self.root)})
+        if slave is not None:
+            os.close(slave)
+        self.children.append((child, master))
+        return child
+
+    def opened_held_inode(self, child, owner):
+        held = os.fstat(owner.fileno())
+        deadline = time.monotonic() + 4
+        while child.poll() is None and time.monotonic() < deadline:
+            try:
+                for fd in Path(f'/proc/{child.pid}/fd').iterdir():
+                    try:
+                        current = fd.stat()
+                    except FileNotFoundError:
+                        continue
+                    if (current.st_dev,current.st_ino) == (held.st_dev,held.st_ino):
+                        return
+            except FileNotFoundError:
+                pass
+            time.sleep(0.01)
+        self.fail('child never opened the actual held lock inode')
+
+    def test_simultaneous_boot_manual_and_dispatcher_share_one_inode(self):
+        identity = self.lock.stat().st_ino
+        with self.lock.open('r+') as owner:
+            fcntl.flock(owner, fcntl.LOCK_EX)
+            boot, manual = self.start('boot'), self.start('manual')
+            self.opened_held_inode(boot, owner)
+            self.opened_held_inode(manual, owner)
+            self.assertFalse(self.trace.exists())
+            dispatcher = self.start('dispatcher')
+            _, error = dispatcher.communicate(timeout=4)
+            self.assertEqual(dispatcher.returncode, 0, error)
+            self.assertIn(b'status=deferred', error)
+            self.assertFalse(self.trace.exists())
+            fcntl.flock(owner, fcntl.LOCK_UN)
+            for child in (boot, manual):
+                _, error = child.communicate(timeout=5)
+                self.assertEqual(child.returncode, 0, error)
+        self.assertEqual(self.trace.read_text().splitlines(), ['dispatch','dispatch'])
+        self.assertEqual(self.lock.stat().st_ino, identity)
+
+    def test_replacement_and_deadline_fail_before_dispatch(self):
+        with self.lock.open('r+') as owner:
+            fcntl.flock(owner, fcntl.LOCK_EX)
+            child = self.start('boot')
+            self.opened_held_inode(child, owner)
+            self.lock.rename(self.directory / 'held-old.lock')
+            self.lock.touch(mode=0o600)
+            fcntl.flock(owner, fcntl.LOCK_UN)
+            child.communicate(timeout=5)
+            self.assertEqual(child.returncode, 1)
+        self.assertFalse(self.trace.exists())
+        with self.lock.open('r+') as owner:
+            fcntl.flock(owner, fcntl.LOCK_EX)
+            child = self.start('timeout')
+            child.communicate(timeout=3)
+            self.assertEqual(child.returncode, 1)
+        self.assertFalse(self.trace.exists())
+
+
 class WiFiAuthenticationTests(unittest.TestCase):
     def setUp(self):
         path = TARGET / 'usr/local/libexec/network-wifi-configure'
@@ -1369,63 +1500,82 @@ class WiFiAuthenticationTests(unittest.TestCase):
         self.module.__file__ = str(path)
         exec(compile(payload_read_bytes(path), str(path), 'exec'), self.module.__dict__)
 
+    def test_native_exit_classes_are_bounded_and_do_not_report_private_output(self):
+        expected = {3: 'native-command-timeout', 4: 'authentication-or-activation-failed',
+                    8: 'network-manager-unavailable', 10: 'interface-or-profile-unavailable'}
+        for status, reason in expected.items():
+            with self.subTest(status=status), mock.patch.object(self.module, 'NMCLI', sys.executable), \
+                    self.assertRaises(self.module.ConfigurationError) as failure:
+                self.module.run([sys.executable, '-I', '-S', '-B', '-c',
+                                 'import sys; print("fixture-private-output"); '
+                                 'sys.stderr.write("fixture-private-error"); sys.exit(int(sys.argv[1]))',
+                                 str(status)], output=True, timeout=3)
+            self.assertEqual(str(failure.exception), f'{reason} native_exit={status}')
+
+    def test_native_output_bound_and_deadline_are_enforced(self):
+        with self.assertRaisesRegex(self.module.ConfigurationError, 'reply exceeds its bound'):
+            self.module.run([sys.executable, '-I', '-S', '-B', '-c', 'print("x" * 20000)'],
+                            output=True, timeout=3)
+        with self.assertRaises((TimeoutError, subprocess.TimeoutExpired)):
+            self.module.run([sys.executable, '-I', '-S', '-B', '-c',
+                             'import time; time.sleep(10)'], output=True, timeout=0.1)
+
+    def policy(self):
+        return {'format': 1, 'family': 'desktop', 'mode': 'static', 'primary_iface': 'eth0',
+                'wifi_preconfigured': False, 'ipv6_enabled': True, 'dns_mode': 'link',
+                'links': {'ethernet': {'iface': 'eth0', 'mac': '02:00:00:00:00:01', 'metric': 100},
+                          'wifi': {'iface': 'wifi0', 'mac': '02:00:00:00:00:02', 'metric': 600}},
+                'addresses4': {'ethernet': '192.168.50.56/24', 'wifi': '192.168.50.57/24'},
+                'addresses6': {'ethernet': '2001:db8::56/64', 'wifi': '2001:db8::57/64'},
+                'gateway4': '192.168.50.1', 'dns4': ['192.168.50.1'],
+                'gateway6': '2001:db8::1', 'dns6': ['2001:db8::1']}
+
     def test_connection_rejects_ipv6_policy_drift_before_prompt_or_commands(self):
         for ethernet, wifi in (('2001:db8::56/64', '2001:db8::58/64'),
                                 ('2001:db8::56/64', '2001:db8::57/63'),
                                 ('2001:db8::7f/121', '2001:db8::80/121')):
-            policy = {'MANAGED_NETWORK_MODE': 'static', 'MANAGED_NETWORK_LINK_TYPES': 'ethernet wifi',
-                      'MANAGED_NETWORK_WIFI_IFACE': 'wifi0',
-                      'MANAGED_NETWORK_ETHERNET_IPV4_CIDR': '192.168.50.56/24',
-                      'MANAGED_NETWORK_WIFI_IPV4_CIDR': '192.168.50.57/24',
-                      'MANAGED_NETWORK_IPV6_ENABLED': 'true',
-                      'MANAGED_NETWORK_ETHERNET_IPV6_CIDR': ethernet,
-                      'MANAGED_NETWORK_WIFI_IPV6_CIDR': wifi}
-            content = ''.join(key + "='" + value + "'\n" for key, value in policy.items())
+            policy = self.policy()
+            policy['addresses6'] = {'ethernet': ethernet, 'wifi': wifi}
+            content = json.dumps(policy)
             with self.subTest(ethernet=ethernet, wifi=wifi), \
                     mock.patch.object(self.module, 'read_owned', return_value=content) as read, \
                     mock.patch.object(self.module, 'run') as commands, \
                     mock.patch('builtins.input') as prompt, \
-                    self.assertRaisesRegex(self.module.ConfigurationError, 'Ethernet IPv6 \\+1'):
-                self.module.configure('wifi0')
-            read.assert_called_once_with(self.module.POLICY)
+                    self.assertRaisesRegex(self.module.ConfigurationError, 'Ethernet address plus one'):
+                self.module.uplinks()
+            read.assert_called_once_with(self.module.POLICY, (0o644,))
             commands.assert_not_called()
             prompt.assert_not_called()
 
 
 
-    def test_firstboot_saves_known_ssid_without_scanning_or_resetting_radio(self):
-        for ssid in ('', 'Fixture Wi-Fi'):
-            policy = {'MANAGED_NETWORK_LINK_TYPES': 'ethernet wifi',
-                      'MANAGED_NETWORK_WIFI_IFACE': 'wifi0', 'MANAGED_NETWORK_WIFI_ESSID': ssid}
-            content = ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in policy.items())
-            with self.subTest(configured=bool(ssid)), \
-                    mock.patch.object(self.module, 'read_owned', return_value=content), \
-                    mock.patch.object(self.module, 'wifi_policy', return_value=policy), \
-                    mock.patch.object(self.module, 'validate_profile'), \
-                    mock.patch.object(self.module, 'publish_profile') as profiles, \
+    def test_firstboot_applies_priority_independently_of_a_saved_wifi_profile(self):
+        for prepared in (False, True):
+            policy = self.policy()
+            with self.subTest(prepared=prepared), \
+                    mock.patch.object(self.module, 'saved_profile', return_value=prepared) as profile, \
+                    mock.patch.object(self.module, 'reconcile') as reconcile, \
                     mock.patch.object(self.module, 'publish') as state, \
                     mock.patch.object(self.module, 'run') as commands, \
-                    mock.patch.object(self.module.Path, 'exists', return_value=False), \
-                    mock.patch.object(self.module.Path, 'is_symlink', return_value=False), \
                     mock.patch.object(self.module.Path, 'mkdir'):
-                self.module.firstboot()
-            self.assertEqual(profiles.call_count, int(bool(ssid)))
+                self.module.firstboot(policy)
+            profile.assert_called_once_with(policy)
+            self.assertEqual(reconcile.call_args_list, [mock.call(policy, 'eth0'), mock.call(policy, 'wifi0')])
             commands.assert_not_called()
-            self.assertIn('prepared-persistent' if ssid else 'skipped-missing', state.call_args.args[1])
+            self.assertIn('profile-priority-applied', state.call_args.args[1])
 
     def test_firstboot_never_overwrites_an_existing_desktop_connection(self):
-        policy = {'MANAGED_NETWORK_LINK_TYPES': 'wifi', 'MANAGED_NETWORK_WIFI_IFACE': 'wifi0'}
-        with mock.patch.object(self.module, 'parse_policy', return_value=policy), \
-                mock.patch.object(self.module, 'read_owned'), \
-                mock.patch.object(self.module, 'wifi_policy', return_value=policy), \
-                mock.patch.object(self.module, 'validate_profile'), \
-                mock.patch.object(self.module, 'publish_profile') as profiles, \
-                mock.patch.object(self.module, 'publish') as state, \
-                mock.patch.object(self.module.Path, 'exists', return_value=True), \
-                mock.patch.object(self.module.Path, 'mkdir'):
-            self.module.firstboot()
-        profiles.assert_not_called()
-        self.assertIn('preserved-existing', state.call_args.args[1])
+        policy = self.policy()
+        text = ('[connection]\nuuid=' + self.module.PROFILE_UUID + '\ntype=wifi\n'
+                'interface-name=wifi0\n[wifi]\nssid=Fixture Wi-Fi\n')
+        with mock.patch.object(self.module, 'read_owned', return_value=text), \
+                mock.patch.object(self.module, 'publish') as publish, \
+                mock.patch.object(self.module, 'run') as commands, \
+                mock.patch.object(self.module.Path, 'exists', lambda path: path == self.module.PROFILE), \
+                mock.patch.object(self.module.Path, 'is_symlink', return_value=False):
+            self.assertTrue(self.module.saved_profile(policy))
+        publish.assert_not_called()
+        commands.assert_not_called()
 
     def test_profile_overrides_win_and_empty_values_use_private_input(self):
         text = payload_read_text(FORKY / 'scripts/late/network.sh')
@@ -1462,13 +1612,12 @@ installer_cmdline_password_value() { installer_cmdline_value "$1"; }
 
 
     def test_configuration_validates_policy_before_prompting_or_running_commands(self):
-        values = "MANAGED_NETWORK_MODE='static'\nMANAGED_NETWORK_LINK_TYPES='ethernet wifi'\n"
-        values += "MANAGED_NETWORK_WIFI_IFACE='wifi0'\nMANAGED_NETWORK_WIFI_IPV4_CIDR='192.168.50.162/24'\n"
-        values += "MANAGED_NETWORK_ETHERNET_IPV4_CIDR='192.168.50.88/24'\n"
-        with mock.patch.object(self.module, 'read_owned', return_value=values), \
+        policy = self.policy()
+        policy['addresses4']['wifi'] = '192.168.50.162/24'
+        with mock.patch.object(self.module, 'read_owned', return_value=json.dumps(policy)), \
              mock.patch.object(self.module, 'run') as run, mock.patch('builtins.input') as prompt:
-            with self.assertRaisesRegex(ValueError, 'Ethernet IPv4'):
-                self.module.configure('wifi0')
+            with self.assertRaisesRegex(ValueError, 'Ethernet address plus one'):
+                self.module.uplinks()
             run.assert_not_called()
             prompt.assert_not_called()
 

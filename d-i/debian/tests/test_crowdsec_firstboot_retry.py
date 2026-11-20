@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from fixture_render import render_scalar_fixture
 
 
 FORKY = Path(__file__).resolve().parents[1]
@@ -27,9 +28,26 @@ SECONDBOOT_UNIT = (FORKY / "scripts/firstboot/assets/etc/systemd/system/secondbo
 LATE = (FORKY / "scripts/late/crowdsec.sh").read_text(encoding="utf-8")
 OVERLAY = (FORKY / "hooks/target/etc/crowdsec/common/config.yaml.local.tmpl").read_text(encoding="utf-8")
 SHELLS = (("dash", ["/bin/dash"]),)
+FIXTURE_RELEASE = 'a' * 64
+FIXTURE_BOOT_ID = '11111111-1111-1111-1111-111111111111'
 BUSYBOX = shutil.which("busybox")
 if BUSYBOX:
     SHELLS += (("busybox", [BUSYBOX, "sh"]),)
+
+
+def cleanup_fixture(directory, target):
+    helper = Path(directory) / 'secondboot-cleanup'
+    helper.write_bytes(render_scalar_fixture(
+        FORKY / 'scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup',
+        Path(directory), {'FIRSTBOOT_RELEASE_ID': FIXTURE_RELEASE}))
+    boot = target / 'proc/sys/kernel/random/boot_id'
+    boot.parent.mkdir(parents=True, exist_ok=True)
+    boot.write_text(FIXTURE_BOOT_ID + '\n')
+    return helper
+
+
+def completed_boot():
+    return 'status=0\nboot_id=' + FIXTURE_BOOT_ID + '\nrelease=' + FIXTURE_RELEASE + '\n'
 
 
 def source_function(name: str, source: str = SOURCE) -> str:
@@ -38,7 +56,7 @@ def source_function(name: str, source: str = SOURCE) -> str:
 
 
 class CrowdSecFirstbootRetryTests(unittest.TestCase):
-    def test_detection_policy_excludes_ssh_on_disabled_profiles_and_propagates_each_failure(self):
+    def test_rendered_detection_policy_options_propagate_each_failure(self):
         code = source_function('install_detection_policy') + r'''
 run_required_crowdsec_command() {
   printf '%s\n' "$*" >>"$CASE_CALLS"
@@ -48,14 +66,14 @@ install_detection_policy
 '''
         steps = ['collections-align', 'parsers-install', 'scenarios-install',
                  'collections-install', 'ssh-collection-install']
-        for enabled in ('true', 'false'):
-            expected = steps if enabled == 'true' else steps[:-1]
+        for enabled, desktop in (('true', 'true'), ('true', 'false'), ('false', 'true'), ('false', 'false')):
+            expected = steps[:4] + (['qbittorrent-collection-install'] if desktop == 'true' else []) + (steps[4:] if enabled == 'true' else [])
             for failure in ('none', *expected):
                 with self.subTest(enabled=enabled, failure=failure), tempfile.TemporaryDirectory() as directory:
                     calls = Path(directory) / 'calls'
                     result = subprocess.run(['/bin/sh', '-eu', '-c', code],
                         env={'PATH': '/usr/bin:/bin', 'HOME': directory, 'LC_ALL': 'C',
-                             'CROWDSEC_SSH_SERVER_ENABLE': enabled, 'CASE_FAIL': failure,
+                             'CROWDSEC_SSH_SERVER_ENABLE': enabled, 'CROWDSEC_DESKTOP_TOOLS': desktop, 'CASE_FAIL': failure,
                              'CASE_CALLS': str(calls)}, capture_output=True, text=True, timeout=5)
                     commands = calls.read_text().splitlines()
                     count = len(expected) if failure == 'none' else expected.index(failure) + 1
@@ -66,6 +84,8 @@ install_detection_policy
                     self.assertNotIn('crowdsecurity/linux-lpe', installed)
                     if enabled == 'false':
                         self.assertNotIn('crowdsecurity/sshd', installed)
+                    self.assertEqual('gilbsgilbs/qbittorrent' in installed,
+                                     desktop == 'true' and 'qbittorrent-collection-install' in expected[:count])
 
     def test_busy_cleanup_schedules_retry_and_never_reaches_removal(self):
         cleanup = (FORKY / 'scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup').read_text()
@@ -117,10 +137,10 @@ bootstrap_processes_exited
                     self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_cleanup_request_is_private_atomic_and_consumed_without_retiring_pending_work(self):
-        helper = FORKY / 'scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup'
         for label, shell in SHELLS:
             with self.subTest(shell=label), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory) / 'target'
+                helper = cleanup_fixture(Path(directory), root)
                 state = root / 'var/lib/firstboot/state'
                 state.mkdir(parents=True, mode=0o700)
                 for relative in ('var/lib/firstboot/bin/firstboot.sh',
@@ -151,7 +171,7 @@ bootstrap_processes_exited
                 self.assertFalse(request.exists())
                 self.assertTrue((root / 'etc/systemd/system/secondboot.path').is_file())
                 self.assertTrue((root / 'var/lib/firstboot/bin/tailscale-up').is_file())
-                (state / 'complete').write_text('status=0\n')
+                (state / 'complete').write_text(completed_boot())
                 tailscale = root / 'var/lib/firstboot/tailscale'
                 tailscale.mkdir()
                 (tailscale / 'complete').write_text('complete\n')
@@ -180,6 +200,7 @@ installer_current_seed_base() { printf '%s\n' "$CASE_SEED"; }
 installer_seed_base() { printf '%s\n' "$CASE_SEED"; }
 installer_ensure_context_loaded() { :; }
 installer_selected_class_reference_is_selected() { [ "$1" = addon/crowdsec ]; }
+installer_class_selected_any() { [ "$1" = role/desktop/medium ]; }
 installer_fetch_host_env() { installer_fatal 'must use the staged host env'; }
 installer_fetch_account_env() { installer_fatal 'must use the resolved account env'; }
 installer_apt_safe_path() {
@@ -261,6 +282,7 @@ SSH_SERVER_ENABLE=true
                                    'INSTALLER_LATE_ACCOUNT_ENV': str(account),
                                    'INSTALLER_HOST_PROFILE': 'fixture',
                                    'INSTALLER_HOST_VARIANT': 'desktop',
+                                   'INSTALLER_RELEASE_ID': FIXTURE_RELEASE,
                                    'ACCOUNT_USERNAME': 'inherited-must-not-mask-missing-name'}
                     result = subprocess.run([*shell, str(FORKY / 'scripts/late/crowdsec.sh'), str(target)],
                                             env=environment, text=True, capture_output=True, timeout=10)
@@ -601,6 +623,9 @@ ensure_capi_registration
         )
         code = """
 umask 077
+work_dir=$1
+CROWDSEC_EXPECTED_RELEASE=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+CROWDSEC_DESKTOP_TOOLS=true
 CROWDSEC_CORE_READY_FILE=$1/core-ready
 CROWDSEC_SSH_SERVER_ENABLE=true
 CROWDSEC_COMPLETE_FILE=$1/complete
@@ -672,7 +697,7 @@ stop_bootstrap_services() { systemctl stop crowdsec-firewall-bouncer.service cro
                 crowd.mkdir(parents=True)
                 shutil.copyfile(directory / "complete", crowd / "complete")
                 for path, content in {
-                    "var/lib/firstboot/state/complete": "status=0\n",
+                    "var/lib/firstboot/state/complete": completed_boot(),
                     "var/lib/firstboot/tailscale/complete": "status=0\n",
                     "var/lib/firstboot/bin/firstboot.sh": "inert\n",
                     "var/lib/firstboot/bin/crowdsec-firstboot": "inert\n",
@@ -688,7 +713,8 @@ stop_bootstrap_services() { systemctl stop crowdsec-firewall-bouncer.service cro
                     artifact = target / path
                     artifact.parent.mkdir(parents=True, exist_ok=True)
                     artifact.write_text(content, encoding="ascii")
-                cleanup = subprocess.run([*shell, str(FORKY / "scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup")],
+                helper = cleanup_fixture(directory, target)
+                cleanup = subprocess.run([*shell, str(helper)],
                     env={"PATH": "/usr/bin:/bin", "SECONDBOOT_ROOT": str(target)},
                     text=True, encoding="utf-8", capture_output=True, timeout=5)
                 self.assertEqual(cleanup.returncode, 0, cleanup.stderr)
@@ -892,8 +918,9 @@ log_line() { printf 'event=%s\\n' "$*"; }
         self.assertIn('cscli console enable --all', SOURCE)
         self.assertIn('community_blocklist_slots=3', SOURCE)
         self.assertIn('crowdsecurity/linux-lpe', SOURCE)
-        self.assertIn('crowdsecurity/whitelist-good-actors gilbsgilbs/qbittorrent ||', SOURCE)
-        self.assertIn('CROWDSEC_HOST_VARIANT=desktop', SOURCE)
+        self.assertIn('cscli collections install gilbsgilbs/qbittorrent || return 1', SOURCE)
+        self.assertIn('if [ "$CROWDSEC_DESKTOP_TOOLS" = true ]; then', SOURCE)
+        self.assertIn('CROWDSEC_HOST_VARIANT=__INSTALLER_CROWDSEC_HOST_VARIANT__', SOURCE)
         self.assertNotIn('if [ "$CROWDSEC_HOST_VARIANT" = desktop ]; then', SOURCE)
         self.assertNotIn('if [ "$host_variant" = desktop ]; then', LATE)
         self.assertIn('hooks/target/etc/audit/crowdsec/common.rules', LATE)
@@ -986,8 +1013,9 @@ log_line() { printf 'event=%s\\n' "$*"; }
                     artifact.parent.mkdir(parents=True, exist_ok=True)
                     artifact.write_text(content, encoding="ascii")
 
+                helper = cleanup_fixture(Path(root), target)
                 cleanup = subprocess.run(
-                    [*shell, str(FORKY / "scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup")],
+                    [*shell, str(helper)],
                     env={"PATH": "/usr/bin:/bin", "SECONDBOOT_ROOT": str(target)},
                     text=True, encoding="utf-8", capture_output=True, timeout=5,
                 )

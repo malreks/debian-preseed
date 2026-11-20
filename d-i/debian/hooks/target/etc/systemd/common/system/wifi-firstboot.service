@@ -1,7 +1,7 @@
 [Unit]
 Description=Apply profile-owned physical uplink priority and saved Wi-Fi addressing
 Requires=NetworkManager.service
-After=NetworkManager.service
+After=NetworkManager.service systemd-tmpfiles-setup.service
 Before=greetd.service
 ConditionPathExists=__INSTALLER_PATH_FILE_NETWORK_UPLINK_POLICY__
 StartLimitIntervalSec=10min

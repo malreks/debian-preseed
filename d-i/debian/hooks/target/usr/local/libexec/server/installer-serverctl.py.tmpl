@@ -38,7 +38,8 @@ SYSTEMD = Path('__INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__')
 ETC = Path('__INSTALLER_PATH_DIR_ETC__')
 RUN = Path('__INSTALLER_PATH_DIR_RUN__')
 POOL_ROOT = Path('__INSTALLER_PATH_DIR_POOL__')
-RECEIPT = Path('__INSTALLER_PATH_FILE_INSTALLER_CLASSES__')
+# Rendered from the frozen plan before activation; no installed class catalog.
+SELECTED_ROLES = tuple('__INSTALLER_SERVER_SELECTED_ROLES__'.split())
 UPLINK_POLICY = Path('__INSTALLER_PATH_FILE_NETWORK_UPLINK_POLICY__')
 DNS_RESOLVED = Path('__INSTALLER_PATH_FILE_SERVER_DNS_RESOLVED__')
 DNS_POLICY = Path('__INSTALLER_PATH_FILE_SERVER_DNS_POLICY__')
@@ -1234,19 +1235,9 @@ def dns_account_identity() -> None:
 
 
 def selected_server_roles() -> list[str]:
-    for parent in RECEIPT.parents:
-        info = parent.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid or info.st_mode & 0o022:
-            raise ValueError('untrusted runtime receipt ancestry')
-    records = regular(RECEIPT, maximum=65536).decode().splitlines()
-    if records.count('format\t2') != 1 or records.count('family\tserver') != 1:
-        raise ValueError('unsupported server class receipt')
-    roles = [line.removeprefix('role\t') for line in records if line.startswith('role\t')]
+    roles = list(SELECTED_ROLES)
     if not roles or len(roles) != len(set(roles)) or any(role not in ROLES for role in roles):
-        raise ValueError('invalid server role selection in runtime receipt')
-    classes = {line.removeprefix('class\t') for line in records if line.startswith('class\t')}
-    if {ref for ref in classes if ref.startswith('role/')} != {'role/' + role for role in roles}:
-        raise ValueError('runtime roles and physical classes disagree')
+        raise ValueError('invalid rendered server service selection')
     return roles
 
 

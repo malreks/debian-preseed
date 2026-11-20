@@ -62,18 +62,16 @@ def bars():
 
 class HardwareProfileTests(unittest.TestCase):
     def test_exact_profile_assignments_and_no_cpu_inference(self):
-        expected = {
-            'btrfs-de-p15s.env': '79-thinkpad-acpi.conf',
-            'btrfs-de-p15s-duo.env': '79-thinkpad-acpi.conf',
-            'btrfs-de-flex.env': '79-ideapad-acpi.conf',
-            'btrfs-de-flex-duo.env': '79-ideapad-acpi.conf',
-        }
-        expected.update({p.name: '79-chromebook.conf' for p in (FORKY / 'hosts/profiles').glob('f2fs-*.env')})
-        self.assertEqual(len(expected), 8)
+        from fixture_render import compiled_profile_values
+        from waybar_fixture import profiles
+        hardware = {'btrfs-de': '', 'btrfs-de-p15s': '79-thinkpad-acpi.conf',
+                    'btrfs-de-flex': '79-ideapad-acpi.conf',
+                    'f2fs-de-hp14': '79-chromebook.conf', 'f2fs-de-x360': '79-chromebook.conf'}
+        expected = {base + suffix + '.env': selected for base, selected in hardware.items()
+                    for suffix in ('', '-duo', '-trio')}
+        self.assertEqual({profile.name for profile in profiles()}, set(expected))
         for name, selected in expected.items():
-            text = render_theme_defaults(payload_read_text(FORKY / 'hosts/profiles' / name))
-            self.assertEqual(re.findall(r'^SYSTEM_HARDWARE_SPEC="([^"]+)"$', text, re.M), [selected])
-        self.assertNotIn('79-thinkpad', render_theme_defaults(payload_read_text(FORKY / 'classes/configs/target-assets.tsv')))
+            self.assertEqual(compiled_profile_values(name)['SYSTEM_HARDWARE_SPEC'], selected, name)
         chromebook = render_theme_defaults(payload_read_text(TARGET / 'etc/modprobe.d/79-chromebook.conf'))
         self.assertIn('options mmc_block mmcblk.perdev_minors=16', chromebook)
         self.assertNotIn('options mmc_block perdev_minors=', chromebook)
@@ -321,7 +319,7 @@ class MenuAndHookTests(unittest.TestCase):
         for bar in bars():
             for module, name, event in [('custom/tomat','tomat','on-click'), ('pulseaudio','audio','on-click'),
                                        ('custom/notifications','notifications','on-click'), ('custom/power','power','on-click'),
-                                       ('clock','calendar','on-click-release')]:
+                                       ('clock','calendar','on-click')]:
                 entry = bar[module]
                 self.assertEqual(entry['menu'], event); self.assertNotIn(event, entry)
                 tree = ET.parse(payload_source_path(SKEL / 'waybar' / 'menus' / (name + '-menu.xml')))

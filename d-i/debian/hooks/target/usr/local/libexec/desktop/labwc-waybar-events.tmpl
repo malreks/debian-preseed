@@ -14,7 +14,6 @@ import signal
 import stat
 import sys
 
-from labwc_waybar_state import active as waybar_popup_active, state_directory
 
 PROPERTIES = "org.freedesktop.DBus.Properties"
 MANAGER = "org.freedesktop.systemd1.Manager"
@@ -26,7 +25,7 @@ MAKO = "fr.emersion.Mako"
 
 def status(mode: str, value=None) -> dict[str, str]:
     if mode == "notifications":
-        classes = ["active"] if waybar_popup_active("notifications") else []
+        classes = []
         if value is None:
             classes.append("error")
             return {"text": "__THEME_WAYBAR_BUTTON_NOTIFICATIONS_ERROR_ICON_GLYPH__", "class": classes,
@@ -37,6 +36,10 @@ def status(mode: str, value=None) -> dict[str, str]:
         return {"text": "__THEME_WAYBAR_BUTTON_NOTIFICATIONS_DND_ICON_GLYPH__" if dnd else "__THEME_WAYBAR_BUTTON_NOTIFICATIONS_NORMAL_ICON_GLYPH__",
                 "class": classes, "tooltip": "Do not disturb: " + ("on" if dnd else "off")
                 + "\nLeft: menu | Middle: DND | Right: DND on + dismiss all"}
+    if mode == "wayscriber":
+        running = value in {"active", "activating", "reloading", "refreshing"}
+        return {"text": " ", "class": "unavailable" if value is None else "active" if running else "idle",
+                "tooltip": "Wayscriber daemon " + ("unavailable" if value is None else value)}
     if value is None:
         return {"text": "__THEME_WAYBAR_BUTTON_SCREENSHOT_IDLE_ICON_GLYPH__", "class": "unavailable",
                 "tooltip": "Recording status unavailable; open capture actions to inspect the recording service"}
@@ -50,6 +53,8 @@ def status(mode: str, value=None) -> dict[str, str]:
 class Reader:
     def __init__(self, mode, Gio, GLib, GLibUnix):
         self.mode, self.Gio, self.GLib, self.GLibUnix = mode, Gio, GLib, GLibUnix
+        self.unit = "wayscriber.service" if mode == "wayscriber" else UNIT
+        self.unit_path = "/org/freedesktop/systemd1/unit/wayscriber_2eservice" if mode == "wayscriber" else UNIT_PATH
         self.loop = GLib.MainLoop()
         self.connection = None
         self.connection_cancel = Gio.Cancellable()
@@ -65,9 +70,6 @@ class Reader:
         self.alive = True
         self.result = 0
         self.destination = "org.freedesktop.Notifications" if mode == "notifications" else "org.freedesktop.systemd1"
-        self.marker_monitors = []
-        self.runtime_monitor = None
-        self.state_monitor = None
 
     def emit(self, value=None):
         self.value = value
@@ -87,39 +89,6 @@ class Reader:
             self.pending.cancel()
         self.loop.quit()
         return False
-
-    def marker_changed(self, monitor, file, *_data):
-        if self.mode == "notifications" and self.alive:
-            if monitor is self.runtime_monitor:
-                if file is None or file.get_basename() != "labwc-waybar-state":
-                    return False
-                try:
-                    if state_directory() is None and self.state_monitor is not None:
-                        self.state_monitor.cancel()
-                        self.state_monitor = None
-                    self.install_marker_monitor()
-                except (OSError, ValueError):
-                    return False
-            self.emit(self.value)
-        return False
-
-    def install_marker_monitor(self):
-        if self.mode != "notifications":
-            return
-        try:
-            if self.runtime_monitor is None:
-                runtime = self.Gio.File.new_for_path(f"__INSTALLER_PATH_DIR_RUN_USER__/{os.getuid()}")
-                self.runtime_monitor = runtime.monitor_directory(self.Gio.FileMonitorFlags.NONE, None)
-                self.runtime_monitor.connect("changed", self.marker_changed)
-                self.marker_monitors.append(self.runtime_monitor)
-            directory = state_directory()
-            if directory is not None and self.state_monitor is None:
-                state_file = self.Gio.File.new_for_path(str(directory))
-                self.state_monitor = state_file.monitor_directory(self.Gio.FileMonitorFlags.NONE, None)
-                self.state_monitor.connect("changed", self.marker_changed)
-                self.marker_monitors.append(self.state_monitor)
-        except (OSError, ValueError, self.GLib.Error):
-            return
 
     def failed_connection(self):
         if self.connection is None and self.alive:
@@ -142,11 +111,11 @@ class Reader:
         self.listen("org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged",
                     "/org/freedesktop/DBus", self.destination, self.owner_changed)
         self.listen(self.destination, PROPERTIES, "PropertiesChanged",
-                    MAKO_PATH if self.mode == "notifications" else UNIT_PATH,
+                    MAKO_PATH if self.mode == "notifications" else self.unit_path,
                     MAKO if self.mode == "notifications" else "org.freedesktop.systemd1.Unit", self.changed)
-        if self.mode == "capture":
+        if self.mode != "notifications":
             for member in ("UnitNew", "UnitRemoved"):
-                self.listen(self.destination, MANAGER, member, "/org/freedesktop/systemd1", UNIT, self.unit_changed)
+                self.listen(self.destination, MANAGER, member, "/org/freedesktop/systemd1", self.unit, self.unit_changed)
         self.queue()
 
     def connection_closed(self):
@@ -205,13 +174,13 @@ class Reader:
             return False
         self.dirty = False
         generation = self.generation
-        subscribing = self.mode == "capture" and not self.subscribed
+        subscribing = self.mode != "notifications" and not self.subscribed
         if subscribing:
             path, interface, member, arguments, reply_type = "/org/freedesktop/systemd1", MANAGER, "Subscribe", None, "()"
         elif self.mode == "notifications":
             path, interface, member, arguments, reply_type = MAKO_PATH, MAKO, "ListModes", None, "(as)"
         else:
-            path, interface, member = UNIT_PATH, PROPERTIES, "Get"
+            path, interface, member = self.unit_path, PROPERTIES, "Get"
             arguments = self.GLib.Variant("(ss)", ("org.freedesktop.systemd1.Unit", "ActiveState"))
             reply_type = "(v)"
         cancellable = self.Gio.Cancellable()
@@ -250,7 +219,7 @@ class Reader:
                         self.subscribed = True
                         self.dirty = True
                     else:
-                        self.emit("inactive" if self.mode == "capture" and not subscribing and remote in absent else None)
+                        self.emit("inactive" if self.mode != "notifications" and not subscribing and remote in absent else None)
             except (ValueError, TypeError):
                 self.emit()
             finally:
@@ -263,7 +232,6 @@ class Reader:
 
     def run(self):
         self.emit()
-        self.install_marker_monitor()
         self.sources.append(self.GLib.timeout_add_seconds(5, self.failed_connection))
         # Reconcile missed signals without launching processes or polling every
         # five seconds; callbacks still update immediately after changes.
@@ -280,8 +248,6 @@ class Reader:
             for source in self.sources:
                 if self.GLib.MainContext.default().find_source_by_id(source) is not None:
                     self.GLib.source_remove(source)
-            for monitor in self.marker_monitors:
-                monitor.cancel()
             if self.connection is not None:
                 for subscription in self.subscriptions:
                     self.connection.signal_unsubscribe(subscription)
@@ -289,8 +255,8 @@ class Reader:
 
 
 def main(arguments: list[str]) -> int:
-    if arguments not in (["notifications"], ["capture"]):
-        raise ValueError("usage: labwc-waybar-events notifications|capture")
+    if arguments not in (["notifications"], ["capture"], ["wayscriber"]):
+        raise ValueError("usage: labwc-waybar-events notifications|capture|wayscriber")
     uid = os.getuid()
     if uid == 0 or os.geteuid() != uid:
         raise ValueError("status reader requires the desktop account")

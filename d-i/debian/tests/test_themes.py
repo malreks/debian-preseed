@@ -2,7 +2,7 @@
 
 No network, package compilation, real systemd service or kernel mutation.
 Only transport/target execution boundaries are fixtures; shell/AWK rendering
-and the ten production profile files are exercised directly.
+and all fifteen compiled desktop profiles are exercised directly.
 """
 from __future__ import annotations
 
@@ -190,7 +190,7 @@ class ThemeValidationTests(unittest.TestCase):
 
     def test_actual_catalog_and_consumers(self):
         result = CHECKER['check'](SEED)
-        self.assertEqual(result['profiles'], 10)
+        self.assertEqual(result['profiles'], 15)
         self.assertEqual(result['values'], len(VALUES))
         self.assertGreater(result['templates'], 90)
 
@@ -389,7 +389,7 @@ stage_target_asset hooks/target/etc/skel-desktop/.config/mako/config /etc/xdg/ma
         self.assertEqual(original.read_text(), '__THEME_LABWC_DESKTOP_GTK_THEME__\n')
 
     def test_every_profile_renders_geometry_and_native_theme_settings(self):
-        for profile in sorted((SEED / 'hosts/profiles').glob('*.env')):
+        for profile in profiles():
             with self.subTest(profile=profile.name):
                 self.ok(self.shell('. ' + Q(str(profile)) + r'''
 ACCOUNT_USERNAME=desktop

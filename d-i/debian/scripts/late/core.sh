@@ -595,7 +595,11 @@ install_target_firstboot_logger() {
     run_in_target "apply selected AppArmor mode to staged first-boot policy" \
       "${DIR_USR_LOCAL_LIBEXEC}/apparmor-modes-run" --no-reload
   fi
-  stage_target_asset "$(installer_repo_file_value scripts/firstboot/firstboot.sh)" "${FILE_FIRSTBOOT_HELPER}" 0755
+  installer_assert_class_plan
+  firstboot_roles=$(installer_plan_roles | tr '\n' ' ')
+  firstboot_roles=${firstboot_roles% }
+  installer_asset_publish scalar "$(installer_repo_file_value scripts/firstboot/firstboot.sh)" "${FILE_FIRSTBOOT_HELPER}" 0755 \
+    FIRSTBOOT_RELEASE_ID "$INSTALLER_RELEASE_ID"
   install -d -m 0755 "${TARGET_ROOT}${DIR_FIRSTBOOT_LIB}"
   stage_target_asset "$(installer_repo_file_value scripts/firstboot/logging.sh)" "${DIR_FIRSTBOOT_LIB}/logging.sh" 0644
   for firstboot_stage in \
@@ -605,9 +609,11 @@ install_target_firstboot_logger() {
     04-validation.sh \
     05-cleanup.sh
   do
-    stage_target_asset "$(installer_repo_asset_path DIR_SCRIPTS_FIRSTBOOT "${firstboot_stage}")" "${DIR_FIRSTBOOT_LIB}/${firstboot_stage}" 0755
+    installer_asset_publish scalar "$(installer_repo_asset_path DIR_SCRIPTS_FIRSTBOOT "${firstboot_stage}")" "${DIR_FIRSTBOOT_LIB}/${firstboot_stage}" 0755 \
+      FIRSTBOOT_RELEASE_ID "$INSTALLER_RELEASE_ID" FIRSTBOOT_ROLE_IDS "$firstboot_roles" \
+      FIRSTBOOT_HOST_VARIANT "$INSTALLER_HOST_VARIANT" FIRSTBOOT_SUITE "$INSTALLER_SUITE"
   done
-  unset firstboot_stage
+  unset firstboot_stage firstboot_roles
   stage_target_asset "$(installer_repo_file_value scripts/firstboot/import-initramfs.py.tmpl)" \
     "${DIR_FIRSTBOOT_LIB}/import-initramfs.py" 0644
   stage_target_asset "$(installer_repo_file_value scripts/firstboot/service-account-processes.py)" \
@@ -622,7 +628,8 @@ install_target_firstboot_logger() {
   stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/local-bottom/90-installer-health)" "${FILE_INITRAMFS_HEALTH_LOCAL_BOTTOM}" 0755
   stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/initramfs-tools/scripts/init-bottom/90-installer-health)" "${FILE_INITRAMFS_HEALTH_INIT_BOTTOM}" 0755
   stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/systemd/system/firstboot.service)" "${FILE_FIRSTBOOT_SERVICE}" 0644
-  stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup)" "${FILE_SECONDBOOT_HELPER}" 0755
+  installer_asset_publish scalar "$(installer_repo_file_value scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup)" "${FILE_SECONDBOOT_HELPER}" 0755 \
+    FIRSTBOOT_RELEASE_ID "$INSTALLER_RELEASE_ID"
   stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/systemd/system/secondboot.service)" "${FILE_SECONDBOOT_SERVICE}" 0644
   stage_target_asset "$(installer_repo_file_value scripts/firstboot/assets/etc/systemd/system/secondboot.path)" __INSTALLER_PATH_DIR_ETC__/systemd/system/secondboot.path 0644
 

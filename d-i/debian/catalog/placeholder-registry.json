@@ -1394,6 +1394,34 @@
     },
     {
       "consumer": {
+        "module": "scripts/firstboot/assets/var/lib/firstboot/bin/crowdsec-firstboot.tmpl",
+        "source_members": [
+          "scripts/firstboot/assets/var/lib/firstboot/bin/crowdsec-firstboot.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_CROWDSEC_DESKTOP_TOOLS_ENABLE",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "script-main",
+        "module": "scripts/late/crowdsec.sh",
+        "phase": "late-command"
+      },
+      "producer_map": "validated frozen installer plan through existing scalar publication",
+      "publication_kind": "firstboot",
+      "required": true,
+      "source_family": [
+        "firstboot"
+      ],
+      "syntax": "boolean",
+      "token": "__INSTALLER_CROWDSEC_DESKTOP_TOOLS_ENABLE__"
+    },
+    {
+      "consumer": {
         "module": "hooks/target/etc/systemd/server/system/crowdsec-firstboot.service.tmpl",
         "source_members": [
           "hooks/target/etc/systemd/server/system/crowdsec-firstboot.service.tmpl",
@@ -6548,6 +6576,121 @@
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
       "token": "__INSTALLER_FILE_ZRAM_WRITEBACK_HELPER__"
+    },
+    {
+      "consumer": {
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
+        "source_members": [
+          "scripts/firstboot/04-validation.sh.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_FIRSTBOOT_HOST_VARIANT",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "install_target_firstboot_logger",
+        "module": "scripts/late/core.sh",
+        "phase": "late-command"
+      },
+      "producer_map": "validated frozen installer plan through existing scalar publication",
+      "publication_kind": "firstboot",
+      "required": true,
+      "source_family": [
+        "firstboot"
+      ],
+      "syntax": "desktop-or-server",
+      "token": "__INSTALLER_FIRSTBOOT_HOST_VARIANT__"
+    },
+    {
+      "consumer": {
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
+        "source_members": [
+          "scripts/firstboot/04-validation.sh.tmpl",
+          "scripts/firstboot/05-cleanup.sh",
+          "scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup",
+          "scripts/firstboot/firstboot.sh"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_FIRSTBOOT_RELEASE_ID",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "install_target_firstboot_logger",
+        "module": "scripts/late/core.sh",
+        "phase": "late-command"
+      },
+      "producer_map": "validated frozen installer plan through existing scalar publication",
+      "publication_kind": "firstboot",
+      "required": true,
+      "source_family": [
+        "firstboot"
+      ],
+      "syntax": "sha256-release-identity",
+      "token": "__INSTALLER_FIRSTBOOT_RELEASE_ID__"
+    },
+    {
+      "consumer": {
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
+        "source_members": [
+          "scripts/firstboot/04-validation.sh.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_FIRSTBOOT_ROLE_IDS",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "install_target_firstboot_logger",
+        "module": "scripts/late/core.sh",
+        "phase": "late-command"
+      },
+      "producer_map": "validated frozen installer plan through existing scalar publication",
+      "publication_kind": "firstboot",
+      "required": true,
+      "source_family": [
+        "firstboot"
+      ],
+      "syntax": "registered-space-separated-role-identities",
+      "token": "__INSTALLER_FIRSTBOOT_ROLE_IDS__"
+    },
+    {
+      "consumer": {
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
+        "source_members": [
+          "scripts/firstboot/04-validation.sh.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_FIRSTBOOT_SUITE",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "install_target_firstboot_logger",
+        "module": "scripts/late/core.sh",
+        "phase": "late-command"
+      },
+      "producer_map": "validated frozen installer plan through existing scalar publication",
+      "publication_kind": "firstboot",
+      "required": true,
+      "source_family": [
+        "firstboot"
+      ],
+      "syntax": "forky-or-trixie",
+      "token": "__INSTALLER_FIRSTBOOT_SUITE__"
     },
     {
       "consumer": {
@@ -24591,6 +24734,7 @@
         "module": "scripts/common/filen-install.py",
         "source_members": [
           "scripts/common/filen-install.py",
+          "scripts/desktop/components/target-assets.sh",
           "scripts/desktop/kanshi-policy.py",
           "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/late/network-sharing.py"
@@ -25222,6 +25366,7 @@
           "scripts/firstboot/03-network.sh",
           "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/firstboot/05-cleanup.sh",
+          "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
           "scripts/firstboot/firstboot.sh"
         ]
       },
@@ -26805,9 +26950,13 @@
           "scripts/common/hardware-tuning.sh",
           "scripts/common/snander-install.py.tmpl",
           "scripts/firstboot/01-early.sh",
+          "scripts/firstboot/04-validation.sh.tmpl",
+          "scripts/firstboot/05-cleanup.sh",
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
           "scripts/firstboot/assets/etc/initramfs-tools/scripts/installer-health-common",
           "scripts/firstboot/assets/usr/local/sbin/tpm2-enroll.sh",
+          "scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup",
+          "scripts/firstboot/firstboot.sh",
           "scripts/firstboot/service-account-processes.py",
           "scripts/late/btrfs-family.sh",
           "scripts/late/codex-installer-session.py",
@@ -26974,7 +27123,6 @@
           "hooks/target/etc/apparmor.d/common/hardware-tuning",
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
           "hooks/target/etc/apparmor.d/desktop/incus-desktop-ui",
-          "hooks/target/etc/apparmor.d/desktop/labwc-session",
           "hooks/target/etc/apparmor.d/desktop/zoom-discord-compat.tmpl"
         ]
       },
@@ -27163,11 +27311,42 @@
     },
     {
       "consumer": {
+        "module": "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
+        "source_members": [
+          "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
+          "hooks/target/etc/tmpfiles.d/common/41-network-wifi.conf.tmpl",
+          "hooks/target/usr/local/libexec/common/network-wifi-configure"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_PATH_DIR_RUN_NETWORK_WIFI",
+      "namespace": "PATH",
+      "owner": {
+        "function": "installer_runtime_path_placeholder_map",
+        "module": "scripts/common/modules/files-logging.sh",
+        "phase": "base-stage"
+      },
+      "producer_map": "installer_runtime_path_placeholder_map",
+      "publication_kind": "template",
+      "required": true,
+      "source_family": [
+        "target-asset"
+      ],
+      "syntax": "absolute-normalized-target-path",
+      "token": "__INSTALLER_PATH_DIR_RUN_NETWORK_WIFI__"
+    },
+    {
+      "consumer": {
         "module": "hooks/target/etc/apparmor.d/server/codex-server.tmpl",
         "source_members": [
           "hooks/target/etc/apparmor.d/server/codex-server.tmpl",
           "hooks/target/usr/local/bin/server/codex.tmpl",
           "hooks/target/usr/local/libexec/server/technitium-preflight.py.tmpl",
+          "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl"
         ]
       },
@@ -27336,7 +27515,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-tomat.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
-          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -27489,7 +27667,6 @@
           "hooks/target/usr/local/libexec/common/native-logging.tmpl",
           "hooks/target/usr/local/libexec/common/network-openvpn-import",
           "hooks/target/usr/local/libexec/common/network-sharing-report",
-          "hooks/target/usr/local/libexec/common/network-wifi-configure",
           "hooks/target/usr/local/libexec/common/tailscale-ssh-host",
           "hooks/target/usr/local/libexec/common/tpm2-policy-check",
           "hooks/target/usr/local/libexec/desktop/apt-repo-local-vendor",
@@ -28264,6 +28441,34 @@
     },
     {
       "consumer": {
+        "module": "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
+        "source_members": [
+          "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_PATH_DIR_STATE_LOG",
+      "namespace": "PATH",
+      "owner": {
+        "function": "installer_runtime_path_placeholder_map",
+        "module": "scripts/common/modules/files-logging.sh",
+        "phase": "base-stage"
+      },
+      "producer_map": "installer_runtime_path_placeholder_map",
+      "publication_kind": "firstboot",
+      "required": true,
+      "source_family": [
+        "firstboot"
+      ],
+      "syntax": "absolute-normalized-target-path",
+      "token": "__INSTALLER_PATH_DIR_STATE_LOG__"
+    },
+    {
+      "consumer": {
         "module": "hooks/target/data/codex/lib/codex.tmpl",
         "source_members": [
           "hooks/target/data/codex/lib/codex.tmpl",
@@ -28620,8 +28825,9 @@
     },
     {
       "consumer": {
-        "module": "scripts/server/setup.py.tmpl",
+        "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
+          "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/server/setup.py.tmpl"
         ]
       },
@@ -28638,9 +28844,10 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "firstboot",
       "required": true,
       "source_family": [
+        "firstboot",
         "shared-bootstrap"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30529,11 +30736,14 @@
           "hooks/target/etc/systemd/server/system/technitium.service.tmpl",
           "hooks/target/etc/systemd/server/user/codex-app-server.service",
           "hooks/target/usr/local/bin/desktop/labwc-build",
+          "hooks/target/usr/local/bin/desktop/labwc-terminal",
           "hooks/target/usr/local/bin/server/codex.tmpl",
+          "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/generic.py",
           "hooks/target/usr/local/libexec/common/incus-host",
           "hooks/target/usr/local/libexec/common/network-wifi-configure",
           "hooks/target/usr/local/libexec/common/tpm2-policy-check",
           "hooks/target/usr/local/libexec/desktop/labwc-output-watch",
+          "hooks/target/usr/local/libexec/desktop/labwc-session-check",
           "hooks/target/usr/local/libexec/server/ci-github-job-start.sh.tmpl",
           "hooks/target/usr/local/libexec/server/ci-runners-control",
           "hooks/target/usr/local/sbin/common/account-create",
@@ -31367,7 +31577,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-tomat-hook",
           "hooks/target/usr/local/libexec/desktop/labwc-tomat.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
-          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
           "hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl",
@@ -31436,6 +31645,7 @@
           "hooks/target/etc/apparmor.d/desktop/compz",
           "hooks/target/etc/apparmor.d/desktop/desktop-utilities",
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
+          "hooks/target/etc/apparmor.d/desktop/labwc-session",
           "hooks/target/etc/apparmor.d/desktop/usr.bin.sqlitebrowser",
           "hooks/target/etc/skel-desktop/.profile.d/71-devops-de.sh",
           "hooks/target/etc/skel-desktop/.profile.d/75-firmware-workspace.sh.tmpl",
@@ -32659,38 +32869,9 @@
     },
     {
       "consumer": {
-        "module": "hooks/target/etc/apparmor.d/desktop/labwc-session",
-        "source_members": [
-          "hooks/target/etc/apparmor.d/desktop/labwc-session"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_DIR_USR_SHARE_X11",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "plain",
-      "required": true,
-      "source_family": [
-        "target-asset"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_DIR_USR_SHARE_X11__"
-    },
-    {
-      "consumer": {
         "module": "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
         "source_members": [
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
-          "hooks/target/etc/apparmor.d/desktop/labwc-session",
           "hooks/target/etc/apparmor.d/desktop/zoom-discord-compat.tmpl"
         ]
       },
@@ -32990,7 +33171,9 @@
           "hooks/target/etc/skel-desktop/.config/waybar/modules/wayscriber.tmpl",
           "hooks/target/etc/skel-desktop/.gnupg/gpg-agent.conf",
           "hooks/target/etc/skel-desktop/.local/share/applications/micro.desktop.tmpl",
+          "hooks/target/etc/skel-desktop/.local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.kwallet.service",
           "hooks/target/etc/skel-desktop/.local/share/dbus-1/services/org.freedesktop.secrets.service",
+          "hooks/target/etc/skel-desktop/.local/share/dbus-1/services/org.kde.secretservicecompat.service",
           "hooks/target/etc/skel-desktop/.profile",
           "hooks/target/etc/skel-desktop/.profile.d/71-devops-de.sh",
           "hooks/target/etc/skel-desktop/.profile.d/72-incus.sh.tmpl",
@@ -33315,7 +33498,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
-          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -34502,40 +34684,6 @@
       ],
       "syntax": "absolute-normalized-target-path",
       "token": "__INSTALLER_PATH_FILE_INITRAMFS_HEALTH_COMMON__"
-    },
-    {
-      "consumer": {
-        "module": "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
-        "source_members": [
-          "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
-          "scripts/firstboot/04-validation.sh.tmpl",
-          "scripts/firstboot/assets/var/lib/firstboot/bin/crowdsec-firstboot.tmpl",
-          "scripts/runtime/modules/classes.sh",
-          "scripts/server/setup.py.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_FILE_INSTALLER_CLASSES",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "firstboot",
-      "required": true,
-      "source_family": [
-        "firstboot",
-        "shared-bootstrap",
-        "target-asset"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_FILE_INSTALLER_CLASSES__"
     },
     {
       "consumer": {
@@ -37191,6 +37339,64 @@
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
       "token": "__INSTALLER_SECURITY__"
+    },
+    {
+      "consumer": {
+        "module": "scripts/server/setup.py.tmpl",
+        "source_members": [
+          "scripts/server/setup.py.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_SERVER_CODEX_ENABLE",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "installer_run_target_setup",
+        "module": "scripts/common/modules/target-publication.sh",
+        "phase": "late-command"
+      },
+      "producer_map": "validated frozen installer plan through existing scalar publication",
+      "publication_kind": "template",
+      "required": true,
+      "source_family": [
+        "shared-bootstrap"
+      ],
+      "syntax": "boolean",
+      "token": "__INSTALLER_SERVER_CODEX_ENABLE__"
+    },
+    {
+      "consumer": {
+        "module": "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
+        "source_members": [
+          "hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl",
+          "scripts/server/setup.py.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_SERVER_SELECTED_ROLES",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "script-main",
+        "module": "scripts/server/foundation.sh",
+        "phase": "late-command"
+      },
+      "producer_map": "validated frozen installer plan through existing scalar publication",
+      "publication_kind": "template",
+      "required": true,
+      "source_family": [
+        "shared-bootstrap",
+        "target-asset"
+      ],
+      "syntax": "registered-space-separated-server-service-identities",
+      "token": "__INSTALLER_SERVER_SELECTED_ROLES__"
     },
     {
       "consumer": {
@@ -99963,9 +100169,8 @@
     },
     {
       "consumer": {
-        "module": "hooks/target/etc/skel-desktop/.config/waybar/style-common.css.tmpl",
+        "module": "hooks/target/etc/skel-desktop/.config/waybar/style/clock.css.tmpl",
         "source_members": [
-          "hooks/target/etc/skel-desktop/.config/waybar/style-common.css.tmpl",
           "hooks/target/etc/skel-desktop/.config/waybar/style/clock.css.tmpl",
           "hooks/target/etc/skel-desktop/.config/waybar/style/menu.css.tmpl",
           "hooks/target/etc/skel-desktop/.config/waybar/style/power.css.tmpl",
@@ -108239,6 +108444,7 @@
           "scripts/common/filen-install.py",
           "scripts/desktop/appearance-setup.py",
           "scripts/desktop/vivaldi-codecs-install.py",
+          "scripts/desktop/waybar-menus.py",
           "scripts/late/crypto-bootstrap.py.tmpl",
           "scripts/late/network-sharing.py",
           "scripts/late/ssh/ssh-install.py",
@@ -108443,7 +108649,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
-          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -108655,7 +108860,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-tomat.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-wallpaper-control",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
-          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-popup",
           "hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-zoom-discord-compat-runtime",
@@ -108840,7 +109044,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
-          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -108877,6 +109080,7 @@
           "scripts/desktop/resctl-bench-install.py",
           "scripts/desktop/scrcpy-install.py",
           "scripts/desktop/vivaldi-codecs-install.py",
+          "scripts/desktop/waybar-menus.py",
           "scripts/desktop/waybar_geometry.py",
           "scripts/firstboot/import-initramfs.py.tmpl",
           "scripts/firstboot/service-account-processes.py",
@@ -109030,7 +109234,6 @@
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
-          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -109067,7 +109270,9 @@
           "scripts/desktop/resctl-bench-install.py",
           "scripts/desktop/scrcpy-install.py",
           "scripts/desktop/vivaldi-codecs-install.py",
+          "scripts/desktop/waybar-menus.py",
           "scripts/desktop/waybar_geometry.py",
+          "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/firstboot/import-initramfs.py.tmpl",
           "scripts/firstboot/service-account-processes.py",
           "scripts/late/ai-runtime-archive.py",
@@ -109200,7 +109405,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "dc4f4c9de7a0e0bd1277385446c2f5cfc84f04145756023110f1536f4bc65fb8",
+  "source_fingerprint": "a2a42486e14e55de72f6f8501640e6a34f5a49bb42d43c45e90212c186747746",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

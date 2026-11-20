@@ -21,7 +21,6 @@ case " $server_ssh_users " in
 esac
 bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/server-support" target fetch hook ssh
 installer_assert_class_plan
-installer_publish_class_receipt
 if [ "$(installer_plan_value whisper_enable)" = true ] || [ "$(installer_plan_value llama_enable)" = true ]; then
   installer_stage_profile_file hooks/target/etc/skel-server/.profile.d/73-whisper-llama-srv.sh "${DIR_ETC_SKEL_SERVER}/.profile.d/73-whisper-llama-srv.sh" 0644
 fi
@@ -30,6 +29,7 @@ if installer_class_selected role/server/github-actions || installer_class_select
   installer_stage_profile_file hooks/target/usr/local/bin/server/ci-runners "${DIR_USR_LOCAL_BIN}/ci-runners" 0755
   installer_stage_profile_file hooks/target/etc/skel-server/.profile.d/72-ci-runners-srv.sh.tmpl "${DIR_ETC_SKEL_SERVER}/.profile.d/72-ci-runners-srv.sh" 0644
 fi
+SERVER_SELECTED_ROLES=$INSTALLER_ROLE_IDS
 installer_stage_profile_file hooks/target/usr/local/libexec/server/installer-serverctl.py.tmpl "$FILE_SERVER_CONTROL" 0755
 server_artifacts=$(installer_repo_asset_path DIR_CATALOG_COMPILED \
   "$INSTALLER_SUITE/profiles/server/$INSTALLER_HOST_PROFILE_ENV_NAME.artifacts.json")

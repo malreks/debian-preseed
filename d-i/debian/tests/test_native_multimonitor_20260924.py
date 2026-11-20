@@ -328,9 +328,10 @@ class NativeLayoutTests(unittest.TestCase):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
                 profile=Path(tmp)/'profile.env'
                 profile.write_text(profiles()[0].read_text()+'\nLABWC_OUTPUT_INTERNAL_PREFIXES='+shlex.quote(value)+'\n')
-                with self.assertRaises(subprocess.CalledProcessError) as error:
+                with self.assertRaises((ValueError, subprocess.CalledProcessError)) as error:
                     rendered_assets(profile)
-                self.assertEqual(error.exception.stdout,b'')
+                if isinstance(error.exception, subprocess.CalledProcessError):
+                    self.assertEqual(error.exception.stdout,b'')
 
     def test_all_profile_geometry_and_themes_are_wired(self):
         root=TARGET/'etc/skel-desktop/.config/waybar'

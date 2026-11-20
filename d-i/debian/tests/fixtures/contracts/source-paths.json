@@ -670,7 +670,6 @@
     "hooks/target/usr/local/libexec/labwc-waybar-battery": "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
     "hooks/target/usr/local/libexec/labwc-waybar-events.tmpl": "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
     "hooks/target/usr/local/libexec/labwc-waybar-exec": "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
-    "hooks/target/usr/local/libexec/labwc-waybar-menu": "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
     "hooks/target/usr/local/libexec/labwc-waybar-run": "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
     "hooks/target/usr/local/libexec/labwc-waybar-state": "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
     "hooks/target/usr/local/libexec/labwc-waycal-control": "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",

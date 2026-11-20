@@ -340,11 +340,13 @@ crowdsec_stage_target_asset \
   "$(installer_repo_file_value hooks/target/etc/audit/crowdsec/common.rules)" \
   __INSTALLER_PATH_DIR_ETC__/audit/rules.d/zz-crowdsec.rules \
   0640
+crowdsec_desktop_tools=false
+if installer_class_selected_any role/desktop/medium role/desktop/full; then crowdsec_desktop_tools=true; fi
 crowdsec_stage_target_asset \
   "$(installer_repo_file_value scripts/firstboot/assets/var/lib/firstboot/bin/crowdsec-firstboot.tmpl)" \
   __INSTALLER_PATH_DIR_VAR__/lib/firstboot/bin/crowdsec-firstboot \
   0755 SSH_SERVER_ENABLE "$SSH_SERVER_ENABLE" CROWDSEC_HOST_VARIANT "$INSTALLER_HOST_VARIANT" \
-  CROWDSEC_RELEASE_ID "$INSTALLER_RELEASE_ID"
+  CROWDSEC_RELEASE_ID "$INSTALLER_RELEASE_ID" CROWDSEC_DESKTOP_TOOLS_ENABLE "$crowdsec_desktop_tools"
 crowdsec_unit_selector=scripts/firstboot/assets/etc/systemd/system/crowdsec-firstboot.service.tmpl
 if [ "$INSTALLER_HOST_VARIANT" = server ]; then crowdsec_unit_selector=hooks/target/etc/systemd/server/system/crowdsec-firstboot.service.tmpl; fi
 crowdsec_stage_target_asset \

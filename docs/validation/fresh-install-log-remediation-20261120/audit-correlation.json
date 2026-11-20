@@ -1,0 +1,135 @@
+{
+  "identity": [
+    "audit epoch:serial",
+    "record type",
+    "record body excluding node prefix"
+  ],
+  "record_separator": "newline; enriched-audit ASCII GS fields remain within the same record",
+  "authoritative_files": [
+    {
+      "path": "todo/managed/security/audit/auditd.log",
+      "records": 19125,
+      "events": 3429,
+      "duplicate_records_in_file": 0,
+      "record_types": {
+        "PATH": 6293,
+        "PROCTITLE": 3344,
+        "SYSCALL": 3343,
+        "EXECVE": 2697,
+        "CWD": 3334,
+        "SERVICE_START": 16,
+        "SERVICE_STOP": 15,
+        "USER_ACCT": 9,
+        "CRED_ACQ": 8,
+        "LOGIN": 8,
+        "USER_START": 9,
+        "CRED_REFR": 9,
+        "CRED_DISP": 8,
+        "USER_END": 8,
+        "AVC": 20,
+        "BPF": 2,
+        "USER_AUTH": 1,
+        "USER_CMD": 1
+      }
+    },
+    {
+      "path": "todo/managed/security/audit/auditd.log.1",
+      "records": 84453,
+      "events": 15142,
+      "duplicate_records_in_file": 0,
+      "record_types": {
+        "EXECVE": 12083,
+        "CWD": 14701,
+        "PATH": 27737,
+        "PROCTITLE": 14743,
+        "SYSCALL": 14743,
+        "SERVICE_START": 75,
+        "SERVICE_STOP": 70,
+        "AVC": 5,
+        "USER_ACCT": 42,
+        "CRED_ACQ": 42,
+        "LOGIN": 42,
+        "USER_START": 42,
+        "CRED_REFR": 42,
+        "CRED_DISP": 42,
+        "USER_END": 42,
+        "BPF": 2
+      }
+    },
+    {
+      "path": "todo/managed/security/audit/auditd.log.2",
+      "records": 86783,
+      "events": 17518,
+      "duplicate_records_in_file": 0,
+      "record_types": {
+        "DAEMON_START": 1,
+        "MAC_MAP_ADD": 1,
+        "MAC_UNLBL_ALLOW": 1,
+        "AVC": 507,
+        "BPF": 473,
+        "SYSCALL": 17107,
+        "PROCTITLE": 17106,
+        "SERVICE_START": 162,
+        "CONFIG_CHANGE": 50,
+        "SOCKADDR": 50,
+        "CWD": 16108,
+        "PATH": 26859,
+        "SERVICE_STOP": 64,
+        "KERN_MODULE": 24,
+        "NETFILTER_CFG": 5,
+        "SYSTEM_BOOT": 1,
+        "DM_CTRL": 1,
+        "USER_ACCT": 29,
+        "CRED_ACQ": 29,
+        "LOGIN": 29,
+        "USER_START": 29,
+        "EXECVE": 8065,
+        "USER_AUTH": 2,
+        "USER_END": 27,
+        "CRED_DISP": 27,
+        "CRED_REFR": 26
+      }
+    }
+  ],
+  "authoritative_distinct_records": 190361,
+  "apparmor_authoritative_distinct_records": 532,
+  "mirror_records": 532,
+  "mirror_duplicate_records": 0,
+  "mirrors_matched_to_authoritative": 532,
+  "authoritative_not_mirrored": 0,
+  "mirror_without_supplied_authoritative_record": 0,
+  "caution": "This bounded capture is not a rotation reliability test; later losses or omitted source rotations are not excluded.",
+  "distinct_denial_records": 66,
+  "denial_classes": [
+    {
+      "profile": "firstboot",
+      "operation": "exec",
+      "object": "/usr/bin/mawk",
+      "records": 2
+    },
+    {
+      "profile": "crowdsec-firstboot",
+      "operation": "open",
+      "object": "retired installed class receipt",
+      "records": 9
+    },
+    {
+      "profile": "waybar",
+      "operation": "open",
+      "object": "/usr/local/lib/python3.14/dist-packages/",
+      "records": 52
+    },
+    {
+      "profile": "labwc-keyboard-layout",
+      "operation": "open",
+      "object": "owner home directory",
+      "records": 2
+    },
+    {
+      "profile": "rsyslog-openai-socket",
+      "operation": "open",
+      "object": "/",
+      "records": 1
+    }
+  ]
+}

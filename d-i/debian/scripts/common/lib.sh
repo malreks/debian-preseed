@@ -34,6 +34,7 @@ bootstrap_source_module "$(bootstrap_repo_file_value scripts/common/modules/clas
 bootstrap_source_module "$(bootstrap_repo_file_value scripts/common/modules/installation-plan.sh)" || return "$?"
 bootstrap_source_module "$(bootstrap_repo_file_value scripts/common/modules/context-target.sh)" || return "$?"
 bootstrap_source_module "$(bootstrap_repo_file_value scripts/common/modules/target-publication.sh)" || return "$?"
+bootstrap_source_module "$(bootstrap_repo_file_value scripts/common/modules/raw-storage.sh)" || return "$?"
 
 # Resolve source selectors and cache dynamic FILE lookups once per caller shell.
 installer_ensure_repo_env "" || return "$?"

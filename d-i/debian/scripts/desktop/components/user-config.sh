@@ -75,6 +75,8 @@ desktop_install_user_config() {
 
   desktop_log "installing primary account desktop config user=${ACCOUNT_USERNAME} home=${ACCOUNT_HOME}"
   installer_publish_primary_defaults desktop "$ACCOUNT_USERNAME" "$ACCOUNT_HOME"
+  installer_run_target_setup scripts/common/primary-defaults.py 'create fresh primary-account btop config views' \
+    btop-profiles "${DIR_INSTALLER_TARGET_DEFAULTS}/desktop" "$ACCOUNT_USERNAME" "$ACCOUNT_HOME"
   # shellcheck disable=SC2016
   run_in_target "install Labwc desktop config for primary account" __INSTALLER_PATH_DIR_BIN__/sh -c '
 set -eu

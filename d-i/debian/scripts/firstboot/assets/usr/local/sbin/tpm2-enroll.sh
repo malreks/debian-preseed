@@ -201,7 +201,6 @@ case "${1:-}" in
   *) fatal "usage: tpm2-enroll.sh [--reenroll|--recover-mutation]" ;;
 esac
 
-require_command awk
 require_command cmp
 require_command cryptsetup
 require_command flock

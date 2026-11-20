@@ -61,6 +61,9 @@ profile rsyslog-app-socket __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-app-
 profile rsyslog-openai-socket __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/rsyslog-openai-socket flags=(attach_disconnected) {
   #include <abstractions/wrapper-base>
 
+  # GNU find saves the service's working directory for its exact-path probe.
+  / r,
+
   capability chown,
   capability fowner,
 

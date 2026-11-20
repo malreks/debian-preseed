@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "native_installation_acceptance": "incomplete",
+  "products": {
+    "d-i/forky/payload.manifest": "4b9b1265c3bc62cbe60785deb1483472b82eaef8dec4e76b3e1ea91ca91bb4c7",
+    "d-i/forky/payload.tar.gz": "20e304609654c5ba42df9a9587238785091a139ea93eb1d2ce012e1d7c66bfb6",
+    "d-i/forky/preseed.cfg": "338ae8e6c24f4b7889974e4b3659e2b873c08ea14b6388700ca5ef54348521a3",
+    "d-i/forky/receipt.json": "a0ea26e5a47d43242268be77bdaa1888967942a79d43f5cb7d3a23e18e4734d6",
+    "d-i/forky/source.sh": "93acffbabc0addc077ecd7f7827a2ae5bdb1ec94c5b5dc60283da00dd73dd7fb",
+    "d-i/forky/support-matrix.json": "d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef",
+    "d-i/trixie/payload.manifest": "4b9b1265c3bc62cbe60785deb1483472b82eaef8dec4e76b3e1ea91ca91bb4c7",
+    "d-i/trixie/payload.tar.gz": "20e304609654c5ba42df9a9587238785091a139ea93eb1d2ce012e1d7c66bfb6",
+    "d-i/trixie/preseed.cfg": "0cb625676d222f3005154108b8aeb0bbc5dfa5b10cad349d083f5ea1ddfe06c6",
+    "d-i/trixie/receipt.json": "a0ea26e5a47d43242268be77bdaa1888967942a79d43f5cb7d3a23e18e4734d6",
+    "d-i/trixie/source.sh": "93acffbabc0addc077ecd7f7827a2ae5bdb1ec94c5b5dc60283da00dd73dd7fb",
+    "d-i/trixie/support-matrix.json": "d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef"
+  },
+  "suites": {
+    "forky": {
+      "full_final_target_placeholder_scan": "requires complete isolated installation; fixture renders reject remaining tokens",
+      "manifest_hashes_and_sizes_verified": true,
+      "members": 2438,
+      "payload_modes": "0644 source data; installed modes are stage-owned",
+      "payload_ownership": "0:0",
+      "release": "51a7a10a8134f1ec0ff7e615a9606d8829156ffe2971f765c458e2dbc666f22b",
+      "removed_standalone_popup_helper": true,
+      "removed_target_class_receipt": true,
+      "source_fingerprint": "0651dba28160f5e87122d5df980a86b93462c6674e436ea0b291ad3fc6633dbf",
+      "total_uncompressed_bytes": 34655308
+    },
+    "trixie": {
+      "full_final_target_placeholder_scan": "requires complete isolated installation; fixture renders reject remaining tokens",
+      "manifest_hashes_and_sizes_verified": true,
+      "members": 2438,
+      "payload_modes": "0644 source data; installed modes are stage-owned",
+      "payload_ownership": "0:0",
+      "release": "51a7a10a8134f1ec0ff7e615a9606d8829156ffe2971f765c458e2dbc666f22b",
+      "removed_standalone_popup_helper": true,
+      "removed_target_class_receipt": true,
+      "source_fingerprint": "0651dba28160f5e87122d5df980a86b93462c6674e436ea0b291ad3fc6633dbf",
+      "total_uncompressed_bytes": 34655308
+    }
+  }
+}

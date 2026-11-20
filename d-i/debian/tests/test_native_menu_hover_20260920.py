@@ -1,4 +1,4 @@
-"""Five native menus: rendered commands, real GTK states, and center reachability.
+"""Six native menus: rendered commands, real GTK states, and center reachability.
 
 GTK is exercised through the existing shared-library ABI, not a compiled or
 patched Waybar. Backend calls are inspected/intercepted; no host control action,
@@ -37,6 +37,7 @@ import tempfile
 import types
 import unittest
 from theme_fixture import render_theme_defaults, render_theme_tree
+from fixture_render import render_scalar_fixture
 from unittest import mock
 import xml.etree.ElementTree as ET
 
@@ -59,16 +60,15 @@ def gtk_menu_report():
         source.parent.mkdir(parents=True)
         shutil.copytree(FORKY / 'hooks/target/etc/skel-desktop/.config/waybar', source)
         render_theme_tree(source)
-        from waybar_fixture import rendered_assets
-        for name, content in rendered_assets(FORKY/'hosts/profiles/btrfs-de.env').items():
+        from waybar_fixture import profiles as host_profiles, native_assets
+        for name, content in native_assets(host_profiles()[0]).items():
             (source/name).parent.mkdir(parents=True, exist_ok=True)
             (source/name).write_text(content)
-        helpers = installed / 'hooks/target/usr/local/libexec'
-        shutil.copytree(FORKY / 'hooks/target/usr/local/libexec', helpers)
-        render_theme_tree(helpers)
         scripts = installed / 'scripts/desktop'
         scripts.mkdir(parents=True)
-        (scripts / 'components.sh').write_text(render_theme_defaults(payload_read_text(FORKY / 'scripts/desktop/components.sh')))
+        definitions = root / 'components-source'
+        definitions.write_text(payload_read_text(FORKY / 'scripts/desktop/components.sh'))
+        (scripts / 'components.sh').write_bytes(render_scalar_fixture(definitions, root))
         styles = {cls: rendered_profile_styles(cls) for cls in ('internal', 'external')}
         profiles = []
         for name, bars in rendered_profile_bars().items():
@@ -96,7 +96,7 @@ class NativeMenuHoverTests(unittest.TestCase):
         cls.profiles = rendered_profile_bars()
 
     def test_real_rendered_profiles_keep_every_menu_action_and_gesture(self):
-        self.assertEqual(len(self.profiles), 10)
+        self.assertEqual(len(self.profiles), 15)
         count = 0
         for name, bars in self.profiles.items():
             self.assertEqual(len(bars), 2)
@@ -107,7 +107,7 @@ class NativeMenuHoverTests(unittest.TestCase):
                         self.assertEqual(entry['menu'], event)
                         self.assertNotIn(event, entry)
                         self.assertNotIn(event + '-release', entry)
-                        tree = ET.parse(payload_source_path(SKEL / 'waybar' / 'menus' / (menu + '-menu.xml')))
+                        tree = ET.parse(payload_source_path(SKEL / 'waybar' / 'gtk' / (menu + '-menu.xml')))
                         ids = {item.get('id') for item in tree.iter('object')
                                if item.get('class') == 'GtkMenuItem'
                                and item.find('./child[@type="submenu"]') is None}
@@ -118,21 +118,51 @@ class NativeMenuHoverTests(unittest.TestCase):
                             self.assertEqual(argv[:argv.index('--')], ['/usr/local/libexec/labwc-waybar-run'])
                             self.assertNotIn('fixture', argv)
                             count += 1
-        # The current native menus contain 47 leaf actions per bar. Keep this
-        # count aligned with test_native_menu_contract_20260920.py's 108 total
-        # action contract.
-        self.assertEqual(count, len(self.profiles) * 2 * 47)
+        # Six menu contracts contain 59 actionable leaves on each bar.
+        self.assertEqual(count, len(self.profiles) * 2 * 59)
+
+    def test_active_color_owners_are_explicit_and_no_fake_native_popup_latch_exists(self):
+        """Check the supported lifetime owners without inventing a menu observer."""
+        root = SKEL / 'waybar'
+        menu_styles = payload_read_text(root / 'style/menu.css.tmpl')
+        apps_styles = payload_read_text(root / 'style/apps.css.tmpl')
+        tomat_styles = payload_read_text(root / 'style/tomat.css.tmpl')
+        wayscriber_styles = payload_read_text(root / 'style/wayscriber.css.tmpl')
+        self.assertIn('#custom-launcher.active', menu_styles)
+        self.assertIn('#apps:hover #custom-apps', apps_styles)
+        self.assertIn('Waybar 0.15', apps_styles)
+        self.assertNotIn('#custom-tomat:hover, #custom-tomat:active, #custom-tomat:active', tomat_styles)
+        self.assertIn('#custom-wayscriber.active', wayscriber_styles)
+        for button, stylesheet in (('power', payload_read_text(root / 'style/power.css.tmpl')),
+                                   ('notifications', payload_read_text(root / 'style/notifications.css.tmpl'))):
+            with self.subTest(button=button):
+                self.assertNotIn(f'#custom-{button}:hover, #custom-{button}:active, #custom-{button}:active', stylesheet)
+        for bars in self.profiles.values():
+            for bar in bars:
+                launcher = bar['custom/launcher']
+                self.assertEqual(launcher['exec'], '/usr/local/libexec/labwc-waybar-exec menu-state')
+                self.assertIn('on-click-release', launcher)
+                launch_argv = shlex.split(launcher['on-click-release'])
+                output_class = 'INTERNAL' if bar['name'] == 'internal' else 'EXTERNAL'
+                self.assertEqual(launch_argv,
+                                 ['/usr/local/libexec/labwc-waybar-run', '--output-class=' + output_class,
+                                  '--', '/usr/local/bin/labwc-main-menu'])
+                apps = bar['group/apps']['drawer']
+                self.assertTrue(apps['click-to-reveal'])
+                for module in ('custom/tomat', 'custom/wayscriber'):
+                    self.assertEqual(bar[module]['menu'], 'on-click')
+                    self.assertNotIn('on-click-release', bar[module])
 
     def test_every_action_has_the_intended_backend_not_just_an_existing_id(self):
         expected = {
             'custom/tomat': {
                 'tomat_default': ['start', 'default'], 'tomat_25': ['start', '25'],
                 'tomat_50': ['start', '50'], 'tomat_90': ['start', '90'],
-                'tomat_custom': ['config'],
+                'tomat_custom': ['custom'],
                 'tomat_toggle': ['toggle'], 'tomat_skip': ['skip'], 'tomat_stop': ['stop'],
                 'tomat_config': ['config'], 'tomat_notifications': ['settings', 'notifications'],
-                'tomat_sounds': ['settings', 'sounds'], 'tomat_test': ['start', 'test']},
-            'clock': {key: [value] for key, value in CALENDAR.items()},
+                'tomat_sounds': ['settings', 'sounds'],
+                'tomat_overlays': ['settings', 'overlays'], 'tomat_test': ['start', 'test']},
             'custom/notifications': {
                 'notifications_center': ['center'], 'notifications_restore': ['restore'],
                 'notifications_dnd_on': ['dnd-on'], 'notifications_dnd_off': ['dnd-off'],
@@ -143,9 +173,24 @@ class NativeMenuHoverTests(unittest.TestCase):
                 'power_logout': ['logout'], 'power_shutdown': ['poweroff']},
         }
         helpers = {'custom/tomat': '/usr/local/libexec/labwc-tomat',
-                   'clock': '/usr/local/bin/labwc-calendar',
                    'custom/notifications': '/usr/local/libexec/labwc-notifications',
                    'custom/power': '/usr/local/bin/labwc-power-settings'}
+        expected = {module: {key: [helpers[module], *args] for key, args in actions.items()}
+                    for module, actions in expected.items()}
+        expected['clock'] = CALENDAR
+        expected['custom/wayscriber'] = {
+            'wayscriber_open': ['/usr/bin/wayscriber', '--active'],
+            'wayscriber_read_only': ['/usr/bin/wayscriber', '--light-toggle'],
+            'wayscriber_freeze': ['/usr/bin/wayscriber', '--freeze'],
+            'wayscriber_toggle': ['/usr/bin/wayscriber', '--daemon-toggle'],
+            'wayscriber_light_draw': ['/usr/bin/wayscriber', '--light-draw-toggle'],
+            'wayscriber_session_info': ['/usr/bin/wayscriber', '--session-info'],
+            'wayscriber_open_config': ['/usr/local/bin/labwc-wayscriber-config'],
+            'wayscriber_about': ['/usr/bin/wayscriber', '--about'],
+            'wayscriber_clear_session': ['/usr/bin/wayscriber', '--clear-session'],
+            'wayscriber_clear_tool_state': ['/usr/bin/wayscriber', '--clear-tool-state'],
+            'wayscriber_languages': ['/usr/bin/wayscriber', '--list-languages'],
+        }
         audio = {
             'audio_open': ['pavucontrol'],
             'audio_mute': ['/usr/bin/wpctl', 'set-mute', '@DEFAULT_AUDIO_SINK@', 'toggle'],
@@ -161,10 +206,11 @@ class NativeMenuHoverTests(unittest.TestCase):
             for bar in bars:
                 for module, actions in expected.items():
                     self.assertEqual(set(bar[module]['menu-actions']), set(actions))
-                    self.assertTrue(payload_source_is_file(TARGET / helpers[module].lstrip('/')))
                     for key, args in actions.items():
+                        if args[0].startswith('/usr/local/'):
+                            self.assertTrue(payload_source_is_file(TARGET / args[0].lstrip('/')))
                         argv = shlex.split(bar[module]['menu-actions'][key])
-                        self.assertEqual(argv[argv.index('--') + 1:], [helpers[module], *args])
+                        self.assertEqual(argv[argv.index('--') + 1:], args)
                 for key, args in audio.items():
                     argv = shlex.split(bar['pulseaudio']['menu-actions'][key])
                     self.assertEqual(argv[argv.index('--') + 1:], args)
@@ -186,11 +232,11 @@ class NativeMenuHoverTests(unittest.TestCase):
         if not shutil.which('xvfb-run') or not ctypes.util.find_library('gtk-3'):
             self.skipTest('native GTK3 / Xvfb unavailable')
         report = gtk_menu_report()
-        self.assertEqual(report['profiles'], 10)
+        self.assertEqual(report['profiles'], 15)
         self.assertEqual(report['themes'], ['Adwaita', 'Adwaita-dark'])
-        self.assertEqual(report['menu_roots'], 10 * 2 * 2 * 2 * 5)
-        self.assertEqual(report['activations'], 10 * 2 * 2 * (41 + 37))
-        self.assertEqual(report['center_activations'], 10 * 2 * 2 * 2)
+        self.assertEqual(report['menu_roots'], 15 * 2 * 2 * 2 * 6)
+        self.assertEqual(report['activations'], 15 * 2 * 2 * (59 + 55))
+        self.assertEqual(report['center_activations'], 15 * 2 * 2 * 2)
         self.assertGreater(report['highlight_states'], 10000)
         self.assertGreater(report['disabled_states'], 100)
         self.assertEqual(report['hover_rgba'], [236, 184, 96, 0.16])
