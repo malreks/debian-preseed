@@ -103,6 +103,10 @@ APP_CONFIG = (
         ),
         "action_app": "vivaldi",
         "field_code": "%U",
+        # Vivaldi's vendor file contains its own action sections. The account
+        # launcher owns one canonical profile-selected Exec and must not copy
+        # those actions into a second wrapper lifecycle.
+        "actions": (),
     },
     {
         "desktop_names": ("code.desktop", "com.microsoft.VSCode.desktop"),
@@ -119,11 +123,17 @@ APP_CONFIG = (
     },
     {
         # The system entry is accelerator-neutral. Add only the GPU actions
-        # enabled by the installed class/hardware policy; retain its ANOM action.
+        # enabled by the installed class/hardware policy and recreate the
+        # project-owned ANOM action below. Vendor action sections are never
+        # copied into the account launcher.
         "desktop_names": ("tor-browser.desktop",),
         "action_app": "tor-browser",
         "field_code": "%u",
         "actions": ("IntelAccelerated", "NvidiaAccelerated"),
+        "policy_actions": (
+            ("ANOM", "ANOM (temporary state, Safest security)",
+             "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app pure-privacy tor-browser"),
+        ),
     },
     {
         "desktop_names": (
@@ -654,6 +664,7 @@ def synchronize_bitwarden_autostart(
             f"Bitwarden autostart entry lacks [Desktop Entry]: {autostart_path}"
         )
 
+    strip_desktop_actions(parser)
     entry = parser["Desktop Entry"]
     managed_command = managed_default_exec("bitwarden", "--autostart")
     changed = normalize_managed_launch_metadata(entry)
@@ -712,19 +723,27 @@ def add_actions(
     parser: configparser.ConfigParser,
     app_name: str,
     field_code: str,
-    enabled_actions: tuple[str, ...] = tuple(ACTION_SPECS),
+    enabled_actions: tuple[str, ...] = (),
+    policy_actions: tuple[tuple[str, str, str], ...] = (),
 ) -> None:
     entry = parser["Desktop Entry"]
-    managed_actions = set(ACTION_SPECS)
-    actions = list(
-        dict.fromkeys(
-            item.strip()
-            for item in entry.get("Actions", "").split(";")
-            if item.strip() and item.strip() not in managed_actions
-        )
-    )
-    for action in managed_actions:
-        parser.remove_section(f"Desktop Action {action}")
+    # Package-owned desktop files are untrusted metadata at this boundary.
+    # Remove every vendor action section and rebuild the complete action list
+    # from explicit project policy so raw vendor Exec values cannot survive
+    # package upgrades, aliases, or account synchronization.
+    for section in tuple(parser.sections()):
+        if section.startswith("Desktop Action "):
+            parser.remove_section(section)
+    actions: list[str] = []
+    policy_by_id: dict[str, tuple[str, str]] = {}
+    for action, display_name, command in policy_actions:
+        if (re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", action) is None
+                or not display_name or not command):
+            raise RuntimeError(f"invalid project desktop action: {action!r}")
+        if action in policy_by_id or action in ACTION_SPECS:
+            raise RuntimeError(f"duplicate project desktop action: {action}")
+        policy_by_id[action] = (display_name, command)
+        actions.append(action)
     for action in enabled_actions:
         if action not in ACTION_SPECS:
             raise RuntimeError(f"unknown managed desktop action: {action}")
@@ -735,13 +754,28 @@ def add_actions(
     else:
         entry.pop("Actions", None)
 
+    for action, (display_name, command) in policy_by_id.items():
+        section = f"Desktop Action {action}"
+        parser.add_section(section)
+        parser[section]["Name"] = display_name
+        parser[section]["Exec"] = command
+
     for action in enabled_actions:
         mode, display_name = ACTION_SPECS[action]
         section = f"Desktop Action {action}"
-        if not parser.has_section(section):
-            parser.add_section(section)
+        parser.add_section(section)
         parser[section]["Name"] = display_name
         parser[section]["Exec"] = managed_exec(mode, app_name, field_code)
+
+
+def strip_desktop_actions(parser: configparser.ConfigParser) -> None:
+    """Remove vendor action sections from non-launcher desktop metadata."""
+    entry = parser["Desktop Entry"] if parser.has_section("Desktop Entry") else None
+    for section in tuple(parser.sections()):
+        if section.startswith("Desktop Action "):
+            parser.remove_section(section)
+    if entry is not None:
+        entry.pop("Actions", None)
 
 
 def find_desktop_file(desktop_names: tuple[str, ...]) -> tuple[str, str] | None:
@@ -925,23 +959,6 @@ def main() -> int:
         if config.get("no_display"):
             entry["NoDisplay"] = "true"
             entry["MimeType"] = "x-scheme-handler/vscode;"
-        if config["action_app"] in WAYLAND_COMPAT_APPS:
-            for section in parser.sections():
-                if section.startswith("Desktop Action ") and "Exec" in parser[section]:
-                    parser[section]["Exec"] = managed_default_exec(config["action_app"], config["field_code"], config.get("default_mode"))
-        else:
-            # Vendor actions (for example Code's New Window) must use the same
-            # managed dispatch and unlock boundary as the main Exec command.
-            for section in parser.sections():
-                if section.startswith("Desktop Action ") and "Exec" in parser[section]:
-                    command = parser[section]["Exec"].strip()
-                    if command and not command.startswith((
-                        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app ", "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/chatgpt ",
-                        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-qbittorrent ",
-                        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app ",
-                        "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-electron-app ",
-                    )):
-                        parser[section]["Exec"] = "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app auto -- " + command
         if config["action_app"] == "tutanota":
             entry["MimeType"] = ";".join(TUTA_SCHEMES) + ";"
             entry["X-GNOME-UsesNotifications"] = "true"
@@ -950,9 +967,10 @@ def main() -> int:
             config["action_app"],
             config["field_code"],
             available_actions(
-                config.get("actions", tuple(ACTION_SPECS)),
+                config.get("actions", ()),
                 acceleration_availability,
             ),
+            tuple(config.get("policy_actions", ())),
         )
         try:
             processed += int(write_desktop_file(destination_path, parser, uid, gid, validate))

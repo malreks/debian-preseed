@@ -144,7 +144,12 @@ MANAGER = '__INSTALLER_PATH_DIR_USR_BIN__/systemctl'
 DEADLINE = time.monotonic() + 45
 LIMIT = 2 * 1024 * 1024
 CAPTURE_BYTES = 0
-UNIT = re.compile(r'[A-Za-z0-9_@.\\:-]{1,255}')
+# systemd escapes punctuation in device/mount instance names as ``\\xNN``.
+# Relationship properties can also contain other printable unit-name
+# punctuation, but never controls, whitespace, path separators or assignment
+# delimiters. Keep the value bounded before passing it back as a systemctl
+# argument; do not treat manager metadata as shell text.
+UNIT = re.compile(r'(?=.{1,255}\Z)(?:\\x[0-9A-Fa-f]{2}|[^\x00-\x20/\\=])+\Z')
 STRICT = {'apparmor.service', 'auditd.service', 'journal-sealing.service',
           'nftables.service', 'rsyslog.service',
           'rsyslog-journal-forwarding.service', 'syslog.socket'}
@@ -320,6 +325,10 @@ def dependencies(record):
     names = set()
     for key in ('Requires', 'TriggeredBy', 'WantedBy', 'RequiredBy'):
         for name in record.get(key, '').split():
+            # Some systemd unit types report an unset relationship as a
+            # sentinel. It is metadata, not a unit identity.
+            if name in {'n/a', '-'}:
+                continue
             if not UNIT.fullmatch(name):
                 raise ValueError('invalid-related-unit')
             names.add(name)
@@ -355,10 +364,13 @@ def classify(name, record, related):
     if (record.get('Type') == 'oneshot' and stamp.isdecimal() and int(stamp) > 0
             and record.get('Result') == 'success'):
         return 'verified', 'oneshot-completed'
-    triggers = record.get('TriggeredBy', '').split()
+    triggers = [item for item in record.get('TriggeredBy', '').split()
+                if item in related]
     if triggers and any(related[item]['ActiveState'] == 'active' for item in triggers):
         return 'expected', 'armed-by-active-trigger'
-    parents = (record.get('WantedBy', '') + ' ' + record.get('RequiredBy', '')).split()
+    parents = [item for item in
+               (record.get('WantedBy', '') + ' ' + record.get('RequiredBy', '')).split()
+               if item in related]
     if name not in STRICT and parents and all(
             related[item]['LoadState'] == 'loaded' and
             related[item]['ActiveState'] == 'inactive' for item in parents):
@@ -376,8 +388,7 @@ def main():
     for unused in range(32):
         extra = set()
         for record in records.values():
-            dependencies(record)
-            extra.update(record.get('Requires', '').split())
+            extra.update(dependencies(record))
         extra -= required
         if not extra:
             break
@@ -1866,7 +1877,7 @@ else
 fi
 
 if command -v systemctl >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
-  capture security-baseline-units.txt systemctl status apparmor.service apparmor-modes.service auditd.service nftables.service ssh.service ssh.socket sshd.service --no-pager --lines=40
+  capture security-baseline-units.txt systemctl status apparmor.service apparmor-modes.service auditd.service nftables.service ssh.service ssh.socket --no-pager --lines=40
   log_line security-baseline info systemd "security_unit_status_collected=true"
 fi
 

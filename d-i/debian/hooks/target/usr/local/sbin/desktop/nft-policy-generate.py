@@ -1308,7 +1308,8 @@ def render_filter(policy: Mapping[str, Any], maps: Mapping[str, Dict[str, Any]],
     web_ports = app_veth_web_tls_ports(policy)
     if web_ports:
         # The earlier app_veth.host_guard admits only allocated browser leases
-        # on these ports; the base hook must also admit those host WebUI flows.
+        # on these managed web ports; the base hook must also admit host WebUI
+        # flows on the same allowlist.
         lines.append(add_rule(policy, input_chain, f'iifname {app_interfaces} meta l4proto tcp tcp dport {nft_set(web_ports)} accept' + comment_expr("managed browser host HTTPS")))
     lines.append(add_rule(policy, forward_chain, f'iifname {app_interfaces} accept' + comment_expr("app veth guarded egress")))
     lines.append(add_rule(policy, forward_chain, f'oifname {app_interfaces} accept' + comment_expr("app veth guarded ingress")))

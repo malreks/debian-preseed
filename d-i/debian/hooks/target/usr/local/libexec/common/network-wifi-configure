@@ -363,7 +363,20 @@ def main():
         PHASE = 'reconcile'
         if dispatcher:
             if args[2] != 'down':
-                reconcile(policy, args[1])
+                try:
+                    reconcile(policy, args[1])
+                except ConfigurationError as exc:
+                    # ifupdown is the owner of the Ethernet transition.  At
+                    # boot its hook can run before NetworkManager has opened
+                    # its control socket; defer this advisory preference pass
+                    # to the next NetworkManager event instead of logging a
+                    # false physical-network failure or failing ifup.
+                    message = str(exc)
+                    if ' native_exit=' not in message:
+                        raise
+                    reason = message.split(' native_exit=', 1)[0][:160]
+                    print(f'physical-network phase=reconcile reason=deferred:{reason} status=deferred',
+                          file=sys.stderr)
         elif carrier:
             # Link-down route suppression is kernel-owned; do not disconnect
             # the fallback AP or change radio state from a carrier event.

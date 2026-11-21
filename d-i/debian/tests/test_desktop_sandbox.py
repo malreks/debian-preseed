@@ -81,7 +81,8 @@ class LauncherSynchronizationTests(unittest.TestCase):
                 parser.optionxform = str
                 parser.read_string(source)
                 self.launcher.add_actions(parser, 'tor-browser', config['field_code'],
-                    self.launcher.available_actions(config['actions'], {'intel': intel, 'nvidia': nvidia}))
+                    self.launcher.available_actions(config['actions'], {'intel': intel, 'nvidia': nvidia}),
+                    config['policy_actions'])
                 expected = ['ANOM']
                 if intel:
                     expected.append('IntelAccelerated')

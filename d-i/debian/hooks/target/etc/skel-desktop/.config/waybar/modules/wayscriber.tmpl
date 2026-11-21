@@ -1,17 +1,15 @@
 {
   "custom/wayscriber": {
-    "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-exec __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events wayscriber",
+    "exec": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-exec __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state status wayscriber",
     "return-type": "json",
-    "exec-on-event": false,
-    "restart-interval": 30,
     "signal": 8,
-    "format": "✎",
+    "format": " ",
     "align": 0.5,
     "justify": "center",
     "cursor": true,
     "tooltip": true,
     "tooltip-format": "Wayscriber",
-    "menu": "on-click",
+    "on-click-release": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run --menu=wayscriber",
     "on-click-right-release": "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run -- __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayscriber-toggle",
     "menu-file": "~/.config/waybar/gtk/wayscriber-menu.xml",
     "menu-actions": {

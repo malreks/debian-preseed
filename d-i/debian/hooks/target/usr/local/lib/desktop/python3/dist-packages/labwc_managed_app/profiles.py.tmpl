@@ -747,6 +747,8 @@ PERSISTENT_SANDBOX_CONFIG = {
     "chromium": {
         **NATIVE_VETH_SANDBOX_DEFAULTS,
         "camera_devices": True,
+        "usb_devices": True,
+        "usb_hotplug": True,
         "persistent_paths": (".cache/chromium", ".config/chromium", ".pki/nssdb",
                              ".local/state/browser-devtools/chromium"),
         "ro_bind_paths": ("__INSTALLER_PATH_DIR_ETC_OPT__/chrome",),
@@ -754,6 +756,8 @@ PERSISTENT_SANDBOX_CONFIG = {
     "microsoft-edge": {
         **NATIVE_VETH_SANDBOX_DEFAULTS,
         "camera_devices": True,
+        "usb_devices": True,
+        "usb_hotplug": True,
         "persistent_paths": (".cache/microsoft-edge", ".config/microsoft-edge",
                              ".pki/nssdb", ".local/state/browser-devtools/microsoft-edge"),
         "ro_bind_paths": ("__INSTALLER_PATH_DIR_OPT__/microsoft/msedge", "__INSTALLER_PATH_DIR_ETC_OPT__/edge", "__INSTALLER_PATH_DIR_ETC_OPT__/chrome"),
@@ -761,6 +765,8 @@ PERSISTENT_SANDBOX_CONFIG = {
     "vivaldi": {
         **NATIVE_VETH_SANDBOX_DEFAULTS,
         "camera_devices": True,
+        "usb_devices": True,
+        "usb_hotplug": True,
         # Chromium appends its instance PID to the MPRIS name. Own only this
         # application's namespace through the filtered session-bus proxy.
         "dbus_own_names": ("org.mpris.MediaPlayer2.vivaldi.*",),
@@ -771,6 +777,8 @@ PERSISTENT_SANDBOX_CONFIG = {
     "mullvad-browser": {
         **NATIVE_VETH_SANDBOX_DEFAULTS,
         "camera_devices": True,
+        "usb_devices": True,
+        "usb_hotplug": True,
         "persistent_paths": (".mullvad-browser", ".mullvad/mullvadbrowser",
                              ".cache/mullvad/mullvadbrowser"),
     },

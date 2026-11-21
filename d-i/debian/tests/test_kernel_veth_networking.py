@@ -3611,6 +3611,12 @@ configure_target_rootless_podman
                 self.assertNotIn("veth", policy)
         for app in ("keepassxc", "sleek", "mpv", "retroarch"):
             self.assertNotIn(app, DEFAULT_POLICIES)
+        for app in ("chromium", "microsoft-edge", "vivaldi", "mullvad-browser"):
+            with self.subTest(ledger_browser=app):
+                self.assertTrue(profiles.PERSISTENT_SANDBOX_CONFIG[app]["usb_devices"])
+                self.assertTrue(profiles.PERSISTENT_SANDBOX_CONFIG[app]["usb_hotplug"])
+        self.assertTrue(profiles.PERSISTENT_SANDBOX_CONFIG["ledger-live"]["usb_devices"])
+        self.assertNotIn("usb_hotplug", profiles.PERSISTENT_SANDBOX_CONFIG["ledger-live"])
 
     def test_packages_do_not_install_packet_proxies(self):
         for path in (SEED/"classes").rglob("*.cfg"):

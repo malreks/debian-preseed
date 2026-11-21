@@ -80,9 +80,10 @@ class FixedShellArgumentFixtures(unittest.TestCase):
                             trampoline.command(arguments + ['extra'])
                     count += 1
             self.assertGreaterEqual(count, 6)
-            for removed in ('power', 'wayscriber'):
-                with self.assertRaises(ValueError):
-                    trampoline.command(['/usr/local/libexec/labwc-waybar-state', 'status', removed])
+            with self.assertRaises(ValueError):
+                trampoline.command(['/usr/local/libexec/labwc-waybar-state', 'status', 'power'])
+            self.assertTrue(
+                trampoline.command(['/usr/local/libexec/labwc-waybar-state', 'status', 'wayscriber']))
 
     def test_rendered_cpu_memory_commands_cross_the_real_shell_without_expansion(self):
         seed = Path(__file__).resolve().parents[1]

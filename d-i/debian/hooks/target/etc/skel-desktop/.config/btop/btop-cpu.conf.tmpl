@@ -9,7 +9,9 @@ graph_symbol = "braille"
 graph_symbol_cpu = "default"
 graph_symbol_gpu = "default"
 graph_symbol_proc = "default"
-shown_boxes = "cpu proc"
+# The Waybar terminal is fixed at 26 rows.  Keeping the process box here
+# requires 34 rows and makes the CPU button fail before btop can render.
+shown_boxes = "cpu"
 update_ms = 2000
 proc_sorting = "cpu direct"
 proc_reversed = False

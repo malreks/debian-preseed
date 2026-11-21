@@ -18,6 +18,8 @@ BINARY = Path('__INSTALLER_PATH_DIR_USR_LIBEXEC__/hyprpolkitagent')
 QUERY = '__INSTALLER_PATH_DIR_USR__/bin/dpkg-query'
 QUERY_ENV = {'PATH': '__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin', 'LC_ALL': 'C'}
 EX_CONFIG = 78
+DRM_BY_PATH = Path('__INSTALLER_PATH_DIR_DEV__/dri/by-path')
+DRM_PATH_NAME = re.compile(r'pci-[0-9a-fA-F:.]+-card\\Z')
 
 
 def package_query(*arguments: str) -> str:
@@ -32,23 +34,16 @@ def check_metadata(record: str) -> str:
     if len(fields) != 3 or fields[0] != 'installed':
         raise ValueError('hyprpolkitagent is not fully installed')
     version, depends = fields[1:]
-    # Debian owns the candidate version. Compatibility is a dependency contract,
-    # never an exact version gate. Trixie backports and Forky carry different
-    # supported implementations of the same PolicyKit agent protocol.
-    if not re.fullmatch(r'[0-9][0-9A-Za-z.+:~_-]{0,127}', version):
-        raise ValueError('invalid native hyprpolkitagent version metadata')
+    # The reviewed Qt 0.1.3 implementation is the only version known to
+    # negotiate Labwc's layer-shell protocol correctly. Reject the native 0.2.x
+    # build before it can enter the user service and abort during GBM setup.
+    if not re.fullmatch(r'0\.1\.3-[0-9A-Za-z.+:~_-]{1,127}', version):
+        raise ValueError('unsupported hyprpolkitagent version; require Debian Qt 0.1.3')
     packages = {item.strip().split()[0].split(':')[0]
                 for item in re.split(r'[,|]', depends) if item.strip()}
     qt = {'libpolkit-qt6-1-1', 'libqt6quickcontrols2-6', 'polkitd'} <= packages
-    # The native toolkit uses standard xdg-shell and the same freedesktop
-    # AuthenticationAgent D-Bus protocol; a toolkit change is not a Hyprland
-    # compositor requirement. Keep the complete native dependency shape.
-    native = ('polkitd' in packages and all(
-        any(re.fullmatch(pattern, package) for package in packages)
-        for pattern in (r'libhyprtoolkit[0-9]+', r'libhyprlang[0-9]+',
-                        r'libhyprutils[0-9]+', r'libsdbus-c\+\+[0-9]+')))
-    if not (qt or native):
-        raise ValueError('packaged agent lacks a supported toolkit/PolicyKit dependency contract')
+    if not qt:
+        raise ValueError('packaged Qt agent lacks the required PolicyKit dependency contract')
     return version
 
 
@@ -64,6 +59,40 @@ def check_binary() -> None:
     owner = package_query('-S', str(BINARY)).strip()
     if not re.fullmatch(r'hyprpolkitagent(?::[a-z0-9][a-z0-9-]*)?: ' + re.escape(str(BINARY)), owner):
         raise ValueError('hyprpolkitagent executable is diverted or not owned by its Debian package')
+
+
+def drm_devices() -> list[str]:
+    """Return stable card identities for Aquamarine's primary-device search.
+
+    On hybrid laptops the default Wayland-device probe can start from the
+    NVIDIA card even though the compositor is scanning out on Intel.  The
+    by-path names bind the selection to PCI identity, so enumeration order
+    cannot make the authentication agent pick an unusable card.  If the
+    target has no by-path cards, leave Aquamarine's normal discovery intact.
+    """
+    try:
+        entries = sorted(DRM_BY_PATH.iterdir(), key=lambda item: item.name)
+    except OSError:
+        return []
+    preferred = 'pci-0000:00:02.0-card'
+    entries.sort(key=lambda item: (item.name != preferred, item.name))
+    devices: list[str] = []
+    for path in entries:
+        if DRM_PATH_NAME.fullmatch(path.name) is None:
+            continue
+        try:
+            info = path.stat()
+        except OSError:
+            continue
+        if stat.S_ISCHR(info.st_mode) and info.st_uid == 0:
+            devices.append(str(path))
+    # The P15s scanout card is known from the target hardware record. Do not
+    # make the small authentication client initialize the secondary NVIDIA
+    # card, whose driver exposes no usable CRTC/PRIME path on this machine.
+    primary = next((path for path in devices if Path(path).name == preferred), None)
+    if primary is not None:
+        return [primary]
+    return devices
 
 
 def check() -> str:
@@ -82,6 +111,9 @@ def launch_environment() -> dict[str, str]:
         env.pop(key, None)
     env.update(QT_QPA_PLATFORM='wayland', QT_QUICK_BACKEND='software',
                QT_NO_XDG_DESKTOP_PORTAL='1', AQ_NO_MODIFIERS='1')
+    devices = drm_devices()
+    if devices:
+        env['AQ_DRM_DEVICES'] = ':'.join(devices)
     return env
 
 

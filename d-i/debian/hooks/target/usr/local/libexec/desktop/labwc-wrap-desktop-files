@@ -2,7 +2,9 @@
 """Idempotent local overrides of package-owned desktop entries; never write vendor files.
 
 No shell evaluation, user-profile sourcing, dpkg writes, or user-home writes.
-Desktop Exec text is prefixed verbatim: quoting and % field codes are preserved.
+Desktop Entry Exec text is rewritten through the managed wrapper: quoting and
+% field codes are preserved, raw vendor Desktop Action sections are removed,
+and canonical project-managed action sections remain launchable.
 """
 from __future__ import annotations
 from contextlib import contextmanager
@@ -211,6 +213,53 @@ def original_generic_exec(value: str) -> str | None:
     return match.group(1) if match else None
 
 
+def managed_action_sections(lines: list[str]) -> tuple[str, ...]:
+    """Return only action groups whose Exec is already project-managed.
+
+    System reconciliation receives untrusted package metadata, while the
+    account menu calls ``rewrite_desktop`` again on entries that the project
+    generated itself. Keep the same rewrite function usable at both
+    boundaries: raw vendor actions are discarded, but an action whose
+    executable is one of our fixed entrypoints is retained verbatim.
+    """
+    section = ''
+    action_id = ''
+    action_exec: dict[str, str] = {}
+    declared_actions: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            section = stripped
+            action_id = ''
+            if section.startswith('[Desktop Action ') and section.endswith(']'):
+                action_id = section[len('[Desktop Action '):-1]
+                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', action_id) is None:
+                    action_id = ''
+            continue
+        if section == '[Desktop Entry]':
+            key, separator, value = line.partition('=')
+            if separator and key.strip() == 'Actions' and not declared_actions:
+                for candidate in value.strip().split(';'):
+                    if (candidate and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', candidate)
+                            and candidate not in declared_actions):
+                        declared_actions.append(candidate)
+        if action_id and section == f'[Desktop Action {action_id}]':
+            key, separator, value = line.partition('=')
+            if separator and key.strip() == 'Exec' and action_id not in action_exec:
+                action_exec[action_id] = value.strip()
+    managed = []
+    for action_id in declared_actions:
+        value = action_exec.get(action_id, '')
+        try:
+            if value and managed_exec(value):
+                managed.append(action_id)
+        except InvalidDesktop:
+            # A malformed vendor action is removed with the other raw action
+            # sections; it must not make the main launcher unavailable.
+            continue
+    return tuple(managed)
+
+
 def repair_known_vendor_entry(name: str, text: str) -> str:
     """Repair only the known vendor desktop entry defects.
 
@@ -246,6 +295,8 @@ def repair_known_vendor_entry(name: str, text: str) -> str:
 
 def rewrite_desktop(text: str, prefix: str) -> str:
     lines = text.splitlines(keepends=True)
+    managed_actions = managed_action_sections(lines)
+    managed_action_groups = {f'[Desktop Action {action}]' for action in managed_actions}
     section = ''
     main = {}
     for line in lines:
@@ -271,13 +322,26 @@ def rewrite_desktop(text: str, prefix: str) -> str:
         return text
     terminal = main.get('Terminal') == 'true'
     section = ''
+    keep_action_section = True
     result = []
     for line in lines:
         stripped = line.strip()
         if stripped.startswith('[') and stripped.endswith(']'):
             section = stripped
+            keep_action_section = (not section.startswith('[Desktop Action ')
+                                   or section in managed_action_groups)
+            if not keep_action_section:
+                continue
+        if not keep_action_section:
+            continue
         key, separator, value = line.partition('=')
-        application_section = section == '[Desktop Entry]' or section.startswith('[Desktop Action ')
+        application_section = section == '[Desktop Entry]'
+        if separator and section == '[Desktop Entry]' and key.strip() == 'Actions':
+            actions = list(managed_actions)
+            if not actions:
+                continue
+            ending = '\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else ''
+            line = key + '=' + ';'.join(actions) + ';' + ending
         if separator and application_section and key.strip() == 'Exec' and value.strip():
             original = original_generic_exec(value.strip())
             managed = compatibility_exec(original if original is not None else value.strip())

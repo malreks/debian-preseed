@@ -542,6 +542,7 @@ desktop_stage_target_assets() {
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-session-check __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-session-check 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-primary-gpg __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-primary-gpg 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-waybar-exec __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-exec 0755
+  desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-waybar-menu __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-menu 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-waybar-run __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-run 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-waybar-state __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-waybar-state 0755
   desktop_stage_role_asset hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_waybar_state.py "${DIR_PYTHON3_SITE_PACKAGES}/labwc_waybar_state.py" 0644

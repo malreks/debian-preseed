@@ -13699,34 +13699,6 @@
     },
     {
       "consumer": {
-        "module": "hooks/target/etc/skel-desktop/.config/waybar/modules/backlight.tmpl",
-        "source_members": [
-          "hooks/target/etc/skel-desktop/.config/waybar/modules/backlight.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_LABWC_WAYBAR_BACKLIGHT_DEVICE",
-      "namespace": "SCALAR",
-      "owner": {
-        "function": "typed-consumer",
-        "module": "hooks/target/etc/skel-desktop/.config/waybar/modules/backlight.tmpl",
-        "phase": "target-asset"
-      },
-      "producer_map": "typed consumer contract",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "target-asset"
-      ],
-      "syntax": "consumer-defined-validated-scalar-or-block",
-      "token": "__INSTALLER_LABWC_WAYBAR_BACKLIGHT_DEVICE__"
-    },
-    {
-      "consumer": {
         "module": "hooks/target/etc/skel-desktop/.config/waybar/style/apps.css.tmpl",
         "source_members": [
           "hooks/target/etc/skel-desktop/.config/waybar/style/apps.css.tmpl",

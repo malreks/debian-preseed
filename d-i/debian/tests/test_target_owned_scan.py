@@ -209,7 +209,7 @@ installer_target_ownership_snapshot >"$HOME/owned-snapshot.tsv"
     def test_app_veth_runtime_template_passes_final_ownership_scan(self):
         source = 'hooks/target/etc/app-veth.nft.tmpl'
         data = (SEED / source).read_text(encoding='utf-8').replace(
-            '__INSTALLER_PROXY3_PORTS_ALLOW_WEB_BROWSER__', '443,8443,53443')
+            '__INSTALLER_PROXY3_PORTS_ALLOW_WEB_BROWSER__', '443,5380,8443,53443')
         result = self.scan([('/etc/app-veth.nft', source, 'template', data)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

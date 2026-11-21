@@ -55,8 +55,9 @@ authoritative.
 - `WAYBAR_FONT_WEIGHT_NORMAL` is the shared normal theme value and is now 500
   for the external status bar requirement. Keep the key in the theme schema and
   preserve user-editable mappings.
-- The brightness module remains native with `cursor: true`; Wayscriber keeps
-  its staged symbolic SVG, visible fallback glyph, canonical XML IDs, action
+- The brightness module remains native with `cursor: true` and lets Waybar
+  select the available backlight device. Wayscriber keeps its staged blue
+  symbolic pen SVG (with a space text fallback), canonical XML IDs, action
   map, and existing transient popup owner. Do not convert either control to a
   second custom module or popup protocol.
 

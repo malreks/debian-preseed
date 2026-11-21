@@ -42,19 +42,63 @@ def unique(pairs):
     return result
 
 
+POPUP_MENU_BUTTONS = {
+    'custom/wayscriber': 'wayscriber',
+}
+
+
+def validate_popup_owner(module_name, value, runner, dispatcher):
+    """Validate the explicitly owned release-event popup contract.
+
+    Waybar's native ``menu`` property is a press-event owner.  Wayscriber is
+    the one custom module whose menu is owned by ``labwc-waybar-menu`` so its
+    active marker can follow GTK menu destruction; accepting it as a native
+    menu would register a second owner and make installation non-deterministic.
+    """
+    button = POPUP_MENU_BUTTONS.get(module_name)
+    if button is None:
+        return False
+    if (value.get('menu') is not None
+            or any(event in value for event in ('on-click', 'on-click-right', 'on-click-middle'))
+            or 'actions' in value):
+        raise ValueError('popup menu must have exactly one registered release-event owner')
+    command = value.get('on-click-release')
+    try:
+        arguments = shlex.split(command) if isinstance(command, str) else []
+    except ValueError as error:
+        raise ValueError('popup menu owner has invalid command quoting') from error
+    expected = [str(runner), '--menu=' + button]
+    if arguments != expected:
+        raise ValueError('popup menu must have exactly one registered release-event owner')
+    dispatcher.normalize_command(arguments[1:])
+    secondary = value.get('on-click-right-release')
+    if secondary is None:
+        raise ValueError('popup menu must retain its fixed secondary release action')
+    try:
+        secondary_arguments = shlex.split(secondary)
+    except ValueError as error:
+        raise ValueError('popup menu secondary action has invalid command quoting') from error
+    if not secondary_arguments or secondary_arguments.pop(0) != str(runner):
+        raise ValueError('popup menu secondary action bypasses the fixed dispatcher')
+    dispatcher.normalize_command(secondary_arguments)
+    return True
+
+
 def validate_entries(root, runner, dispatcher, module, used_menus):
     menus = 0
     # Some authored fragments contain related modules, such as system/settings.
     if not isinstance(module, dict) or not 1 <= len(module) <= 16:
         raise ValueError('invalid rendered module identity')
-    for value in module.values():
+    for module_name, value in module.items():
         if not isinstance(value, dict):
             raise ValueError('invalid rendered module configuration')
         if 'menu-actions' not in value:
             continue
         event, actions, filename = value.get('menu'), value['menu-actions'], value.get('menu-file')
-        if (event not in ('on-click', 'on-click-right', 'on-click-middle') or event in value
-                or event + '-release' in value or event in value.get('actions', {})):
+        popup_owner = validate_popup_owner(module_name, value, runner, dispatcher)
+        if not popup_owner and (event not in ('on-click', 'on-click-right', 'on-click-middle')
+                                or event in value or event + '-release' in value
+                                or event in value.get('actions', {})):
             raise ValueError('native menu must have exactly one registered press-event owner')
         if (not isinstance(actions, dict) or not actions or len(actions) > 128
                 or not isinstance(filename, str)

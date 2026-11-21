@@ -9,7 +9,8 @@ import stat
 
 
 BUTTONS = frozenset({
-    "cpu", "memory", "storage", "taskview",
+    "cpu", "memory", "notifications", "power", "storage", "taskview",
+    "tomat", "wayscriber",
 })
 ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 STATE_NAME = "labwc-waybar-state"

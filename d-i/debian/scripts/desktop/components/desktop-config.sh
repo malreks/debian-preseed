@@ -116,24 +116,6 @@ desktop_waybar_modules_right_json() {
   esac
 }
 
-desktop_waybar_backlight_device() {
-  # Waybar's empty device selector performs native backlight auto-selection.
-  # Known laptop hardware uses the stable intel_backlight sysfs interface;
-  # generic profiles must retain Waybar's screen-backlight preference.
-  case "${SYSTEM_HARDWARE_SPEC:-}" in
-    '')
-      printf '%s\n' ''
-      ;;
-    79-thinkpad-acpi.conf|79-ideapad-acpi.conf|79-chromebook.conf)
-      printf '%s\n' intel_backlight
-      ;;
-    *)
-      desktop_fatal "unsupported SYSTEM_HARDWARE_SPEC for Waybar backlight: ${SYSTEM_HARDWARE_SPEC}"
-      return 1
-      ;;
-  esac
-}
-
 desktop_waybar_output_selectors_json() {
   selector_mode=$1
   desktop_validate_internal_output_prefixes || return 1

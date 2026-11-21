@@ -53,7 +53,8 @@ MODULES = (('custom/tomat', 'tomat', 'on-click'),
            ('custom/notifications', 'notifications', 'on-click'),
            ('custom/power', 'power', 'on-click'),
            ('clock', 'calendar', 'on-click'),
-           ('custom/wayscriber', 'wayscriber', 'on-click'))
+           ('backlight', 'brightness', 'on-click'))
+POPUP_MODULES = MODULES + (('custom/wayscriber', 'wayscriber', 'popup'),)
 
 RELEASE_BINDINGS = (
     ('custom/launcher', 'on-click-release', 'on-click'),
@@ -68,7 +69,10 @@ RELEASE_BINDINGS = (
 class MenuContractTests(unittest.TestCase):
     def test_release_binding_matrix_preserves_native_controls(self):
         for bar in bars():
-            for module in ('backlight', 'custom/battery', 'clock'):
+            self.assertEqual(bar['backlight']['menu'], 'on-click')
+            self.assertNotIn('on-click', bar['backlight'])
+            self.assertNotIn('on-click-release', bar['backlight'])
+            for module in ('custom/battery', 'clock'):
                 self.assertEqual(bar[module]['menu'], 'on-click')
                 self.assertNotIn('on-click', bar[module])
                 self.assertNotIn('on-click-release', bar[module])
@@ -110,7 +114,7 @@ class MenuContractTests(unittest.TestCase):
                     self.assertEqual(argv[:boundary], ['/usr/local/libexec/labwc-waybar-run'])
                     self.assertGreater(len(argv[boundary + 1:]), 0)
                     count += 1
-        self.assertEqual(count, 118)
+        self.assertEqual(count, 110)
 
     def test_calendar_mapping_and_secondary_clicks(self):
         for bar in bars():
@@ -161,7 +165,7 @@ class MenuContractTests(unittest.TestCase):
                 actual.add(target[1])
             self.assertEqual(actual, set(helper.ACTIONS) | {'center'})
 
-    def test_all_six_menu_assets_are_explicitly_staged(self):
+    def test_all_seven_menu_assets_are_explicitly_staged(self):
         source = payload_read_text(FORKY / 'scripts/desktop/components.sh')
         start = source.index('desktop_stage_waybar_native_menus() {')
         function = source[start:source.index('\n}\n', start) + 3]
@@ -173,7 +177,7 @@ class MenuContractTests(unittest.TestCase):
             result = subprocess.run(payload_installed_argv(['/bin/sh', '-eu', '-c', script]), text=True,
                                     capture_output=True, timeout=5, cwd=work, check=True)
         staged = [line.split('\t') for line in result.stdout.splitlines()]
-        for _, name, _ in MODULES:
+        for _, name, _ in POPUP_MODULES:
             path = f'etc/skel-desktop/.config/waybar/gtk/{name}-menu.xml'
             self.assertIn([path, '/' + path, '0644'], staged)
             self.assertTrue(payload_source_is_file(TARGET / path))
@@ -181,7 +185,9 @@ class MenuContractTests(unittest.TestCase):
     def test_wayscriber_left_menu_keeps_right_click_toggle_and_light_passthrough(self):
         for bar in bars():
             entry = bar['custom/wayscriber']
-            self.assertEqual(entry['menu'], 'on-click')
+            self.assertNotIn('menu', entry)
+            self.assertEqual(shlex.split(entry['on-click-release']),
+                             ['/usr/local/libexec/labwc-waybar-run', '--menu=wayscriber'])
             self.assertEqual(shlex.split(entry['on-click-right-release']),
                              ['/usr/local/libexec/labwc-waybar-run', '--',
                               '/usr/local/bin/labwc-wayscriber-toggle'])

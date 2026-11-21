@@ -18,7 +18,7 @@ import uuid
 from labwc_waybar_state import BUTTONS, ID_RE, active as marker_active
 RUNTIME_ROOT = Path("__INSTALLER_PATH_DIR_RUN_USER__")
 STATE_NAME = "labwc-waybar-state"
-NOTIFY_BUTTONS = frozenset({"taskview"})
+NOTIFY_BUTTONS = frozenset({"notifications", "power", "taskview", "tomat", "wayscriber"})
 WAYBAR_SIGNAL = ("__INSTALLER_PATH_DIR_USR__/bin/systemctl", "--user", "--quiet", "kill",
                  "--kill-whom=main", "--signal=RTMIN+8", "waybar.service")
 

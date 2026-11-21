@@ -22,7 +22,7 @@ runtime_root="__INSTALLER_PATH_DIR_RUN_USER__/$runtime_uid"
 # Directory link counts vary with the filesystem and its child directories.
 # The caller's canonical, non-symlink 0700 directory is the access boundary.
 [ ! -L "$runtime_root" ] && [ -d "$runtime_root" ] &&
-  [ "$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$runtime_root" -maxdepth 0 -printf '%U %m' 2>__INSTALLER_PATH_DIR_DEV__/null || true)" = "$runtime_uid 700" ] || {
+  [ "$(__INSTALLER_PATH_DIR_USR__/bin/stat -c '%u %a' -- "$runtime_root" 2>__INSTALLER_PATH_DIR_DEV__/null || true)" = "$runtime_uid 700" ] || {
   printf '%s\n' 'labwc-window-switcher runtime directory is unsafe' >&2
   exit 1
 }
@@ -37,7 +37,7 @@ wayland_socket="$runtime_root/$wayland_display"
 # Socket permissions follow the compositor's umask; the private parent already
 # excludes other users. Require a real socket owned by this UID, not an alias.
 [ ! -L "$wayland_socket" ] && [ -S "$wayland_socket" ] &&
-  [ "$(__INSTALLER_PATH_DIR_USR__/bin/find -P "$wayland_socket" -maxdepth 0 -printf '%U %n' 2>__INSTALLER_PATH_DIR_DEV__/null || true)" = "$runtime_uid 1" ] || {
+  [ "$(__INSTALLER_PATH_DIR_USR__/bin/stat -c '%u %h' -- "$wayland_socket" 2>__INSTALLER_PATH_DIR_DEV__/null || true)" = "$runtime_uid 1" ] || {
   printf '%s\n' 'labwc-window-switcher Wayland socket is unsafe' >&2
   exit 1
 }

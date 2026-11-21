@@ -490,6 +490,13 @@ the canonical contract and the fixed click binding points at the service. Do
 not mix the service owner with Waybar's own `menu` event for the same click,
 because that would create two popup owners.
 
+The installation validator must keep these contracts distinct: native modules
+must register exactly one press event through `menu`, while the current
+Wayscriber custom popup owner must have exactly one fixed
+`on-click-release` binding to `labwc-waybar-run --menu=wayscriber`, no native
+`menu` event, and its fixed right-release action. Its existing GtkBuilder
+asset and action map remain part of the same validated contract.
+
 Use the transient popup owner only for custom buttons whose active class needs
 an authoritative close/destroy path (currently Tomat, Wayscriber,
 notifications, and power). Native status and clock modules use Waybar's own
@@ -572,10 +579,10 @@ more conventional.
 ## Current desktop and storage remediation contract
 
 - The active Waybar repair keeps native module identities and popup ownership:
-  external normal text uses weight 500, the CPU btop profile fits the managed
-  terminal height, the native backlight module keeps `cursor: true`, and the
-  Wayscriber control retains its existing GTK menu and transient owner while
-  providing a visible fallback glyph.
+  external and clock normal text use weight 500, the CPU btop profile fits the
+  managed terminal height, the native backlight module keeps `cursor: true`
+  and Waybar's native device selection, and the Wayscriber control retains its
+  existing GTK menu and transient owner with the blue symbolic pen SVG.
 - The Wi-Fi helper may unlink only its exact prepared profile; the AppArmor rule
   stays exact and read-only for the surrounding directory. Swap fallback state
   is published from the frozen layout and canonicalized to its matching
@@ -587,3 +594,11 @@ more conventional.
 - Audit access-denied rules must match permission failures (`EACCES`/`EPERM`)
   explicitly; do not turn expected systemd symlink-resolution `ELOOP` results
   into recurring audit failure noise.
+- Managed desktop reconciliation owns every generated launcher `Exec`: remove
+  package vendor action sections before publication and recreate only explicit
+  project policy actions. Do not retain a fallback that imports all accelerator
+  or vendor actions into account-local files.
+- Browser veth sessions use the shared web-port allowlist (including the
+  Technitium `5380` portal alongside Incus/HTTPS ports). Chromium-family and
+  Mullvad profiles bind USB/hidraw roots for hotplug WebUSB/WebHID, while
+  active-seat udev ACLs remain the Ledger Stax authorization boundary.

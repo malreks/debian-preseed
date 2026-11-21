@@ -4881,7 +4881,7 @@ profile labwc-debug-session __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-debug
 profile labwc-window-switcher __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-window-switcher flags=(attach_disconnected) {
   #include <abstractions/wrapper-wayland>
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-window-switcher rix,
-  __INSTALLER_PATH_DIR_USR__/bin/{find,id,timeout,wtype} rix,
+  __INSTALLER_PATH_DIR_USR__/bin/{id,stat,timeout,wtype} rix,
   signal (send, receive) set=(term, kill, cont, chld) peer=labwc-window-switcher,
   __INSTALLER_PATH_DIR_USR_SHARE_XKB__/{,**} r,
   # wtype unlinks a private mkstemp keymap before passing its fd to Wayland.

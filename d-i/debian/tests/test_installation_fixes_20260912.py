@@ -57,12 +57,30 @@ class DesktopHookTests(unittest.TestCase):
         self.prefix = '/usr/local/bin/labwc-electron-app nvidia'
         self.text = '[Desktop Entry]\nType=Application\nName=Example\nExec="/opt/My App/demo" --title "a b" %U\nDBusActivatable=true\n\n[Desktop Action New]\nName=New\nExec="/opt/My App/demo" --new %f\n'
 
-    def test_original_command_quoting_fields_actions_and_dbus(self):
+    def test_original_command_quoting_and_dbus_without_vendor_actions(self):
         result = self.hook.rewrite_desktop(self.text, self.prefix)
         self.assertIn('Exec=' + self.prefix + ' -- "/opt/My App/demo" --title "a b" %U\n', result)
-        self.assertIn('Exec=' + self.prefix + ' -- "/opt/My App/demo" --new %f\n', result)
+        self.assertNotIn('[Desktop Action New]', result)
+        self.assertNotIn('Actions=', result)
+        self.assertNotIn('--new %f', result)
         self.assertIn('DBusActivatable=false\n', result)
         self.assertIn('Name=Example\n', result)
+
+    def test_project_managed_actions_survive_while_vendor_actions_are_removed(self):
+        source = ('[Desktop Entry]\nType=Application\nName=Example\n'
+                  'Exec=/opt/My App/demo %U\nActions=IntelAccelerated;VendorAction;\n'
+                  '[Desktop Action IntelAccelerated]\nName=Intel\n'
+                  'Exec=/usr/local/bin/labwc-wayland-app intel -- /opt/My App/demo %U\n'
+                  '[Desktop Action UndeclaredManaged]\nName=Hidden\n'
+                  'Exec=/usr/local/bin/labwc-app launch hidden %U\n'
+                  '[Desktop Action VendorAction]\nName=Vendor\nExec=/opt/My App/demo --vendor %U\n')
+        result = self.hook.rewrite_desktop(source, self.prefix)
+        self.assertIn('Actions=IntelAccelerated;\n', result)
+        self.assertIn('[Desktop Action IntelAccelerated]\n', result)
+        self.assertIn('Exec=/usr/local/bin/labwc-wayland-app intel -- /opt/My App/demo %U\n', result)
+        self.assertNotIn('[Desktop Action UndeclaredManaged]', result)
+        self.assertNotIn('[Desktop Action VendorAction]', result)
+        self.assertNotIn('--vendor %U', result)
 
     def test_repeat_execution_does_not_stack_wrappers(self):
         once = self.hook.rewrite_desktop(self.text, self.prefix)

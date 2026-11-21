@@ -104,16 +104,29 @@ to every file below `d-i/debian/`:
 ## Current desktop and storage remediation contract
 
 - Shared fixes must be carried through both Forky and Trixie payload inputs:
-  external Waybar normal text is weight 500, CPU btop uses a height-safe box
-  set, the native backlight module keeps its cursor contract and selects a
-  hardware-safe device at the renderer boundary, and
-  Wayscriber remains the existing custom module with its canonical GTK action
-  map and visible fallback glyph.
+  external and clock Waybar normal text use weight 500, CPU btop uses a
+  height-safe box set, and the native backlight module keeps `cursor: true`
+  while leaving hardware selection to Waybar's native backlight reader. The
+  Wayscriber control remains the existing custom module with its canonical GTK
+  action map, blue symbolic pen SVG, and bounded popup owner. The native-menu
+  validator must treat that release-owned popup separately from the native
+  press-event contract.
 - Keep the exact Wi-Fi prepared-profile AppArmor rule, the frozen-layout
   PARTUUID swap identity, and the private hyprpolkit aquamarine workaround in
   their owning target assets. Do not broaden policy or add a second writer.
+- Keep event-driven physical-network reconciliation advisory during early boot:
+  a NetworkManager readiness race is a deferred result, not a failed ifup
+  transition or a retry loop.
 - Use `.build/validation/` for any host-side scratch and set `TMPDIR`, `TMP`,
   and `TEMP` explicitly; never fall back to host temporary storage.
 - Keep `etc-access-denied` and `boot-access-denied` audit rules restricted to
   `EACCES`/`EPERM`; expected systemd `ELOOP` alias lookups are not permission
   failures and must not create recurring audit churn.
+- Desktop launcher synchronization must delete all package vendor action
+  sections and publish only the explicit managed action map; an omitted action
+  list means no actions, never the complete accelerator table.
+- Browser veth policy carries the shared LAN web-port allowlist, including
+  Technitium on TCP 5380 and Incus/HTTPS ports. Browser sandboxes keep the
+  existing veth isolation and expose Ledger Stax USB/HID hotplug through the
+  active-seat udev ACL, without changing the private Discord/Zoom XWayland
+  boundary.

@@ -104,6 +104,7 @@ profile waybar __INSTALLER_PATH_DIR_USR__/{bin/waybar,local/libexec/labwc-waybar
   # fallback would create a null child and audit Python imports in complain mode.
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-battery rPx -> labwc-waybar-battery,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-events rPx -> labwc-waybar-events,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu rPx -> labwc-waybar-menu,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state rPx -> labwc-waybar-state,
   # Native Bluetooth status uses only BlueZ object/property notifications.
   __INSTALLER_PATH_DIR_RUN__/dbus/system_bus_socket rw,
@@ -166,6 +167,25 @@ profile waybar __INSTALLER_PATH_DIR_USR__/{bin/waybar,local/libexec/labwc-waybar
   signal (receive) set=(rtmin+10) peer=unconfined,
   signal (send) set=(chld) peer=unconfined,
   include if exists <local/usr.bin.waybar>
+}
+
+profile labwc-waybar-menu __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu flags=(attach_disconnected) {
+  # The popup owner reads the rendered Waybar contract and delegates fixed
+  # actions back through labwc-waybar-run. It has no arbitrary command path.
+  #include <abstractions/wrapper-python>
+  #include <abstractions/wrapper-gui>
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run rPx -> labwc-waybar-run,
+  __INSTALLER_PATH_DIR_PYTHON3_SYSTEM_PACKAGES__/gi/{,**} mr,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/ r,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/{Gdk,Gtk,Gio,GLib,GLibUnix,GObject,GModule,GIRepository}-*.typelib mr,
+  owner @{HOME}/.config/waybar/modules/{notifications,power,tomat,wayscriber} r,
+  owner @{HOME}/.config/waybar/gtk/{notifications,power,tomat,wayscriber}-menu.xml r,
+  owner @{HOME}/.config/waybar/style/gtk.css r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,systemd/private,wayland-[0-9]*} rw,
+  signal (receive) set=(int, term, hup, kill) peer=unconfined,
+  signal (send) set=(chld) peer=waybar,
+  include if exists <local/usr.local.libexec.labwc-waybar-menu>
 }
 
 profile labwc-waybar-run __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run flags=(attach_disconnected) {

@@ -57,13 +57,28 @@ The repository-root and `d-i/debian/AGENTS.md` instructions apply here.
 - `swap-fallback-setup` accepts a legacy direct device spelling only after it
   proves the configured PARTUUID resolves to the same block device, then uses
   the `/dev/disk/by-partuuid` identity for the rest of the transaction.
-- Preserve native Waybar `backlight`/CPU modules, `cursor: true`, the existing
-  Wayscriber menu owner, and the private hyprpolkit client environment. Target
-  assets must remain placeholder-rendered and independent of installer env
-  files.
+- Preserve native Waybar `backlight`/CPU modules and `cursor: true`; the
+  backlight module must retain Waybar's native device auto-selection. Preserve
+  the existing Wayscriber release-owned menu contract and the private
+  hyprpolkit client environment. Native modules use one `menu` press owner;
+  Wayscriber uses one fixed `on-click-release` popup owner plus its fixed
+  secondary action. Target assets must remain placeholder-rendered and
+  independent of installer env files.
+- The ifupdown Wi-Fi preference hook is advisory. If its event arrives before
+  NetworkManager is ready, it must record a bounded `status=deferred` result
+  and leave ifup ownership and the next NetworkManager event intact; it must
+  not emit a false failed physical-network result.
 - The managed audit rules record only `EACCES` and `EPERM` for the
   access-denied keys; do not broaden them to every unsuccessful open, because
   systemd's expected `ELOOP` unit-alias lookups would create audit churn.
+- Target desktop launchers must contain one canonical project-managed main
+  `Exec`. Vendor `[Desktop Action ...]` sections and raw vendor `Exec` values
+  are removed during both system and account reconciliation; only explicit
+  project actions are regenerated.
+- Persistent browser sandboxes retain their private veth and use the shared
+  web-port allowlist for LAN portals, including Technitium TCP 5380. Ledger
+  Stax WebUSB/WebHID is provided through the browser USB/hidraw hotplug binds
+  and active-seat udev ACLs, with no global XWayland or host-device fallback.
 
 ## Repository configuration and source staging
 

@@ -42,8 +42,8 @@ table inet app_veth {
         # Replies to the exact host-initiated peer/RPC DNAT maps must return
         # to their initiating host socket; unrelated host access stays denied.
         iifname @links ct state established,related ct status dnat accept
-        # Only browser leases may reach host HTTPS listeners on the same
-        # configured port allowlist. Loopback addresses still refer to the guest.
+        # Only browser leases may reach host web listeners on the configured
+        # port allowlist. Loopback addresses still refer to the guest.
         iifname @web_tls_only iifname != @lan_blocked meta l4proto tcp tcp dport @web_ports accept
         iifname __APP_INTERFACES__ drop
     }
@@ -56,7 +56,8 @@ table inet app_veth {
         # Enforce the torrent policy before either pinned or ordinary egress.
         # This also covers redirects and changes made in the application's UI.
         iifname @no_http meta l4proto { tcp, udp } th dport 80 counter drop
-        # Browser namespaces have TCP-only egress on the CONNECT allowlist.
+        # Browser namespaces have TCP-only egress on the CONNECT/web-port
+        # allowlist. This includes the trusted LAN Technitium console port.
         # DNS uses the exact preceding DNAT endpoint; peers belong to qBittorrent.
         iifname @web_tls_only meta l4proto != tcp counter drop
         iifname @web_tls_only tcp dport != @web_ports counter drop

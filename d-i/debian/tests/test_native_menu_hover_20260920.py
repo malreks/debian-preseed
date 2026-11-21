@@ -1,4 +1,4 @@
-"""Six native menus: rendered commands, real GTK states, and center reachability.
+"""Six native menus plus the bounded Wayscriber popup owner.
 
 GTK is exercised through the existing shared-library ABI, not a compiled or
 patched Waybar. Backend calls are inspected/intercepted; no host control action,
@@ -118,8 +118,8 @@ class NativeMenuHoverTests(unittest.TestCase):
                             self.assertEqual(argv[:argv.index('--')], ['/usr/local/libexec/labwc-waybar-run'])
                             self.assertNotIn('fixture', argv)
                             count += 1
-        # Six menu contracts contain 59 actionable leaves on each bar.
-        self.assertEqual(count, len(self.profiles) * 2 * 59)
+        # Six native menu contracts contain 55 actionable leaves on each bar.
+        self.assertEqual(count, len(self.profiles) * 2 * 55)
 
     def test_active_color_owners_are_explicit_and_no_fake_native_popup_latch_exists(self):
         """Check the supported lifetime owners without inventing a menu observer."""
@@ -133,6 +133,7 @@ class NativeMenuHoverTests(unittest.TestCase):
         self.assertIn('Waybar 0.15', apps_styles)
         self.assertNotIn('#custom-tomat:hover, #custom-tomat:active, #custom-tomat:active', tomat_styles)
         self.assertIn('#custom-wayscriber.active', wayscriber_styles)
+        self.assertNotIn('#custom-wayscriber:active', wayscriber_styles)
         for button, stylesheet in (('power', payload_read_text(root / 'style/power.css.tmpl')),
                                    ('notifications', payload_read_text(root / 'style/notifications.css.tmpl'))):
             with self.subTest(button=button):
@@ -149,9 +150,11 @@ class NativeMenuHoverTests(unittest.TestCase):
                                   '--', '/usr/local/bin/labwc-main-menu'])
                 apps = bar['group/apps']['drawer']
                 self.assertTrue(apps['click-to-reveal'])
-                for module in ('custom/tomat', 'custom/wayscriber'):
-                    self.assertEqual(bar[module]['menu'], 'on-click')
-                    self.assertNotIn('on-click-release', bar[module])
+                self.assertEqual(bar['custom/tomat']['menu'], 'on-click')
+                self.assertNotIn('on-click-release', bar['custom/tomat'])
+                self.assertNotIn('menu', bar['custom/wayscriber'])
+                self.assertEqual(shlex.split(bar['custom/wayscriber']['on-click-release']),
+                                 ['/usr/local/libexec/labwc-waybar-run', '--menu=wayscriber'])
 
     def test_every_action_has_the_intended_backend_not_just_an_existing_id(self):
         expected = {
@@ -234,8 +237,8 @@ class NativeMenuHoverTests(unittest.TestCase):
         report = gtk_menu_report()
         self.assertEqual(report['profiles'], 15)
         self.assertEqual(report['themes'], ['Adwaita', 'Adwaita-dark'])
-        self.assertEqual(report['menu_roots'], 15 * 2 * 2 * 2 * 6)
-        self.assertEqual(report['activations'], 15 * 2 * 2 * (59 + 55))
+        self.assertEqual(report['menu_roots'], 15 * 2 * 2 * 2 * 7)
+        self.assertEqual(report['activations'], 15 * 2 * 2 * (59 + 55 + 14))
         self.assertEqual(report['center_activations'], 15 * 2 * 2 * 2)
         self.assertGreater(report['highlight_states'], 10000)
         self.assertGreater(report['disabled_states'], 100)

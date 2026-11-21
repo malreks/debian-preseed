@@ -53,10 +53,14 @@ class AgentGuardTests(unittest.TestCase):
     def setUp(self):
         self.m = load_helper()
 
-    def test_signed_qt_package_revisions_are_not_fixed_to_a_version(self):
-        for version in ('0.1.3-2~bpo13+1', '0.1.3-3', '0.2.0-1', '1:1.0-2'):
+    def test_only_reviewed_qt_package_revisions_are_accepted(self):
+        for version in ('0.1.3-2~bpo13+1', '0.1.3-3'):
             with self.subTest(version=version):
                 self.assertEqual(self.m.check_metadata(metadata(version)), version)
+
+        for version in ('0.2.0-1', '1:1.0-2'):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                self.m.check_metadata(metadata(version))
 
     def test_malformed_version_data_is_rejected(self):
         for version in ('', 'no-version', '0.1.3-2\nextra', '1;true', '1$(id)', '1`id`'):
@@ -69,12 +73,13 @@ class AgentGuardTests(unittest.TestCase):
             with self.subTest(record=record), self.assertRaises(ValueError):
                 self.m.check_metadata(record)
 
-    def test_signed_native_toolkit_contract_accepts_suite_library_abis(self):
+    def test_native_toolkit_contract_is_rejected_even_when_dependencies_match(self):
         for abi in (1, 6, 13):
             depends = (f'libhyprtoolkit{abi}, libhyprlang2, libhyprutils13, '
                        'libsdbus-c++2, polkitd')
             with self.subTest(abi=abi):
-                self.assertEqual(self.m.check_metadata(metadata('0.2.0-1', depends)), '0.2.0-1')
+                with self.assertRaises(ValueError):
+                    self.m.check_metadata(metadata('0.2.0-1', depends))
 
     def test_incomplete_native_or_wrong_dependencies_are_rejected(self):
         for depends in ('libhyprtoolkit6, polkitd', 'libhyprtoolkit6, libhyprlang2, libhyprutils13, polkitd',
@@ -182,16 +187,16 @@ class AgentWiringTests(unittest.TestCase):
                 text = (root / 'classes/class-select/role/desktop' / (tier + '.cfg')).read_text()
                 self.assertIn('hyprpolkitagent', text.split())
                 self.assertNotIn('lxqt-policykit', text.split())
-                if suite == 'forky':
-                    self.assertNotIn('trixie', text)
-            if suite == 'trixie':
-                fragment = (root / 'fragments/apt.cfg').read_text()
+            fragment = (root / 'fragments/apt.cfg').read_text()
+            if suite == 'forky':
+                self.assertNotIn('trixie', text)
+                self.assertIn('https://mirrors.glesys.net/debian trixie-backports main', fragment)
+            else:
                 self.assertIn('https://mirrors.glesys.net/debian trixie-backports main', fragment)
             pin = (root / 'hooks/target/etc/apt/desktop/preferences.d/10-hyprpolkitagent.pref').read_text()
+            self.assertIn('Pin: release o=Debian,n=trixie-backports', pin)
             self.assertNotIn('Pin: version ', pin)
-            expected = ('Pin: release o=Debian,n=forky' if suite == 'forky'
-                        else 'Pin: release o=Debian,n=trixie-backports')
-            self.assertIn(expected, pin)
+            self.assertIn('Pin-Priority: -1', pin)
             self.assertIn('Pin-Priority: 1001', pin)
 
     def test_native_session_and_bounded_failure_contract_remain(self):

@@ -1312,9 +1312,22 @@ def add_synthetic_sysfs_masks(command: list[str]) -> None:
 def add_native_device_binds(command: list[str], sandbox: dict[str, object]) -> None:
     """Retain explicitly configured USB/game peripherals in private /dev.
 
-    Bind accessible character nodes individually; never expose the host input
-    directory or turn an application device flag into arbitrary path access.
+    Browser WebUSB/WebHID sessions need to see Ledger hotplug events after the
+    sandbox starts. Those profiles bind only the USB bus and hidraw roots; DAC
+    and the active-seat udev ACL remain the device authorization boundary. Game
+    clients and Ledger Live retain per-node bindings and never receive the host
+    input directory.
     """
+    if sandbox.get("usb_hotplug", False):
+        for path in (
+            "__INSTALLER_PATH_DIR_DEV__/bus/usb",
+            "__INSTALLER_PATH_DIR_DEV__/hidraw",
+        ):
+            if os.path.isdir(path) and not os.path.islink(path):
+                add_dir_chain(command, os.path.dirname(path))
+                command.extend(["--dev-bind", path, path])
+        return
+
     patterns = []
     if sandbox.get("usb_devices", False):
         patterns.extend(("__INSTALLER_PATH_DIR_DEV__/bus/usb/[0-9][0-9][0-9]/[0-9][0-9][0-9]", "__INSTALLER_PATH_DIR_DEV__/hidraw[0-9]*"))

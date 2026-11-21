@@ -3836,8 +3836,11 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
         if experimental_lldb_pin not in suite_pref or blocked_lldb_vendor_pin not in suite_pref:
             raise ValueError('LLDB 24 runtime and Python binding are not pinned exclusively to Debian Experimental')
         agent = members[f'frontends/{suite}/hooks/target/etc/apt/desktop/preferences.d/10-hyprpolkitagent.pref'].decode()
-        expected_agent_pin = ('Pin: release o=Debian,n=forky' if suite == 'forky'
-                              else 'Pin: release o=Debian,n=trixie-backports')
+        # Both suites use the signed Trixie Backports Qt implementation.  The
+        # native Forky package is the incompatible hyprtoolkit build; the
+        # target-side compatibility wrapper independently rejects any future
+        # candidate outside the reviewed 0.1.3/dependency contract.
+        expected_agent_pin = 'Pin: release o=Debian,n=trixie-backports'
         if (f'Package: hyprpolkitagent:any\n{expected_agent_pin}\nPin-Priority: 1001' not in agent
                 or re.search(r'^Pin: version ', agent, re.M)):
             raise ValueError('Qt agent must have one explicit suite-scoped release preference without a version pin')
