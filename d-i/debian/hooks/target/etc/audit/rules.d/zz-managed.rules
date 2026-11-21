@@ -69,7 +69,12 @@
 -a always,exit -F arch=b64 -S mount -S umount2 -F key=mount-change
 
 ## Permission-denied access attempts against high-value configuration trees.
--a always,exit -F arch=b64 -S openat -S openat2 -S truncate -S ftruncate -F dir=__INSTALLER_PATH_DIR_ETC__ -F success=0 -F key=etc-access-denied
--a always,exit -F arch=b64 -S openat -S openat2 -S truncate -S ftruncate -F dir=__INSTALLER_PATH_DIR_BOOT__ -F success=0 -F key=boot-access-denied
+# Match the two errno values that represent permission failures. A broad
+# success=0 rule also records expected ELOOP results from systemd's safe
+# no-symlink lookup of unit aliases and creates avoidable audit churn.
+-a always,exit -F arch=b64 -S openat -S openat2 -S truncate -S ftruncate -F dir=__INSTALLER_PATH_DIR_ETC__ -F exit=-EACCES -F key=etc-access-denied
+-a always,exit -F arch=b64 -S openat -S openat2 -S truncate -S ftruncate -F dir=__INSTALLER_PATH_DIR_ETC__ -F exit=-EPERM -F key=etc-access-denied
+-a always,exit -F arch=b64 -S openat -S openat2 -S truncate -S ftruncate -F dir=__INSTALLER_PATH_DIR_BOOT__ -F exit=-EACCES -F key=boot-access-denied
+-a always,exit -F arch=b64 -S openat -S openat2 -S truncate -S ftruncate -F dir=__INSTALLER_PATH_DIR_BOOT__ -F exit=-EPERM -F key=boot-access-denied
 
 -e 1

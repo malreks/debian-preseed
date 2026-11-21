@@ -50,6 +50,17 @@ authoritative.
 - Use only static parsing, deterministic rendering, pure `make build`, and the
   changed-file audit. Do not execute profile code or run installer/native tests.
 
+## Current hardware and desktop remediation contract
+
+- Profile overrides must keep the shared native Waybar contract. Known laptop
+  specs select `intel_backlight`; an empty generic spec leaves Waybar's native
+  device auto-selection enabled. Profiles must not introduce guessed DDC or
+  I2C identities.
+- Keep `LABWC_ENABLE_POLKIT_AGENT`, storage layout values, and desktop policy
+  compatible with their service and renderer consumers. A profile change needs
+  the corresponding target asset, AppArmor, service, and generated-payload
+  audit.
+
 ## Repository configuration and source staging
 
 - `repo.env` contains the supported repository defaults and genuinely shared

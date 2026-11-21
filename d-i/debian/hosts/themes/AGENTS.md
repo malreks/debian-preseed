@@ -50,6 +50,16 @@ authoritative.
 - Validate theme data and rendering statically only. Do not launch GTK, Waybar,
   Labwc, D-Bus or a systemd manager; report those verification limits.
 
+## Current Waybar appearance contract
+
+- `WAYBAR_FONT_WEIGHT_NORMAL` is the shared normal theme value and is now 500
+  for the external status bar requirement. Keep the key in the theme schema and
+  preserve user-editable mappings.
+- The brightness module remains native with `cursor: true`; Wayscriber keeps
+  its staged symbolic SVG, visible fallback glyph, canonical XML IDs, action
+  map, and existing transient popup owner. Do not convert either control to a
+  second custom module or popup protocol.
+
 ## Repository configuration and source staging
 
 - `repo.env` contains the supported repository defaults and genuinely shared

@@ -80,7 +80,8 @@ def launch_environment() -> dict[str, str]:
         raise ValueError('hyprpolkitagent requires the managed desktop Wayland session')
     for key in ('DISPLAY', 'XAUTHORITY', 'QSG_RHI_BACKEND', 'QMLSCENE_DEVICE'):
         env.pop(key, None)
-    env.update(QT_QPA_PLATFORM='wayland', QT_QUICK_BACKEND='software', QT_NO_XDG_DESKTOP_PORTAL='1')
+    env.update(QT_QPA_PLATFORM='wayland', QT_QUICK_BACKEND='software',
+               QT_NO_XDG_DESKTOP_PORTAL='1', AQ_NO_MODIFIERS='1')
     return env
 
 

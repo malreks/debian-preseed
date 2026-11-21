@@ -50,6 +50,17 @@ contract.
 - Preserve phase boundaries and the static-only validation boundary. Do not
   execute hooks, package scripts, services, D-Bus, hardware, or host helpers.
 
+## Current storage publication contract
+
+- The shared storage foundation remains the single installer writer for
+  `swap-fallback.conf`. It derives the raw partition from the frozen partman
+  layout, resolves its PARTUUID once, and publishes the stable path before
+  target activation; late modules must not overwrite it with a direct device
+  name.
+- Installer scratch and rendered intermediate files stay on the checkout's
+  disk-backed `.build/validation/` area when host-side work is required. Never
+  use host tmpfs or publish installer state into the target.
+
 ## Repository configuration and source staging
 
 - `repo.env` contains the supported repository defaults and genuinely shared

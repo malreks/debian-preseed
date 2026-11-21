@@ -4064,7 +4064,10 @@ profile network-wifi-configure __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/network-
   __INSTALLER_PATH_DIR_ETC__/network/ r,
   __INSTALLER_PATH_DIR_ETC__/network/interfaces.d/ r,
   __INSTALLER_PATH_DIR_ETC__/network/host.conf r,
-  __INSTALLER_PATH_DIR_ETC__/network/wifi.nmconnection r,
+  # The helper removes this exact prepared copy after NetworkManager accepts
+  # it. AppArmor represents that unlink as write access on the exact file;
+  # keep the surrounding network directory read-only.
+  __INSTALLER_PATH_DIR_ETC__/network/wifi.nmconnection rw,
   __INSTALLER_PATH_DIR_ETC__/NetworkManager/ r,
   __INSTALLER_PATH_DIR_ETC__/NetworkManager/system-connections/ rw,
   __INSTALLER_PATH_DIR_ETC__/NetworkManager/system-connections/wifi.nmconnection rw,

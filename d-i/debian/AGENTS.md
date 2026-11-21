@@ -100,3 +100,20 @@ to every file below `d-i/debian/`:
   generated-product audit. Preserve Dash/BusyBox compatibility, phase and
   target-root boundaries, and the single target-placeholder renderer. Do not
   add a large exported environment or an installer `stat` dependency.
+
+## Current desktop and storage remediation contract
+
+- Shared fixes must be carried through both Forky and Trixie payload inputs:
+  external Waybar normal text is weight 500, CPU btop uses a height-safe box
+  set, the native backlight module keeps its cursor contract and selects a
+  hardware-safe device at the renderer boundary, and
+  Wayscriber remains the existing custom module with its canonical GTK action
+  map and visible fallback glyph.
+- Keep the exact Wi-Fi prepared-profile AppArmor rule, the frozen-layout
+  PARTUUID swap identity, and the private hyprpolkit aquamarine workaround in
+  their owning target assets. Do not broaden policy or add a second writer.
+- Use `.build/validation/` for any host-side scratch and set `TMPDIR`, `TMP`,
+  and `TEMP` explicitly; never fall back to host temporary storage.
+- Keep `etc-access-denied` and `boot-access-denied` audit rules restricted to
+  `EACCES`/`EPERM`; expected systemd `ELOOP` alias lookups are not permission
+  failures and must not create recurring audit churn.

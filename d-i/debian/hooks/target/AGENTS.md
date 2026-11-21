@@ -49,6 +49,22 @@ The repository-root and `d-i/debian/AGENTS.md` instructions apply here.
   mode-checked. Validate unresolved placeholders, symlinks, traversal and
   generated ownership at the existing staging boundary.
 
+## Current target failure fixes
+
+- `network-wifi-configure` can remove only the exact
+  `etc/network/wifi.nmconnection` file after successful publication; keep its
+  parent directory read-only and do not replace the rule with a wildcard.
+- `swap-fallback-setup` accepts a legacy direct device spelling only after it
+  proves the configured PARTUUID resolves to the same block device, then uses
+  the `/dev/disk/by-partuuid` identity for the rest of the transaction.
+- Preserve native Waybar `backlight`/CPU modules, `cursor: true`, the existing
+  Wayscriber menu owner, and the private hyprpolkit client environment. Target
+  assets must remain placeholder-rendered and independent of installer env
+  files.
+- The managed audit rules record only `EACCES` and `EPERM` for the
+  access-denied keys; do not broaden them to every unsuccessful open, because
+  systemd's expected `ELOOP` unit-alias lookups would create audit churn.
+
 ## Repository configuration and source staging
 
 - `repo.env` contains the supported repository defaults and genuinely shared

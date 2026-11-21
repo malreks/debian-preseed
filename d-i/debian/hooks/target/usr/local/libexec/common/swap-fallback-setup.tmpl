@@ -129,8 +129,16 @@ ensure_mapper_matches_raw_device() {
 validate_config() {
   validate_token SWAP_FALLBACK_RAW_PARTUUID "$SWAP_FALLBACK_RAW_PARTUUID"
   validate_device_path SWAP_FALLBACK_RAW_DEVICE "$SWAP_FALLBACK_RAW_DEVICE"
-  [ "$SWAP_FALLBACK_RAW_DEVICE" = "__INSTALLER_PATH_DIR_DEV__/disk/by-partuuid/${SWAP_FALLBACK_RAW_PARTUUID}" ] ||
-    fatal "swap fallback raw device must use its configured PARTUUID path"
+  expected_raw_device="__INSTALLER_PATH_DIR_DEV__/disk/by-partuuid/${SWAP_FALLBACK_RAW_PARTUUID}"
+  if [ "$SWAP_FALLBACK_RAW_DEVICE" != "$expected_raw_device" ]; then
+    # Older target state can retain the direct partman name even though the
+    # saved PARTUUID is correct. Accept that only when both names resolve to
+    # the same block device, then continue with the stable path so every later
+    # cryptsetup/swap operation uses one identity.
+    same_device_path "$SWAP_FALLBACK_RAW_DEVICE" "$expected_raw_device" ||
+      fatal "swap fallback raw device does not identify its configured PARTUUID"
+    SWAP_FALLBACK_RAW_DEVICE=$expected_raw_device
+  fi
   validate_device_path SWAP_FALLBACK_MAPPER "$SWAP_FALLBACK_MAPPER"
   validate_mapper_name SWAP_FALLBACK_MAPPER_NAME "$SWAP_FALLBACK_MAPPER_NAME"
   [ "$SWAP_FALLBACK_RAW_DEVICE" != "$SWAP_FALLBACK_MAPPER" ] || fatal "swap fallback raw device and mapper must differ"

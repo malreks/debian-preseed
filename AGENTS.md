@@ -568,3 +568,22 @@ more conventional.
   generated-product audit. Preserve Dash/BusyBox compatibility, phase and
   target-root boundaries, and the single target-placeholder renderer. Do not
   add a large exported environment or an installer `stat` dependency.
+
+## Current desktop and storage remediation contract
+
+- The active Waybar repair keeps native module identities and popup ownership:
+  external normal text uses weight 500, the CPU btop profile fits the managed
+  terminal height, the native backlight module keeps `cursor: true`, and the
+  Wayscriber control retains its existing GTK menu and transient owner while
+  providing a visible fallback glyph.
+- The Wi-Fi helper may unlink only its exact prepared profile; the AppArmor rule
+  stays exact and read-only for the surrounding directory. Swap fallback state
+  is published from the frozen layout and canonicalized to its matching
+  PARTUUID before cryptsetup. The hyprpolkit client may set aquamarine's
+  modifier-free allocator flag for itself only; it must never alter labwc or
+  the private Discord/Zoom XWayland boundary.
+- Development scratch remains on disk under `.build/validation/`; do not use
+  host `/tmp`, `/var/tmp`, `/dev/shm`, or tmpfs for these repairs.
+- Audit access-denied rules must match permission failures (`EACCES`/`EPERM`)
+  explicitly; do not turn expected systemd symlink-resolution `ELOOP` results
+  into recurring audit failure noise.
