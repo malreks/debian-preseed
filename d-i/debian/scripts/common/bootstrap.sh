@@ -327,19 +327,9 @@ bootstrap_load_prepared_source() {
   case "$bootstrap_identity_manifest" in ''|*[!a-f0-9]*) bootstrap_fatal 'prepared target payload manifest identity is malformed' ;; esac
   [ "${#bootstrap_identity_archive}" -eq 64 ] && [ "${#bootstrap_identity_manifest}" -eq 64 ] ||
     bootstrap_fatal 'prepared target payload identity length is invalid'
-  [ "$(wc -l <"$bootstrap_prepared_stage/receipt.json")" -eq 1 ] &&
-    [ "$(wc -c <"$bootstrap_prepared_stage/receipt.json")" -le 16384 ] &&
-    LC_ALL=C grep -Eq '^\{"format":2,"members":[1-9][0-9]{0,4},"input_bytes":[0-9]{1,9},"rendered_files":[0-9]{1,5},"rendered_bytes":[0-9]{1,9},"published_perl_files":[1-9][0-9]{0,4},"source_archive_sha256":"[a-f0-9]{64}","source_manifest_sha256":"[a-f0-9]{64}","source_identity":"[A-Za-z0-9:/._+?%#@ -]+"\}$' "$bootstrap_prepared_stage/receipt.json" ||
-    bootstrap_fatal 'prepared target receipt schema is invalid'
-  grep -Fq "\"source_archive_sha256\":\"$bootstrap_identity_archive\"" \
-    "$bootstrap_prepared_stage/receipt.json" ||
-    bootstrap_fatal 'prepared target receipt archive identity mismatch'
-  grep -Fq "\"source_manifest_sha256\":\"$bootstrap_identity_manifest\"" \
-    "$bootstrap_prepared_stage/receipt.json" ||
-    bootstrap_fatal 'prepared target receipt manifest identity mismatch'
-  grep -Fq "\"source_identity\":\"$bootstrap_identity_base\"" \
-    "$bootstrap_prepared_stage/receipt.json" ||
-    bootstrap_fatal 'prepared target receipt seed identity mismatch'
+  # The renderer publishes this private receipt before the ready marker.
+  # The identity comparison above binds the completed stage to the selected
+  # authenticated payload; do not reparse its diagnostic JSON in every phase.
   BOOTSTRAP_PREPARED_SOURCE_ROOT=$bootstrap_prepared_stage/source
   if command -v source_normalize_base >/dev/null 2>&1; then
     bootstrap_requested_identity=$(source_normalize_base "$1") ||

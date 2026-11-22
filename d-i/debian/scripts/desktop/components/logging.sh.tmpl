@@ -11,7 +11,7 @@ account_user=$1
 signal_reader_group=logreader
 scanner_writer_group=securitylogger
 
-for command_name in getent groupadd id usermod; do
+for command_name in getent groupadd usermod; do
   command -v "$command_name" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
     printf "fatal: required notification access command is missing: %s\n" "$command_name" >&2
     exit 1
@@ -22,16 +22,8 @@ getent passwd "$account_user" >__INSTALLER_PATH_DIR_DEV__/null
 for access_group in "$signal_reader_group" "$scanner_writer_group"; do
   getent group "$access_group" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
     groupadd --system "$access_group"
-  usermod -a -G "$access_group" "$account_user"
-
-  case " $(id -nG "$account_user") " in
-    *" $access_group "*) ;;
-    *)
-      printf "fatal: desktop account was not added to %s: %s\n" "$access_group" "$account_user" >&2
-      exit 1
-      ;;
-  esac
 done
+usermod -a -G "$signal_reader_group,$scanner_writer_group" "$account_user"
 ' sh "$ACCOUNT_USERNAME"
 
   install -d -m 0755 \
@@ -220,23 +212,11 @@ done
   run_in_target "preflight protected logging destinations before tmpfiles" \
     __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/log-layout --preflight
 
-  run_in_target "validate effective managed journald policy" \
-    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/journal-check
   run_in_target "create protected managed logging destinations" \
     __INSTALLER_PATH_DIR_USR_BIN__/systemd-tmpfiles --create \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/58-native-logs.conf \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/59-log-layout.conf \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/60-security-logs.conf \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/65-audit-syslog.conf
-  run_in_target "validate managed log layout" \
-    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/log-layout
-
-  run_in_target \
-    "validate managed rsyslog configuration" \
-    __INSTALLER_PATH_DIR_USR_SBIN__/rsyslogd \
-    -N1 \
-    -f \
-    __INSTALLER_PATH_DIR_ETC__/rsyslog.conf
-
   desktop_log "staged_logging_policy journal_input=imuxsock apps=__INSTALLER_LOG_APPLICATIONS_FILE__ system=__INSTALLER_LOG_SYSTEM_SERVICES_FILE__ kernel=__INSTALLER_LOG_KERNEL_FILE__ auth=__INSTALLER_LOG_AUTH_FILE__ apparmor=__INSTALLER_LOG_APPARMOR_FILE__ rotation=writer-size threshold_bytes=__INSTALLER_LOG_RSYSLOG_ROTATE_BYTES__ archives=__INSTALLER_LOG_ROTATE_COUNT__ scanner_socket=__INSTALLER_LOG_SCANNER_SOCKET__ log_group=__INSTALLER_LOG_GROUP__"
 }

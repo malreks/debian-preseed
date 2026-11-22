@@ -113,7 +113,7 @@ installer_record_failure() (
   case "$lc_line" in
     ''|*[!A-Za-z0-9_.-]*) lc_line=unknown ;;
   esac;
-  rm -f "$LC_STATE/installation.success" "$LC_STATE/target-validated";
+  rm -f "$LC_STATE/installation.success";
   [ ! -e "$LC_STATE/first-failure" ] && [ ! -L "$LC_STATE/first-failure" ] || exit 0;
   lc_tmp=$(mktemp "$LC_STATE/.failure.XXXXXX") || exit 1;
   trap 'rm -f "$lc_tmp"' 0;

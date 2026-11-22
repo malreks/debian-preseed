@@ -28,8 +28,9 @@ NFS_SERVER_PATH="${NETWORK_SHARING_ROOT_PATH}/nfs-server"
 NFS_CLIENT_PATH="${NETWORK_SHARING_ROOT_PATH}/nfs-client"
 ```
 
-The existing host-specific enabled choices are preserved. Inspect the selected
-profile before installing. Both NFS roles may be enabled together. With both
+All P15s profiles enable the NFS server, including the single-disk, duo and trio
+layouts. Other profiles retain their own NFS activation choices. Inspect the
+selected profile before installing. Both NFS roles may be enabled together. With both
 disabled, the shared local/home view remains available for explicitly selected
 Filen accounts; no NFS daemon is enabled and no remote NFS mount is added.
 
@@ -51,6 +52,11 @@ configuration replaces only the marked NFS block in the server source. It
 allows TCP to the selected service port from the exact export peers on approved
 physical uplinks, then drops other NFS TCP/UDP ingress. It does not add IPv6
 exports or RPC discovery services. Remote mounts remain NFSv4.1/4.2 over TCP.
+
+Firewall profile and overlay selection is automatic. Concrete host profiles do
+not need `NFT_PROFILE` or `NFT_SERVICES`: the selected family supplies its base
+policy, NFS and SSH switches supply their listener rules, and the frozen package
+plan supplies the installed discovery, synchronization and VPN service overlays.
 
 `NFS_INTERFACES` must be a nonempty, duplicate-free subset of the two managed
 physical interface names. Primary Ethernet versus primary Wi-Fi changes route

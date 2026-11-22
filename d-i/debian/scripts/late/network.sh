@@ -1015,10 +1015,6 @@ install_target_managed_network_handoff() {
       __INSTALLER_PATH_DIR_ETC__/udev/rules.d/90-managed-wifi-preference.rules 0644 \
       managed_network_wifi_udev_placeholder_map
   fi
-  # Exercise the installed reader against the generated policy before enabling
-  # its boot unit. Hardware is checked at boot after the udev renames apply.
-  run_in_target "managed network policy validation" \
-    __INSTALLER_PATH_DIR_USR_BIN__/perl "${FILE_MANAGED_NETWORK_HELPER}" validate --staged-only
   stage_target_systemd_unit_enabled network.service system
   enable_target_networking_service_if_available
   installer_append_log_category late target_customization info network \

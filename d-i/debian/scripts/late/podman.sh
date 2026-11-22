@@ -94,8 +94,6 @@ configure_target_rootless_podman() (
     stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/network_client.py)" "${DIR_PYTHON3_SITE_PACKAGES}/labwc_managed_app/network_client.py" 0644
   fi
   unset podman_target_host_variant
-  run_in_target 'validate staged kernel Podman network adapter' \
-    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/app-veth-podman --help
   for client in podman docker docker-compose; do
     stage_target_asset "$(installer_repo_asset_path DIR_TARGET_BIN "$client")" "__INSTALLER_PATH_DIR_USR_LOCAL__/bin/$client" 0755
   done

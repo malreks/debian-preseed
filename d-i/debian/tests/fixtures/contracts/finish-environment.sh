@@ -1,8 +1,9 @@
 #!/bin/sh
 # Native contract fixture: execute only in a reviewed disposable Debian image.
 # Bootstrap, restricted policy loading, normalization, APT source retirement,
-# ownership scanning and readiness publication are real. Target APT and the
+# ownership scanning and stage completion are real. Target APT and the historical
 # chroot boot/package audit are explicit stubs; no installed system is tested.
+# The current compatibility validator exits without a target audit or marker.
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
@@ -156,6 +157,7 @@ case "$fixture_case" in
   baseline-normalizer) normalizer=/snapshot/before/99-normalize-finish ;;
   baseline-validator) validator=/snapshot/before/94zz-99-validate-target ;;
   baseline-app-veth)
+    # The retired final scan must also ignore an older registry snapshot.
     cp /snapshot/before/placeholder-registry.tsv "$runtime/bootstrap/placeholder-registry.tsv"
     chmod 0600 "$runtime/bootstrap/placeholder-registry.tsv"
     ;;
@@ -167,12 +169,16 @@ case "$fixture_case" in
   *) exit 64 ;;
 esac
 case "$fixture_case" in
-  baseline-validator|missing-validator-host|invalid-validator-host|incomplete-validator-host)
+  missing-validator-host|invalid-validator-host|incomplete-validator-host)
     case "$fixture_case" in
       missing-validator-host) rm "$policy/host.env" ;;
       invalid-validator-host) printf 'invalid assignment\n' >"$policy/host.env" ;;
       incomplete-validator-host) printf "DIR_ETC='/etc'\n" >"$policy/host.env" ;;
     esac
+    invoke_hook "$validator"
+    [ ! -e "$work/chroot.calls" ] && [ ! -e "$runtime/state/target-validated" ]
+    ;;
+  baseline-validator)
     status=0
     invoke_hook "$validator" || status=$?
     [ "$status" -ne 0 ] && [ ! -e "$work/chroot.calls" ]
@@ -193,30 +199,10 @@ case "$fixture_case" in
     [ "$(cat "$target/home/fixture/.config/settings")" = 'preserve account data' ]
     invoke_hook "$source_root/hooks/installer/finish-install.d/95-normalize-apt"
     [ "$(wc -l <"$work/apt.calls")" -eq 3 ]
-    case "$fixture_case" in
-      baseline-app-veth|reject-app-veth-marker)
-        status=0
-        invoke_hook "$validator" || status=$?
-        [ "$status" -ne 0 ] && [ -s "$work/chroot.calls" ]
-        [ ! -e "$runtime/state/target-validated" ] &&
-          [ ! -e "$target/var/lib/installer-state/target-validated" ] &&
-          [ ! -e "$runtime/state/installation.success" ]
-        grep -Fq 'unresolved target marker file=/etc/app-veth.nft' "$work/stderr"
-        case "$fixture_case" in
-          baseline-app-veth)
-            [ "$(grep -c 'fatal: unresolved target marker file=' "$work/stderr")" -eq 12 ]
-            printf 'BASELINE_REPRODUCED app-veth final validation markers=12 status=%s\n' "$status"
-            ;;
-          reject-app-veth-marker) grep -Fq '__INSTALLER_PATH_DIR_ETC__' "$work/stderr" ;;
-        esac
-        ;;
-      *)
-        invoke_hook "$validator"
-        grep -Fqx state=TARGET_VALIDATED "$runtime/state/target-validated"
-        grep -Fqx installation_success=not_yet "$target/var/lib/installer-state/target-validated"
-        [ ! -e "$runtime/state/installation.success" ] && [ -s "$work/chroot.calls" ]
-        ;;
-    esac
+    invoke_hook "$validator"
+    [ ! -e "$runtime/state/target-validated" ] &&
+      [ ! -e "$target/var/lib/installer-state/target-validated" ]
+    [ ! -e "$runtime/state/installation.success" ] && [ ! -e "$work/chroot.calls" ]
     ;;
 esac
 case "$fixture_case" in
@@ -225,9 +211,9 @@ case "$fixture_case" in
     printf 'BASELINE_REPRODUCED case=%s status=%s\n' "$fixture_case" "$status"
     head -n 2 "$work/stderr"
     ;;
-  missing-*) grep -Fq 'missing host environment' "$work/stderr" ;;
-  invalid-*) [ "$status" -eq 2 ]; grep -Fq 'host profile data was rejected' "$work/stderr" ;;
-  incomplete-*) grep -Fq 'missing DIR_VAR_LIB_INSTALLER_STATE' "$work/stderr" ;;
+  missing-host) grep -Fq 'missing host environment' "$work/stderr" ;;
+  invalid-host) [ "$status" -eq 2 ]; grep -Fq 'host profile data was rejected' "$work/stderr" ;;
+  incomplete-host) grep -Fq 'missing DIR_VAR_LIB_INSTALLER_STATE' "$work/stderr" ;;
 esac
 printf 'PASS case=%s shell=%s suite=%s profile=%s\n' \
   "$fixture_case" "$fixture_shell" "$fixture_suite" "$fixture_profile"

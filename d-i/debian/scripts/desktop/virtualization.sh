@@ -15,24 +15,11 @@ profile="${DIR_INSTALLER_LATE_ENV}/desktop-virtualization.env"
 installer_fetch_host_env "$seed_base" "$INSTALLER_HOST_PROFILE" "$profile" 0600
 installer_load_data_env "$profile"
 bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/desktop-virtualization-support" fetch hook target
-operator=$(installer_cmdline_value primary_user) || installer_fatal 'desktop virtualization operator is missing'
+installer_load_primary_account
+operator=$ACCOUNT_USERNAME
 case "$operator" in ''|root|*[!a-z0-9_-]*) installer_fatal 'invalid desktop virtualization operator' ;; esac
 case "${INCUS_WEB_UI_ENABLE:?explicit desktop Web UI policy required}" in true|false) ;; *) installer_fatal 'invalid desktop Incus Web UI policy' ;; esac
 if [ "$INCUS_WEB_UI_ENABLE" = true ]; then
-  # Inspect package identity and native data inside the offline target. This
-  # neither opens a remote API nor starts a browser, menu or Incus daemon.
-  run_in_target 'verify desktop Incus Web UI package integration' "${DIR_USR_BIN}/python3" -I -c '
-from pathlib import Path
-import subprocess
-status = subprocess.run(["/usr/bin/dpkg-query", "-W", "-f=${db:Status-Abbrev}", "incus-ui-canonical"],
-    check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15).stdout
-if status != b"ii ":
-    raise SystemExit("desktop Incus Web UI package is not configured")
-if not Path("__INSTALLER_PATH_DIR_OPT__/incus/ui/index.html").is_file():
-    raise SystemExit("desktop Incus Web UI package payload is missing")
-if "INCUS_UI=__INSTALLER_PATH_DIR_OPT__/incus/ui/" not in Path("__INSTALLER_PATH_DIR_OPT__/incus/lib/systemd/incusd").read_text():
-    raise SystemExit("Incus package wrapper does not select its packaged Web UI")
-'
   installer_stage_profile_file hooks/target/usr/local/libexec/desktop/incus-desktop-ui-check "${DIR_USR_LOCAL_LIBEXEC}/incus-desktop-ui-check" 0755
   installer_stage_profile_file hooks/target/etc/apparmor.d/desktop/incus-desktop-ui "${DIR_APPARMOR}/incus-desktop-ui" 0644
   installer_stage_profile_file hooks/target/etc/systemd/desktop/system/incus-desktop-ui-check.service "${DIR_SYSTEMD_SYSTEM}/incus-desktop-ui-check.service" 0644

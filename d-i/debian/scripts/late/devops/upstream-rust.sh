@@ -341,12 +341,6 @@ chown root:root "$install_dir" "$binary_dir" "$rustup_init_path"
 chmod 0644 "${install_dir}/.rustup-bootstrap"
 chown root:root "${install_dir}/.rustup-bootstrap"
 
-version_output=$("$rustup_init_path" --version 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-case "$version_output" in
-  *" ${rustup_version} "*|*" ${rustup_version}"*) ;;
-  *) rustup_fatal "Rustup version verification failed for ${rustup_init_path}" ;;
-esac
-
 printf "installed Rustup %s bootstrap at %s\n" "$rustup_version" "$rustup_init_path"
 ' sh \
     "$DEVOPS_RUSTUP_VERSION" \

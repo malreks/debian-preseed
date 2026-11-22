@@ -80,12 +80,11 @@ if installer_lifecycle_begin "$id"; then :; else
 fi
 [ -f "$script" ] && [ -x "$script" ] && [ ! -L "$script" ] ||
   installer_lifecycle_abort 125 "$id" 'missing or indirect supervised executable'
-# The reboot sentinel must only be reached after validation and clean unmount.
+# The reboot sentinel follows successful selected stages and clean unmount.
 if [ "$id" = hook-finish-99reboot ]; then
   for required in prepare-context apply early partman late hook-component-bootstrap-base.postinst hook-component-apt-setup-udeb.postinst hook-component-pkgsel.postinst hook-component-grub-installer.postinst; do
     [ -f "$LC_STATE/$required.done" ] || installer_lifecycle_abort 125 "$id" "missing completion: $required"
   done
-  [ -f "$LC_STATE/target-validated" ] || installer_lifecycle_abort 125 "$id" 'target has not passed final validation'
   [ -s "$LC_STATE/finish-hooks.list" ] || installer_lifecycle_abort 125 "$id" 'finish hook inventory missing'
   while IFS= read -r name; do
     [ "$name" = 99reboot ] && continue
@@ -101,7 +100,7 @@ case "$id:$rc" in
   hook-finish-99reboot:11)
     installer_lifecycle_complete
     tmp=$(mktemp "$LC_STATE/.success.XXXXXX")
-    printf 'state=SUCCESS\nvalidated=target\nfinish_hooks=complete\nunmount=complete\n' >"$tmp"
+    printf 'state=SUCCESS\nconfigured=target\nfinish_hooks=complete\nunmount=complete\n' >"$tmp"
     chmod 0600 "$tmp"
     mv "$tmp" "$LC_STATE/installation.success"
     sync
@@ -109,7 +108,7 @@ case "$id:$rc" in
     exit 11
     ;;
   hook-component-finish-install.postinst:11)
-    [ -f "$LC_STATE/installation.success" ] || installer_lifecycle_abort 125 "$id" 'finish-install requested exit without validated reboot handoff'
+    [ -f "$LC_STATE/installation.success" ] || installer_lifecycle_abort 125 "$id" 'finish-install requested exit without completed reboot handoff'
     installer_lifecycle_complete
     trap - 0
     exit 11

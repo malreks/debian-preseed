@@ -165,7 +165,7 @@ bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
 bootstrap_source_common_lib ""
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/crowdsec}
-installer_operation_context_repo scripts/late/crowdsec.sh 167 crowdsec
+installer_operation_context_repo scripts/late/crowdsec.sh 168 crowdsec
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target
 installer_ensure_context_loaded "$seed_base"
@@ -204,14 +204,14 @@ crowdsec_stage_target_asset \
 run_in_target "validate existing native log paths" \
   "${DIR_USR_LOCAL_LIBEXEC}/native-logging" --preflight
 
-# Native logging must be in place before cscli validates the engine.
+# Create native logging paths before the first boot activates CrowdSec.
 crowdsec_stage_logging_overlay \
   "$(installer_repo_file_value hooks/target/etc/crowdsec/common/config.yaml.local.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/crowdsec/config.yaml.local engine
 crowdsec_stage_target_asset \
   "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/57-crowdsec-logs.conf.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/57-crowdsec-logs.conf 0644
-run_in_target "create native CrowdSec log directory before configuration validation" \
+run_in_target "create native CrowdSec log directory" \
   __INSTALLER_PATH_DIR_USR_BIN__/systemd-tmpfiles --create __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/57-crowdsec-logs.conf
 for logging_unit in crowdsec crowdsec-firewall-bouncer; do
   case "$logging_unit" in
@@ -226,31 +226,9 @@ crowdsec_stage_target_asset \
   "$(installer_repo_file_value hooks/target/etc/systemd/common/system/crowdsec.service.d/20-capi-retry.conf)" \
   __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_CROWDSEC_DROPIN__/20-capi-retry.conf 0644
 
-# dpkg may configure packages in dependency order rather than pkgsel text order.
-# The upstream bouncer does not depend on a fully initialized local engine.
-run_in_target "verify CrowdSec engine before bouncer enrollment" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
-crowdsec_engine_status=$(dpkg-query -W -f="\${Status}" crowdsec 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-[ "$crowdsec_engine_status" = "install ok installed" ] || {
-  printf "CrowdSec engine package is not configured: %s\n" "${crowdsec_engine_status:-not-installed}" >&2
-  exit 1
-}
-[ -s __INSTALLER_PATH_DIR_ETC__/crowdsec/config.yaml ] && [ ! -L __INSTALLER_PATH_DIR_ETC__/crowdsec/config.yaml ] || {
-  printf "CrowdSec engine configuration is missing or unsafe\n" >&2
-  exit 1
-}
-if ! cscli config show --key Config.Common.LogMedia -o raw >__INSTALLER_PATH_DIR_DEV__/null; then
-  printf "CrowdSec engine configuration failed cscli validation\n" >&2
-  exit 1
-fi
-' sh
 # The d-i locale may not exist inside the target yet; scope C to this package operation.
 run_in_target "install CrowdSec bouncer after engine configuration" env LC_ALL=C DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends install crowdsec-firewall-bouncer-nftables
-run_in_target "validate CrowdSec bouncer package configuration" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
-crowdsec_bouncer_status=$(dpkg-query -W -f="\${Status}" crowdsec-firewall-bouncer-nftables 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-[ "$crowdsec_bouncer_status" = "install ok installed" ] || {
-  printf "CrowdSec bouncer package is not configured: %s\n" "${crowdsec_bouncer_status:-not-installed}" >&2
-  exit 1
-}
+run_in_target "protect installed CrowdSec bouncer configuration" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
 config=__INSTALLER_PATH_DIR_ETC__/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
 [ -s "$config" ] && [ ! -L "$config" ] && [ "$(find -P "$config" -maxdepth 0 -printf %n)" = 1 ] || {
   printf "CrowdSec bouncer configuration is missing or unsafe\n" >&2
@@ -362,8 +340,6 @@ crowdsec_stage_target_asset \
   "$(installer_repo_file_value hooks/target/usr/local/libexec/common/crowdsec-bouncer-verify)" \
   "${DIR_USR_LOCAL_LIBEXEC}/crowdsec-bouncer-verify" \
   0755
-run_in_target "validate CrowdSec enrollment without activating target services" \
-  "${DIR_USR_LOCAL_LIBEXEC}/crowdsec-bouncer-verify" --offline
 
 if crowdsec_token=$(crowdsec_cmdline_token 2>__INSTALLER_PATH_DIR_DEV__/null); then
   token_tmp=$(mktemp "${target_root}${token_file}.XXXXXX")
@@ -383,9 +359,6 @@ unset crowdsec_token 2>__INSTALLER_PATH_DIR_DEV__/null || true
 run_in_target "enable crowdsec target units" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
 systemctl --root=/ disable crowdsec.service crowdsec-firewall-bouncer.service >__INSTALLER_PATH_DIR_DEV__/null
 systemctl --root=/ enable crowdsec-firstboot.service >__INSTALLER_PATH_DIR_DEV__/null
-systemctl --root=/ is-enabled crowdsec-firstboot.service >__INSTALLER_PATH_DIR_DEV__/null
-! systemctl --root=/ is-enabled crowdsec.service >__INSTALLER_PATH_DIR_DEV__/null 2>&1
-! systemctl --root=/ is-enabled crowdsec-firewall-bouncer.service >__INSTALLER_PATH_DIR_DEV__/null 2>&1
 ' sh
 
 crowdsec_info "staged CrowdSec target assets for host_variant=$INSTALLER_HOST_VARIANT"

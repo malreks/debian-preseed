@@ -23,7 +23,7 @@ for codex_module in scripts/late/devops/validation-base.sh scripts/late/devops/p
   scripts/late/devops/codex-appserver.sh scripts/late/devops/codex-provision.sh; do
   bootstrap_source_module "$(installer_repo_file_value "$codex_module")" || exit "$?"
 done
-ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || installer_fatal 'Codex requires the explicit primary account'
+installer_load_primary_account
 devops_validate_account_name "$ACCOUNT_USERNAME"
 ACCOUNT_HOME="${DIR_HOME}/$ACCOUNT_USERNAME"
 account_ids=$(devops_target_passwd_ids "$ACCOUNT_USERNAME")
@@ -87,5 +87,4 @@ if [ "$INSTALLER_HOST_VARIANT" = server ]; then
   installer_run_target_setup scripts/server/setup.py.tmpl 'publish the primary account Codex login environment' \
     codex-account server "$ACCOUNT_USERNAME"
 fi
-devops_verify_codex
 installer_info 'pinned Codex and codex-home configured; no API login or external enrollment performed'

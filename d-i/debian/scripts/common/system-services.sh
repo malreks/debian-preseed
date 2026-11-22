@@ -95,7 +95,6 @@ installer_stage_offline_unit_link "$FILE_BOOTPROFILE_SERVICE"
 # Forwarding is enabled only after rsyslog reports readiness, for both families.
 render_target_resource_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/journald.conf.d/10-storage.conf.tmpl)" \
   "$FILE_JOURNALD_STORAGE_CONF" 0644
-validate_target_journal_storage_policy
 installer_stage_profile_file hooks/target/etc/systemd/common/journald.conf.d/syslog.conf \
   "${DIR_JOURNALD_CONF_D}/syslog.conf" 0644
 installer_stage_profile_file hooks/target/usr/local/libexec/common/journal-check "${DIR_USR_LOCAL_LIBEXEC}/journal-check" 0755

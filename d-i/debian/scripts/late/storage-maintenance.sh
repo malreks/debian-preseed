@@ -90,11 +90,6 @@ getent group devops >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || groupadd --system d
 # Reapply at the final desktop boundary so the selected profile is authoritative.
 stage_target_systemd_manager_accounting() (
   set -eu
-  systemd_resource_placeholder_map >__INSTALLER_PATH_DIR_DEV__/null || exit 1
-  case "$SYSTEMD_DEFAULT_IOACCOUNTING_ENABLE" in
-    true) expected_io=yes ;;
-    false) expected_io=no ;;
-  esac
   for resource_asset in \
     etc/systemd/system.conf.d/60-resource-accounting.conf \
     etc/systemd/user.conf.d/60-resource-accounting.conf
@@ -102,23 +97,12 @@ stage_target_systemd_manager_accounting() (
     render_target_resource_asset \
       "$(installer_repo_asset_path DIR_HOOKS_TARGET "$resource_asset")" \
       "/$resource_asset" 0644 || exit 1
-    resource_path=$(target_asset_host_path "/$resource_asset") || exit 1
-    # Verify the actual installed bytes, not just the placeholder map.
-    for expected_line in "DefaultIOAccounting=$expected_io" \
-      DefaultMemoryAccounting=yes DefaultTasksAccounting=yes
-    do
-      grep -Fxq "$expected_line" "$resource_path" || {
-        installer_fatal "manager accounting mismatch in $resource_path: $expected_line"; exit 1;
-      }
-    done
-    [ "$(grep -c '^DefaultIOAccounting=' "$resource_path")" = 1 ] || exit 1
   done
 )
 
 stage_target_systemd_resource_policy_assets() (
   set -eu
-  # Validate the complete resource profile before publishing any new policy.
-  systemd_resource_placeholder_map >__INSTALLER_PATH_DIR_DEV__/null || exit 1
+  # Base-stage already validated the frozen resource map used by publication.
   stage_target_systemd_manager_accounting || exit 1
   for resource_asset in \
     etc/systemd/system/user@.service.d/60-resource-delegation.conf \
@@ -134,46 +118,6 @@ stage_target_systemd_resource_policy_assets() (
     render_target_resource_asset \
       "$(installer_repo_asset_path DIR_HOOKS_TARGET "$resource_asset")" \
       "/$resource_asset" 0644 || exit 1
-  done
-)
-
-# Validate rendered values, not hard-coded profile defaults. Retain the original
-# routing/retention contract while allowing the requested storage overrides.
-validate_target_journal_storage_policy() (
-  set -eu
-  journal_path=$(target_asset_host_path "$FILE_JOURNALD_STORAGE_CONF") || exit 1
-  journal_policy=$(systemd_journal_policy_map) || exit 1
-  journal_storage=$(printf '%s\n' "$journal_policy" | sed -n 's/^SYSTEMD_JOURNAL_STORAGE=//p')
-  journal_seal=$(printf '%s\n' "$journal_policy" | sed -n 's/^SYSTEMD_JOURNAL_SEAL=//p')
-  # A duplicate setting could override the expected value despite a successful
-  # grep. Require exactly one assignment for every managed directive.
-  awk '
-    /^[[:space:]]*[#;]/ { next }
-    /^[[:space:]]*\[/ { next }
-    /^[[:space:]]*[A-Za-z][A-Za-z0-9]*[[:space:]]*=/ {
-      key = $0; sub(/[[:space:]]*=.*/, "", key); gsub(/^[[:space:]]+/, "", key)
-      if (++seen[key] != 1) exit 1
-    }
-  ' "$journal_path" || { installer_fatal "duplicate managed journald directive"; exit 1; }
-  for required_line in \
-    "Storage=$journal_storage" \
-    "Seal=$journal_seal" \
-    "SystemMaxUse=$SYSTEMD_JOURNAL_SYSTEM_MAX_USE" \
-    "SystemKeepFree=$SYSTEMD_JOURNAL_SYSTEM_KEEP_FREE" \
-    "SystemMaxFileSize=$SYSTEMD_JOURNAL_SYSTEM_MAX_FILE_SIZE" \
-    "SystemMaxFiles=$SYSTEMD_JOURNAL_SYSTEM_MAX_FILES" \
-    "RuntimeMaxUse=$SYSTEMD_JOURNAL_RUNTIME_MAX_USE" \
-    "RuntimeKeepFree=$SYSTEMD_JOURNAL_RUNTIME_KEEP_FREE" \
-    "RuntimeMaxFileSize=$SYSTEMD_JOURNAL_RUNTIME_MAX_FILE_SIZE" \
-    "RuntimeMaxFiles=$SYSTEMD_JOURNAL_RUNTIME_MAX_FILES" \
-    'MaxRetentionSec=1month' \
-    'ForwardToSyslog=no' \
-    'ForwardToKMsg=no' \
-    'ReadKMsg=no'
-  do
-    grep -Fxq -- "$required_line" "$journal_path" || {
-      installer_fatal "managed journald policy mismatch: $required_line"; exit 1;
-    }
   done
 )
 

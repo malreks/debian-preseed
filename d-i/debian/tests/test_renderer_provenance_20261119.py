@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools'))
 from isolation import fixture_environment, require_test_isolation
 require_test_isolation()
 
-import hashlib
 import os
 import re
 import shutil
@@ -29,9 +28,8 @@ MANIFEST = '3' * 64
 PRIVATE_ORIGIN = 'https://private-user:private-token@example.invalid/private-seed'
 IDENTITY = f'verified-v1 {ARCHIVE} {MANIFEST} {PRIVATE_ORIGIN}\n'.encode()
 
-# The actual source_sha256 helper invokes this counted adapter. Its successful
-# branch uses the private image's real SHA256 program over the copied renderer
-# on stdin. The failure branches never execute any external command.
+# The counted adapter remains available to catch an accidental diagnostic
+# rehash. The installed source_sha256 helper must not be called by this path.
 DRIVER = r'''#!/bin/sh
 set -eu
 umask 077
@@ -64,7 +62,6 @@ class RendererProvenanceTests(unittest.TestCase):
         self.assertTrue(stat.S_ISDIR(metadata.st_mode))
         self.assertEqual(metadata.st_uid, os.getuid())
         self.assertEqual(stat.S_IMODE(metadata.st_mode), 0o700)
-        self.assertTrue(os.access('/usr/bin/sha256sum', os.X_OK))
         self.counter = 0
         empty_path = self.root / 'empty-path'
         empty_path.mkdir(mode=0o700)
@@ -144,29 +141,23 @@ class RendererProvenanceTests(unittest.TestCase):
         self.assertEqual(len(fields), 4)
         parsed = dict(item.split('=', 1) for item in fields)
         self.assertEqual(set(parsed), {'release', 'archive_sha256',
-                                      'manifest_sha256', 'renderer_sha256'})
-        for value in parsed.values():
-            self.assertRegex(value, r'\A(?:[a-f0-9]{64}|unavailable)\Z')
+                                      'manifest_sha256', 'renderer'})
+        self.assertEqual(parsed['renderer'], 'payload-member')
+        for key in ('release', 'archive_sha256', 'manifest_sha256'):
+            self.assertRegex(parsed[key], r'\A(?:[a-f0-9]{64}|unavailable)\Z')
         call_count = len(calls.read_text().splitlines()) if calls.exists() else 0
         return result.returncode, parsed, call_count
 
-    def test_current_and_old_expression_bytes_are_hashed_exactly_once(self):
-        # Representative former malformed expression: this is data only, not
-        # a reconstructed historical full renderer or a Perl execution test.
-        older = b'$context->{PHASE} =~ /\\A[A-Za-z0-9_./@+:-]+\\z/;\n'
-        hashes = []
-        for data in (self.current_renderer, older):
-            with self.subTest(renderer_sha256=hashlib.sha256(data).hexdigest()):
+    def test_payload_identity_is_logged_without_rehashing_renderer_bytes(self):
+        older = b'older renderer bytes used as fixture data only\n'
+        for index, data in enumerate((self.current_renderer, older)):
+            with self.subTest(renderer_case=index):
                 status, fields, calls = self.invoke(renderer=data)
-                self.assertEqual(status, 0)
-                self.assertEqual(calls, 1)
+                self.assertEqual((status, calls), (0, 0))
                 self.assertEqual(fields, {
                     'release': RELEASE, 'archive_sha256': ARCHIVE,
-                    'manifest_sha256': MANIFEST,
-                    'renderer_sha256': hashlib.sha256(data).hexdigest(),
+                    'manifest_sha256': MANIFEST, 'renderer': 'payload-member',
                 })
-                hashes.append(fields['renderer_sha256'])
-        self.assertNotEqual(*hashes)
 
     def test_missing_malformed_or_indirect_identity_is_advisory(self):
         malformed = [
@@ -181,36 +172,36 @@ class RendererProvenanceTests(unittest.TestCase):
         for index, identity in enumerate(malformed):
             with self.subTest(malformed=index):
                 status, fields, calls = self.invoke(identity=identity)
-                self.assertEqual((status, calls), (0, 1))
+                self.assertEqual((status, calls), (0, 0))
                 self.assertEqual(fields['archive_sha256'], 'unavailable')
                 self.assertEqual(fields['manifest_sha256'], 'unavailable')
-                self.assertEqual(fields['renderer_sha256'], hashlib.sha256(self.current_renderer).hexdigest())
+                self.assertEqual(fields['renderer'], 'payload-member')
         for kind in ('symlink', 'fifo'):
             with self.subTest(identity_kind=kind):
                 status, fields, calls = self.invoke(identity_kind=kind)
-                self.assertEqual((status, calls), (0, 1))
+                self.assertEqual((status, calls), (0, 0))
                 self.assertEqual(fields['archive_sha256'], 'unavailable')
                 self.assertEqual(fields['manifest_sha256'], 'unavailable')
 
-    def test_invalid_release_or_failed_hash_is_unavailable(self):
+    def test_invalid_release_and_unused_hash_adapter_are_advisory(self):
         for release in ('', 'a' * 63, 'G' * 64, 'https://private-release/unsafe'):
             with self.subTest(release=release):
                 status, fields, calls = self.invoke(release=release)
-                self.assertEqual((status, calls), (0, 1))
+                self.assertEqual((status, calls), (0, 0))
                 self.assertEqual(fields['release'], 'unavailable')
         for mode in ('fail', 'malformed'):
             with self.subTest(hash_mode=mode):
                 status, fields, calls = self.invoke(hash_mode=mode)
-                self.assertEqual((status, calls), (0, 1))
-                self.assertEqual(fields['renderer_sha256'], 'unavailable')
+                self.assertEqual((status, calls), (0, 0))
+                self.assertEqual(fields['renderer'], 'payload-member')
         status, fields, calls = self.invoke(missing_renderer=True)
         self.assertEqual((status, calls), (0, 0))
-        self.assertEqual(fields['renderer_sha256'], 'unavailable')
+        self.assertEqual(fields['renderer'], 'payload-member')
 
     def test_logger_failure_does_not_replace_the_callers_status(self):
         status, fields, calls = self.invoke(log_status=9, caller_status=37)
-        self.assertEqual((status, calls), (37, 1))
-        self.assertEqual(fields['renderer_sha256'], hashlib.sha256(self.current_renderer).hexdigest())
+        self.assertEqual((status, calls), (37, 0))
+        self.assertEqual(fields['renderer'], 'payload-member')
 
 
 if __name__ == '__main__':

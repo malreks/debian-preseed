@@ -25,5 +25,5 @@ InaccessiblePaths=-__INSTALLER_PATH_DIR_OPT__/xwayland
 # service selects the rendered rc.xml explicitly and launches the one managed
 # startup helper only after the compositor event loop and Wayland socket exist.
 ExecStartPre=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check compositor-config
-ExecStart=__INSTALLER_PATH_DIR_USR__/bin/labwc --config %h/.config/labwc/rc.xml --startup __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-autostart
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check compositor-launch
 TimeoutStopSec=30s

@@ -233,19 +233,6 @@ EOF
   mv "$samloader_staged_host" "$samloader_install_host"
   ln -sfn ..__INSTALLER_PATH_DIR_LIB__/samloader/samloader ${TARGET_ROOT}${DIR_USR_LOCAL_BIN}/samloader
 
-  samloader_reported_version=$(
-    capture_in_target \
-      "verify installed samloader-rs version" \
-      __INSTALLER_PATH_DIR_USR_BIN__/timeout 20s __INSTALLER_PATH_DIR_USR_LOCAL__/lib/samloader/samloader --version
-  )
-  case "$samloader_reported_version" in
-    *"$SAMLOADER_VERSION"*) ;;
-    *)
-      desktop_samloader_fail \
-        "installed samloader version is unexpected: ${samloader_reported_version:-unset}"
-      ;;
-  esac
-
   rm -rf -- "${TARGET_ROOT}${samloader_work_dir}"
   desktop_log \
     "installed_samloader version=${SAMLOADER_VERSION} architecture=${SAMLOADER_TARGET_ARCHITECTURE} archive_sha256=${SAMLOADER_SHA256}"

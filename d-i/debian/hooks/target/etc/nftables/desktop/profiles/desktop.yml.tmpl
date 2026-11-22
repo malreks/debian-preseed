@@ -77,7 +77,8 @@ source_filtering:
   drop_loopback_on_non_loopback: true
   martian_ipv4_sources:
   - 0.0.0.0/8
-  - 169.254.0.0/16
+  # IPv4 link-local senders are valid desktop LAN discovery peers. Service
+  # overlays still restrict their ports and physical ingress interfaces.
   martian_ipv6_sources:
   - ::/128
   - ::ffff:0:0/96

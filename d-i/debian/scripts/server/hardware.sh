@@ -23,7 +23,7 @@ for module in scripts/late/core.sh scripts/late/target-assets.sh scripts/common/
   # shellcheck disable=SC1090
   . "$module_file"
 done
-ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || installer_fatal 'hardware policy requires the private operator identity'
+installer_load_primary_account
 installer_run_target_setup scripts/server/setup.py.tmpl 'install profile-controlled pinned scheduler packages without starting services' \
   profile-packages server "$INSTALLER_ARCH_CLASS"
 profile_install_scx_scheduler

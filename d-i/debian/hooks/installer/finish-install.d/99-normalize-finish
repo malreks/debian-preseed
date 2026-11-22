@@ -1,7 +1,7 @@
 #!/bin/sh
 # Finish-install prerequisite hook: normalize volatile mount backing directories
 # before APT source repair. early.sh stages this historical 99-* source as
-# 94zz-10, ahead of 95-normalize-apt and final target validation.
+# 94zz-10, ahead of 95-normalize-apt and the final unmount.
 set -eu
 
 RUNTIME_DIR=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
@@ -562,44 +562,6 @@ ensure_dir_mode() {
   chmod "$mode" "$path"
 }
 
-normalize_systemd_unit_tree_permissions() {
-  target_dir=$(target_path_for "$DIR_SYSTEMD_ETC" DIR_SYSTEMD_ETC)
-  [ -d "$target_dir" ] || return 0
-  find "$target_dir" -type d -exec chmod 0755 {} +
-  find "$target_dir" -type f -exec chmod 0644 {} +
-}
-
-normalize_managed_helper_file_permissions() {
-  for rel_path in \
-    "${DIR_USR_LOCAL_LIBEXEC}/network-run" \
-    "${DIR_FIRSTBOOT_BIN}/tailscale-up" \
-    "${DIR_USR_LOCAL_LIBEXEC}/syncthing-configure" \
-    "${DIR_FIRSTBOOT_BIN}/crowdsec-firstboot" \
-    "${DIR_FIRSTBOOT_BIN}/secondboot-cleanup" \
-    "${DIR_USR_LOCAL_LIBEXEC}/incus-host"
-  do
-    target_file=$(target_path_for "$rel_path" "$rel_path")
-    [ -f "$target_file" ] || continue
-    chmod 0755 "$target_file"
-  done
-}
-
-normalize_usr_local_script_permissions() {
-  for rel_dir in "$DIR_USR_LOCAL_SBIN" "$DIR_USR_LOCAL_BIN"; do
-    target_dir=$(target_path_for "$rel_dir" "$rel_dir")
-    [ -d "$target_dir" ] || continue
-    find "$target_dir" -type d -exec chmod 0755 {} +
-    while IFS= read -r script_path; do
-      [ -f "$script_path" ] || continue
-      prefix=$(head -c 2 "$script_path" 2>/dev/null || true)
-      [ "$prefix" = '#!' ] || continue
-      chmod 0755 "$script_path"
-    done <<EOF_MANAGED_SCRIPTS
-$(find "$target_dir" -type f | sort)
-EOF_MANAGED_SCRIPTS
-  done
-}
-
 normalize_account_home_permissions() {
   account_home=${ACCOUNT_HOME:-}
   [ -n "$account_home" ] || {
@@ -811,9 +773,8 @@ if bool_is_true "${TMPFS_VAR_LIB_APT_LISTS:-false}"; then
   ensure_dir_mode "$target_apt_state" 0755
 fi
 
-normalize_systemd_unit_tree_permissions
-normalize_managed_helper_file_permissions
-normalize_usr_local_script_permissions
+# Atomic publishers and native packages own executable/unit modes at install
+# time. Keep the final pass limited to the explicit account privacy policy.
 normalize_account_home_permissions
 
 target_tmp=$(target_path_for "$DIR_TMP" DIR_TMP)

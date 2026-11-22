@@ -110,7 +110,7 @@ class PackagedNativeSessionTests(unittest.TestCase):
         units = TARGET / 'etc/skel-desktop/.config/systemd/user'
         compositor = payload_read_text(units / 'labwc-compositor.service')
         wallet = payload_read_text(units / 'labwc-kwallet-portal.service')
-        self.assertIn('ExecStart=/usr/bin/labwc ', compositor)
+        self.assertIn('ExecStart=/usr/local/libexec/labwc-session-check compositor-launch', compositor)
         self.assertIn('InaccessiblePaths=-/opt/xwayland', compositor)
         self.assertIn('UnsetEnvironment=DISPLAY XAUTHORITY WLR_XWAYLAND', compositor)
         self.assertIn('ExecStart=/usr/bin/ksecretd\n', wallet)

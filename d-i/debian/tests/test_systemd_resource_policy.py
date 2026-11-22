@@ -475,7 +475,7 @@ render_target_resource_asset unused /{relative} 0644
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(list(outside.iterdir()), [])
 
-    def test_journal_default_and_nondefault_storage_survive_installer_validation(self):
+    def test_journal_default_and_nondefault_storage_survive_rendering(self):
         for tmpfs in ('true', 'false'):
             for values in ('', 'SYSTEMD_JOURNAL_SYSTEM_MAX_USE=512M\n'
                            'SYSTEMD_JOURNAL_RUNTIME_MAX_USE=32M\n'
@@ -484,7 +484,6 @@ render_target_resource_asset unused /{relative} 0644
                     target = Path(tmp) / 'target'; target.mkdir()
                     self.shell(self.staging(tmp)+'''
     render_target_resource_asset hooks/target/etc/systemd/journald.conf.d/10-storage.conf "$FILE_JOURNALD_STORAGE_CONF" 0644
-    validate_target_journal_storage_policy
     ''', override=f'TMPFS_VAR_LOG={tmpfs}\n'+values)
                     actual = payload_read_text(target / 'etc/systemd/journald.conf.d/10-storage.conf')
                     self.assertIn('SystemMaxUse=512M' if values else 'SystemMaxUse=1G', actual)

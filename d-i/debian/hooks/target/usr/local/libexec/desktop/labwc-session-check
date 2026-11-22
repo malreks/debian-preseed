@@ -1,5 +1,5 @@
 #!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
-"""Fixed-operation user-service checks; no generic command or shell interface."""
+"""Fixed user-service operations; no generic command or shell interface."""
 import os
 import re
 from pathlib import Path
@@ -46,7 +46,34 @@ def kwallet_ready() -> int:
 
 
 def main(args: list[str]) -> int:
-    if args == ["session-ready"]:
+    if args == ["compositor-launch"]:
+        if os.getuid() == 0 or os.environ.get("LABWC_SESSION_OWNER") != "desktop":
+            return 1
+        config = Path.home() / ".config/labwc/rc.xml"
+        if not os.access(config, os.R_OK):
+            return 1
+        environment = dict(os.environ)
+        # Only this compositor receives the wlroots workaround. Do not import
+        # it into the user manager or change any private compatibility runtime.
+        for name in ("WLR_EGL_NO_MODIFIERS", "WLR_DRM_NO_MODIFIERS"):
+            environment.pop(name, None)
+        try:
+            with open("__INSTALLER_PATH_DIR_PROC__/driver/nvidia/version", encoding="ascii") as stream:
+                legacy_nvidia = re.search(r"\b580\.", stream.read(4096)) is not None
+        except FileNotFoundError:
+            legacy_nvidia = False
+        if legacy_nvidia:
+            # 580 is the retained proprietary Pascal branch. Avoid the
+            # modifier import path implicated by the supplied EGL_BAD_MATCH
+            # errors while keeping the compositor's GLES renderer.
+            environment["WLR_EGL_NO_MODIFIERS"] = "1"
+            environment["WLR_DRM_NO_MODIFIERS"] = "1"
+            print("labwc-compositor: driver=nvidia-580 egl_modifiers=disabled drm_modifiers=disabled",
+                  file=sys.stderr, flush=True)
+        executable = "__INSTALLER_PATH_DIR_USR_BIN__/labwc"
+        os.execve(executable, [executable, "--config", str(config), "--startup",
+                              "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-autostart"], environment)
+    elif args == ["session-ready"]:
         runtime = os.environ.get("XDG_RUNTIME_DIR", "")
         display = os.environ.get("WAYLAND_DISPLAY", "")
         uid = os.getuid()

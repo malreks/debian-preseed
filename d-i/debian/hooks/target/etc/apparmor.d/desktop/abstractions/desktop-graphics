@@ -2,8 +2,8 @@
 #
 # Shared hardware-accelerated desktop graphics access for repository-managed
 # applications and the small set of wrappers that render their own GUI.
-# Primary DRM card/control nodes remain compositor-only; clients receive
-# unprivileged render nodes. NVIDIA's common driver interface is available to
+# Primary DRM card nodes permit read-only driver discovery; clients render
+# through unprivileged render nodes. NVIDIA's common driver interface is available to
 # confined graphics and CUDA workloads; selected NVIDIA hardware adds only
 # module-parameter reads through local/desktop-graphics.
 
@@ -47,9 +47,9 @@ network netlink raw,
 @{sys}/devices/virtual/tty/tty[0-9]*/active r,
 # Unprivileged DRM render nodes are sufficient for normal Wayland clients.
 __INSTALLER_PATH_DIR_DEV__/dri/ r,
-# Primary DRM nodes remain compositor-owned.  GUI clients use render nodes;
-# make opportunistic primary-node probes quiet and fail closed in enforce mode.
-deny __INSTALLER_PATH_DIR_DEV__/dri/card[0-9]* rw,
+# GLVND/libdrm enumerate primary-node metadata as well as render nodes.
+# KMS writes remain compositor-owned; native clients need read-only discovery.
+__INSTALLER_PATH_DIR_DEV__/dri/card[0-9]* r,
 __INSTALLER_PATH_DIR_DEV__/dri/renderD[0-9] rw,
 __INSTALLER_PATH_DIR_DEV__/dri/renderD[0-9][0-9] rw,
 __INSTALLER_PATH_DIR_DEV__/dri/renderD[0-9][0-9][0-9] rw,
@@ -58,7 +58,7 @@ __INSTALLER_PATH_DIR_DEV__/dri/by-path/pci-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9
 __INSTALLER_PATH_DIR_DEV__/nvidia[0-9]* rw,
 __INSTALLER_PATH_DIR_DEV__/nvidia-caps/ r,
 __INSTALLER_PATH_DIR_DEV__/nvidia-caps/** rw,
-deny __INSTALLER_PATH_DIR_DEV__/nvidia-modeset rw,
+__INSTALLER_PATH_DIR_DEV__/nvidia-modeset rw,
 __INSTALLER_PATH_DIR_DEV__/nvidia-uvm rw,
 __INSTALLER_PATH_DIR_DEV__/nvidia-uvm-tools rw,
 __INSTALLER_PATH_DIR_DEV__/nvidiactl rw,
@@ -73,6 +73,10 @@ deny __INSTALLER_PATH_DIR_DEV__/char/*:* l,
 __INSTALLER_PATH_DIR_DEV__/udmabuf rw,
 
 # Read-only libudev records used to enumerate DRM devices.
+@{sys}/class/drm/{,**} r,
+@{sys}/dev/char/{,**} r,
+@{sys}/devices/** r,
+__INSTALLER_PATH_DIR_RUN__/udev/data/{,**} r,
 __INSTALLER_PATH_DIR_RUN__/udev/data/c195:* r,
 __INSTALLER_PATH_DIR_RUN__/udev/data/c226:[0-9] r,
 __INSTALLER_PATH_DIR_RUN__/udev/data/c226:[0-9][0-9] r,

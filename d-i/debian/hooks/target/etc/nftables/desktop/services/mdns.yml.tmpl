@@ -14,9 +14,33 @@ services:
     - 5353
     allow:
       ipv4:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16
+      ipv6:
+      - fc00::/7
+      - fe80::/10
+      interfaces:
+      - eth0
+      - en*
+      - __INSTALLER_MANAGED_NETWORK_ETHERNET_IFACE__
+      - wlan0
+      - wl*
+      - __INSTALLER_MANAGED_NETWORK_WIFI_IFACE__
+    # Ingress matches the sender's unicast address. The multicast address is
+    # a destination and belongs only in outbound rules.
+    allow_to:
+      ipv4:
       - 224.0.0.251/32
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16
       ipv6:
       - ff02::fb/128
+      - fc00::/7
+      - fe80::/10
       interfaces:
       - eth0
       - en*

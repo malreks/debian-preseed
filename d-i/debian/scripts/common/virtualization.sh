@@ -25,7 +25,8 @@ bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/vir
 case "${INCUS_BRIDGE_NAME:?Incus bridge name required}" in
   ''|*[!A-Za-z0-9_.-]*|.*|*..*) installer_fatal 'invalid Incus bridge name' ;;
 esac
-operator=$(installer_cmdline_value primary_user) || installer_fatal 'virtualization operator identity is missing'
+installer_load_primary_account
+operator=$ACCOUNT_USERNAME
 case "$operator" in
   ''|root|ci-github|ci-gitlab|srv-devops|technitium|*[!a-z0-9_-]*) installer_fatal 'virtualization requires an explicit human operator' ;;
 esac

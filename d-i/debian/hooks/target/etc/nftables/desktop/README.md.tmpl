@@ -32,7 +32,7 @@ The generator is still backward-compatible with the old group keys, but this bun
 
 ```bash
 __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/nft-policy-generate \
-  --profile __INSTALLER_PATH_DIR_ETC__/nftables/profiles/server.yml \
+  --profile __INSTALLER_PATH_DIR_ETC__/nftables/profiles/baseline.yml \
   --write \
   --check
 ```
@@ -51,14 +51,16 @@ __INSTALLER_PATH_DIR_USR_LOCAL_SBIN__/nft-policy-generate \
 
 ## Installer Boot Policy
 
-Concrete `hosts/profiles/<family>/<role>.env` files control installer staging:
+The selected family, frozen package plan and feature switches control staging.
+Concrete host profiles need no `NFT_PROFILE` or `NFT_SERVICES` assignments.
+Shared defaults select automatic policy and no manually selected overlays:
 
 - `NFT_PROFILE=none` skips nftables profile, service overlay, and unit staging.
-- `NFT_PROFILE=default` maps to the selected role profile:
-  `server` classes use `profiles/server.yml`, and `desktop` classes use
-  `profiles/desktop.yml`.
-- `NFT_PROFILE=baseline|desktop|server` applies that explicit profile.
-- `NFT_SERVICES=none` applies only the selected profile.
+- `NFT_PROFILE=default` selects `profiles/desktop.yml` for desktop policy.
+  The standalone server path owns `managed_server`; the shared generator's
+  `server` selector maps to its existing `profiles/baseline.yml` source.
+- `NFT_PROFILE=baseline|desktop|server` remains an explicit site-policy override.
+- `NFT_SERVICES=none` adds no manual overlays. Automatic feature rules still apply.
 - `NFT_SERVICES=ssh-server,syncthing` applies those service overlays, but only when `NFT_PROFILE` is not `none`.
 - qBittorrent peer ingress belongs exclusively to `app-veth`. Software selection
   does not add a host INPUT service. The supported `qbittorrent` overlay name
@@ -71,8 +73,17 @@ Concrete `hosts/profiles/<family>/<role>.env` files control installer staging:
   entries before enabling the link. An offline route or closed lease removes
   its peer ingress entries. A changed port asks qBittorrent to save and exit,
   then restarts it with the new listener; the WebUI remains disabled.
-- Selecting the installer addon class `ssh` automatically merges the
-  `ssh-server` service overlay into the effective staged firewall policy.
+- Enabling the SSH server automatically adds its configured port and ACL.
+- `NFS_SERVER_ENABLE` and `NFS_CLIENT_ENABLE` independently select the matching
+  NFS rules, including the configured port, peers and uplink interfaces.
+- DNS, DHCP, NTP, SSH-client and SMTP-client egress are automatic. Desktop
+  HTTP sharing, mDNS and SSDP/wsdd discovery are automatic on desktop LAN
+  interfaces. The frozen package plan adds CUPS, KDE Connect, Samba, Syncthing
+  and Tailscale overlays when selected.
+  The wsdd overlay covers UDP 3702 discovery and TCP 5357 metadata; discovery
+  ingress matches the unicast LAN sender, while outbound queries use multicast.
+- The selected virtualization tools add only the managed Incus bridge policy.
+  Rootless Podman and app-veth keep their separate existing network owners.
 - `NFTABLES_LOG_LEVEL=none|error|warning|info|debug` controls only
   generator diagnostic output. It must not change generated nftables policy.
   Packet logging is controlled only by explicit profile or service overlay
@@ -97,8 +108,8 @@ forwarding rules, state handling, loopback, DHCP client exceptions, separated
 martian/bogon source drops, ICMP/ICMPv6 handling, optional bounded packet
 logging controlled by profile or overlay `logging` fields, optional egress
 audit or strict egress modes, and local extension chains. Profiles do not enable
-or declare service exposure. Service exposure must come from explicit
-`NFT_SERVICES` entries whose names match files in `services/*.yml`. Service
+or declare service exposure. Service exposure comes from the automatic feature/package selection described
+above or explicit site `NFT_SERVICES` entries matching `services/*.yml`. Service
 overlays are standalone and are not pinned to a specific profile.
 
 The desktop egress audit rule is placed after the local output hook and before

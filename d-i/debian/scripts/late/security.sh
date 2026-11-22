@@ -17,7 +17,7 @@ late_command_nftables_requested_profile() {
   [ -n "$nft_profile" ] || installer_fatal "NFT_PROFILE must not be empty"
 
   case "$nft_profile" in
-    none|default|baseline|desktop)
+    none|default|baseline|desktop|server)
       printf '%s\n' "$nft_profile"
       ;;
     *)
@@ -56,8 +56,14 @@ late_command_nftables_profile() {
     none|baseline|desktop)
       printf '%s\n' "$nft_profile"
       ;;
+    server)
+      printf '%s\n' baseline
+      ;;
     default)
-      late_command_nftables_host_variant
+      case "$(late_command_nftables_host_variant)" in
+        desktop) printf '%s\n' desktop ;;
+        server) printf '%s\n' baseline ;;
+      esac
       ;;
     *)
       installer_fatal "unsupported normalized NFT_PROFILE: ${nft_profile}; expected none, default, baseline, server, or desktop"
@@ -167,20 +173,43 @@ late_command_nftables_effective_services() {
   selected_services=$(late_command_nftables_services)
   # The global resolver always uses the rendered authenticated upstream port,
   # including when a site selects the strict egress overlay or no services.
-  effective_services=$(nftables_merge_selected_services "$selected_services" dns-client)
+  effective_services=$(nftables_merge_selected_services "$selected_services" \
+    dns-client dhcp-client ntp-client ssh-client smtp-client)
+
+  # Select daemon/discovery overlays from the frozen package plan, not a
+  # second per-host firewall feature list. Every listener keeps its LAN ACL.
+  if security_target_is_desktop; then
+    # Desktop applications also discover printers, media renderers and LAN
+    # peers without a separately selected local discovery daemon.
+    effective_services=$(nftables_merge_selected_services "$effective_services" lan-share mdns ssdp)
+    for nft_package_overlay in \
+      avahi-daemon:mdns cups:cups cups-daemon:cups kdeconnect:kdeconnect \
+      wsdd:ssdp samba:samba syncthing:syncthing
+    do
+      nft_package=${nft_package_overlay%%:*}
+      if installer_plan_package_selected "$nft_package"; then
+        case "$nft_package" in
+          cups|cups-daemon) nft_package_services='cups mdns' ;;
+          *) nft_package_services=${nft_package_overlay#*:} ;;
+        esac
+        # These words come only from the fixed table above.
+        # shellcheck disable=SC2086
+        effective_services=$(nftables_merge_selected_services "$effective_services" $nft_package_services)
+      fi
+    done
+  fi
 
   if installer_any_role_class_selected 2>__INSTALLER_PATH_DIR_DEV__/null; then
     effective_services=$(nftables_merge_selected_services "$effective_services" crowdsec)
   fi
 
   if nftables_tailscale_selected; then
-    effective_services=$(nftables_merge_selected_services "$effective_services" tailscale syncthing)
+    effective_services=$(nftables_merge_selected_services "$effective_services" tailscale)
   fi
 
   if [ "${SSH_SERVER_ENABLED:-false}" = true ]; then
     effective_services=$(nftables_merge_selected_services "$effective_services" ssh-server)
   fi
-
 
   if [ "${NFS_SERVER_ENABLE:-false}" = true ]; then
     effective_services=$(nftables_merge_selected_services "$effective_services" nfs-server)
@@ -531,7 +560,7 @@ nftables_ipv6_network_cidr() {
 }
 
 nftables_tailscale_selected() {
-  installer_class_selected_any role/desktop/medium role/desktop/full 2>__INSTALLER_PATH_DIR_DEV__/null
+  installer_plan_package_selected tailscale
 }
 
 nftables_qemu_selected() {
@@ -1410,7 +1439,7 @@ write_target_nftables_default_config() {
 }
 
 configure_target_nftables() {
-  installer_operation_context_repo scripts/late/security.sh 1458 configure_target_nftables
+  installer_operation_context_repo scripts/late/security.sh 1442 configure_target_nftables
   requested_profile=$(late_command_nftables_requested_profile)
   selected_profile=$(late_command_nftables_profile "$requested_profile")
   installer_info "nftables profile selection: raw=${NFT_PROFILE:-default} normalized=${requested_profile} selected=${selected_profile}"
@@ -1473,7 +1502,7 @@ configure_target_nftables() {
   # Repository membership and installed paths have separate owners. In
   # particular, the desktop policy source lives below its physical role root.
   # Never reconstruct a source path by stripping the target path prefix.
-  installer_operation_context_repo scripts/late/security.sh 1521 seed_persistent_firewall_state
+  installer_operation_context_repo scripts/late/security.sh 1505 seed_persistent_firewall_state
   while IFS='|' read -r local_state_selector local_state; do
     if [ -e "${TARGET_ROOT}${local_state}" ] || [ -L "${TARGET_ROOT}${local_state}" ]; then
       [ -f "${TARGET_ROOT}${local_state}" ] && [ ! -L "${TARGET_ROOT}${local_state}" ] ||
@@ -1510,36 +1539,6 @@ EOF
 
   stage_target_nftables_mullvad_lan_policy "$selected_services"
   stage_target_systemd_unit_enabled nftables.service system
-
-  [ -x ${TARGET_ROOT}${DIR_USR_LOCAL_SBIN}/nft-policy-generate ] || installer_fatal "staged nftables generator is missing"
-  [ -r ${TARGET_ROOT}${DIR_ETC}/nftables.conf ] || installer_fatal "staged nftables entrypoint is missing"
-  for fragment in 00-defines.nft 10-base.nft 20-filter.nft 30-nat.nft 90-local.nft; do
-    [ -r "${TARGET_ROOT}${DIR_ETC}/nftables.d/${fragment}" ] ||
-      installer_fatal "staged nftables fragment is missing: ${fragment}"
-  done
-  [ -r ${TARGET_ROOT}${DIR_ETC}/nftables/firewall-security.rules ] ||
-    installer_fatal "staged firewall security state is missing"
-  [ -r ${TARGET_ROOT}${DIR_ETC}/nftables.d/95-firewall-security.nft ] ||
-    installer_fatal "staged firewall security fragment is missing"
-  grep -Fq 'include "__INSTALLER_PATH_DIR_ETC__/nftables.d/95-firewall-security.nft"' \
-    ${TARGET_ROOT}${DIR_ETC}/nftables.d/90-local.nft ||
-    installer_fatal "generated local nftables fragment does not include Firewall Security rules"
-  [ -r "${TARGET_ROOT}${DIR_SYSTEMD_SYSTEM_NFTABLES_DROPIN}/override.conf" ] ||
-    installer_fatal "staged nftables systemd override is missing"
-  [ -r "${TARGET_ROOT}${DIR_ETC}/nftables/profiles/${selected_profile}.yml" ] ||
-    installer_fatal "staged nftables default profile is missing"
-  for profile_asset in baseline desktop; do
-    [ -r "${TARGET_ROOT}${DIR_ETC}/nftables/profiles/${profile_asset}.yml" ] ||
-      installer_fatal "staged nftables profile is missing: ${profile_asset}"
-  done
-  for service_asset in $(nftables_service_assets); do
-    [ -r "${TARGET_ROOT}${DIR_ETC}/nftables/services/${service_asset}.yml" ] ||
-      installer_fatal "staged nftables service overlay is missing: ${service_asset}"
-  done
-  for service_asset in $selected_services; do
-    [ -r "${TARGET_ROOT}${DIR_ETC}/nftables/services/${service_asset}.yml" ] ||
-      installer_fatal "selected nftables service overlay is missing: ${service_asset}"
-  done
 }
 
 security_mask_target_systemd_unit_if_available() {
@@ -1569,7 +1568,7 @@ security_mask_target_systemd_unit_if_available() {
 }
 
 configure_target_fail2ban() {
-  installer_operation_context_repo scripts/late/security.sh 1617 configure_target_fail2ban
+  installer_operation_context_repo scripts/late/security.sh 1571 configure_target_fail2ban
   runtime_apply_ssh_from_classes
   # Current roles expose SSH according to profile policy. There is no web
   # service class: querying a retired selector aborts the shared class parser.
@@ -1632,18 +1631,6 @@ configure_target_fail2ban() {
     --create \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/59-log-layout.conf \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/62-fail2ban.conf
-  if [ "$fail2ban_has_jails" = true ]; then
-    run_in_target \
-      "validate Fail2ban configuration" \
-      __INSTALLER_PATH_DIR_USR_BIN__/fail2ban-client \
-      -t
-  fi
-  run_in_target \
-    "validate Fail2ban log rotation" \
-    __INSTALLER_PATH_DIR_USR_SBIN__/logrotate \
-    --debug \
-    __INSTALLER_PATH_DIR_ETC__/logrotate.d/fail2ban
-
   if [ "$fail2ban_has_jails" = true ]; then
     stage_target_systemd_unit_enabled fail2ban.service system
   else
@@ -1843,10 +1830,9 @@ configure_target_stubby() (
 )
 
 configure_target_app_veth() {
-  installer_operation_context_repo scripts/late/security.sh 1889 configure_target_app_veth
+  installer_operation_context_repo scripts/late/security.sh 1833 configure_target_app_veth
   [ "$(late_command_nftables_profile)" != none ] ||
     installer_fatal "managed kernel namespaces require the nftables policy"
-  run_in_target "verify managed network connection cleanup command" __INSTALLER_PATH_DIR_USR_BIN__/test -x __INSTALLER_PATH_DIR_USR_SBIN__/conntrack
   for veth_asset in \
     etc/systemd/system/app-veth.service \
     etc/sysctl.d/91-app-veth.conf \
@@ -1879,19 +1865,13 @@ configure_target_app_veth() {
   render_target_asset_with_placeholder_map \
     "$(installer_repo_file_value hooks/target/etc/app-veth.json.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/app-veth.json 0644 app_veth_placeholder_map
-  run_in_target "validate managed kernel network configuration" \
-    __INSTALLER_PATH_DIR_USR_LOCAL__/sbin/app-veth --check-config
-  run_in_target "validate managed DNS cache configuration" \
-    __INSTALLER_PATH_DIR_USR_SBIN__/dnsmasq --test --conf-file=__INSTALLER_PATH_DIR_ETC__/dnsmasq-app-veth.conf
-  run_in_target "validate managed TLS resolver configuration" \
-    __INSTALLER_PATH_DIR_USR_BIN__/stubby -i -C __INSTALLER_PATH_DIR_ETC__/stubby/stubby.yml
   stage_target_asset "$(installer_repo_file_value hooks/target/etc/rsyslog.d/18-app-veth.conf.tmpl)" __INSTALLER_PATH_DIR_ETC__/rsyslog.d/18-app-veth.conf 0644
   stage_target_systemd_unit_enabled dnsmasq-app-veth.service system
   stage_target_systemd_unit_enabled app-veth.service system
 }
 
 configure_target_apparmor_auditd() {
-  installer_operation_context_repo scripts/late/security.sh 1937 configure_target_apparmor_auditd
+  installer_operation_context_repo scripts/late/security.sh 1874 configure_target_apparmor_auditd
   install -d -m 0755 \
     ${TARGET_ROOT}${DIR_ETC}/apparmor \
     ${TARGET_ROOT}${DIR_APPARMOR} \

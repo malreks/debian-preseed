@@ -119,9 +119,6 @@ desktop_render_terminal_configs() {
     LABWC_TERMINAL_WINDOW_COLUMNS "${LABWC_TERMINAL_WINDOW_COLUMNS:-96}" \
     LABWC_TERMINAL_WINDOW_ROWS "${LABWC_TERMINAL_WINDOW_ROWS:-26}"
 
-  run_in_target "validate rendered Foot configuration" \
-    __INSTALLER_PATH_DIR_USR_BIN__/env LC_ALL=C.UTF-8 __INSTALLER_PATH_DIR_USR_BIN__/foot --check-config \
-    --config __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/foot/foot.ini || return $?
   desktop_log "rendered_terminal_configs font_family=${terminal_font_family} font_size=${terminal_font_size}"
 }
 
@@ -287,8 +284,8 @@ desktop_install_user_resource_policy() {
     0644
 
   # Render before desktop_install_user_config copies .config/systemd into
-  # ACCOUNT_HOME. Only existing repository-owned units get class assignments.
-  systemd_resource_placeholder_map >__INSTALLER_PATH_DIR_DEV__/null || return 1
+  # ACCOUNT_HOME, using the resource map frozen at base-stage. Only existing
+  # repository-owned units get class assignments.
   desktop_stage_role_asset hooks/target/usr/local/bin/desktop/labwc-build \
     __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-build 0755
   render_target_resource_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/user/build.slice.tmpl)" \

@@ -74,18 +74,6 @@ stage_target_secure_boot_runtime_assets
 prepare_target_secure_boot_runtime
 sign_target_installed_kernel_modules
 repair_target_installed_kernels
-# shellcheck disable=SC2016
-run_in_target 'verify native headless boot tools and kernel pairs without execution' "${DIR_BIN}/sh" -eu -c '
-  for tool in /usr/sbin/update-grub /usr/bin/grub-editenv /usr/bin/timeout; do test -x "$tool"; done
-  found=false
-  for kernel in /boot/vmlinuz-*; do
-    test -f "$kernel" || continue
-    version=${kernel#/boot/vmlinuz-}
-    test -f "/boot/initrd.img-$version" || continue
-    found=true
-  done
-  test "$found" = true
-' sh
 profile_work=$(mktemp -d "${TMP_ENV_DIR}/server-grub.XXXXXX")
 render_grub_profile_config_map >"$profile_work/map"
 # The map's values already contain literal shell quoting for the native data

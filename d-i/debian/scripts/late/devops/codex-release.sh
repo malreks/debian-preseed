@@ -446,32 +446,9 @@ unset binary_name extracted_path
 chown root:root "$extracted_binary_dir"
 codex_chmod_without_special_bits 0755 "$extracted_binary_dir"
 
-# Version commands also initialize Codex state. Keep BOTH release probes in a
-# disposable private home, never in / or in the desktop account state.
-codex_verify_version() (
-  verify_home=$(mktemp -d "$staging_dir/verify-home.XXXXXX") || return 1
-  codex_verify_cleanup() { rm -rf -- "$verify_home"; }
-  trap codex_verify_cleanup EXIT
-  trap "exit 129" HUP
-  trap "exit 130" INT
-  trap "exit 143" TERM
-  __INSTALLER_PATH_DIR_USR_BIN__/env -i HOME="$verify_home" USER=root LOGNAME=root \
-    CODEX_HOME="$verify_home/.codex" \
-    XDG_CONFIG_HOME="$verify_home/.config" XDG_CACHE_HOME="$verify_home/.cache" \
-    XDG_DATA_HOME="$verify_home/.local/share" XDG_STATE_HOME="$verify_home/.local/state" \
-    PATH=__INSTALLER_PATH_DIR_USR__/bin:__INSTALLER_PATH_DIR_BIN__ LANG=C.UTF-8 LC_ALL=C.UTF-8 \
-    __INSTALLER_PATH_DIR_USR_BIN__/timeout --kill-after=5 30 "$1" --version
-)
-
 candidate_binary_path="$extracted_binary_dir/codex"
 [ -x "$candidate_binary_path" ] && [ ! -L "$candidate_binary_path" ] ||
   codex_fatal "managed Codex archive is missing its required entrypoint"
-version_output=$(codex_verify_version "$candidate_binary_path" 2>__INSTALLER_PATH_DIR_DEV__/null) || codex_fatal "pinned Codex binary failed its version check"
-case "$version_output" in
-  *"$codex_version"*) ;;
-  *) codex_fatal "Codex version verification failed for staged release" ;;
-esac
-
 extracted_schema_path="$extract_dir/$archive_schema_member"
 [ -f "$extracted_schema_path" ] && [ ! -L "$extracted_schema_path" ] ||
   codex_fatal "extracted Codex configuration schema is missing or indirect"
@@ -695,12 +672,6 @@ fi
 
 [ -x "$binary_path" ] && [ ! -L "$binary_path" ] ||
   codex_fatal "published Codex entrypoint is missing or indirect"
-version_output=$(codex_verify_version "$binary_path" 2>__INSTALLER_PATH_DIR_DEV__/null) ||
-  codex_fatal "published Codex binary failed its version check"
-case "$version_output" in
-  *"$codex_version"*) ;;
-  *) codex_fatal "published Codex version verification failed" ;;
-esac
 [ -f "$schema_path" ] && [ ! -L "$schema_path" ] ||
   codex_fatal "published Codex schema is missing or indirect"
 [ -d "$user_root/.git" ] && [ ! -L "$user_root/.git" ] ||

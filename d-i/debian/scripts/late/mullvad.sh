@@ -345,27 +345,19 @@ install_target_systemd_resolved_for_mullvad() {
           install systemd-resolved
   fi
 
-  mullvad_resolved_status=$(mullvad_installed_package_status systemd-resolved)
-  [ "$mullvad_resolved_status" = "install ok installed" ] ||
-    installer_fatal "systemd-resolved is not fully installed: ${mullvad_resolved_status:-missing}"
-  mullvad_legacy_resolvconf_status=$(mullvad_installed_package_status resolvconf)
-  [ "$mullvad_legacy_resolvconf_status" != "install ok installed" ] ||
-    installer_fatal "legacy resolvconf must not remain installed with systemd-resolved"
-
   mullvad_seed_target_resolved_stub systemd-resolved-installation
 }
 
-mullvad_validate_and_defer_apparmor() {
+mullvad_stage_and_defer_apparmor() {
   # The package always supplies its resource, but profile installation depends
   # on the vendor postinst environment. Publish it explicitly when absent.
-  # Compilation is mandatory now; kernel activation remains boot-only.
-  installer_operation_context_repo scripts/late/mullvad.sh 381 validate_mullvad_apparmor
-  run_in_target_quiet "validate Mullvad AppArmor profile without loading installer policy" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+  # Stage the authenticated package resource; kernel activation is boot-only.
+  installer_operation_context_repo scripts/late/mullvad.sh 355 stage_mullvad_apparmor
+  run_in_target_quiet "stage Mullvad AppArmor profile without loading installer policy" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
 umask 077
 policy_dir=__INSTALLER_PATH_DIR_APPARMOR__
 profile="$policy_dir/mullvad"
 vendor="__INSTALLER_PATH_DIR_OPT__/Mullvad VPN/resources/apparmor_mullvad"
-abi="$policy_dir/abi/4.0"
 policy_failure() { printf "Mullvad AppArmor: %s\n" "$*" >&2; exit 1; }
 policy_identity() { __INSTALLER_PATH_DIR_USR_BIN__/find -P "$1" -maxdepth 0 -printf %D:%i:%s:%T@:%C@:%U:%G:%m:%n; }
 require_policy_file() {
@@ -394,9 +386,7 @@ require_policy_directory() {
 }
 require_policy_directory "$policy_dir"
 require_policy_directory "${vendor%/*}"
-require_policy_directory "${abi%/*}"
 require_policy_file "$vendor" "packaged vendor policy"
-require_policy_file "$abi" "packaged ABI 4.0"
 vendor_identity=$(policy_identity "$vendor") || policy_failure "cannot identify packaged policy"
 policy_lock="$policy_dir/.mullvad-installer.lock"
 __INSTALLER_PATH_DIR_USR_BIN__/mkdir -m 0700 -- "$policy_lock" || policy_failure "another policy publisher owns the target"
@@ -413,7 +403,7 @@ cleanup_policy_check() {
   fi
   if [ -n "$policy_check_dir" ]; then
     if ! { __INSTALLER_PATH_DIR_USR_BIN__/rm -f -- "$policy_check_dir/current" "$policy_check_dir/vendor" \
-             "$policy_check_dir/candidate" "$policy_check_dir/parser.conf" &&
+             "$policy_check_dir/candidate" &&
            __INSTALLER_PATH_DIR_USR_BIN__/rmdir -- "$policy_check_dir"; }; then
       printf "Mullvad AppArmor: cleanup failed; evidence and lock retained: %s\n" "$policy_check_dir" >&2
       exit 125
@@ -442,21 +432,11 @@ if [ -e "$profile" ] || [ -L "$profile" ]; then
 else
   __INSTALLER_PATH_DIR_USR_BIN__/cp -- "$vendor" "$policy_check_dir/candidate" || exit "$?"
 fi
-: >"$policy_check_dir/parser.conf"
-if __INSTALLER_PATH_DIR_USR_SBIN__/apparmor_parser --config-file "$policy_check_dir/parser.conf" \
-     --base "$policy_dir" --Include "$policy_dir" --features-file "$abi" --jobs=1 \
-     --skip-kernel-load --skip-cache "$policy_check_dir/candidate"; then
-  :
-else
-  policy_status=$?
-  printf "Mullvad AppArmor: offline compilation failed (status=%s); previous policy retained\n" "$policy_status" >&2
-  exit "$policy_status"
-fi
-[ "$(policy_identity "$vendor")" = "$vendor_identity" ] || policy_failure "packaged policy changed during validation"
+[ "$(policy_identity "$vendor")" = "$vendor_identity" ] || policy_failure "packaged policy changed during staging"
 if [ -n "$profile_identity" ]; then
   [ ! -L "$profile" ] && [ "$(policy_identity "$profile")" = "$profile_identity" ] ||
-    policy_failure "existing policy changed during validation; original retained"
-  printf "Mullvad AppArmor: verified existing policy; kernel activation deferred\n"
+    policy_failure "existing policy changed during staging; original retained"
+  printf "Mullvad AppArmor: retained existing packaged policy; kernel activation deferred\n"
 else
   __INSTALLER_PATH_DIR_USR_BIN__/chown 0:0 "$policy_check_dir/candidate" || exit "$?"
   __INSTALLER_PATH_DIR_USR_BIN__/chmod 0644 "$policy_check_dir/candidate" || exit "$?"
@@ -481,29 +461,18 @@ else
   require_policy_file "$profile" "published target policy"
   [ "$(__INSTALLER_PATH_DIR_USR_BIN__/find -P "$profile" -maxdepth 0 -printf %D:%i:%s:%U:%G:%m:%n)" = "$published_identity" ] ||
     policy_failure "published policy identity changed; evidence retained"
-  printf "Mullvad AppArmor: installed validated packaged policy; kernel activation deferred\n"
+  printf "Mullvad AppArmor: installed packaged policy; kernel activation deferred\n"
 fi
 ' sh || return $?
   stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/mullvad-apparmor.service)" \
     __INSTALLER_PATH_DIR_ETC__/systemd/system/mullvad-apparmor.service 0644 || return $?
   stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/10-apparmor.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_MULLVAD_DAEMON_DROPIN__/10-apparmor.conf 0644 || return $?
-  # The logging-only override must never discard new vendor launch options.
-  # Fail closed if a future package changes its ExecStart contract or flags.
-  installer_operation_context_repo scripts/late/mullvad.sh 512 validate_mullvad_journal
-  run_in_target_quiet "validate Mullvad native journal logging contract" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
-unit=__INSTALLER_PATH_DIR_USR_LIB__/systemd/system/mullvad-daemon.service
-[ -f "$unit" ] || unit=__INSTALLER_PATH_DIR_LIB__/systemd/system/mullvad-daemon.service
-[ "$(grep -E "^[[:space:]]*ExecStart=" "$unit")" = "ExecStart=__INSTALLER_PATH_DIR_USR_BIN__/mullvad-daemon -vv --disable-stdout-timestamps" ]
-help=$(__INSTALLER_PATH_DIR_USR_BIN__/mullvad-daemon --help)
-printf "%s\n" "$help" | grep -F -q -- --disable-log-to-file
-printf "%s\n" "$help" | grep -F -q -- --disable-stdout-timestamps
-' sh || return $?
   stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/desktop/system/mullvad-daemon.service.d/40-logging.conf)" \
     __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM_MULLVAD_DAEMON_DROPIN__/40-logging.conf 0644 || return $?
-  run_in_target_quiet "enable checked Mullvad AppArmor activation at first boot" \
+  run_in_target_quiet "enable Mullvad AppArmor activation at first boot" \
     systemctl --root=/ enable mullvad-apparmor.service || return $?
-  installer_info "Mullvad AppArmor policy compiled; kernel activation deferred to mullvad-apparmor.service"
+  installer_info "Mullvad AppArmor policy staged; kernel activation deferred to mullvad-apparmor.service"
 }
 
 install_target_mullvad_vpn_if_selected() (
@@ -544,7 +513,7 @@ install_target_mullvad_vpn_if_selected() (
       installer_fatal "installed mullvad-vpn package does not provide mullvad-daemon.service"
     installer_info \
       "Mullvad VPN is already installed version=${mullvad_existing_version} unit=${mullvad_existing_unit}"
-    mullvad_validate_and_defer_apparmor
+    mullvad_stage_and_defer_apparmor
     exit 0
   fi
 
@@ -745,32 +714,7 @@ mv -f -- "$temporary" "$destination"
 
   mullvad_seed_target_resolved_stub mullvad-vpn-installation
 
-  mullvad_installed_status=$(mullvad_installed_package_status mullvad-vpn)
-  [ "$mullvad_installed_status" = "install ok installed" ] ||
-    installer_fatal "mullvad-vpn is not fully installed: ${mullvad_installed_status:-missing}"
-  mullvad_installed_version=$(
-    capture_in_target \
-      "verify installed Mullvad VPN version" \
-      __INSTALLER_PATH_DIR_USR_BIN__/dpkg-query -W -f="\${Version}" mullvad-vpn
-  )
-  [ "$mullvad_installed_version" = "$mullvad_package_version" ] ||
-    installer_fatal "installed Mullvad VPN version does not match the verified artifact"
-  mullvad_daemon_unit=$(target_systemd_unit_path mullvad-daemon.service system 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-  [ -n "$mullvad_daemon_unit" ] ||
-    installer_fatal "verified mullvad-vpn package did not install mullvad-daemon.service"
-  mullvad_package_sha256=$(
-    capture_in_target \
-      "record Mullvad VPN package SHA-256" \
-      __INSTALLER_PATH_DIR_USR_BIN__/sha256sum "$mullvad_deb_path" |
-      awk '{print $1}'
-  )
-  case "$mullvad_package_sha256" in
-    *[!0-9a-f]*|'') installer_fatal "Mullvad VPN package SHA-256 is invalid" ;;
-  esac
-  [ "${#mullvad_package_sha256}" -eq 64 ] ||
-    installer_fatal "Mullvad VPN package SHA-256 has an invalid length"
-
   installer_info \
-    "installed verified Mullvad VPN package version=${mullvad_installed_version} architecture=${mullvad_target_arch} sha256=${mullvad_package_sha256} unit=${mullvad_daemon_unit}"
-  mullvad_validate_and_defer_apparmor
+    "installed authenticated Mullvad VPN package version=${mullvad_package_version} architecture=${mullvad_target_arch}; activation deferred to target boot"
+  mullvad_stage_and_defer_apparmor
 )

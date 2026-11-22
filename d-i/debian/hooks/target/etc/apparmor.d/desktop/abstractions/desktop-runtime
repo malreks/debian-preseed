@@ -67,6 +67,15 @@ __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/fonts/ r,
 __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/fonts/** r,
 __INSTALLER_PATH_DIR_USR_SHARE__/fontconfig/conf.avail/ r,
 __INSTALLER_PATH_DIR_USR_SHARE__/fontconfig/conf.avail/** r,
+# Common packaged toolkit/plugin data is public, root-owned runtime input.
+# Keep it readable across browser, Electron, GTK, Qt and document clients.
+__INSTALLER_PATH_DIR_USR_LIB__/** mr,
+__INSTALLER_PATH_DIR_USR_SHARE__/** r,
+__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/** r,
+owner @{HOME}/.fonts/{,**} r,
+owner @{HOME}/.local/share/{fonts,icons,themes}/{,**} r,
+owner @{HOME}/.config/fontconfig/{,**} r,
+owner @{HOME}/.cache/fontconfig/{,**} rwkl,
 __INSTALLER_PATH_DIR_USR_SHARE__/xkeyboard-config-*/ r,
 __INSTALLER_PATH_DIR_USR_SHARE__/xkeyboard-config-*/** r,
 # Installed GTK providers and Kvantum SVG/config data are read-only toolkit

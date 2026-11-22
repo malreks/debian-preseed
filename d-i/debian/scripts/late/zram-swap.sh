@@ -164,26 +164,10 @@ stage_target_zram_assets() {
   render_target_template "$TMP_ENV_DIR/zram-idle-writeback.timer.tmpl" "${TARGET_ROOT}${FILE_ZRAM_IDLE_WRITEBACK_TIMER}" 0644
   render_target_template "$TMP_ENV_DIR/zram-cold-tier.timer.tmpl" "${TARGET_ROOT}${FILE_ZRAM_COLD_TIER_TIMER}" 0644
 
-  verify_target_zram_staging
+  configure_target_zram_runtime_state
 }
 
-verify_target_zram_staging() {
-  for zram_path in \
-    "${FILE_ZRAM_TMPFILES}" \
-    "${FILE_ZRAM_RSYSLOG}" \
-    "${FILE_ZRAM_LOGROTATE}" \
-    "${FILE_ZRAM_SETUP_HELPER}" \
-    "${FILE_ZRAM_WRITEBACK_HELPER}" \
-    "${FILE_ZRAM_SETUP_SERVICE}" \
-    "${FILE_ZRAM_WRITEBACK_SERVICE}" \
-    "${FILE_ZRAM_WRITEBACKD_SERVICE}" \
-    "${FILE_ZRAM_IDLE_WRITEBACK_TIMER}" \
-    "${FILE_ZRAM_COLD_TIER_TIMER}"
-  do
-    [ -e "${TARGET_ROOT}${zram_path}" ] ||
-      installer_fatal "staged zram asset is missing: ${zram_path}"
-  done
-
+configure_target_zram_runtime_state() {
   normalize_target_tmpfiles_directory_policy \
     "${FILE_ZRAM_TMPFILES}" \
     "zram runtime and managed log state"
@@ -192,14 +176,7 @@ verify_target_zram_staging() {
     __INSTALLER_PATH_DIR_USR_BIN__/systemd-tmpfiles \
     --create \
     "${FILE_ZRAM_TMPFILES}"
-  run_in_target \
-    "validate zram rsyslog configuration" \
-    __INSTALLER_PATH_DIR_USR_SBIN__/rsyslogd \
-    -N1 \
-    -f \
-    __INSTALLER_PATH_DIR_ETC__/rsyslog.conf
 }
-
 
 set_target_default_unit() {
   stage_target_default_systemd_unit multi-user.target

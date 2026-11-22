@@ -436,14 +436,18 @@ desktop_render_crystal_dock_appearance
                 for path in self.target.rglob('*'):
                     if payload_source_is_file(path):
                         self.assertNotRegex(path.read_text(), r'__(?:THEME|INSTALLER)_')
-                commands = (self.root / 'commands').read_text()
-                self.assertIn('/usr/bin/foot --check-config --config /etc/skel-desktop/.config/foot/foot.ini', commands)
+                command_log = self.root / 'commands'
+                commands = command_log.read_text() if command_log.exists() else ''
+                self.assertNotIn('foot --check-config', commands)
 
-    def test_foot_parser_failure_is_not_converted_to_success(self):
+    def test_terminal_rendering_does_not_launch_the_foot_parser(self):
         profile = SEED / 'hosts/profiles/btrfs-de.env'
         result = self.shell('. ' + Q(str(profile)) + '\ndesktop_render_terminal_configs',
                             TARGET_COMMAND_STATUS='230')
-        self.assertEqual(result.returncode, 230, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        command_log = self.root / 'commands'
+        commands = command_log.read_text() if command_log.exists() else ''
+        self.assertNotIn('foot --check-config', commands)
 
     def test_custom_wallpaper_paths_are_derived_not_evaluated(self):
         # The map is validator output. Override a legitimate input in a private

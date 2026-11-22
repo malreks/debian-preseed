@@ -779,88 +779,6 @@ whisper_target_install_entrypoints() {
   unset cli_wrapper existing_link stable_cli stable_server
 }
 
-whisper_target_verify_metadata() {
-  metadata_expected=$1
-  metadata_path=$2
-  metadata_label=$3
-
-  [ ! -L "$metadata_path" ] ||
-    whisper_target_fatal "${metadata_label} must not be a symbolic link: $metadata_path"
-  metadata_actual=$(find -P "$metadata_path" -maxdepth 0 -printf '%U:%G:%m' 2>__INSTALLER_PATH_DIR_DEV__/null) ||
-    whisper_target_fatal "cannot inspect ${metadata_label}: $metadata_path"
-  [ "$metadata_actual" = "$metadata_expected" ] ||
-    whisper_target_fatal \
-      "${metadata_label} has unsafe ownership or mode: expected ${metadata_expected}, found ${metadata_actual}"
-  unset metadata_actual metadata_expected metadata_label metadata_path
-}
-
-whisper_target_verify_runtime() {
-  runtime_config=__INSTALLER_PATH_DIR_ETC_WHISPER__/whisper.conf
-  release_record="${WHISPER_ROOT}/.installer-release"
-  cli_wrapper=$(whisper_target_cli_entrypoint)
-  stable_cli=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/whisper-cli
-  stable_server=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/whisper-server
-  model_path="${WHISPER_MODEL_DIR}/${model_filename}"
-
-  for runtime_directory in "$WHISPER_ROOT" "$WHISPER_BINARY_DIR" "$WHISPER_METADATA_DIR" __INSTALLER_PATH_DIR_ETC_WHISPER__; do
-    [ -d "$runtime_directory" ] && [ ! -L "$runtime_directory" ] ||
-      whisper_target_fatal "managed Whisper directory is missing or unsafe: $runtime_directory"
-    whisper_target_verify_metadata 0:0:755 "$runtime_directory" "managed Whisper directory"
-  done
-
-  for binary_name in whisper-cli whisper-server; do
-    binary_path="${WHISPER_BINARY_DIR}/${binary_name}"
-    [ -f "$binary_path" ] && [ -x "$binary_path" ] && [ ! -L "$binary_path" ] ||
-      whisper_target_fatal "managed Whisper binary is missing or unsafe: $binary_path"
-    whisper_target_verify_metadata 0:0:755 "$binary_path" "managed ${binary_name} binary"
-  done
-
-  for metadata_name in SHA256SUMS WHISPER_CPP_LICENSE build-info.txt cmake-command.txt; do
-    metadata_path="${WHISPER_METADATA_DIR}/${metadata_name}"
-    [ -f "$metadata_path" ] && [ ! -L "$metadata_path" ] ||
-      whisper_target_fatal "managed Whisper release metadata is missing or unsafe: $metadata_path"
-    whisper_target_verify_metadata 0:0:644 "$metadata_path" "managed Whisper release metadata"
-  done
-
-  [ -f "$release_record" ] && [ ! -L "$release_record" ] ||
-    whisper_target_fatal "managed Whisper release record is missing or unsafe"
-  whisper_target_verify_metadata 0:0:644 "$release_record" "managed Whisper release record"
-  for release_line in \
-    "url=${WHISPER_RELEASE_URL}" \
-    "sha256=${WHISPER_RELEASE_SHA256}" \
-    "archive_root=${WHISPER_RELEASE_ARCHIVE_ROOT}"
-  do
-    grep -Fqx "$release_line" "$release_record" ||
-      whisper_target_fatal "managed Whisper release record is missing: $release_line"
-  done
-
-  [ -L "$stable_cli" ] && [ "$(readlink "$stable_cli")" = "$cli_wrapper" ] ||
-    whisper_target_fatal "managed whisper-cli entrypoint is missing or incorrect"
-  [ -L "$stable_server" ] && [ "$(readlink "$stable_server")" = "${WHISPER_BINARY_DIR}/whisper-server" ] ||
-    whisper_target_fatal "managed whisper-server entrypoint is missing or incorrect"
-
-  whisper_model_directory_metadata=$(find -P "$WHISPER_MODEL_DIR" -maxdepth 0 -printf '%U:%G:%m')
-  [ "$whisper_model_directory_metadata" = "0:${whisper_model_gid}:2750" ] ||
-    whisper_target_fatal "managed Whisper model directory must be root:devops mode 2750"
-  whisper_model_metadata=$(find -P "$model_path" -maxdepth 0 -printf '%U:%G:%m')
-  [ "$whisper_model_metadata" = "0:${whisper_model_gid}:640" ] ||
-    whisper_target_fatal "managed Whisper model must be root:devops mode 0640"
-
-  [ -f "$runtime_config" ] && [ ! -L "$runtime_config" ] ||
-    whisper_target_fatal "managed Whisper runtime configuration is missing or unsafe"
-  whisper_target_verify_metadata 0:0:644 "$runtime_config" "managed Whisper runtime configuration"
-  grep -Fqx "WHISPER_CLI=${WHISPER_BINARY_DIR}/whisper-cli" "$runtime_config" ||
-    whisper_target_fatal "Whisper runtime configuration does not select the managed CLI binary"
-  grep -Fqx "WHISPER_SERVER=${WHISPER_BINARY_DIR}/whisper-server" "$runtime_config" ||
-    whisper_target_fatal "Whisper runtime configuration does not select the managed server binary"
-  grep -Fqx "WHISPER_SERVER_PORT=${WHISPER_SERVER_PORT}" "$runtime_config" ||
-    whisper_target_fatal "Whisper runtime configuration does not select the managed server port"
-
-  unset binary_name binary_path cli_wrapper metadata_name metadata_path model_path \
-    release_line release_record runtime_config runtime_directory stable_cli stable_server \
-    whisper_model_directory_metadata whisper_model_metadata
-}
-
 whisper_target_install() {
   # This mode runs only after whisper.sh and its archive helper have been staged
   # into the target. No source checkout or compilation is performed.
@@ -918,7 +836,6 @@ whisper_target_install() {
   whisper_target_prepare_model
   whisper_target_write_runtime_config
   whisper_target_install_entrypoints
-  whisper_target_verify_runtime
 
   whisper_target_info "installed whisper-cli, whisper-server, release metadata, and ${model_filename}"
 }
@@ -939,7 +856,7 @@ bootstrap_source_common_lib "" ||
   whisper_fatal "failed to source installer common library"
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/whisper}
-installer_operation_context_repo scripts/late/whisper.sh 961 whisper
+installer_operation_context_repo scripts/late/whisper.sh 859 whisper
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target || {
   whisper_fatal "failed to source installer late support libraries"

@@ -78,7 +78,7 @@ family_d_i_early_main() {
 
   LOG="$(installer_runtime_log_file)"
   installer_init_log_file "$LOG" "" "${hook_family} d-i early hook" d-i-early preseed_loaded
-  installer_operation_context_repo hooks/installer/d-i/early.sh 82 family_d_i_early_main
+  installer_operation_context_repo hooks/installer/d-i/early.sh 81 family_d_i_early_main
   trap 'installer_finalize_log "$?"' EXIT
   installer_load_context_if_present || true
 
@@ -134,7 +134,7 @@ family_d_i_early_main() {
   fetch_hook_file "$(installer_repo_file_value hooks/installer/pre-pkgsel.d/50-class-plan.sh)" "${DIR_INSTALLER_PRE_PKGSEL_D}/50-class-plan"
   chmod 0755 "${DIR_INSTALLER_PRE_PKGSEL_D}/50-class-plan"
   # Finalize volatile backing directories before any target-side APT command,
-  # then repair/modernize sources; both still precede validation and 95umount.
+  # then repair/modernize sources; both still precede 95umount.
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/99-normalize-finish)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish"
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/95-normalize-apt)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt"
   chmod 0755 ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt
@@ -148,7 +148,6 @@ family_d_i_early_main() {
   # copy receives its executable target mode.
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/10-nvidia-legacy-cleanup)" "${DIR_INSTALLER_FINISH_INSTALL_D}/10-nvidia-legacy-cleanup"
   chmod 0755 "${DIR_INSTALLER_FINISH_INSTALL_D}/10-nvidia-legacy-cleanup"
-  fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/94zz-99-validate-target)" ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-99-validate-target
   # Interpose on the first base-installer APT update, not on the later
   # apt-setup generator. The adapter rejects unknown d-i waypoint layouts.
   fetch_hook_file "$(installer_repo_file_value scripts/common/apt-sources.sh)" "$RUNTIME_DIR/bootstrap/apt-sources.sh"

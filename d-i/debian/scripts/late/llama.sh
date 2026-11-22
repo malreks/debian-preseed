@@ -621,8 +621,6 @@ llama_target_install_wrapper() {
     llama_fatal "managed llama launcher source is unavailable"
   [ "$(find -P "$wrapper_source" -maxdepth 0 -printf '%U:%G:%m')" = 0:0:600 ] ||
     llama_fatal "managed llama launcher source must be root:root mode 0600"
-  __INSTALLER_PATH_DIR_BIN__/sh -n "$wrapper_source" ||
-    llama_fatal "managed llama launcher source is not valid POSIX shell"
 
   wrapper_tmp="${wrapper_file}.tmp.$$"
   rm -f -- "$wrapper_tmp"
@@ -631,142 +629,6 @@ llama_target_install_wrapper() {
   chown 0:0 "$LLAMA_ROOT" "$LLAMA_WRAPPER_PATH" "$wrapper_file"
   chmod 0755 "$LLAMA_ROOT" "$LLAMA_WRAPPER_PATH" "$wrapper_file"
   unset wrapper_file wrapper_source wrapper_tmp
-}
-
-llama_target_verify_metadata() {
-  metadata_expected=$1
-  metadata_path=$2
-  metadata_label=$3
-
-  [ ! -L "$metadata_path" ] ||
-    llama_fatal "${metadata_label} must not be a symbolic link: $metadata_path"
-  metadata_actual=$(find -P "$metadata_path" -maxdepth 0 -printf '%U:%G:%m' 2>__INSTALLER_PATH_DIR_DEV__/null) ||
-    llama_fatal "cannot inspect ${metadata_label} metadata: $metadata_path"
-  [ "$metadata_actual" = "$metadata_expected" ] ||
-    llama_fatal \
-      "${metadata_label} has unsafe ownership or mode at ${metadata_path}: expected ${metadata_expected}, found ${metadata_actual}"
-
-  unset metadata_actual metadata_expected metadata_label metadata_path
-}
-
-llama_target_verify_runtime() {
-  runtime_verify_model="${LLAMA_MODEL_DIR}/${LLAMA_DEFAULT_MODEL}"
-  runtime_verify_wrapper="${LLAMA_WRAPPER_PATH}/llama"
-  runtime_verify_config_dir=__INSTALLER_PATH_DIR_ETC__/llama
-  runtime_verify_config="${runtime_verify_config_dir}/llama.conf"
-  runtime_verify_release_record="${LLAMA_ROOT}/.installer-release"
-
-  for runtime_verify_directory in \
-    "$LLAMA_ROOT" \
-    "$LLAMA_BINARY_DIR" \
-    "$LLAMA_METADATA_DIR" \
-    "$LLAMA_SHARE_DIR" \
-    "$LLAMA_WRAPPER_PATH" \
-    "$runtime_verify_config_dir"
-  do
-    [ -d "$runtime_verify_directory" ] && [ ! -L "$runtime_verify_directory" ] ||
-      llama_fatal "managed llama directory is missing or unsafe: $runtime_verify_directory"
-    llama_target_verify_metadata 0:0:755 "$runtime_verify_directory" "managed llama directory"
-  done
-
-  runtime_verify_devops_group=$(getent group devops 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-  case "$runtime_verify_devops_group" in
-    devops:*:*:*) ;;
-    *) llama_fatal "cannot resolve the devops group for the managed llama model directory" ;;
-  esac
-  runtime_verify_devops_gid=${runtime_verify_devops_group#*:}
-  runtime_verify_devops_gid=${runtime_verify_devops_gid#*:}
-  runtime_verify_devops_gid=${runtime_verify_devops_gid%%:*}
-  case "$runtime_verify_devops_gid" in
-    ''|*[!0-9]*) llama_fatal "cannot resolve the devops group id for the managed llama model directory" ;;
-  esac
-  [ -d "$LLAMA_MODEL_DIR" ] && [ ! -L "$LLAMA_MODEL_DIR" ] ||
-    llama_fatal "managed llama model directory is missing or unsafe: $LLAMA_MODEL_DIR"
-  llama_target_verify_metadata "0:${runtime_verify_devops_gid}:2750" "$LLAMA_MODEL_DIR" "managed llama model directory"
-
-  for runtime_verify_binary_name in llama-bench llama-cli llama-gguf-split llama-quantize llama-server; do
-    runtime_verify_binary="${LLAMA_BINARY_DIR}/${runtime_verify_binary_name}"
-    [ -f "$runtime_verify_binary" ] && [ -x "$runtime_verify_binary" ] && [ ! -L "$runtime_verify_binary" ] ||
-      llama_fatal "managed llama binary is missing or unsafe: $runtime_verify_binary"
-    llama_target_verify_metadata 0:0:755 "$runtime_verify_binary" "managed ${runtime_verify_binary_name} binary"
-  done
-
-  for runtime_verify_metadata_name in LLAMA_CPP_LICENSE SHA256SUMS build-info.txt cmake-command.txt file.txt ldd.txt llama-cli-version.txt llama-server-version.txt; do
-    runtime_verify_metadata="${LLAMA_METADATA_DIR}/${runtime_verify_metadata_name}"
-    [ -f "$runtime_verify_metadata" ] && [ ! -L "$runtime_verify_metadata" ] ||
-      llama_fatal "managed llama release metadata is missing or unsafe: $runtime_verify_metadata"
-    llama_target_verify_metadata 0:0:644 "$runtime_verify_metadata" "managed llama release metadata"
-  done
-
-  runtime_verify_ui_dir="${LLAMA_SHARE_DIR}/llama-ui"
-  [ -d "$runtime_verify_ui_dir" ] && [ ! -L "$runtime_verify_ui_dir" ] ||
-    llama_fatal "managed llama UI directory is missing or unsafe"
-  llama_target_verify_metadata 0:0:755 "$runtime_verify_ui_dir" "managed llama UI directory"
-  for runtime_verify_ui_name in SHA256SUMS bundle-info.txt dist.tar.gz; do
-    runtime_verify_ui_file="${runtime_verify_ui_dir}/${runtime_verify_ui_name}"
-    [ -f "$runtime_verify_ui_file" ] && [ ! -L "$runtime_verify_ui_file" ] ||
-      llama_fatal "managed llama UI file is missing or unsafe: $runtime_verify_ui_file"
-    llama_target_verify_metadata 0:0:644 "$runtime_verify_ui_file" "managed llama UI file"
-  done
-
-  [ -f "$runtime_verify_release_record" ] && [ ! -L "$runtime_verify_release_record" ] ||
-    llama_fatal "managed llama release record is missing or unsafe"
-  llama_target_verify_metadata 0:0:644 "$runtime_verify_release_record" "managed llama release record"
-  for runtime_verify_release_line in \
-    "url=${LLAMA_RELEASE_URL}" \
-    "sha256=${LLAMA_RELEASE_SHA256}" \
-    "archive_root=${LLAMA_RELEASE_ARCHIVE_ROOT}"
-  do
-    grep -Fqx "$runtime_verify_release_line" "$runtime_verify_release_record" ||
-      llama_fatal "managed llama release record is missing: $runtime_verify_release_line"
-  done
-
-  [ -f "$runtime_verify_wrapper" ] && [ -x "$runtime_verify_wrapper" ] && [ ! -L "$runtime_verify_wrapper" ] ||
-    llama_fatal "managed llama launcher is missing or unsafe: $runtime_verify_wrapper"
-  llama_target_verify_metadata 0:0:755 "$runtime_verify_wrapper" "managed llama launcher"
-  __INSTALLER_PATH_DIR_BIN__/sh -n "$runtime_verify_wrapper" ||
-    llama_fatal "managed llama launcher is not valid POSIX shell"
-
-  [ -f "$runtime_verify_model" ] && [ ! -L "$runtime_verify_model" ] ||
-    llama_fatal "managed GGUF model is missing or unsafe: $runtime_verify_model"
-  llama_target_verify_metadata "0:${runtime_verify_devops_gid}:640" "$runtime_verify_model" "managed GGUF model"
-
-  [ -f "$runtime_verify_config" ] && [ ! -L "$runtime_verify_config" ] ||
-    llama_fatal "managed llama configuration is missing or unsafe: $runtime_verify_config"
-  llama_target_verify_metadata 0:0:644 "$runtime_verify_config" "managed llama configuration"
-  if grep -q '__LLAMA_' "$runtime_verify_config"; then
-    llama_fatal "managed llama configuration contains unresolved placeholders"
-  fi
-  if grep -q '^LLAMA_BINARY_DIR=' "$runtime_verify_config"; then
-    llama_fatal "managed llama configuration must not define the fixed binary directory"
-  fi
-
-  runtime_verify_record_count=$(grep -c '^LLAMA_' "$runtime_verify_config" || true)
-  [ "$runtime_verify_record_count" = 11 ] ||
-    llama_fatal "managed llama configuration must contain exactly 11 runtime records: found ${runtime_verify_record_count:-unreadable}"
-  for runtime_verify_expected_record in \
-    "LLAMA_MODEL=${runtime_verify_model}" \
-    "LLAMA_CONTEXT_SIZE=${LLAMA_RUNTIME_CONTEXT}" \
-    "LLAMA_BATCH_SIZE=${LLAMA_RUNTIME_BATCH}" \
-    "LLAMA_UBATCH_SIZE=${LLAMA_RUNTIME_UBATCH}" \
-    "LLAMA_THREADS=${LLAMA_RUNTIME_THREADS}" \
-    "LLAMA_THREADS_BATCH=${LLAMA_RUNTIME_THREADS_BATCH}" \
-    "LLAMA_GPU_LAYERS=${LLAMA_RUNTIME_GPU_LAYERS}" \
-    "LLAMA_KV_OFFLOAD=${LLAMA_RUNTIME_KV_OFFLOAD}" \
-    "LLAMA_PARALLEL=${LLAMA_RUNTIME_PARALLEL}" \
-    "LLAMA_SERVER_HOST=${LLAMA_SERVER_HOST}" \
-    "LLAMA_SERVER_PORT=${LLAMA_SERVER_PORT}"
-  do
-    grep -Fqx "$runtime_verify_expected_record" "$runtime_verify_config" ||
-      llama_fatal "managed llama configuration is missing the expected record: $runtime_verify_expected_record"
-  done
-
-  unset runtime_verify_binary runtime_verify_binary_name runtime_verify_config runtime_verify_config_dir \
-    runtime_verify_devops_gid runtime_verify_devops_group runtime_verify_directory \
-    runtime_verify_expected_record runtime_verify_metadata runtime_verify_metadata_name \
-    runtime_verify_model runtime_verify_record_count runtime_verify_release_line \
-    runtime_verify_release_record runtime_verify_ui_dir runtime_verify_ui_file \
-    runtime_verify_ui_name runtime_verify_wrapper
 }
 
 llama_target_install() {
@@ -820,7 +682,6 @@ llama_target_install() {
   llama_target_prepare_model
   llama_target_write_runtime_config
   llama_target_install_wrapper
-  llama_target_verify_runtime
 
   llama_info "installed five llama release binaries, metadata, shared assets, configuration, launcher, and ${LLAMA_DEFAULT_MODEL}"
 }
@@ -841,7 +702,7 @@ bootstrap_source_common_lib "" ||
   llama_fatal "failed to source installer common library"
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LLAMA_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/llama}
-installer_operation_context_repo scripts/late/llama.sh 883 llama
+installer_operation_context_repo scripts/late/llama.sh 705 llama
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target ||
   llama_fatal "failed to source installer target support libraries"

@@ -608,65 +608,6 @@ software_stage_menu_icon() {
   chmod 0644 "${target_root}${menu_icon_destination}"
 }
 
-software_verify_menu_icons() {
-  verify_chatgpt=${1:-false}
-  verify_postman=${2:-false}
-  verify_discord=${3:-false}
-  verify_ledger=${4:-false}
-  verify_sleek=${5:-false}
-  # Validate the actual rendered desktop entries and decoded artwork inside
-  # the target. A themed name alone cannot establish that Fuzzel can open an
-  # icon; the fixed absolute paths also bypass icon-theme cache precedence.
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/env \
-    SOFTWARE_EXPECT_CHATGPT="$verify_chatgpt" \
-    SOFTWARE_EXPECT_POSTMAN="$verify_postman" \
-    SOFTWARE_EXPECT_DISCORD="$verify_discord" \
-    SOFTWARE_EXPECT_LEDGER="$verify_ledger" \
-    SOFTWARE_EXPECT_SLEEK="$verify_sleek" \
-    __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B -c '
-import configparser
-import os
-from pathlib import Path
-import stat
-
-import gi
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import GdkPixbuf
-
-expected = []
-for environment_name, desktop_id, icon_name in (
-    ("SOFTWARE_EXPECT_CHATGPT", "chatgpt", "chatgpt"),
-    ("SOFTWARE_EXPECT_POSTMAN", "postman", "postman"),
-    ("SOFTWARE_EXPECT_DISCORD", "discord", "discord"),
-    ("SOFTWARE_EXPECT_LEDGER", "ledger-live", "ledger-live-desktop"),
-    ("SOFTWARE_EXPECT_SLEEK", "sleek", "sleek"),
-):
-    if os.environ.get(environment_name) != "true":
-        continue
-    expected.append((desktop_id, icon_name))
-
-for desktop_id, icon_name in expected:
-    entry = Path("__INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__") / (desktop_id + ".desktop")
-    parser = configparser.ConfigParser(interpolation=None)
-    parser.optionxform = str
-    if not parser.read(entry, encoding="utf-8"):
-        raise SystemExit("missing managed desktop entry: " + str(entry))
-    icon = Path("__INSTALLER_PATH_DIR_USR_SHARE_ICONS_HICOLOR_512_APPS__") / (icon_name + ".png")
-    if parser.get("Desktop Entry", "Icon", fallback="") != str(icon):
-        raise SystemExit("managed desktop entry has wrong icon: " + str(entry))
-    info = icon.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o644:
-        raise SystemExit("unsafe managed menu icon: " + str(icon))
-    if any(not parent.is_dir() or parent.is_symlink() or not parent.stat().st_mode & stat.S_IXOTH
-           for parent in list(icon.parents)[:-1]):
-        raise SystemExit("managed menu icon directory is not publicly searchable: " + str(icon))
-    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(icon), 32, 32, True)
-    if pixbuf.get_width() < 1 or pixbuf.get_height() < 1:
-        raise SystemExit("managed menu icon cannot be decoded: " + str(icon))
-print("managed Fuzzel launcher icons verified: " + str(len(expected)))
-' || software_fatal "installed Fuzzel launcher artwork or desktop icon path is invalid"
-}
-
 software_managed_external_cpu_quota() {
   managed_external_online_cpus=$(
     chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/getconf _NPROCESSORS_ONLN
@@ -933,61 +874,6 @@ esac
     __INSTALLER_PATH_DIR_TMPFILES_D__/59-log-layout.conf \
     __INSTALLER_PATH_DIR_TMPFILES_D__/65-audit-syslog.conf \
     "$chatgpt_tmpfiles" || return $?
-  # shellcheck disable=SC2016
-  run_in_target "verify managed ChatGPT log path policy" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
-chatgpt_fatal() {
-  printf "fatal: %s\n" "$*" >&2
-  exit 1
-}
-
-chatgpt_verify_stat() {
-  expected=$1
-  path=$2
-  actual=$(find -P "$path" -maxdepth 0 -printf "%U:%G:%m")
-  [ "$actual" = "$expected" ] ||
-    chatgpt_fatal "unexpected ownership or mode for ${path}: expected ${expected}, found ${actual}"
-}
-
-account_user=$1
-for required_command in awk getent id runuser find; do
-  command -v "$required_command" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
-    chatgpt_fatal "required ChatGPT log-policy command is unavailable: $required_command"
-done
-
-account_uid=$(id -u "$account_user")
-adm_gid=$(getent group adm | awk -F: "{ print \$3; exit }")
-writer_gid=$(getent group openailogger | awk -F: "{ print \$3; exit }")
-case "$account_uid:$adm_gid:$writer_gid" in
-  *[!0123456789:]*|:*|*:) chatgpt_fatal "unable to resolve ChatGPT log-policy ids" ;;
-esac
-
-chatgpt_verify_stat "0:${adm_gid}:751" __INSTALLER_LOG_ROOT__
-chatgpt_verify_stat "0:${adm_gid}:751" __INSTALLER_LOG_MODELS_DIR__
-chatgpt_verify_stat "0:${adm_gid}:751" __INSTALLER_LOG_OPENAI_DIR__
-chatgpt_verify_stat "0:${adm_gid}:751" __INSTALLER_LOG_CHATGPT_DIR__
-chatgpt_verify_stat "${account_uid}:${writer_gid}:2770" __INSTALLER_LOG_CHATGPT_RUNTIME_DIR__
-chatgpt_verify_stat "${account_uid}:${writer_gid}:660" __INSTALLER_LOG_CHATGPT_RUNTIME_LOGIN_FILE__
-chatgpt_verify_stat "${account_uid}:${writer_gid}:660" __INSTALLER_LOG_CHATGPT_RUNTIME_TUI_FILE__
-chatgpt_verify_stat "0:${adm_gid}:640" __INSTALLER_LOG_CHATGPT_FILE__
-__INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$account_user" -- \
-  __INSTALLER_PATH_DIR_USR_BIN__/test ! -w __INSTALLER_LOG_CHATGPT_DIR__ ||
-  chatgpt_fatal "managed desktop account can unexpectedly modify the protected ChatGPT log directory"
-__INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$account_user" -- \
-  __INSTALLER_PATH_DIR_USR_BIN__/test -w __INSTALLER_LOG_CHATGPT_RUNTIME_DIR__ ||
-  chatgpt_fatal "managed desktop account cannot write the ChatGPT sandbox log directory"
-' sh "$ACCOUNT_USERNAME"
-  run_in_target \
-    "validate managed ChatGPT rsyslog routing" \
-    __INSTALLER_PATH_DIR_USR_SBIN__/rsyslogd \
-    -N1 \
-    -f \
-    __INSTALLER_PATH_FILE_RSYSLOG_CONF__
-  run_in_target \
-    "validate managed ChatGPT log rotation" \
-    __INSTALLER_PATH_DIR_USR_SBIN__/logrotate \
-    --debug \
-    __INSTALLER_PATH_FILE_LOGROTATE_CONF__
-
   chatgpt_enable_tmp="${target_root}${chatgpt_enable_file}.tmp.$$"
   [ ! -L "${target_root}${chatgpt_enable_file}" ] ||
     software_fatal "ChatGPT enable marker must not be a symlink"
@@ -1004,49 +890,6 @@ __INSTALLER_PATH_DIR_USR_SBIN__/runuser -u "$account_user" -- \
     "$software_update_helper" \
     --bootstrap-chatgpt
 
-  chatgpt_status=$(
-    chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-query \
-      -W \
-      -f='${Status}' \
-      chatgpt 2>__INSTALLER_PATH_DIR_DEV__/null || true
-  )
-  [ "$chatgpt_status" = 'install ok installed' ] ||
-    software_fatal "managed ChatGPT package is not fully installed"
-  for chatgpt_required_path in \
-    __INSTALLER_PATH_DIR_USR_BIN__/chatgpt \
-    __INSTALLER_PATH_DIR_USR_LIB_CHATGPT__/ChatGPT \
-    __INSTALLER_PATH_DIR_USR_LIB_CHATGPT__/codex-launcher \
-    __INSTALLER_PATH_DIR_USR_LIB_CHATGPT_CODEX__ \
-    __INSTALLER_PATH_DIR_USR_LIB_CHATGPT_RESOURCES__/codex-code-mode-host \
-    "$chatgpt_icon" \
-    "$chatgpt_launcher" \
-    "$chatgpt_log_runner" \
-    "$chatgpt_log_socket_helper" \
-    "$chatgpt_default" \
-    "$chatgpt_desktop" \
-    "$chatgpt_apparmor" \
-    "$chatgpt_rsyslog_config" \
-    "$chatgpt_rsyslog_dropin" \
-    "$chatgpt_tmpfiles" \
-    "$chatgpt_logrotate" \
-    "$chatgpt_runtime_logrotate"
-  do
-    chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/test -e "$chatgpt_required_path" ||
-      software_fatal "managed ChatGPT path is missing after bootstrap: $chatgpt_required_path"
-  done
-  unset chatgpt_required_path
-  for chatgpt_forbidden_path in \
-    "$chatgpt_vendor_source" \
-    "$chatgpt_vendor_legacy_source" \
-    "$chatgpt_vendor_keyring"
-  do
-    if [ -e "${target_root}${chatgpt_forbidden_path}" ] ||
-       [ -L "${target_root}${chatgpt_forbidden_path}" ]; then
-      software_fatal "ChatGPT vendor repository artifact remains active: $chatgpt_forbidden_path"
-    fi
-  done
-  unset chatgpt_forbidden_path
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate "$chatgpt_desktop"
   software_stage_menu_icon "$chatgpt_icon" chatgpt
   software_info "installed managed ChatGPT/Codex desktop through the signed local repository"
 }
@@ -1826,7 +1669,6 @@ POSTMAN_INSTALL_SH
     "$postman_desktop_file" \
     0644 \
     LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate "$postman_desktop_file"
   software_stage_menu_icon "$postman_icon_file" postman
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__
 
@@ -1984,7 +1826,6 @@ vendor_desktop="$extracted/ledger-live-desktop.desktop"
 [ -r "$vendor_desktop" ] && [ ! -L "$vendor_desktop" ]
 vendor_version=$(sed -n "s/^X-AppImage-Version=//p" "$vendor_desktop")
 [ "$vendor_version" = "$version" ]
-desktop-file-validate "$vendor_desktop"
 extracted_file_count=$(find "$extracted" -xdev -printf . | wc -c | awk "{print \$1}")
 extracted_kib=$(du -sk "$extracted" | awk "{print \$1}")
 case "$extracted_file_count:$extracted_kib" in
@@ -2063,7 +1904,6 @@ trap - EXIT HUP INT TERM
 
   run_in_target "configure Ledger hardware-wallet access" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
 account_user=$1
-udev_rule=$2
 
 getent passwd "$account_user" >__INSTALLER_PATH_DIR_DEV__/null
 getent group plugdev >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || groupadd --system plugdev
@@ -2072,13 +1912,8 @@ case " $(id -nG "$account_user") " in
   *" plugdev "*) ;;
   *) printf "fatal: Ledger account was not added to plugdev: %s\n" "$account_user" >&2; exit 1 ;;
 esac
-test -r "$udev_rule"
-if command -v udevadm >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
-  udevadm verify --resolve-names=never "$udev_rule" >__INSTALLER_PATH_DIR_DEV__/null
-fi
-' sh "$ACCOUNT_USERNAME" "$ledger_udev_rules"
+' sh "$ACCOUNT_USERNAME"
 
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate "$ledger_desktop_file"
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__
   if [ -x "${target_root}__INSTALLER_PATH_DIR_USR_BIN__/gtk-update-icon-cache" ]; then
     chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/gtk-update-icon-cache -f -q __INSTALLER_PATH_DIR_USR_SHARE_ICONS_HICOLOR__
@@ -2109,7 +1944,7 @@ software_run_selected_app() {
   selected_worker=$3
   selected_result=$4
   installer_class_selected_any $selected_classes || return 0
-  installer_operation_context_repo scripts/late/software.sh.tmpl 2118 "install_managed_application:${selected_worker}"
+  installer_operation_context_repo scripts/late/software.sh.tmpl 1947 "install_managed_application:${selected_worker}"
   software_info "starting ${selected_label}"
   # A required worker runs outside a conditional context so Dash keeps errexit.
   (
@@ -2236,9 +2071,6 @@ software_queue_deb \
 }
 
 software_finish_qoredb_app() {
-chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate \
-  __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/QoreDB.desktop >__INSTALLER_PATH_DIR_DEV__/null 2>&1
-
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__
 
 }
@@ -2263,8 +2095,6 @@ software_queue_deb \
 }
 
 software_finish_obsidian_app() {
-chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate \
-  __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__/md.obsidian.Obsidian.desktop >__INSTALLER_PATH_DIR_DEV__/null 2>&1
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__
 
 }
@@ -2299,12 +2129,6 @@ chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/systemctl --global mask tom
 software_queue_deb "Tomat" "$tomat_deb" tomat amd64 __INSTALLER_PATH_DIR_USR_BIN__/tomat "" "" "$SOFTWARE_TOMAT_SHA256"
 }
 
-software_finish_tomat_app() {
-chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/tomat daemon run --help >__INSTALLER_PATH_DIR_DEV__/null ||
-  software_fatal "Tomat does not support the required foreground daemon interface"
-chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/tomat watch --help >__INSTALLER_PATH_DIR_DEV__/null ||
-  software_fatal "Tomat does not support the required Waybar watcher interface"
-}
 software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Tomat preparation" software_prepare_tomat_app software_tomat_installed
 
 software_install_postman_app() {
@@ -2358,8 +2182,6 @@ software_render_seed_asset \
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/sleek.desktop \
   0644 \
   LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
-chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate \
-  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__/sleek.desktop >__INSTALLER_PATH_DIR_DEV__/null 2>&1
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__
 
@@ -2414,7 +2236,6 @@ software_flush_deb_batch
 software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Bitwarden Desktop post-install" software_finish_bitwarden_app software_bitwarden_installed
 software_run_selected_app "role/desktop/full" "QoreDB post-install" software_finish_qoredb_app software_qoredb_installed
 software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Obsidian post-install" software_finish_obsidian_app software_obsidian_installed
-software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Tomat post-install" software_finish_tomat_app software_tomat_installed
 software_run_selected_app "role/desktop/base role/desktop/medium role/desktop/full" "Sleek post-install" software_finish_sleek_app software_sleek_installed
 software_run_selected_app "role/desktop/medium role/desktop/full" "Filen Desktop post-install" software_finish_filen_app software_filen_installed
 
@@ -2426,7 +2247,6 @@ software_stage_seed_asset \
   "$(installer_repo_file_value hooks/target/usr/local/share/desktop/applications/discord.desktop.tmpl)" \
   "$discord_desktop_file" \
   0644
-chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate "$discord_desktop_file"
 # The shared HTTP transport owns bounded network retries. Repeating the entire
 # transaction also repeats validation/publication failures and loses the cause.
 run_in_target \
@@ -2452,7 +2272,6 @@ chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/test -x "${discord_install_
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/test -x "${discord_install_dir}/chrome-sandbox" ||
   software_fatal "managed Discord runtime executables are invalid after bootstrap"
 software_stage_menu_icon "${discord_install_dir}/discord.png" discord
-chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate "$discord_desktop_file"
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_LOCAL_SHARE_APPLICATIONS__
 }
 software_run_selected_app "role/desktop/medium role/desktop/full" "Discord" software_install_discord_app software_discord_installed
@@ -2589,7 +2408,6 @@ software_render_seed_asset \
   0644 \
   LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
 
-chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/desktop-file-validate "$tuta_desktop_file"
 chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/update-desktop-database __INSTALLER_PATH_DIR_USR_SHARE_APPLICATIONS__
 if [ -x "${target_root}__INSTALLER_PATH_DIR_USR_BIN__/gtk-update-icon-cache" ]; then
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/gtk-update-icon-cache -f -q __INSTALLER_PATH_DIR_USR_SHARE_ICONS_HICOLOR__
@@ -2608,12 +2426,6 @@ if [ "$software_tuta_installed" = true ]; then
   IFS= read -r tuta_sha256 <"${target_root}${work_dir}/tuta.sha256"
 fi
 
-software_verify_menu_icons \
-  "$software_chatgpt_installed" \
-  "$software_postman_installed" \
-  "$software_discord_installed" \
-  "$software_ledger_installed" \
-  "$software_sleek_installed"
 software_restore_managed_apparmor_profiles
 
 install -d -m 0755 \
@@ -2724,7 +2536,6 @@ software_stage_seed_asset \
 
 run_in_target "enable local APT inbox and weekly refresh" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
 systemctl --root=/ enable apt-repo-local-inbox.path apt-repo-local-refresh.timer >__INSTALLER_PATH_DIR_DEV__/null
-systemctl --root=/ is-enabled apt-repo-local-inbox.path apt-repo-local-refresh.timer >__INSTALLER_PATH_DIR_DEV__/null
 ' sh
 
 software_cleanup_work_dir

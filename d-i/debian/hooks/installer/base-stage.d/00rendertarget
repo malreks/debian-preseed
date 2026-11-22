@@ -130,14 +130,13 @@ prepare_run_logged() {
   fi
 }
 prepare_log_renderer_provenance() (
-  # Advisory identifiers distinguish copied renderer bytes from an older seed.
+  # Advisory identifiers name the already authenticated payload snapshot.
   # Never print the identity's source URL, account data or map values. A failed
   # diagnostic must leave the renderer's normal execution/status owner intact.
   prepare_provenance_work=${1:-}
   prepare_provenance_release=unavailable
   prepare_provenance_archive=unavailable
   prepare_provenance_manifest=unavailable
-  prepare_provenance_renderer=unavailable
   case "${INSTALLER_RELEASE_ID:-}" in
     ''|*[!a-f0-9]*) ;;
     *) [ "${#INSTALLER_RELEASE_ID}" -ne 64 ] || prepare_provenance_release=$INSTALLER_RELEASE_ID ;;
@@ -173,22 +172,12 @@ prepare_log_renderer_provenance() (
       esac
     fi
   fi
-  if [ -n "$prepare_provenance_work" ] &&
-     [ -f "$prepare_provenance_work/render.pl" ] && [ ! -L "$prepare_provenance_work/render.pl" ]; then
-    if prepare_provenance_sum=$(source_sha256 <"$prepare_provenance_work/render.pl" 2>/dev/null); then
-      prepare_provenance_digest=${prepare_provenance_sum%% *}
-      case "$prepare_provenance_digest" in
-        ''|*[!a-f0-9]*) ;;
-        *) [ "${#prepare_provenance_digest}" -ne 64 ] || prepare_provenance_renderer=$prepare_provenance_digest ;;
-      esac
-    fi
-  fi
-  installer_info "target renderer provenance release=$prepare_provenance_release archive_sha256=$prepare_provenance_archive manifest_sha256=$prepare_provenance_manifest renderer_sha256=$prepare_provenance_renderer" || :
+  installer_info "target renderer provenance release=$prepare_provenance_release archive_sha256=$prepare_provenance_archive manifest_sha256=$prepare_provenance_manifest renderer=payload-member" || :
   return 0
 ) 2>/dev/null
 # perl-base is part of Debian's base system. Target APT is deliberately
 # unavailable here; no additional interpreter package transaction is needed.
-prepare_context 191 require_base_perl_interpreter
+prepare_context 180 require_base_perl_interpreter
 [ -x "${TARGET_ROOT}${DIR_USR_BIN}/perl" ] || installer_fatal 'base installation did not provide its Perl interpreter'
 # The shared target logger streams redacted stdout/stderr to tty4 and captures
 # exact child status without relying on pipeline status or an optional tee.
@@ -198,7 +187,7 @@ prepare_context 191 require_base_perl_interpreter
 # families, so a server preparation must also identify the desktop registry.
 # Actual target publication retains the selected-family guard.
 prepare_log_renderer_provenance "$work" || :
-prepare_context 201 render_target_source_snapshot
+prepare_context 190 render_target_source_snapshot
 prepare_run_logged 'payload copied; rendering target assets with base-system Perl' \
   "$work/inputs/render.log" 180 chroot "$TARGET_ROOT" "${DIR_USR_BIN}/env" -i \
   HOME="$DIR_ROOT_HOME" PATH="${DIR_USR_BIN}:${DIR_BIN}" LC_ALL=C.UTF-8 \
@@ -211,16 +200,14 @@ prepare_run_logged 'payload copied; rendering target assets with base-system Per
   --perl-assets "$(installer_repo_file_value catalog/compiled/shared-perl-assets.tsv)" \
   --profile-assets "$(installer_repo_file_value catalog/compiled/profile-assets.tsv)" \
   --perl-root "$DIR_PERL5_SITE_PERL" --family "$INSTALLER_HOST_VARIANT" --snapshots "$snapshots"
-prepare_context 214 verify_target_render_receipt
-[ -s "$work/receipt.json" ] && [ ! -L "$work/receipt.json" ] || installer_fatal 'target renderer did not produce a receipt'
 LC_ALL=C awk -F '\t' -v phase="${INSTALLER_PHASE:-base-stage}" '
   NF != 3 { exit 1 }
   { printf "%s\t%s\tplain\t%s\t%s\n", $2, $1, phase, $3 }
 ' "$work/inputs/published-assets.tsv" >"$work/inputs/published-ownership.tsv"
 chmod 0600 "$work/inputs/published-ownership.tsv"
-prepare_context 221 commit_target_ownership
+prepare_context 208 commit_target_ownership
 installer_target_ownership_import "$work/inputs/published-ownership.tsv"
-prepare_context 223 publish_target_render_ready
+prepare_context 210 publish_target_render_ready
 mv -T -- "$work" "$stage"
 cp "$stage/identity" "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"
 chmod 0600 "${FILE_INSTALLER_TARGET_RENDER_READY}.tmp"

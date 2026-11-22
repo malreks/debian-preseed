@@ -39,10 +39,16 @@ __INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/ r,
 __INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/** mr,
 
 owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/dconf/user rw,
-owner @{HOME}/.cache/fontconfig/ r,
-owner @{HOME}/.cache/fontconfig/** r,
+owner @{HOME}/.cache/fontconfig/ rw,
+owner @{HOME}/.cache/fontconfig/** rwkl,
 owner @{HOME}/.config/dconf/user r,
-owner @{HOME}/.config/gtk-3.0/settings.ini r,
+# GTK loads gtk.css and the selected settings before creating any widget.
+# Fontconfig traverses nested release trees, including directory entries.
+owner @{HOME}/.config/{gtk-3.0,gtk-4.0,fontconfig,Kvantum,qt5ct,qt6ct}/{,**} r,
+owner @{HOME}/.fonts/{,**} r,
+owner @{HOME}/.local/share/{fonts,icons,themes}/{,**} r,
+__INSTALLER_PATH_DIR_USR_SHARE__/{texmf,texlive,poppler}/** r,
+__INSTALLER_PATH_DIR_USR_SHARE__/{texmf,texlive,poppler}/ r,
 owner @{HOME}/.local/share/gvfs-metadata/ r,
 owner @{HOME}/.local/share/gvfs-metadata/** r,
 

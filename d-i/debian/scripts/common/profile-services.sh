@@ -26,7 +26,7 @@ for module in scripts/late/core.sh scripts/late/target-assets.sh scripts/late/ne
   # shellcheck disable=SC1090
   . "$module_file"
 done
-ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || installer_fatal 'sharing requires the private primary account identity'
+installer_load_primary_account
 printf '%s\n' "$ACCOUNT_USERNAME" | LC_ALL=C grep -Eq '^[a-z_][a-z0-9_-]{0,31}$' || installer_fatal 'invalid sharing operator identity'
 case "$ACCOUNT_USERNAME" in root|nobody|nogroup) installer_fatal 'sharing requires a human operator' ;; esac
 ACCOUNT_HOME="${DIR_HOME}/$ACCOUNT_USERNAME"

@@ -104,7 +104,6 @@ class JournalPolicyTests(unittest.TestCase):
                     fstab = target / 'etc/fstab'; fstab.parent.mkdir(); fstab.write_bytes(b'original mount policy\n')
                     result = harness.shell(harness.staging(tmp) + '''
 render_target_resource_asset hooks/target/etc/systemd/journald.conf.d/10-storage.conf "$FILE_JOURNALD_STORAGE_CONF" 0644
-validate_target_journal_storage_policy
 ''', profile=path, override=f'SYSTEMD_JOURNAL_VOLATILE_ENABLE={enabled}')
                     self.assertEqual(result.returncode, 0)
                     rendered = payload_read_text(target / 'etc/systemd/journald.conf.d/10-storage.conf')
@@ -236,7 +235,7 @@ stage_target_logging_foundation
             self.assertEqual((metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode), metadata.st_nlink),
                              (0, 0, 0o644, 1))
 
-    def test_managed_checker_is_staged_and_run_at_install_and_boot(self):
+    def test_managed_checkers_are_staged_for_boot(self):
         components = payload_read_text(SEED / 'scripts/desktop/components.sh')
         for path in NEW_ASSETS:
             self.assertIn(path, components)

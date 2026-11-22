@@ -403,6 +403,8 @@ profile labwc-session-check __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-sessi
   #include <abstractions/wrapper-python>
   include if exists <abstractions/dbus-session-strict>
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check r,
+  __INSTALLER_PATH_DIR_PROC__/driver/nvidia/version r,
+  __INSTALLER_PATH_DIR_USR_BIN__/labwc rPx -> labwc-compositor,
   __INSTALLER_PATH_DIR_USR__/bin/{systemctl,busctl} rix,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-session-closing r,

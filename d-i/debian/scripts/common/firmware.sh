@@ -18,7 +18,7 @@ profile="${DIR_INSTALLER_LATE_ENV}/firmware.env"
 installer_fetch_host_env "$seed_base" "$INSTALLER_HOST_PROFILE" "$profile" 0600
 installer_load_data_env "$profile"
 bootstrap_source_common_support_libs "$seed_base" "${DIR_INSTALLER_LATE_ENV}/firmware-support" fetch hook target
-ACCOUNT_USERNAME=$(installer_cmdline_value primary_user) || installer_fatal 'firmware operator identity is missing'
+installer_load_primary_account
 printf '%s\n' "$ACCOUNT_USERNAME" | LC_ALL=C grep -Eq '^[a-z_][a-z0-9_-]{0,31}$' || installer_fatal 'invalid firmware operator identity'
 case "$ACCOUNT_USERNAME" in root|ci-github|ci-gitlab|srv-devops|technitium) installer_fatal 'firmware access requires a human operator' ;; esac
 # shellcheck disable=SC2016

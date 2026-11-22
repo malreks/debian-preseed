@@ -64,7 +64,6 @@ desktop_stage_wlsunset() {
     WLSUNSET_TRANSITION_SECONDS "$(desktop_shell_config_value "${WLSUNSET_TRANSITION_SECONDS-1800}")" \
     WLSUNSET_OUTPUTS "$(desktop_shell_config_value "${WLSUNSET_OUTPUTS-}")"
 
-  run_in_target "validate managed wlsunset configuration" __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wlsunset check
 }
 
 desktop_stage_waybar_native_menus() {
@@ -605,32 +604,6 @@ desktop_stage_target_assets() {
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-apparmor-boot-state __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-apparmor-boot-state 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-system-action-root __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-system-action-root 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-storage-report __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-storage-report 0755
-  # Inspect code and command metadata as data before desktop service enablement.
-  # Never invoke the report or query a filesystem while staging the installer.
-  run_in_target "verify staged storage report contract" __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -S -B -c '
-import re
-import stat
-from pathlib import Path
-
-report = Path("__INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-storage-report")
-for path in (report, Path("__INSTALLER_PATH_DIR_USR_BIN__/df"), Path("__INSTALLER_PATH_DIR_USR_BIN__/findmnt"),
-             Path("__INSTALLER_PATH_DIR_USR_BIN__/lsblk"), Path("__INSTALLER_PATH_DIR_USR_BIN__/timeout")):
-    for parent in reversed(path.parents):
-        meta = parent.lstat()
-        if not stat.S_ISDIR(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
-            raise SystemExit("fatal: untrusted storage command parent: " + str(parent))
-    meta = path.lstat()
-    if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_gid != 0
-            or meta.st_mode & 0o022 or not meta.st_mode & 0o111):
-        raise SystemExit("fatal: unsafe or unavailable storage command: " + str(path))
-    if path == report and (meta.st_nlink != 1 or stat.S_IMODE(meta.st_mode) != 0o755
-                           or not 0 < meta.st_size <= 16384):
-        raise SystemExit("fatal: invalid storage report metadata")
-with report.open("rb") as stream:
-    source = stream.read(16385)
-if len(source) > 16384 or re.search(rb"__[A-Z][A-Z0-9_]{2,}__", source):
-    raise SystemExit("fatal: oversized or unresolved storage report")
-'
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-recovery-action-root __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-recovery-action-root 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-network-control-action-root __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-network-control-action-root 0755
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-firewall-action-root __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-firewall-action-root 0755

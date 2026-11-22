@@ -2,7 +2,7 @@ apiVersion: cybops.nftables/v1
 kind: NftablesServiceOverlay
 metadata:
   name: ssdp
-  description: SSDP / UPnP discovery overlay. Keep LAN-only.
+  description: SSDP / UPnP and packaged wsdd discovery on managed LAN interfaces.
   merge_priority: 50
 services:
   ssdp:
@@ -14,9 +14,31 @@ services:
     - 1900
     allow:
       ipv4:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16
+      ipv6:
+      - fc00::/7
+      - fe80::/10
+      interfaces:
+      - eth0
+      - en*
+      - __INSTALLER_MANAGED_NETWORK_ETHERNET_IFACE__
+      - wlan0
+      - wl*
+      - __INSTALLER_MANAGED_NETWORK_WIFI_IFACE__
+    allow_to:
+      ipv4:
       - 239.255.255.250/32
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16
       ipv6:
       - ff02::c/128
+      - fc00::/7
+      - fe80::/10
       interfaces:
       - eth0
       - en*
@@ -25,4 +47,30 @@ services:
       - wl*
       - __INSTALLER_MANAGED_NETWORK_WIFI_IFACE__
     scope: lan_only
+    log: false
+  ws_discovery:
+    enabled: true
+    direction: bidirectional
+    protocols: [udp]
+    ports: [3702]
+    allow:
+      ipv4: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ipv6: [fc00::/7, fe80::/10]
+      interfaces: [eth0, "en*", "__INSTALLER_MANAGED_NETWORK_ETHERNET_IFACE__", wlan0, "wl*", "__INSTALLER_MANAGED_NETWORK_WIFI_IFACE__"]
+    allow_to:
+      ipv4: [239.255.255.250/32, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ipv6: [ff02::c/128, fc00::/7, fe80::/10]
+      interfaces: [eth0, "en*", "__INSTALLER_MANAGED_NETWORK_ETHERNET_IFACE__", wlan0, "wl*", "__INSTALLER_MANAGED_NETWORK_WIFI_IFACE__"]
+    scope: lan_only
+    log: false
+  ws_discovery_metadata:
+    enabled: true
+    direction: inbound
+    protocols: [tcp]
+    ports: [5357]
+    allow:
+      ipv4: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ipv6: [fc00::/7, fe80::/10]
+      interfaces: [eth0, "en*", "__INSTALLER_MANAGED_NETWORK_ETHERNET_IFACE__", wlan0, "wl*", "__INSTALLER_MANAGED_NETWORK_WIFI_IFACE__"]
+    sensitive: true
     log: false

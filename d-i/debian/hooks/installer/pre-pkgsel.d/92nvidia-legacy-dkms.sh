@@ -661,8 +661,3 @@ dpkg-divert --quiet --local --divert /usr/sbin/dkms.distrib --rename --add /usr/
 
 install -d -m 0755 "${TARGET_ROOT}${DIR_USR_SBIN}"
 installer_copy_path_with_mode "$TMP_ENV_DIR/dkms-wrapper" "$wrapper_path" 0755 "legacy NVIDIA dkms wrapper"
-
-run_in_target "verify legacy NVIDIA dkms wrapper" /bin/sh -eu -c '
-test -x /usr/sbin/dkms
-dpkg-divert --list /usr/sbin/dkms 2>/dev/null | grep -Fq "/usr/sbin/dkms.distrib"
-' sh

@@ -20,8 +20,9 @@ Before=shutdown.target
 # Do not use oneshot here: multi-user.target waits only for the successful
 # exec transition, not for the wrapper's complete diagnostic runtime.
 Type=exec
-Restart=on-failure
-RestartSec=60s
+# Diagnostics retain the failed result for the operator. Repeating the same
+# boot-wide checks every minute cannot repair a policy or package failure.
+Restart=no
 # Reload the staged source, not a possibly older boot/cache generation. This
 # runs outside the firstboot attachment and must succeed before validation.
 # Rebuild the cache; --skip-cache conflicts with parser.conf's write-cache.

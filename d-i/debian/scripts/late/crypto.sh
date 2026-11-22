@@ -27,7 +27,8 @@ crypto_layout="${DIR_INSTALLER_ENV}/runtime.env"
 # Private generated layout state, not sourced profile data.
 # shellcheck disable=SC1090
 . "$crypto_layout"
-crypto_operator=$(installer_cmdline_value primary_user) || installer_fatal 'explicit crypto operator is missing'
+installer_load_primary_account
+crypto_operator=$ACCOUNT_USERNAME
 case "$crypto_operator" in ''|*[!a-z0-9_-]*) installer_fatal 'invalid crypto operator identity' ;; esac
 crypto_bootstrap="$(installer_runtime_state_dir)/crypto-bootstrap.key"
 [ -f "$crypto_bootstrap" ] && [ ! -L "$crypto_bootstrap" ] || installer_fatal 'private bootstrap key is unavailable'
@@ -146,9 +147,5 @@ printf '%s\n' "$crypto_operator" >"${TARGET_ROOT}${FILE_CRYPTO_PENDING}"
 chmod 0600 "${TARGET_ROOT}${FILE_CRYPTO_PENDING}"
 run_in_target 'enable measured boot for selected encrypted volumes' ${DIR_USR_SBIN}/update-grub
 run_in_target 'build crypto-aware initramfs images' ${DIR_USR_SBIN}/update-initramfs -u -k all
-# The permanent reenrollment helper owns the same bounded image/secret checks
-# here and after boot. Failure leaves the private installer key for recovery.
-run_in_target 'verify crypto initramfs images and native TPM dependency closure' \
-  "${DIR_USR_LOCAL_LIBEXEC}/tpm2-policy-check" --initramfs
 rm -f "$crypto_bootstrap" "$(installer_runtime_state_dir)/crypto.answers.cfg"
 installer_info 'selected LUKS2 volumes staged; TPM2+PIN and recovery confirmation remain pending at the boot console'

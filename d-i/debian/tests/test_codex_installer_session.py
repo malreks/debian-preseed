@@ -471,7 +471,7 @@ class CodexDeploymentContractTests(unittest.TestCase):
         publication_offset = function.index(publication)
         for required_preflight in (
             'python3 "$archive_helper_path"',
-            'version_output=$(codex_verify_version "$candidate_binary_path"',
+            '[ -x "$candidate_binary_path" ] && [ ! -L "$candidate_binary_path" ] ||',
             'mv -- "$repository_clone_source" "$repository_staging"',
             'actual_repository_branch=$(git -C "$repository_staging" symbolic-ref --short HEAD)',
             'cp -a -- "$repository_staging/etc/." "$config_staging/"',
@@ -483,6 +483,7 @@ class CodexDeploymentContractTests(unittest.TestCase):
                 self.assertIn(required_preflight, function)
                 self.assertLess(function.index(required_preflight), publication_offset)
 
+        self.assertNotIn('codex_verify_version', function)
         self.assertNotIn(
             'mv -- "$extracted_path" "$codex_root/share/bin/$binary_name"',
             function,

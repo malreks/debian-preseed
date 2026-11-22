@@ -31251,6 +31251,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-greeter-client",
           "hooks/target/usr/local/libexec/desktop/labwc-gvfs-volume-monitor",
           "hooks/target/usr/local/libexec/desktop/labwc-output-watch",
+          "hooks/target/usr/local/libexec/desktop/labwc-session-check",
           "hooks/target/usr/local/libexec/desktop/labwc-swayidle",
           "hooks/target/usr/local/libexec/desktop/labwc-swaylock.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-tomat-hook",

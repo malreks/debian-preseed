@@ -190,7 +190,7 @@ bootstrap_lib=${INSTALLER_BOOTSTRAP_LIB:-${runtime_dir}/bootstrap/bootstrap.sh}
 bootstrap_source_common_lib ""
 # Load di.env through the common bootstrap before deriving d-i state paths.
 tmp_env_dir=${INSTALLER_LATE_TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}/tailscale}
-installer_operation_context_repo scripts/late/tailscale.sh 192 tailscale
+installer_operation_context_repo scripts/late/tailscale.sh 193 tailscale
 seed_base=$(installer_current_seed_base 2>__INSTALLER_PATH_DIR_DEV__/null || installer_seed_base "")
 bootstrap_source_common_support_libs "$seed_base" "$tmp_env_dir" fetch hook target || {
   tailscale_fatal "failed to source installer late support libraries"
@@ -399,8 +399,6 @@ tailscale_render_target_asset \
   "$(installer_repo_file_value hooks/target/etc/sysctl.d/desktop/92-tailscale-netkit.conf.tmpl)" \
   __INSTALLER_PATH_DIR_ETC__/sysctl.d/92-tailscale-netkit.conf 0644 \
   ETHERNET_INTERFACE "$tailscale_ethernet_interface" WIFI_INTERFACE "$tailscale_wifi_interface"
-tailscale_run_target_chroot "verify private Tailscale assets without activation" \
-  "${DIR_USR_LOCAL_LIBEXEC}/tailscale-netkit" validate-target
 tailscale_stage_target_asset \
   "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/syncthing-configure)" \
   "${FILE_MANAGED_SYNCTHING_HELPER}" \

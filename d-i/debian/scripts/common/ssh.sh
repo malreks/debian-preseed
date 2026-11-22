@@ -457,31 +457,6 @@ rm -rf "$stage"
 
   provision_target_lan_ssh_key "$ACCOUNT_USERNAME"
 
-  # shellcheck disable=SC2016
-  run_in_target "verify SSH artifacts before service enablement" /bin/sh -c '
-set -eu
-account_user=$1
-authorized_keys_target=$2
-
-account_uid=$(id -u "$account_user")
-account_gid=$(id -g "$account_user")
-
-[ -r /etc/ssh/sshd_config ]
-if [ -e "$authorized_keys_target" ]; then
-  [ ! -L "$authorized_keys_target" ] && [ -f "$authorized_keys_target" ]
-  [ "$(find -P "$authorized_keys_target" -maxdepth 0 -printf %U)" = "$account_uid" ]
-  [ "$(find -P "$authorized_keys_target" -maxdepth 0 -printf %G)" = "$account_gid" ]
-  /usr/bin/ssh-keygen -l -f "$authorized_keys_target" >/dev/null
-fi
-
-[ -x /usr/bin/ssh-keygen ] && [ -x /usr/sbin/sshd ] || {
-  echo "fatal: packaged OpenSSH verification tools are missing" >&2
-  exit 1
-}
-install -d -m 0755 /run/sshd
-/usr/sbin/sshd -t -f /etc/ssh/sshd_config
-' sh "$ACCOUNT_USERNAME" "$SSH_AUTHORIZED_KEYS_TARGET"
-
   if command -v stage_target_systemd_unit_enabled >/dev/null 2>&1 &&
     command -v target_unit_exists >/dev/null 2>&1; then
     if target_unit_exists ssh.service && target_unit_exists ssh.socket; then

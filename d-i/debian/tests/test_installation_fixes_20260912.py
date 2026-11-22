@@ -507,7 +507,7 @@ class InstallerRegressionTests(unittest.TestCase):
             check = subprocess.run(payload_installed_argv(['/bin/sh', '-n', '-c', broken[0]]), capture_output=True, timeout=5)
             self.assertNotEqual(check.returncode, 0)
 
-    def test_tool_version_probes_have_disposable_homes(self):
+    def test_optional_tool_diagnostics_are_private_and_codex_install_is_not_probed(self):
         tools = load_source(FORKY / 'scripts/late/devops-tools.py', 'tested_devops_version_probe')
         captured = {}
         def verify(policy, env):
@@ -519,9 +519,9 @@ class InstallerRegressionTests(unittest.TestCase):
         self.assertNotEqual(captured['HOME'], '/')
         self.assertFalse(payload_source_exists(Path(captured['HOME'])))
         devops = payload_read_text(FORKY / 'scripts/late/devops.sh')
-        self.assertIn('version_output=$(codex_verify_version "$candidate_binary_path"', devops)
-        self.assertIn('version_output=$(codex_verify_version "$binary_path"', devops)
-        self.assertIn('CODEX_HOME="$verify_home/.codex"', devops)
+        self.assertNotIn('codex_verify_version', devops)
+        self.assertIn('[ -x "$candidate_binary_path" ] && [ ! -L "$candidate_binary_path" ] ||', devops)
+        self.assertIn('[ -x "$binary_path" ] && [ ! -L "$binary_path" ] ||', devops)
 
     def test_apparmor_covers_root_cause_not_null_profiles_or_root_codex(self):
         policy = payload_read_text(TARGET / 'etc/apparmor.d/desktop-utilities')

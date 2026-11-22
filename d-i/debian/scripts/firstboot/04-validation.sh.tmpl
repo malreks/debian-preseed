@@ -144,12 +144,12 @@ MANAGER = '__INSTALLER_PATH_DIR_USR_BIN__/systemctl'
 DEADLINE = time.monotonic() + 45
 LIMIT = 2 * 1024 * 1024
 CAPTURE_BYTES = 0
-# systemd escapes punctuation in device/mount instance names as ``\\xNN``.
-# Relationship properties can also contain other printable unit-name
-# punctuation, but never controls, whitespace, path separators or assignment
-# delimiters. Keep the value bounded before passing it back as a systemctl
-# argument; do not treat manager metadata as shell text.
-UNIT = re.compile(r'(?=.{1,255}\Z)(?:\\x[0-9A-Fa-f]{2}|[^\x00-\x20/\\=])+\Z')
+# Treat systemd's escaped unit names as opaque argument data. Depending on the
+# property and systemd version, literal backslashes can themselves be escaped;
+# decoding or enforcing one textual escape spelling rejects valid device units.
+# Bound each atom, reject controls and real path separators, and retain the
+# explicit '--' when returning names to systemctl. No name is shell text.
+UNIT = re.compile(r'(?=.{1,255}\Z)[^\x00-\x20/\x7f]+\Z')
 STRICT = {'apparmor.service', 'auditd.service', 'journal-sealing.service',
           'nftables.service', 'rsyslog.service',
           'rsyslog-journal-forwarding.service', 'syslog.socket'}
@@ -324,7 +324,10 @@ def show(units):
 def dependencies(record):
     names = set()
     for key in ('Requires', 'TriggeredBy', 'WantedBy', 'RequiredBy'):
-        for name in record.get(key, '').split():
+        value = record.get(key, '')
+        if value in {'n/a', '-', '[not set]'}:
+            continue
+        for name in value.split():
             # Some systemd unit types report an unset relationship as a
             # sentinel. It is metadata, not a unit identity.
             if name in {'n/a', '-'}:

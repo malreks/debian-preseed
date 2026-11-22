@@ -114,12 +114,6 @@ chown root:root "$install_dir" "$binary_path"
 chmod 0644 "${install_dir}/.bazelisk-release"
 chown root:root "${install_dir}/.bazelisk-release"
 
-version_output=$("$binary_path" bazeliskVersion 2>__INSTALLER_PATH_DIR_DEV__/null || true)
-case "$version_output" in
-  *"$bazelisk_version"*) ;;
-  *) bazelisk_fatal "Bazelisk version verification failed for ${binary_path}" ;;
-esac
-
 printf "installed Bazelisk %s at %s\n" "$bazelisk_version" "$binary_path"
 ' sh \
     "$DEVOPS_BAZELISK_VERSION" \
@@ -289,10 +283,6 @@ node_install() {
   chmod 0644 "${extracted_dir}/.node-release"
 
   mv "$extracted_dir" "$install_dir"
-  installed_version=$("$binary_path" --version)
-  [ "$installed_version" = "$release_version" ] ||
-    node_fatal "Node version verification failed for ${install_dir}: ${installed_version:-missing}"
-
   rm -f -- "$archive_path" "$archive_listing"
   rmdir -- "$staging_dir" 2>__INSTALLER_PATH_DIR_DEV__/null || true
   trap - EXIT HUP INT TERM

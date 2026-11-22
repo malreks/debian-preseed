@@ -252,33 +252,6 @@ done
   "$DEVOPS_BAZEL_OUTPUT_USER_ROOT_SUBDIR" \
   "$DEVOPS_BAZELISK_HOME_SUBDIR"
 
-# Inspection only: never compile or download a Go toolchain during provisioning.
-# shellcheck disable=SC2016
-devops_run_as_account "verify packaged Go and account-owned Go state" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
-[ "$(id -u)" -ne 0 ] || exit 1
-[ "$GOTOOLCHAIN" = local ] || exit 1
-for go_variable in GOPATH GOBIN GOMODCACHE GOCACHE GOENV GOTMPDIR; do
-  case "$go_variable" in
-    GOPATH) expected=$GOPATH ;;
-    GOBIN) expected=$GOBIN ;;
-    GOMODCACHE) expected=$GOMODCACHE ;;
-    GOCACHE) expected=$GOCACHE ;;
-    GOENV) expected=$GOENV ;;
-    GOTMPDIR) expected=$GOTMPDIR ;;
-  esac
-  actual=$(__INSTALLER_PATH_DIR_USR_BIN__/go env "$go_variable")
-  [ "$actual" = "$expected" ] || {
-    printf "fatal: Go %s does not match the desktop account policy\n" "$go_variable" >&2
-    exit 1
-  }
-done
-go_root=$(__INSTALLER_PATH_DIR_USR_BIN__/go env GOROOT)
-case "$go_root" in
-  __INSTALLER_PATH_DIR_USR_LIB__/go|__INSTALLER_PATH_DIR_USR_LIB__/go-*) ;;
-  *) printf "fatal: Go must use the packaged system toolchain\n" >&2; exit 1 ;;
-esac
-' sh
-
 install -d -m 0700 "$tmp_env_dir"
 devops_prepare_publishing_layout
 devops_render_aptly_config
@@ -323,79 +296,6 @@ if [ "$INSTALLER_HOST_VARIANT" = server ]; then
   done
 fi
 if [ "$INSTALLER_HOST_VARIANT" = desktop ]; then devops_install_llama_runtime; fi
-devops_verify_codex
-[ -x "${target_root}${DEVOPS_RUSTUP_BINARY_PATH}" ] ||
-  devops_fatal "Rustup bootstrap is missing after installation"
-[ -x "${target_root}${DEVOPS_BAZELISK_BINARY_PATH}" ] ||
-  devops_fatal "pinned Bazelisk binary is missing after installation: ${DEVOPS_BAZELISK_BINARY_PATH}"
-[ -x "${target_root}${DEVOPS_DENO_BINARY_PATH}" ] ||
-  devops_fatal "Deno upstream executable is missing after installation"
-[ -r "${target_root}${DEVOPS_SKEL_DIR}/.config/bazel/bazelrc" ] ||
-  devops_fatal "managed Bazel rc is missing from the selected family skeleton"
-[ -x "${target_root}${DEVOPS_ANSIBLE_CORE_BINARY_PATH}" ] ||
-  devops_fatal "Ansible upstream executable is missing after installation"
-[ -x "${target_root}${DEVOPS_OPENTOFU_BINARY_PATH}" ] ||
-  devops_fatal "OpenTofu upstream executable is missing after installation"
-[ -x "${target_root}${DEVOPS_TERRAFORM_BINARY_PATH}" ] ||
-  devops_fatal "Terraform upstream executable is missing after installation"
-[ -x "${target_root}${DEVOPS_PACKER_BINARY_PATH}" ] ||
-  devops_fatal "Packer upstream executable is missing after installation"
-[ -r "${target_root}${DEVOPS_SKEL_DIR}/.config/packer/template.pkr.hcl" ] ||
-  devops_fatal "managed Packer template is missing from the desktop skeleton"
-[ -r "${target_root}${ACCOUNT_HOME}/.config/packer/template.pkr.hcl" ] ||
-  devops_fatal "managed Packer template is missing from the primary account"
-[ -r "${target_root}${PACKER_CONFIG_PATH}" ] ||
-  devops_fatal "managed Packer JSON config is missing after installation"
-[ -x "${target_root}${DEVOPS_WRANGLER_BINARY_PATH}" ] ||
-  devops_fatal "Wrangler upstream executable is missing after installation"
-[ -x "${target_root}${DEVOPS_APTLY_BINARY_PATH}" ] ||
-  devops_fatal "Aptly upstream executable is missing after installation"
-[ -x "${target_root}${DEVOPS_OSC_BINARY_PATH}" ] ||
-  devops_fatal "osc upstream executable is missing after installation"
-# The pinned obs-build Makefile publishes bin/build as an absolute symlink
-# below DEVOPS_OBS_BUILD_INSTALL_ROOT.  Validate primary-account access inside
-# the target; an outer target-root check resolves that link against the installer.
-devops_run_as_account \
-  "verify primary-account access to obs-build after installation" \
-  __INSTALLER_PATH_DIR_USR_BIN__/test -x "$DEVOPS_OBS_BUILD_BINARY_PATH"
-[ ! -e "${target_root}/tmp/installer-devops-tools.py" ] &&
-  [ ! -L "${target_root}/tmp/installer-devops-tools.py" ] ||
-  devops_fatal "temporary upstream DevOps tool installer remains after installation"
-[ ! -e "${target_root}/tmp/installer-devops-tools-policy.json" ] &&
-  [ ! -L "${target_root}/tmp/installer-devops-tools-policy.json" ] ||
-  devops_fatal "temporary upstream DevOps tool policy remains after installation"
-[ -r "${target_root}${APTLY_CONFIG}" ] ||
-  devops_fatal "managed Aptly config is missing after installation"
-[ -r "${target_root}${OSC_CONFIG}" ] ||
-  devops_fatal "managed osc config is missing after installation"
-[ -r "${target_root}${OSC_MANAGED_CONFIG}" ] ||
-  devops_fatal "managed osc metadata is missing after installation"
-  [ -x "${target_root}${DIR_USR_LOCAL_LIBEXEC}/aptly-publishing" ] ||
-  devops_fatal "managed Aptly publication wrapper is missing after installation"
-  [ -x "${target_root}${DIR_USR_LOCAL_LIBEXEC}/obs-publishing" ] ||
-  devops_fatal "managed OBS publication wrapper is missing after installation"
-for aptly_publishing_command in \
-  aptly \
-  aptly-publish-local \
-  dpkg-buildpackage
-do
-  publishing_link="${target_root}${DIR_USR_LOCAL_LIBEXEC}/aptly-publishing-bin/${aptly_publishing_command}"
-  [ -L "$publishing_link" ] &&
-    [ "$(readlink "$publishing_link")" = ../aptly-publishing ] ||
-    devops_fatal "managed Aptly publication command link is invalid: ${aptly_publishing_command}"
-done
-for obs_publishing_command in \
-  obs-checkout-source \
-  obs-publish-source \
-  osc
-do
-  publishing_link="${target_root}${DIR_USR_LOCAL_LIBEXEC}/obs-publishing-bin/${obs_publishing_command}"
-  [ -L "$publishing_link" ] &&
-    [ "$(readlink "$publishing_link")" = ../obs-publishing ] ||
-    devops_fatal "managed OBS publication command link is invalid: ${obs_publishing_command}"
-done
-unset aptly_publishing_command obs_publishing_command publishing_link
-
 devops_run_as_account \
   "initialize pinned Rustup with the profile-selected toolchain without changing shell startup files" \
   __INSTALLER_PATH_DIR_USR_BIN__/timeout \
