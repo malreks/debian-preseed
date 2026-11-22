@@ -330,7 +330,7 @@ class MenuAndHookTests(unittest.TestCase):
                     self.assertIn('--property=PartOf=labwc-session.target', command)
                     self.assertIn('--property=KillMode=control-group', command)
                 self.assertNotIn('labwc-power-menu', json.dumps(entry))
-            self.assertEqual(bar['custom/tomat']['restart-interval'], 5)
+            self.assertEqual(bar['custom/tomat']['restart-interval'], 120)
             self.assertFalse(bar['custom/tomat']['exec-on-event'])
 
     def test_gtk_builder_accepts_all_five_nested_native_menus(self):

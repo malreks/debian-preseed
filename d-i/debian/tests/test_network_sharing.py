@@ -272,9 +272,8 @@ class SettingsTests(unittest.TestCase):
         for path in profiles:
             with self.subTest(profile=path.name):
                 settings = NFS.Settings.from_environment(profile(path))
-                # The supplied p15s profile deliberately enables its server
-                # and home bind. Preserve that profile's installed policy.
-                server = path.stem == 'btrfs-de-p15s'
+                # NFS is opt-in for every generated desktop profile.
+                server = False
                 client = path.stem == 'btrfs-de-flex-duo'
                 self.assertEqual(settings.enabled('NFS_SERVER_ENABLE'), server)
                 self.assertEqual(settings.enabled('NFS_CLIENT_ENABLE'), client)

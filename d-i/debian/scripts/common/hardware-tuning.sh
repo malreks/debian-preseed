@@ -28,7 +28,7 @@ install_profile_hardware_tuning() (
     hardware_vendors=intel
   fi
   if [ "${HARDWARE_NVIDIA_GPU_TUNING_ENABLE:-false}" = true ] &&
-      installer_nvidia_class_selected && installer_nvidia_gpu_detected; then
+      installer_nvidia_class_selected && installer_nvidia_selected_gpu_detected; then
     hardware_vendors="${hardware_vendors:+${hardware_vendors} }nvidia"
   fi
   if [ -z "$hardware_vendors" ]; then

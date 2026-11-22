@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+toolkit_root=/usr/local/cuda-12.9
+compiler=${toolkit_root}/bin/nvcc
+[ -x "$compiler" ] || {
+  printf '%s\n' 'cuda-12.9-nvcc: the CUDA 12.9 compiler is not installed' >&2
+  exit 127
+}
+
+for argument do
+  case "$argument" in
+    -gencode|--generate-code|-arch|--gpu-architecture|--gpu-code|-code|\
+    -gencode=*|--generate-code=*|-arch=*|--gpu-architecture=*|--gpu-code=*|-code=*)
+      printf '%s\n' 'cuda-12.9-nvcc: architecture flags are fixed to sm_61' >&2
+      exit 64
+      ;;
+  esac
+done
+
+printf '%s\n' 'cuda-12.9-nvcc: toolkit=12.9 compiler=nvcc target=sm_61 library-policy=toolkit-default' >&2
+set -- -gencode arch=compute_61,code=sm_61 "$@"
+exec /usr/bin/env \
+  -u LD_LIBRARY_PATH \
+  -u LD_PRELOAD \
+  -u NVCC_PREPEND_FLAGS \
+  -u NVCC_APPEND_FLAGS \
+  -u CUDAFLAGS \
+  PATH="${toolkit_root}/bin:/usr/local/bin:/usr/bin:/bin" \
+  CUDA_HOME="$toolkit_root" \
+  CUDA_PATH="$toolkit_root" \
+  CUDACXX="$compiler" \
+  CMAKE_CUDA_COMPILER="$compiler" \
+  CMAKE_CUDA_ARCHITECTURES=61 \
+  TORCH_CUDA_ARCH_LIST=6.1 \
+  "$compiler" "$@"

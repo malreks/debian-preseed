@@ -766,8 +766,13 @@ EOF
   installer_info "staged ${apt_preference_count} suite/family APT preference drop-ins before pkgsel"
   apt_optional=nvidia-opt-in
   if installer_nvidia_class_selected; then
-    installer_nvidia_gpu_detected || installer_fatal 'NVIDIA/CUDA class requires compatible NVIDIA hardware'
-    if installer_class_selected optional/nvidia-legacy; then apt_optional=nvidia-legacy; else apt_optional=nvidia; fi
+    if installer_nvidia_legacy_selected; then
+      installer_nvidia_legacy_gpu_detected || installer_fatal 'NVIDIA legacy class requires exactly one approved Quadro P520 display adapter (10de:1d34)'
+      apt_optional=nvidia-legacy
+    else
+      installer_nvidia_gpu_detected || installer_fatal 'NVIDIA class requires compatible NVIDIA display hardware'
+      apt_optional=nvidia
+    fi
   fi
   apt_optional_file=$(installer_repo_asset_path "$apt_source_selector" "preferences.d/optional/$apt_optional.pref") || return "$?"
   installer_fetch_file "$(installer_seed_base "")" "$apt_optional_file" "$apt_destination/30-nvidia.pref" 0644 || return "$?"

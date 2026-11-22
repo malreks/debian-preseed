@@ -18,17 +18,27 @@ desktop_android_platform_tools_validate_unsigned_integer() {
 
 desktop_android_platform_tools_validate_policy() {
   : "${ANDROID_PLATFORM_TOOLS_ARCHITECTURE:?ANDROID_PLATFORM_TOOLS_ARCHITECTURE must be set}"
+  : "${ANDROID_PLATFORM_TOOLS_VERSION:?ANDROID_PLATFORM_TOOLS_VERSION must be set}"
   : "${ANDROID_PLATFORM_TOOLS_URL:?ANDROID_PLATFORM_TOOLS_URL must be set}"
+  : "${ANDROID_PLATFORM_TOOLS_SHA256:?ANDROID_PLATFORM_TOOLS_SHA256 must be set}"
   : "${ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES:?ANDROID_PLATFORM_TOOLS_MAXIMUM_EXTRACTED_BYTES must be set}"
   : "${ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS:?ANDROID_PLATFORM_TOOLS_MAXIMUM_MEMBERS must be set}"
 
   [ "$ANDROID_PLATFORM_TOOLS_ARCHITECTURE" = amd64 ] ||
     desktop_android_platform_tools_fail \
       "Google's Linux Platform-Tools archive is unsupported for ${ANDROID_PLATFORM_TOOLS_ARCHITECTURE}"
-  case "$ANDROID_PLATFORM_TOOLS_URL" in
-    https://*/*) ;;
-    *) desktop_android_platform_tools_fail "download URL must be an HTTPS archive URL" ;;
+  desktop_android_platform_tools_validate_revision "$ANDROID_PLATFORM_TOOLS_VERSION"
+  android_platform_tools_expected_url="https://dl.google.com/android/repository/platform-tools_r${ANDROID_PLATFORM_TOOLS_VERSION}-linux.zip"
+  [ "$ANDROID_PLATFORM_TOOLS_URL" = "$android_platform_tools_expected_url" ] ||
+    desktop_android_platform_tools_fail \
+      "download URL must be the pinned Google Platform-Tools ${ANDROID_PLATFORM_TOOLS_VERSION} archive"
+  case "$ANDROID_PLATFORM_TOOLS_SHA256" in
+    *[!0123456789abcdef]*|'')
+      desktop_android_platform_tools_fail "pinned archive SHA-256 is invalid"
+      ;;
   esac
+  [ "${#ANDROID_PLATFORM_TOOLS_SHA256}" -eq 64 ] ||
+    desktop_android_platform_tools_fail "pinned archive SHA-256 has an invalid length"
   android_platform_tools_filename=${ANDROID_PLATFORM_TOOLS_URL##*/}
   [ -n "$android_platform_tools_filename" ] ||
     desktop_android_platform_tools_fail "download URL has no archive filename"
@@ -138,6 +148,8 @@ desktop_install_android_platform_tools() {
   esac
   [ "${#platform_tools_archive_sha256}" -eq 64 ] ||
     desktop_android_platform_tools_fail "downloaded archive SHA-256 has an invalid length"
+  [ "$platform_tools_archive_sha256" = "$ANDROID_PLATFORM_TOOLS_SHA256" ] ||
+    desktop_android_platform_tools_fail "downloaded archive SHA-256 does not match the pinned Platform-Tools receipt"
 
   platform_tools_extract_helper="${platform_tools_work_dir}/extract-platform-tools.py"
   stage_target_asset \
@@ -190,6 +202,9 @@ desktop_install_android_platform_tools() {
   [ "$(printf '%s\n' "$platform_tools_revision" | awk 'NF { count++ } END { print count + 0 }')" -eq 1 ] ||
     desktop_android_platform_tools_fail "extracted source.properties must contain one Pkg.Revision"
   desktop_android_platform_tools_validate_revision "$platform_tools_revision"
+  [ "$platform_tools_revision" = "$ANDROID_PLATFORM_TOOLS_VERSION" ] ||
+    desktop_android_platform_tools_fail \
+      "downloaded archive revision ${platform_tools_revision} differs from pinned ${ANDROID_PLATFORM_TOOLS_VERSION}"
 
   for platform_tools_binary in adb fastboot; do
     platform_tools_binary_host="${platform_tools_extract_host}/platform-tools/${platform_tools_binary}"

@@ -253,7 +253,7 @@ if installer_snapshots_enabled; then
   TIMESHIFT_PROFILE_ENABLED=true
 fi
 PODMAN_CLASS_SELECTED=$(podman_class_selection_state)
-if installer_nvidia_gpu_detected; then
+if installer_nvidia_selected_gpu_detected; then
   NVIDIA_GPU_DETECTED=true
 fi
 if [ "$NVIDIA_CLASS_SELECTED" = true ] && [ "$NVIDIA_GPU_DETECTED" != true ]; then
@@ -495,6 +495,7 @@ write_target_kernel_tunables() {
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/77-e1000e.conf")" "${FILE_MODPROBE_E1000E:-}" "${DIR_MODPROBE_D}/77-e1000e.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/70-vfio-pci.conf")" "${FILE_MODPROBE_VFIO:-}" "${DIR_MODPROBE_D}/70-vfio-pci.conf" 0644
   stage_target_graphics_kernel_tunables "$target_enable_nvidia"
+  stage_target_cuda_compiler_wrappers
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/71-thunderbolt.conf")" "${FILE_MODPROBE_THUNDERBOLT:-}" "${DIR_MODPROBE_D}/71-thunderbolt.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modprobe.d/74-usbcore.conf")" "${FILE_MODPROBE_USBCORE:-}" "${DIR_MODPROBE_D}/74-usbcore.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/75-cfg80211.conf")" "${FILE_MODPROBE_CFG80211:-}" "${DIR_MODPROBE_D}/75-cfg80211.conf" 0644
@@ -533,113 +534,119 @@ write_target_kernel_tunables() {
   stage_target_common_boot_policy "$target_enable_nvidia"
 }
 
-btrfs_late_command_mark 537 write_target_fstab
+btrfs_late_command_mark 538 write_target_fstab
 write_target_fstab
-btrfs_late_command_mark 539 ensure_target_boot_mounts
+btrfs_late_command_mark 540 ensure_target_boot_mounts
 ensure_target_boot_mounts
-btrfs_late_command_mark 541 ensure_target_volatile_backing_mounts
+btrfs_late_command_mark 542 ensure_target_volatile_backing_mounts
 ensure_target_volatile_backing_mounts
-btrfs_late_command_mark 543 ensure_target_managed_runtime_storage_roots
+btrfs_late_command_mark 544 ensure_target_managed_runtime_storage_roots
 ensure_target_managed_runtime_storage_roots
-btrfs_late_command_mark 545 provision_target_identity
+btrfs_late_command_mark 546 provision_target_identity
 provision_target_identity
-btrfs_late_command_mark 547 stage_target_docs_index
+btrfs_late_command_mark 548 stage_target_docs_index
 stage_target_docs_index
-btrfs_late_command_mark 549 stage_target_account_shell_assets
+btrfs_late_command_mark 550 stage_target_account_shell_assets
 stage_target_account_shell_assets
-btrfs_late_command_mark 551 ensure_target_account_home_ownership
+btrfs_late_command_mark 552 ensure_target_account_home_ownership
 ensure_target_account_home_ownership
-btrfs_late_command_mark 553 install_target_account_shell_assets
+btrfs_late_command_mark 554 install_target_account_shell_assets
 install_target_account_shell_assets
-btrfs_late_command_mark 555 install_target_account_sudoers
+btrfs_late_command_mark 556 install_target_account_sudoers
 install_target_account_sudoers
-btrfs_late_command_mark 557 configure_target_shared_account_access
+btrfs_late_command_mark 558 configure_target_shared_account_access
 configure_target_shared_account_access
-btrfs_late_command_mark 559 finish_target_pkgsel_apt_state
+btrfs_late_command_mark 560 finish_target_pkgsel_apt_state
 finish_target_pkgsel_apt_state
-btrfs_late_command_mark 561 install_target_mullvad_vpn_if_selected
+btrfs_late_command_mark 562 install_target_mullvad_vpn_if_selected
 install_target_mullvad_vpn_if_selected
-btrfs_late_command_mark 563 stage_target_secure_boot_runtime_assets
+btrfs_late_command_mark 564 stage_target_secure_boot_runtime_assets
 stage_target_secure_boot_runtime_assets
-btrfs_late_command_mark 565 stage_target_xssh_helpers
+btrfs_late_command_mark 566 stage_target_xssh_helpers
 stage_target_xssh_helpers
-btrfs_late_command_mark 567 provision_target_ssh_client
+btrfs_late_command_mark 568 provision_target_ssh_client
 provision_target_ssh_client
-btrfs_late_command_mark 569 provision_target_git_ssh_identity
+btrfs_late_command_mark 570 provision_target_git_ssh_identity
 provision_target_git_ssh_identity
-btrfs_late_command_mark 571 configure_target_rootless_podman_if_selected
+btrfs_late_command_mark 572 configure_target_rootless_podman_if_selected
 configure_target_rootless_podman_if_selected
-btrfs_late_command_mark 573 sanitize_target_xfs_scrub_systemd_units
+btrfs_late_command_mark 574 sanitize_target_xfs_scrub_systemd_units
 sanitize_target_xfs_scrub_systemd_units
-btrfs_late_command_mark 575 install_target_wpa_supplicant_runtime_policy
+btrfs_late_command_mark 576 install_target_wpa_supplicant_runtime_policy
 install_target_wpa_supplicant_runtime_policy
-btrfs_late_command_mark 577 configure_target_smartmontools_defaults
+btrfs_late_command_mark 578 configure_target_smartmontools_defaults
 configure_target_smartmontools_defaults
-btrfs_late_command_mark 579 ensure_target_secure_boot_packages
+btrfs_late_command_mark 580 ensure_target_secure_boot_packages
 ensure_target_secure_boot_packages
-btrfs_late_command_mark 581 configure_target_btrfsmaintenance
+btrfs_late_command_mark 582 configure_target_btrfsmaintenance
 configure_target_btrfsmaintenance
-btrfs_late_command_mark 583 provision_target_ssh_server
+btrfs_late_command_mark 584 provision_target_ssh_server
 provision_target_ssh_server
-btrfs_late_command_mark 585 install_target_managed_network_handoff
+btrfs_late_command_mark 586 install_target_managed_network_handoff
 install_target_managed_network_handoff
-btrfs_late_command_mark 587 configure_target_apparmor_auditd
+btrfs_late_command_mark 588 configure_target_apparmor_auditd
 configure_target_apparmor_auditd
-btrfs_late_command_mark 589 install_target_firstboot_logger
+btrfs_late_command_mark 590 install_target_firstboot_logger
 install_target_firstboot_logger
-btrfs_late_command_mark 591 write_target_grub_dropins
+btrfs_late_command_mark 592 write_target_grub_dropins
 write_target_grub_dropins
-btrfs_late_command_mark 593 set_target_grub_default_entry
+btrfs_late_command_mark 594 set_target_grub_default_entry
 set_target_grub_default_entry
-btrfs_late_command_mark 595 write_target_kernel_tunables
+btrfs_late_command_mark 596 write_target_kernel_tunables
 write_target_kernel_tunables
-btrfs_late_command_mark 597 prepare_target_secure_boot_runtime
+btrfs_late_command_mark 598 prepare_target_secure_boot_runtime
 prepare_target_secure_boot_runtime
-btrfs_late_command_mark 599 sign_target_installed_kernel_modules
+btrfs_late_command_mark 600 sign_target_installed_kernel_modules
 sign_target_installed_kernel_modules
-btrfs_late_command_mark 601 dedupe_target_tmpfiles_legacy_lock
+btrfs_late_command_mark 602 dedupe_target_tmpfiles_legacy_lock
 dedupe_target_tmpfiles_legacy_lock
-btrfs_late_command_mark 603 enable_target_storage_units
+btrfs_late_command_mark 604 enable_target_storage_units
 enable_target_storage_units
-btrfs_late_command_mark 605 set_target_default_unit
+btrfs_late_command_mark 606 set_target_default_unit
 set_target_default_unit
-btrfs_late_command_mark 607 disable_stock_kernel_menu
+btrfs_late_command_mark 608 disable_stock_kernel_menu
 disable_stock_kernel_menu
 
 if target_exec_available; then
   # Regenerate signed kernels/initrds BEFORE discovering boot menu entries.
-  btrfs_late_command_mark 612 repair_target_installed_kernels
+  btrfs_late_command_mark 613 repair_target_installed_kernels
   repair_target_installed_kernels
-  btrfs_late_command_mark 614 require_target_grub_installed
+  btrfs_late_command_mark 615 require_target_grub_installed
   require_target_grub_installed
-  btrfs_late_command_mark 616 install_target_grub_profiles
+  btrfs_late_command_mark 617 install_target_grub_profiles
   install_target_grub_profiles
-  btrfs_late_command_mark 618 require_target_dualboot_os_prober_package
+  btrfs_late_command_mark 619 require_target_dualboot_os_prober_package
   require_target_dualboot_os_prober_package
-  btrfs_late_command_mark 620 run_target_grub_config_update
+  btrfs_late_command_mark 621 run_target_grub_config_update
   run_target_grub_config_update
   # This is the unconditional d-i late reset point: GRUB, shim, MokManager,
-  # kernel/initrd and grub.cfg are complete before mokutil is called. Reset
-  # failures remain warnings so installation can finish.
+  # kernel/initrd and grub.cfg are complete before mokutil is called. Module
+  # signature enforcement makes a failed reset a release-blocking error;
+  # profiles without enforcement retain the deferred warning path.
   if (finalize_target_secure_boot_mok_reset); then
     :
   else
-    installer_warn "MOK reset/boot preparation failed after GRUB installation; continuing installation"
+    case " ${GRUB_SECURITY_CORE_FLAGS:-} " in
+      *" module.sig_enforce=1 "*)
+        installer_fatal "MOK reset/boot preparation failed while module signature enforcement is enabled" ;;
+      *)
+        installer_warn "MOK reset/boot preparation failed after GRUB installation; continuing installation" ;;
+    esac
   fi
-  btrfs_late_command_mark 630 sync_target_secure_boot_bundle_to_installer_usb
+  btrfs_late_command_mark 637 sync_target_secure_boot_bundle_to_installer_usb
   sync_target_secure_boot_bundle_to_installer_usb
-  btrfs_late_command_mark 632 close_target_secure_boot_state
+  btrfs_late_command_mark 639 close_target_secure_boot_state
   close_target_secure_boot_state
 fi
 
-  btrfs_late_command_mark 636 configure_target_dbus_broker
+  btrfs_late_command_mark 643 configure_target_dbus_broker
 configure_target_dbus_broker
-  btrfs_late_command_mark 638 prepare_target_deferred_tmpfs_roots
+  btrfs_late_command_mark 645 prepare_target_deferred_tmpfs_roots
 prepare_target_deferred_tmpfs_roots
-  btrfs_late_command_mark 640 prepare_target_volatile_mountpoints_for_first_boot
+  btrfs_late_command_mark 647 prepare_target_volatile_mountpoints_for_first_boot
 prepare_target_volatile_mountpoints_for_first_boot
-  btrfs_late_command_mark 642 stage_target_logging_foundation
+  btrfs_late_command_mark 649 stage_target_logging_foundation
 stage_target_logging_foundation || return $?
-  btrfs_late_command_mark 644 installer_archive_logs_to_target
+  btrfs_late_command_mark 651 installer_archive_logs_to_target
 installer_archive_logs_to_target copy || true
 }

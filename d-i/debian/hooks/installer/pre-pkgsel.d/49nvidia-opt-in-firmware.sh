@@ -39,7 +39,7 @@ installer_persist_seed_source "$SEED_BASE"
 installer_ensure_context_loaded "$SEED_BASE"
 
 if installer_nvidia_class_selected 2>/dev/null &&
-   installer_nvidia_gpu_detected 2>/dev/null
+   installer_nvidia_selected_gpu_detected 2>/dev/null
 then
   installer_info "preserving Debian Installer NVIDIA firmware cache because a detected opt-in NVIDIA class is active"
   exit 0

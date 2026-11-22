@@ -70,6 +70,8 @@ desktop_stage_role_asset() { stage_target_asset "hooks/target/$1" "$2" "$3"; }
 profile_hardware_intel_detected() { return 0; }
 installer_nvidia_class_selected() { return 0; }
 installer_nvidia_gpu_detected() { return 0; }
+installer_nvidia_legacy_selected() { return 1; }
+installer_nvidia_selected_gpu_detected() { installer_nvidia_gpu_detected; }
 network_answer_value() {
   case "$1" in
     netcfg/get_ipaddress) printf '%s\n' 192.0.2.20 ;;

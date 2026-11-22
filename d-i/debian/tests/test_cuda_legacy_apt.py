@@ -42,7 +42,7 @@ SEED = Path(__file__).resolve().parents[1]
 LIB = SEED / 'scripts/common/lib.sh'
 REPO = 'https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/'
 SOURCE_PATH = 'etc/apt/sources.list'
-FINGERPRINT = 'EB693B3035CD5710E231E123A4B469963BF863CC'
+OLD_SOURCE_KEY_SUFFIX = 'A' * 40
 KEY_PATH = '/etc/apt/keyrings/cuda-legacy-archive-key.asc'
 REQUIRED = ('arch=amd64', f'signed-by={KEY_PATH}', 'trusted=yes', 'allow-insecure=yes', 'allow-weak=yes',
             'allow-downgrade-to-insecure=yes', 'check-valid-until=no', 'check-date=no',
@@ -52,6 +52,8 @@ REQUIRED = ('arch=amd64', f'signed-by={KEY_PATH}', 'trusted=yes', 'allow-insecur
 def shell(text: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     cuda_contract = {
         'CUDA_LEGACY_REPOSITORY_URL': REPO,
+        'CUDA_LEGACY_TOOLKIT_VERSIONS': '12.8 12.9',
+        'CUDA_LEGACY_TOOLKIT_DEFAULT_VERSION': '12.9',
         'FILE_APT_CUDA_LEGACY_ARCHIVE_KEY': KEY_PATH,
         'TARGET_ROOT': '/target',
         'DIR_APT': '/etc/apt',
@@ -84,7 +86,7 @@ class CudaLifecycleTests(unittest.TestCase):
         line = rendered_source()
         for option in REQUIRED:
             self.assertIn(option, line)
-        for forbidden in (FINGERPRINT, 'sequoia.config'):
+        for forbidden in ('sequoia.config',):
             self.assertNotIn(forbidden, line)
         self.assertEqual(line.count(REPO), 1)
         self.assertEqual(len(line.splitlines()), 1)
@@ -117,7 +119,7 @@ class CudaLifecycleTests(unittest.TestCase):
     @skip_unless_installer_apt_ancestry
     def test_old_signed_source_is_replaced_without_key_or_network_prerequisites(self):
         self.source.parent.mkdir(parents=True)
-        self.source.write_text(f'deb [arch=amd64 signed-by={KEY_PATH},{FINGERPRINT}] {REPO} /\n')
+        self.source.write_text(f'deb [arch=amd64 signed-by={KEY_PATH},{OLD_SOURCE_KEY_SUFFIX}] {REPO} /\n')
         result = shell(f'installer_fetch_cuda_key() {{ return 71; }}\n'
                        f'source_fetch_external() {{ return 72; }}\n'
                        f'installer_cuda_stage_target_source {REPO} /', self.env)
@@ -181,21 +183,14 @@ installer_cuda_refresh_target_apt
                                   'Verify-Peer=false', 'sequoia.config'):
                     self.assertNotIn(forbidden, text)
 
-    def test_selected_cuda_stage_does_not_silently_filter_a_validated_plan(self):
-        # Class selection checks the matching NVIDIA class and hardware before
-        # partitioning. A later helper must not silently skip that frozen plan.
-        path = SEED/'scripts/preseed/answers.sh'
-        definition = payload_read_text(path).split('selected_fragment_applies_to_detected_hardware() {', 1)[1].split('\nselected_arch_class()', 1)[0]
-        result = shell('selected_fragment_applies_to_detected_hardware() {' + definition +
-                       '\ninstaller_nvidia_gpu_detected() { return 1; }\n'
-                       'selected_fragment_applies_to_detected_hardware classes/class-addon/cuda-legacy.cfg\n')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        result = shell(f'''. {shlex.quote(str(SEED/'scripts/late/cuda-legacy.sh'))}
-installer_cuda_legacy_selected() {{ return 0; }}
-installer_nvidia_gpu_detected() {{ return 1; }}
-cuda_legacy_target_apt_required
-''')
-        self.assertEqual(result.returncode, 0, result.stderr)
+    def test_selected_cuda_stage_does_not_redetect_hardware(self):
+        # The frozen class plan owns the NVIDIA hardware gate. CUDA's late
+        # helper must only honor the selected optional/cuda-legacy class and
+        # must not add a second GPU probe or key preflight.
+        text = payload_read_text(SEED/'scripts/late/cuda-legacy.sh')
+        self.assertIn('installer_cuda_legacy_selected', text)
+        self.assertNotIn('installer_nvidia_gpu_detected', text)
+        self.assertNotIn('installer_fetch_cuda_key', text)
 
     def test_unselected_class_does_not_request_late_cuda_state(self):
         result = shell(f'''. {shlex.quote(str(SEED/'scripts/late/cuda-legacy.sh'))}
@@ -232,7 +227,8 @@ cuda_legacy_target_apt_required
 }
 bootstrap_source_common_support_libs() { :; }
 """)
-        env = {**os.environ, **self.env, 'INSTALLER_BOOTSTRAP_LIB': str(bootstrap),
+        env = {**os.environ, **self.env, 'TARGET_ROOT': str(self.root),
+               'INSTALLER_BOOTSTRAP_LIB': str(bootstrap),
                'INSTALLER_CUDA_PREPKGSEL_ENV_DIR': str(self.root/'hook-env'),
                'CUDA_TEST_LIB': str(installed_script(LIB)), 'CUDA_TEST_SEED': str(SEED),
                'CUDA_TEST_SELECTED': '0' if selected else '1',
@@ -465,8 +461,7 @@ class RealAptTests(unittest.TestCase):
         self.repo_url = self.base+self.repo.name+'/'
         self.source = self.work/'sources.list'
         self.source.write_text(rendered_source().replace(REPO, self.repo_url)
-                               .replace(KEY_PATH, str(self.work/'trusted/fixture.asc'))
-                               .replace(FINGERPRINT, self.fingerprints['SHA256']))
+                               .replace(KEY_PATH, str(self.work/'trusted/fixture.asc')))
         for name in ('lists/partial', 'archives/partial', 'trusted', 'log'):
             (self.work/name).mkdir(parents=True)
         (self.work/'status').write_text('')
@@ -532,8 +527,7 @@ class RealAptTests(unittest.TestCase):
                            *command, str(self.repo/'Release')]), check=True, capture_output=True, timeout=15)
             payload_copy2(self.root/(cert+'.asc'), self.work/'trusted/fixture.asc')
             self.source.write_text(rendered_source().replace(REPO, self.repo_url)
-                                   .replace(KEY_PATH, str(self.work/'trusted/fixture.asc'))
-                                   .replace(FINGERPRINT, self.fingerprints[cert]))
+                                   .replace(KEY_PATH, str(self.work/'trusted/fixture.asc')))
 
     def apt_run(self, *args: str):
         return subprocess.run(payload_installed_argv([self.apt, *self.options, *args]), env=self.env,

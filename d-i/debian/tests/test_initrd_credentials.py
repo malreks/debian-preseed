@@ -75,6 +75,12 @@ MAPPING = {
     'obs_username': 'PRESEED_OBS_USERNAME',
     'obs_password': 'PRESEED_OBS_PASSWORD',
 }
+NON_SECRET_CMDLINE_KEYS = {
+    'wifi_interface', 'wifi_essid', 'wifi_security', 'wifi_cidr',
+    'fruux_username', 'primary_user', 'primary_username', 'primary_fullname',
+    'dns_upstream_tls_ca_name_custom', 'filen_priv_email', 'filen_offsec_email',
+    'telegram_chat_id', 'obs_username',
+}
 
 class CredentialFixture(unittest.TestCase):
     def setUp(self):
@@ -207,21 +213,24 @@ class InitrdCredentialTests(CredentialFixture):
                 self.assertIn('single-line', result.stderr)
                 self.assertNotIn('Fixture-secret', result.stderr)
 
-    def test_registered_cmdline_values_are_typed_and_unknown_secrets_are_ignored(self):
+    def test_non_secret_cmdline_values_are_typed_and_secret_values_use_the_file(self):
         for prefix in ('installer','runtime'):
             for key in MAPPING:
                 with self.subTest(resolver=prefix,key=key):
                     result=self.run_lookup(prefix,key,cmdline=key+'=override-fixture')
                     self.assertEqual(result.returncode,0,result.stderr)
-                    self.assertEqual(result.stdout,'override-fixture\n')
+                    expected = ('override-fixture' if key in NON_SECRET_CMDLINE_KEYS
+                                else self.values[MAPPING[key]])
+                    self.assertEqual(result.stdout,expected+'\n')
 
-    def test_empty_registered_cmdline_values_remain_explicit(self):
+    def test_empty_secret_cmdline_values_do_not_override_the_file(self):
         for prefix in ('installer','runtime'):
             for key in MAPPING:
                 with self.subTest(resolver=prefix,key=key):
                     result=self.run_lookup(prefix,key,cmdline=key+'=')
                     self.assertEqual(result.returncode,0,result.stderr)
-                    self.assertEqual(result.stdout,'\n')
+                    expected = '' if key in NON_SECRET_CMDLINE_KEYS else self.values[MAPPING[key]]
+                    self.assertEqual(result.stdout,expected+'\n')
 
     def test_registered_value_wins_while_unknown_secret_argument_is_ignored(self):
         for prefix in ('installer', 'runtime'):
@@ -232,7 +241,7 @@ class InitrdCredentialTests(CredentialFixture):
                     cmdline='service_token=fixture root_password=cmdline-fixture',
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.stdout, 'cmdline-fixture\n')
+                self.assertEqual(result.stdout, self.values['PRESEED_ROOT_PASSWORD'] + '\n')
 
     def test_unknown_secret_names_are_ignored_without_failing(self):
         for prefix in ('installer', 'runtime'):
@@ -375,35 +384,37 @@ class InitrdCredentialTests(CredentialFixture):
         self.assertEqual(result.returncode,1,result.stderr)
         self.assertEqual(result.stdout,'')
 
-    def test_password_cmdline_works_when_env_file_is_absent(self):
+    def test_password_cmdline_is_ignored_when_env_file_is_absent(self):
         self.file.unlink()
         result=self.run_lookup(cmdline='root_password=override-fixture')
-        self.assertEqual(result.returncode,0,result.stderr)
-        self.assertEqual(result.stdout,'override-fixture\n')
+        self.assertEqual(result.returncode,1,result.stderr)
+        self.assertEqual(result.stdout,'')
 
-    def test_password_cmdline_wins_before_broken_env_file_is_used(self):
+    def test_password_cmdline_does_not_bypass_a_broken_env_file(self):
         self.file.write_text("PRESEED_ROOT_PASSWORD='invalid\n")
         result=self.run_lookup(cmdline='root_password=override-fixture')
-        self.assertEqual(result.returncode,0,result.stderr)
-        self.assertEqual(result.stdout,'override-fixture\n')
+        self.assertEqual(result.returncode,2,result.stderr)
+        self.assertEqual(result.stdout,'')
+        self.assertNotIn('override-fixture',result.stderr)
 
-    def test_both_resolvers_accept_password_cmdline_file(self):
+    def test_both_resolvers_ignore_password_cmdline_file(self):
         self.cmdfile.write_text('quiet root_password=file-override-fixture\n')
         for prefix in ('installer','runtime'):
             result=self.run_lookup(prefix,cmdline='')
             self.assertEqual(result.returncode,0,result.stderr)
-            self.assertEqual(result.stdout,'file-override-fixture\n')
+            self.assertEqual(result.stdout,self.values['PRESEED_ROOT_PASSWORD']+'\n')
 
     def test_root_account_validation_precedes_disk_discovery(self):
         text=payload_read_text(SEED/'hooks/installer/d-i/early.sh')
         self.assertLess(text.index('runtime_validate_account_settings'),text.index('  hook_resolve_install_disk'))
 
-    def test_known_alias_does_not_reenable_fallback_of_another_alias(self):
-        for group in [('wifi_wpa','wireless_wpa'),('tailscale_authkey','tailscale_auth_key'),
-                      ('crowdsec_token','crowdsec_enroll_token')]:
+    def test_secret_aliases_are_filtered_before_file_fallback(self):
+        for group, variable in ((('wifi_wpa','wireless_wpa'), 'PRESEED_WIFI_PASSPHRASE'),
+                                (('tailscale_authkey','tailscale_auth_key'), 'PRESEED_TAILSCALE_TOKEN'),
+                                (('crowdsec_token','crowdsec_enroll_token'), 'PRESEED_CROWDSEC_TOKEN')):
             result=self.run_lookup('installer',group[0],cmdline=group[1]+'=')
-            self.assertEqual(result.returncode,1,result.stderr)
-            self.assertEqual(result.stdout,'')
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(result.stdout,self.values[variable]+'\n')
 
 class UserHashPrecedenceTests(CredentialFixture):
     @skip_unless_trusted_credential_ancestry

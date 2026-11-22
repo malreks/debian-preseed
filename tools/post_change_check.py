@@ -3799,8 +3799,11 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
             if not all(token in preference for token in required_exclusions):
                 raise ValueError('suite/family loses its system X.Org or Vulkan exclusion')
             xanmod = members[f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/15-kernel.pref'].decode()
-            if ('Pin: release o=xanmod\nPin-Priority: 1001' not in xanmod
-                    or 'Package: *\nPin: release o=xanmod\nPin-Priority: 100' not in xanmod):
+            xanmod_kernel_pin = ('Pin: origin "deb.xanmod.org"\nPin-Priority: 1001' in xanmod or
+                                 'Pin: release o=xanmod\nPin-Priority: 1001' in xanmod)
+            xanmod_fallback_pin = ('Package: *\nPin: origin "deb.xanmod.org"\nPin-Priority: 100' in xanmod or
+                                   'Package: *\nPin: release o=xanmod\nPin-Priority: 100' in xanmod)
+            if not (xanmod_kernel_pin and xanmod_fallback_pin):
                 raise ValueError('suite/family loses the XanMod repository policy')
             cramerz = members[f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/16-cramerz.pref'].decode()
             if ('home:cramerz:debian/Debian_Unstable' not in cramerz
@@ -3967,7 +3970,10 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
             else:
                 host = re.sub(r'^https?://', '', url).split('/', 1)[0]
                 marker = 'origin ' + host
-            if marker not in preference_text:
+            marker_present = marker in preference_text
+            if 'deb.xanmod.org' in url:
+                marker_present = marker_present or 'Pin: origin "deb.xanmod.org"' in preference_text
+            if not marker_present:
                 raise ValueError('APT repository has no staged preference pin: ' + repository)
         counts['apt_source_preference_contracts'] = counts.get('apt_source_preference_contracts', 0) + len(set(repository_answers))
         dns_role = members[f'frontends/{suite}/classes/class-select/role/server/technitium.cfg'].decode()

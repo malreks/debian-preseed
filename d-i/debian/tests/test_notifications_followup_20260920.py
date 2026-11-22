@@ -98,7 +98,7 @@ class NotificationsFollowupTests(unittest.TestCase):
                     self.assertTrue(entry['escape'])
                     self.assertEqual(entry['exec'], '/usr/local/libexec/labwc-waybar-exec '
                                      '/usr/local/libexec/labwc-waybar-events notifications')
-                    self.assertEqual(entry['restart-interval'], 30)
+                    self.assertEqual(entry['restart-interval'], 120)
                     self.assertFalse(entry['exec-on-event'])
                     for key in ('exec-if', 'interval', 'signal', 'hide-empty-text'):
                         self.assertNotIn(key, entry)

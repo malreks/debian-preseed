@@ -172,8 +172,8 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual(env[prefix + "MAX_TEMPERATURE_C"], temperature)
             self.assertEqual(duo[prefix + "MAX_TEMPERATURE_C"], duo_temperature)
             if name == "p15s":
-                self.assertEqual(env[installer.PREFIXES["nvidia"] + "MAX_TEMPERATURE_C"], "99")
-                self.assertEqual(duo[installer.PREFIXES["nvidia"] + "MAX_TEMPERATURE_C"], "99")
+                self.assertEqual(env[installer.PREFIXES["nvidia"] + "MAX_TEMPERATURE_C"], "85")
+                self.assertEqual(duo[installer.PREFIXES["nvidia"] + "MAX_TEMPERATURE_C"], "85")
             duo[prefix + "MAX_TEMPERATURE_C"] = temperature
             self.assertEqual(env, duo)
             self.assertEqual(env[prefix + "PERFORMANCE_CPU_MIN_PERF_PCT"], floor)
@@ -202,9 +202,9 @@ class PolicyTests(unittest.TestCase):
             nv = installer.PREFIXES["nvidia"]
             if name == "p15s":
                 for profile in ("PERFORMANCE", "HIGH"):
-                    self.assertEqual(env[nv + profile + "_POWER_LIMIT_MW"], "supported-max")
-                    self.assertEqual(env[nv + profile + "_APPLICATION_CLOCKS_MHZ"], "supported-max")
-                    self.assertEqual(env[nv + profile + "_PERSISTENCE_MODE"], "supported-1")
+                    self.assertEqual(env[nv + profile + "_POWER_LIMIT_MW"], "default")
+                    self.assertEqual(env[nv + profile + "_APPLICATION_CLOCKS_MHZ"], "keep")
+                    self.assertEqual(env[nv + profile + "_PERSISTENCE_MODE"], "keep")
                 for key, value in env.items():
                     if key.startswith(nv) and any(part in key for part in ("_OFFSET_MHZ", "_LOCK_MHZ")):
                         self.assertEqual(value, "keep")
@@ -349,6 +349,8 @@ class InstallerTests(unittest.TestCase):
 profile_hardware_intel_detected() {{ return {0 if intelcpu else 1}; }}
 installer_nvidia_class_selected() {{ return {0 if nvclass else 1}; }}
 installer_nvidia_gpu_detected() {{ return {0 if nvgpu else 1}; }}
+installer_nvidia_legacy_selected() {{ return 1; }}
+installer_nvidia_selected_gpu_detected() {{ installer_nvidia_gpu_detected; }}
 desktop_log() {{ :; }}
 installer_fatal() {{ echo "$*" >&2; return 1; }}
 desktop_stage_role_asset() {{ printf '%s\\n' "$1" >> "$FIXTURE/trace"; }}
@@ -1051,7 +1053,7 @@ class NvidiaTests(unittest.TestCase):
             knob.resolve("2000,1500", policy)
         self.assertFalse(any(name.startswith("nvmlDeviceSet") for name, _, _ in api.calls))
 
-    def test_p15s_performance_and_high_request_p520_highest_memory_and_graphics(self):
+    def test_p15s_performance_and_high_keep_p520_driver_defaults(self):
         class P520(FakeNVML):
             def __init__(self):
                 super().__init__(4)
@@ -1078,12 +1080,9 @@ class NvidiaTests(unittest.TestCase):
             policy = installer.policy(env, "nvidia", nvidia.SETTINGS)
             for profile in ("performance", "high"):
                 configured = policy["profiles"][profile]["knobs"]["APPLICATION_CLOCKS_MHZ"]
-                self.assertEqual(configured, "supported-max")
-                resolved = knob.resolve(configured, policy)
-                self.assertEqual(resolved, "3004,1531")
-                knob.write(resolved)
-                self.assertEqual(api.application, (3004, 1531))
-                self.assertEqual(api.calls[-1][0], "nvmlDeviceSetApplicationsClocks")
+                self.assertEqual(configured, "keep")
+            self.assertEqual(api.application, (3004, 1303))
+            self.assertFalse(any(name.startswith("nvmlDeviceSet") for name, _, _ in api.calls))
 
     def test_p15s_unsupported_maximum_application_clocks_remain_optional(self):
         with private_temp() as temporary:

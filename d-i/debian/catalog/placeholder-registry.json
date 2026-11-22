@@ -24153,6 +24153,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-chatgpt-log-runner.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-greeter-client",
           "hooks/target/usr/local/libexec/desktop/labwc-gvfs-volume-monitor",
+          "hooks/target/usr/local/libexec/desktop/labwc-hyprpolkit-agent",
           "hooks/target/usr/local/libexec/desktop/labwc-kanshi",
           "hooks/target/usr/local/libexec/desktop/labwc-output-watch",
           "hooks/target/usr/local/libexec/desktop/labwc-recovery-action-root",
@@ -26237,6 +26238,7 @@
           "scripts/desktop/virtualization.sh",
           "scripts/desktop/waypaper.sh",
           "scripts/desktop/xwayland.sh",
+          "scripts/firstboot/04-validation.sh.tmpl",
           "scripts/late/mullvad.sh",
           "scripts/late/security.sh",
           "scripts/late/software.sh.tmpl"
@@ -26255,10 +26257,11 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "firstboot",
       "required": true,
       "source_family": [
         "desktop-late",
+        "firstboot",
         "late-command",
         "target-asset"
       ],
@@ -27123,6 +27126,7 @@
           "hooks/target/etc/apparmor.d/common/hardware-tuning",
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
           "hooks/target/etc/apparmor.d/desktop/incus-desktop-ui",
+          "hooks/target/etc/apparmor.d/desktop/labwc-session",
           "hooks/target/etc/apparmor.d/desktop/zoom-discord-compat.tmpl"
         ]
       },
@@ -27515,6 +27519,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-tomat.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
+          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -31577,6 +31582,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-tomat-hook",
           "hooks/target/usr/local/libexec/desktop/labwc-tomat.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
+          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
           "hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl",
@@ -33498,6 +33504,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
+          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -100169,9 +100176,8 @@
     },
     {
       "consumer": {
-        "module": "hooks/target/etc/skel-desktop/.config/waybar/style/clock.css.tmpl",
+        "module": "hooks/target/etc/skel-desktop/.config/waybar/style/menu.css.tmpl",
         "source_members": [
-          "hooks/target/etc/skel-desktop/.config/waybar/style/clock.css.tmpl",
           "hooks/target/etc/skel-desktop/.config/waybar/style/menu.css.tmpl",
           "hooks/target/etc/skel-desktop/.config/waybar/style/power.css.tmpl",
           "hooks/target/etc/skel-desktop/.config/waybar/style/system.css.tmpl",
@@ -100233,6 +100239,7 @@
         "module": "hooks/target/etc/skel-desktop/.config/waybar/style-common.css.tmpl",
         "source_members": [
           "hooks/target/etc/skel-desktop/.config/waybar/style-common.css.tmpl",
+          "hooks/target/etc/skel-desktop/.config/waybar/style/clock.css.tmpl",
           "hooks/target/etc/skel-desktop/.config/waybar/style/gtk.css.tmpl"
         ]
       },
@@ -108649,6 +108656,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
+          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -108860,6 +108868,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-tomat.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-wallpaper-control",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
+          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-popup",
           "hooks/target/usr/local/libexec/desktop/labwc-waypaper.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-zoom-discord-compat-runtime",
@@ -109044,6 +109053,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
+          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -109234,6 +109244,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-exec",
+          "hooks/target/usr/local/libexec/desktop/labwc-waybar-menu",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-run",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-state",
           "hooks/target/usr/local/libexec/desktop/labwc-waycal-control",
@@ -109405,7 +109416,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "20075362e307dc63f97ea28c309a6d5cf0193dc2d9860bd17e37e370f1684937",
+  "source_fingerprint": "5df8f6196d981a34f6d70a02f198bf5aca255398e7ef7c268746051eb090b899",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

@@ -651,3 +651,11 @@ stage_target_graphics_kernel_tunables() {
     remove_target_asset "${DIR_MODPROBE_D}/82-nvidia.conf"
   fi
 }
+
+stage_target_cuda_compiler_wrappers() {
+  installer_cuda_legacy_selected || return 0
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/bin/common/cuda-12.8-nvcc)" \
+    "${DIR_USR_LOCAL_BIN}/cuda-12.8-nvcc" 0755 || return $?
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/bin/common/cuda-12.9-nvcc)" \
+    "${DIR_USR_LOCAL_BIN}/cuda-12.9-nvcc" 0755 || return $?
+}

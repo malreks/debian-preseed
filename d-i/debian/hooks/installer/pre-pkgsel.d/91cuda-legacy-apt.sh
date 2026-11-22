@@ -28,7 +28,7 @@ cuda_prepkgsel_fatal() {
 . "$BOOTSTRAP_LIB"
 bootstrap_source_common_lib ""
 TMP_ENV_DIR=${INSTALLER_CUDA_PREPKGSEL_ENV_DIR:-${DIR_INSTALLER_PRE_PKGSEL_ENV}/cuda-legacy}
-CUDA_FRAGMENT_REL=$(installer_repo_file_value frontends/${INSTALLER_SUITE}/classes/class-select/optional/nvidia-legacy.cfg)
+CUDA_FRAGMENT_REL=$(installer_repo_file_value frontends/${INSTALLER_SUITE}/classes/class-select/optional/cuda-legacy.cfg)
 
 LOG="$(installer_runtime_log_file)"
 INSTALLER_DEBUG_LOGS=1
@@ -50,8 +50,9 @@ if ! installer_cuda_legacy_selected 2>/dev/null; then
   exit 0
 fi
 
-# The validated class plan requires the matching legacy driver and hardware.
-# Do not re-detect hardware here and silently skip an already selected stage.
+# Class selection already enforces the required legacy-driver relationship and
+# hardware contract. CUDA package installation is declarative; do not repeat
+# hardware detection or run a second package metadata preflight here.
 
 install -d -m 0700 "$TMP_ENV_DIR"
 bootstrap_source_common_support_libs "$SEED_BASE" "$TMP_ENV_DIR" fetch hook target || {
@@ -128,7 +129,7 @@ cuda_repository_components() {
 }
 
 stage_cuda_legacy_source() {
-  installer_operation_context_repo hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh 131 stage_cuda_legacy_source
+  installer_operation_context_repo hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh 134 stage_cuda_legacy_source
   installer_cuda_stage_target_source \
     "$(cuda_repository_url)" "$(cuda_repository_suite)" "$(cuda_repository_components)"
 }
@@ -149,7 +150,7 @@ install -d -m 1777 "$tmp_root" "$var_root/tmp"
 }
 
 refresh_cuda_legacy_target_apt_metadata() {
-  installer_operation_context_repo hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh 152 refresh_cuda_legacy_target_apt_metadata
+  installer_operation_context_repo hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh 155 refresh_cuda_legacy_target_apt_metadata
   installer_cuda_refresh_target_apt
 }
 

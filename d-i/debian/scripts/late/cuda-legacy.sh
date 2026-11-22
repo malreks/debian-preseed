@@ -1,5 +1,7 @@
 #!/bin/sh
-# Shared late-command helpers for temporary CUDA 12.8/12.9 target repair state.
+# Shared late-command helpers for the explicitly selected CUDA 12.8 and 12.9
+# target repair state. The legacy path is a Debian 12 compatibility exception
+# and is never reused as a general target APT source.
 
 cuda_legacy_fragment_cache_path() {
   printf '%s/cuda-legacy.fragment.cfg\n' "${TMP_ENV_DIR:-${DIR_INSTALLER_LATE_ENV}}"
@@ -22,7 +24,7 @@ cuda_legacy_fetch_fragment() {
   fragment_path=$(cuda_legacy_fragment_cache_path)
   if [ ! -s "$fragment_path" ]; then
     installer_fetch_file "$SEED_BASE" \
-      "$(installer_repo_file_value frontends/${INSTALLER_SUITE}/classes/class-select/optional/nvidia-legacy.cfg)" \
+      "$(installer_repo_file_value frontends/${INSTALLER_SUITE}/classes/class-select/optional/cuda-legacy.cfg)" \
       "$fragment_path" 0600
   fi
   printf '%s\n' "$fragment_path"

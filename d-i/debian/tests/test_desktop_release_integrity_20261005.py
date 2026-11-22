@@ -92,6 +92,21 @@ class PlatformToolsArchiveTests(unittest.TestCase):
         self.assertEqual(list(self.output.iterdir()), [])
 
 
+class PlatformToolsPolicyTests(unittest.TestCase):
+    def test_google_platform_tools_policy_is_revision_and_hash_pinned(self):
+        profile = dict(re.findall(
+            r'^([A-Z0-9_]+)="([^"\n]*)"$',
+            (SEED / 'hosts/profiles/shared.env').read_text(encoding='utf-8'),
+            re.M,
+        ))
+        version = profile['ANDROID_PLATFORM_TOOLS_VERSION']
+        self.assertEqual(
+            profile['ANDROID_PLATFORM_TOOLS_URL'],
+            f'https://dl.google.com/android/repository/platform-tools_r{version}-linux.zip',
+        )
+        self.assertRegex(profile['ANDROID_PLATFORM_TOOLS_SHA256'], r'^[0-9a-f]{64}$')
+
+
 def values(path: Path) -> dict[str, str]:
     return dict(re.findall(r'^([A-Z0-9_]+)="([^"\n]*)"$', path.read_text(encoding='utf-8'), re.M))
 

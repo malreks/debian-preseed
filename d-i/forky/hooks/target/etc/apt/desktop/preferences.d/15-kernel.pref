@@ -3,9 +3,9 @@
 # leaving unrelated vendor packages at a low recovery priority.
 
 Package: linux-image-*-xanmod* linux-headers-*-xanmod* linux-modules-*-xanmod*
-Pin: release o=xanmod
+Pin: origin "deb.xanmod.org"
 Pin-Priority: 1001
 
 Package: *
-Pin: release o=xanmod
+Pin: origin "deb.xanmod.org"
 Pin-Priority: 100

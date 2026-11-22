@@ -220,7 +220,7 @@ desktop_resolve_acceleration_availability() {
      installer_class_selected optional/nvidia-legacy; then
     nvidia_class_selected=true
   fi
-  if [ "$nvidia_class_selected" = true ] && installer_nvidia_gpu_detected; then
+  if [ "$nvidia_class_selected" = true ] && installer_nvidia_selected_gpu_detected; then
     LABWC_NVIDIA_ACCELERATION_AVAILABLE=true
   fi
 

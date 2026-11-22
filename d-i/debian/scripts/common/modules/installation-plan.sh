@@ -106,7 +106,10 @@ installer_prepare_class_plan() (
   plan_roles=${INSTALLER_ROLE_IDS:?registered roles required}
   plan_release=${INSTALLER_RELEASE_ID:?trusted release identity required}
   case " $INSTALLER_SELECTED_CLASS_REFS " in
-    *' optional/nvidia '*|*' optional/nvidia-legacy '*)
+    *' optional/nvidia-legacy '*)
+      installer_nvidia_legacy_gpu_detected || installer_fatal 'the NVIDIA legacy class requires exactly one approved Quadro P520 display adapter (10de:1d34) before partitioning'
+      ;;
+    *' optional/nvidia '*)
       installer_nvidia_gpu_detected || installer_fatal 'an explicit NVIDIA driver requires detected NVIDIA display hardware before partitioning'
       ;;
   esac

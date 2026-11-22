@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+common_lib="$runtime/bootstrap/common-lib.sh"
+[ -r "$common_lib" ] || exit 0
+# shellcheck disable=SC1090,SC1091
+. "$common_lib"
+seed_base=$(installer_seed_base "")
+installer_ensure_context_loaded "$seed_base"
+support_dir="${DIR_INSTALLER_PRE_PKGSEL_ENV}/nvidia-legacy-cleanup"
+bootstrap_source_common_support_libs "$seed_base" "$support_dir" target ||
+  installer_fatal 'target execution helper is unavailable for NVIDIA DKMS cleanup'
+
+host_env="${DIR_INSTALLER_ENV}/host.env"
+[ -r "$host_env" ] || installer_fatal 'composed host policy is unavailable for NVIDIA DKMS cleanup'
+installer_load_data_env "$host_env"
+installer_nvidia_legacy_selected 2>/dev/null || exit 0
+
+installer_operation_context_repo hooks/installer/finish-install.d/10-nvidia-legacy-cleanup 21 finish_install_nvidia_cleanup
+run_in_target 'remove scoped NVIDIA DKMS diversion' /bin/sh -eu -c '
+if dpkg-divert --list /usr/sbin/dkms 2>/dev/null | grep -Fq "/usr/sbin/dkms.distrib"; then
+  if [ -e /usr/sbin/dkms ] || [ -L /usr/sbin/dkms ]; then
+    [ -f /usr/sbin/dkms ] && [ ! -L /usr/sbin/dkms ] || {
+      printf "%s\n" "fatal: refusing to remove a non-regular NVIDIA DKMS wrapper path: /usr/sbin/dkms" >&2
+      exit 1
+    }
+    grep -Fqx "# NV_INSTALLER_NVIDIA_LEGACY_DKMS_WRAPPER_V1" /usr/sbin/dkms || {
+      printf "%s\n" "fatal: refusing to remove an unexpected NVIDIA DKMS executable: /usr/sbin/dkms" >&2
+      exit 1
+    }
+    rm -f -- /usr/sbin/dkms
+  fi
+  dpkg-divert --quiet --local --rename --remove /usr/sbin/dkms
+fi
+[ ! -e /usr/sbin/dkms.distrib ] && [ ! -L /usr/sbin/dkms.distrib ]
+test -x /usr/sbin/dkms
+! grep -Fq "NV_INSTALLER_NVIDIA_LEGACY_DKMS_WRAPPER_V1" /usr/sbin/dkms
+' sh
+
+installer_info 'removed scoped NVIDIA DKMS wrapper and restored the packaged dkms executable'

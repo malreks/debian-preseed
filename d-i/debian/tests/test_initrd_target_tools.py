@@ -191,19 +191,19 @@ class DiagnosticTests(unittest.TestCase):
         self.assertNotIn('Never-Display',p.stdout+p.stderr)
 
     @skip_unless_trusted_credential_ancestry
-    def test_reports_password_override_source_without_printing_it(self):
+    def test_ignores_password_command_line_source_without_printing_it(self):
         self.cmdline.write_text('quiet root_password=Different-Never-Display-Fixture\n')
         p=self.run_check()
         self.assertEqual(p.returncode,0,p.stderr)
-        self.assertIn('root_password: present (kernel-cmdline)',p.stdout)
+        self.assertIn('root_password: present (initrd-env)',p.stdout)
         self.assertNotIn('Never-Display',p.stdout+p.stderr)
 
     @skip_unless_trusted_credential_ancestry
-    def test_reports_empty_password_override_without_printing_it(self):
+    def test_ignores_empty_password_command_line_source_without_printing_it(self):
         self.cmdline.write_text('quiet root_password=\n')
         p=self.run_check()
-        self.assertEqual(p.returncode,1,p.stderr)
-        self.assertIn('root_password: explicit-empty (kernel-cmdline)',p.stdout)
+        self.assertEqual(p.returncode,0,p.stderr)
+        self.assertIn('root_password: present (initrd-env)',p.stdout)
 
     def test_missing_env_is_a_nonzero_diagnostic(self):
         self.envfile.unlink()

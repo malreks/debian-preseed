@@ -548,7 +548,17 @@ source_cmdline_registered_credential() {
   return 1;
 };
 source_cmdline_secret_key() {
-  source_cmdline_registered_credential "${1:-}" && return 1;
+  case "${1:-}" in
+    # Selectors and descriptive identity fields are safe to carry in the
+    # kernel command line. Registered credential fields fall through to the
+    # secret filter below and are accepted only from /preseed.env.
+    wifi_interface|wifi_essid|wifi_security|wifi_cidr|primary_username|primary_user|primary_fullname|\
+    dns_upstream_tls_ca_name_custom|\
+    fruux_username|filen_priv_email|filen_offsec_email|telegram_chat_id|obs_username|\
+    technitium_username|technitium_web_username)
+      return 1 ;;
+  esac;
+  source_cmdline_registered_credential "${1:-}" && return 0;
   case "${1:-}" in
     # Unknown password/passphrase names are filtered just like unknown token
     # names. Registered account and Wi-Fi keys returned above remain available.
@@ -559,8 +569,8 @@ source_cmdline_secret_key() {
   esac;
   return 1;
 };
-# Compatibility name retained for the transport entrypoint; unregistered
-# secret-looking arguments are silently filtered from the forwarded cmdline.
+# Compatibility name retained for the transport entrypoint; every secret
+# argument is silently filtered from the forwarded cmdline.
 source_cmdline_reject_secrets() (
   set -f;
   IFS=' ';

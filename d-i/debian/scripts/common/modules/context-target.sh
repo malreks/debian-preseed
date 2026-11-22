@@ -443,9 +443,10 @@ installer_load_source_library() {
 
 # Explicit optional/cuda-legacy selection authorizes this single archive's
 # authentication/freshness exception. SHA-1 signatures (including certificate
-# self-signatures) can be rejected by modern APT; do not fetch or pin a key as
-# an acceptance gate here. Never move these options into apt.conf or a global
-# crypto policy. Normal CUDA and all other repositories keep their own policy.
+# self-signatures) can be rejected by modern APT. Keep the approved archive key
+# URL fixed and stage it for APT, without a separate key-identity comparison.
+# Never move these options into apt.conf or a global crypto policy. Normal CUDA
+# and all other repositories keep their own policy.
 installer_cuda_repository_url() (
   set -eu
   repository=${CUDA_LEGACY_REPOSITORY_URL:-}
@@ -454,9 +455,9 @@ installer_cuda_repository_url() (
     exit 1
   }
   case "$repository" in
-    https://?*/*/) ;;
+    https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/) ;;
     *)
-      installer_fatal 'CUDA_LEGACY_REPOSITORY_URL must be an absolute HTTPS archive URL ending in /'
+      installer_fatal 'CUDA_LEGACY_REPOSITORY_URL must be the approved Debian 12 NVIDIA CUDA archive URL'
       exit 1
       ;;
   esac
@@ -467,8 +468,8 @@ installer_cuda_repository_key_url() (
   set -eu
   key_url=${CUDA_LEGACY_REPOSITORY_KEY:-}
   case "$key_url" in
-    https://?*/*) ;;
-    *) installer_fatal 'CUDA_LEGACY_REPOSITORY_KEY must be an absolute HTTPS URL'; exit 1 ;;
+    https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/3bf863cc.pub) ;;
+    *) installer_fatal 'CUDA_LEGACY_REPOSITORY_KEY must be the approved NVIDIA CUDA archive key URL'; exit 1 ;;
   esac
   printf '%s\n' "$key_url"
 )

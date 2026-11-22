@@ -1218,6 +1218,15 @@ class InstalledFailureRegressionTests(unittest.TestCase):
         xwayland = render_theme_defaults(payload_read_text(ROOT / 'scripts/desktop/xwayland.sh'))
         self.assertIn('purge xwayland', xwayland)
         self.assertIn('public /usr/bin/Xwayland must not exist', xwayland)
+        for minor in ('12.8', '12.9'):
+            wrapper = render_theme_defaults(payload_read_text(
+                ROOT / f'usr/local/bin/common/cuda-{minor}-nvcc'))
+            self.assertIn('arch=compute_61,code=sm_61', wrapper)
+            self.assertIn(f'/usr/local/cuda-{minor}/bin/nvcc', wrapper)
+            self.assertIn('CMAKE_CUDA_ARCHITECTURES=61', wrapper)
+            self.assertIn('TORCH_CUDA_ARCH_LIST=6.1', wrapper)
+            self.assertIn('-u LD_LIBRARY_PATH', wrapper)
+            self.assertIn('architecture flags are fixed to sm_61', wrapper)
         profiles = render_theme_defaults(payload_read_text(DESKTOP / 'usr/local/lib/python3/dist-packages/labwc_managed_app/profiles.py'))
         sandbox = render_theme_defaults(payload_read_text(DESKTOP / 'usr/local/lib/python3/dist-packages/labwc_managed_app/sandbox.py'))
         self.assertIn('WAYLAND_COMPAT_APPS = ("discord", "zoom")', profiles)

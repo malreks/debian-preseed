@@ -1,8 +1,8 @@
 #!/bin/sh
 # Sourced installer module; edit this file directly.
 
-# Compatibility name retained for callers; this filter drops only unregistered
-# secret-looking keys and never makes them an installation failure.
+# Compatibility name retained for callers; this filter drops every secret
+# value, registered or otherwise, before command-line data reaches a resolver.
 installer_cmdline_reject_credential_args() (
   set -f
   IFS=' '
@@ -152,11 +152,10 @@ installer_load_primary_account() {
 }
 
 installer_cmdline_password_value() (
-  # Password/passphrase readers share the normal first-cmdline-parameter
-  # precedence, with the three historical d-i Wi-Fi aliases treated as one
-  # typed input. Other secret classes never reach this helper.
+  # Password/passphrase readers always resolve from the protected credential
+  # file. The three historical d-i Wi-Fi aliases remain one typed input.
   installer_password_key=$1
-  preseed_env_cmdline_secret_allowed "$installer_password_key" || return 2
+  preseed_env_is_secret_key "$installer_password_key" || return 2
   case "$installer_password_key" in
     wifi_wpa)
       for installer_password_alias in wifi_wpa wireless_wpa netcfg/wireless_wpa; do
@@ -307,8 +306,75 @@ installer_pci_has_display_vendor() {
   return 1
 }
 
+installer_pci_has_display_device() {
+  wanted_vendor=$1
+  wanted_device=$2
+  pci_devices_root=${INSTALLER_PCI_DEVICES_ROOT:-/sys/bus/pci/devices}
+
+  case "$wanted_vendor" in
+    0x[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;;
+    *) installer_fatal "PCI vendor id must be a four-digit hex value with 0x prefix: ${wanted_vendor:-unset}" ;;
+  esac
+  case "$wanted_device" in
+    0x[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;;
+    *) installer_fatal "PCI device id must be a four-digit hex value with 0x prefix: ${wanted_device:-unset}" ;;
+  esac
+
+  for dev_path in "$pci_devices_root"/*; do
+    [ -d "$dev_path" ] || continue
+    [ -r "$dev_path/vendor" ] && [ -r "$dev_path/device" ] && [ -r "$dev_path/class" ] || continue
+
+    dev_vendor=$(installer_read_first_line "$dev_path/vendor" 2>/dev/null || true)
+    dev_device=$(installer_read_first_line "$dev_path/device" 2>/dev/null || true)
+    dev_class=$(installer_read_first_line "$dev_path/class" 2>/dev/null || true)
+    [ -n "$dev_vendor" ] && [ -n "$dev_device" ] && [ -n "$dev_class" ] || continue
+    case "$dev_class" in
+      0x03*)
+        [ "$dev_vendor" = "$wanted_vendor" ] && [ "$dev_device" = "$wanted_device" ] && return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
 installer_nvidia_gpu_detected() {
   installer_pci_has_display_vendor 0x10de
+}
+
+installer_nvidia_legacy_gpu_detected() {
+  # The legacy class is intentionally P520-only. Require one and only one
+  # NVIDIA display adapter and reject an unknown or mixed multi-GPU inventory
+  # before any package or partition mutation.
+  pci_devices_root=${INSTALLER_PCI_DEVICES_ROOT:-/sys/bus/pci/devices}
+  nvidia_display_count=0
+  for dev_path in "$pci_devices_root"/*; do
+    [ -d "$dev_path" ] || continue
+    [ -r "$dev_path/vendor" ] && [ -r "$dev_path/device" ] && [ -r "$dev_path/class" ] || return 1
+
+    dev_vendor=$(installer_read_first_line "$dev_path/vendor" 2>/dev/null || true)
+    dev_device=$(installer_read_first_line "$dev_path/device" 2>/dev/null || true)
+    dev_class=$(installer_read_first_line "$dev_path/class" 2>/dev/null || true)
+    [ -n "$dev_vendor" ] && [ -n "$dev_device" ] && [ -n "$dev_class" ] || continue
+    case "$dev_class:$dev_vendor" in
+      0x03*:0x10de|0x03*:0x10DE)
+        nvidia_display_count=$((nvidia_display_count + 1))
+        case "$dev_device" in
+          0x1d34|0x1D34) ;;
+          *) return 1 ;;
+        esac
+        ;;
+    esac
+  done
+  [ "$nvidia_display_count" -eq 1 ]
+}
+
+installer_nvidia_selected_gpu_detected() {
+  if installer_nvidia_legacy_selected; then
+    installer_nvidia_legacy_gpu_detected
+  else
+    installer_nvidia_gpu_detected
+  fi
 }
 
 installer_nvidia_class_selected() {

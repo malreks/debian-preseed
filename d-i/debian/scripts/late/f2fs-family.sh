@@ -51,7 +51,7 @@ if installer_class_selected optional/nvidia-legacy; then
   NVIDIA_CLASS_SELECTED=true
 fi
 PODMAN_CLASS_SELECTED=$(podman_class_selection_state)
-if installer_nvidia_gpu_detected; then
+if installer_nvidia_selected_gpu_detected; then
   NVIDIA_GPU_DETECTED=true
 fi
 if [ "$NVIDIA_CLASS_SELECTED" = true ] && [ "$NVIDIA_GPU_DETECTED" != true ]; then
@@ -194,6 +194,7 @@ write_target_kernel_tunables() {
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/05-mei-blacklist.conf")" "${FILE_MODPROBE_MEI_BLACKLIST:-}" "${DIR_MODPROBE_D}/05-mei-blacklist.conf" 0644
   stage_target_hardware_spec
   stage_target_graphics_kernel_tunables "$target_enable_nvidia"
+  stage_target_cuda_compiler_wrappers
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modprobe.d/74-usbcore.conf")" "${FILE_MODPROBE_USBCORE:-}" "${DIR_MODPROBE_D}/74-usbcore.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path cpu "${CPU_CLASS}" "etc/modprobe.d/75-cfg80211.conf")" "${FILE_MODPROBE_CFG80211:-}" "${DIR_MODPROBE_D}/75-cfg80211.conf" 0644
   stage_target_asset_if_path "$(installer_hardware_asset_path disk "${DISK_CLASS}" "etc/modules-load.d/20-emmc-storage.conf")" "${FILE_MODULES_LOAD_EMMC_STORAGE:-}" "${DIR_MODULES_LOAD}/20-emmc-storage.conf" 0644
@@ -213,105 +214,111 @@ write_target_kernel_tunables() {
   stage_target_common_boot_policy "$target_enable_nvidia"
 }
 
-f2fs_late_command_mark 217 write_target_fstab
+f2fs_late_command_mark 218 write_target_fstab
 write_target_fstab
-f2fs_late_command_mark 219 ensure_target_managed_runtime_storage_roots
+f2fs_late_command_mark 220 ensure_target_managed_runtime_storage_roots
 ensure_target_managed_runtime_storage_roots
-f2fs_late_command_mark 221 provision_target_identity
+f2fs_late_command_mark 222 provision_target_identity
 provision_target_identity
-f2fs_late_command_mark 223 stage_target_docs_index
+f2fs_late_command_mark 224 stage_target_docs_index
 stage_target_docs_index
-f2fs_late_command_mark 225 stage_target_account_shell_assets
+f2fs_late_command_mark 226 stage_target_account_shell_assets
 stage_target_account_shell_assets
-f2fs_late_command_mark 227 ensure_target_account_home_ownership
+f2fs_late_command_mark 228 ensure_target_account_home_ownership
 ensure_target_account_home_ownership
-f2fs_late_command_mark 229 install_target_account_shell_assets
+f2fs_late_command_mark 230 install_target_account_shell_assets
 install_target_account_shell_assets
-f2fs_late_command_mark 231 install_target_account_sudoers
+f2fs_late_command_mark 232 install_target_account_sudoers
 install_target_account_sudoers
-f2fs_late_command_mark 233 configure_target_shared_account_access
+f2fs_late_command_mark 234 configure_target_shared_account_access
 configure_target_shared_account_access
-f2fs_late_command_mark 235 write_target_grub_dropins
+f2fs_late_command_mark 236 write_target_grub_dropins
 write_target_grub_dropins
-f2fs_late_command_mark 237 set_target_grub_default_entry
+f2fs_late_command_mark 238 set_target_grub_default_entry
 set_target_grub_default_entry
-f2fs_late_command_mark 239 finish_target_pkgsel_apt_state
+f2fs_late_command_mark 240 finish_target_pkgsel_apt_state
 finish_target_pkgsel_apt_state
-f2fs_late_command_mark 241 install_target_mullvad_vpn_if_selected
+f2fs_late_command_mark 242 install_target_mullvad_vpn_if_selected
 install_target_mullvad_vpn_if_selected
-f2fs_late_command_mark 243 stage_target_secure_boot_runtime_assets
+f2fs_late_command_mark 244 stage_target_secure_boot_runtime_assets
 stage_target_secure_boot_runtime_assets
-f2fs_late_command_mark 245 stage_target_xssh_helpers
+f2fs_late_command_mark 246 stage_target_xssh_helpers
 stage_target_xssh_helpers
-f2fs_late_command_mark 247 provision_target_ssh_client
+f2fs_late_command_mark 248 provision_target_ssh_client
 provision_target_ssh_client
-f2fs_late_command_mark 249 provision_target_git_ssh_identity
+f2fs_late_command_mark 250 provision_target_git_ssh_identity
 provision_target_git_ssh_identity
-f2fs_late_command_mark 251 configure_target_rootless_podman_if_selected
+f2fs_late_command_mark 252 configure_target_rootless_podman_if_selected
 configure_target_rootless_podman_if_selected
-f2fs_late_command_mark 253 sanitize_target_xfs_scrub_systemd_units
+f2fs_late_command_mark 254 sanitize_target_xfs_scrub_systemd_units
 sanitize_target_xfs_scrub_systemd_units
-f2fs_late_command_mark 255 install_target_wpa_supplicant_runtime_policy
+f2fs_late_command_mark 256 install_target_wpa_supplicant_runtime_policy
 install_target_wpa_supplicant_runtime_policy
-f2fs_late_command_mark 257 write_target_kernel_tunables
+f2fs_late_command_mark 258 write_target_kernel_tunables
 write_target_kernel_tunables
-f2fs_late_command_mark 259 ensure_target_secure_boot_packages
+f2fs_late_command_mark 260 ensure_target_secure_boot_packages
 ensure_target_secure_boot_packages
-f2fs_late_command_mark 261 provision_target_ssh_server
+f2fs_late_command_mark 262 provision_target_ssh_server
 provision_target_ssh_server
-f2fs_late_command_mark 263 install_target_managed_network_handoff
+f2fs_late_command_mark 264 install_target_managed_network_handoff
 install_target_managed_network_handoff
-f2fs_late_command_mark 265 configure_target_apparmor_auditd
+f2fs_late_command_mark 266 configure_target_apparmor_auditd
 configure_target_apparmor_auditd
-f2fs_late_command_mark 267 dedupe_target_tmpfiles_legacy_lock
+f2fs_late_command_mark 268 dedupe_target_tmpfiles_legacy_lock
 dedupe_target_tmpfiles_legacy_lock
-f2fs_late_command_mark 269 prepare_target_secure_boot_runtime
+f2fs_late_command_mark 270 prepare_target_secure_boot_runtime
 prepare_target_secure_boot_runtime
-f2fs_late_command_mark 271 install_target_firstboot_logger
+f2fs_late_command_mark 272 install_target_firstboot_logger
 install_target_firstboot_logger
-f2fs_late_command_mark 273 enable_target_storage_units
+f2fs_late_command_mark 274 enable_target_storage_units
 enable_target_storage_units
-f2fs_late_command_mark 275 set_target_default_unit
+f2fs_late_command_mark 276 set_target_default_unit
 set_target_default_unit
-f2fs_late_command_mark 277 disable_stock_kernel_menu
+f2fs_late_command_mark 278 disable_stock_kernel_menu
 disable_stock_kernel_menu
 
 if target_exec_available; then
-  f2fs_late_command_mark 281 sign_target_installed_kernel_modules
+  f2fs_late_command_mark 282 sign_target_installed_kernel_modules
   sign_target_installed_kernel_modules
   # Regenerate signed kernels/initrds BEFORE discovering boot menu entries.
-  f2fs_late_command_mark 284 repair_target_installed_kernels
+  f2fs_late_command_mark 285 repair_target_installed_kernels
   repair_target_installed_kernels
-  f2fs_late_command_mark 286 require_target_grub_installed
+  f2fs_late_command_mark 287 require_target_grub_installed
   require_target_grub_installed
-  f2fs_late_command_mark 288 install_target_grub_profiles
+  f2fs_late_command_mark 289 install_target_grub_profiles
   install_target_grub_profiles
-  f2fs_late_command_mark 290 require_target_dualboot_os_prober_package
+  f2fs_late_command_mark 291 require_target_dualboot_os_prober_package
   require_target_dualboot_os_prober_package
-  f2fs_late_command_mark 292 run_target_grub_config_update
+  f2fs_late_command_mark 293 run_target_grub_config_update
   run_target_grub_config_update
   # This is the unconditional d-i late reset point: GRUB, shim, MokManager,
-  # kernel/initrd and grub.cfg are complete before mokutil is called. Reset
-  # failures remain warnings so installation can finish.
+  # kernel/initrd and grub.cfg are complete before mokutil is called. Module
+  # signature enforcement makes a failed reset a release-blocking error;
+  # profiles without enforcement retain the deferred warning path.
   if (finalize_target_secure_boot_mok_reset); then
     :
   else
-    installer_warn "MOK reset/boot preparation failed after GRUB installation; continuing installation"
+    case " ${GRUB_SECURITY_CORE_FLAGS:-} " in
+      *" module.sig_enforce=1 "*)
+        installer_fatal "MOK reset/boot preparation failed while module signature enforcement is enabled" ;;
+      *)
+        installer_warn "MOK reset/boot preparation failed after GRUB installation; continuing installation" ;;
+    esac
   fi
-  f2fs_late_command_mark 302 sync_target_secure_boot_bundle_to_installer_usb
+  f2fs_late_command_mark 309 sync_target_secure_boot_bundle_to_installer_usb
   sync_target_secure_boot_bundle_to_installer_usb
-  f2fs_late_command_mark 304 close_target_secure_boot_state
+  f2fs_late_command_mark 311 close_target_secure_boot_state
   close_target_secure_boot_state
 fi
 
-f2fs_late_command_mark 308 configure_target_dbus_broker
+f2fs_late_command_mark 315 configure_target_dbus_broker
 configure_target_dbus_broker
-f2fs_late_command_mark 310 prepare_target_deferred_tmpfs_roots
+f2fs_late_command_mark 317 prepare_target_deferred_tmpfs_roots
 prepare_target_deferred_tmpfs_roots
-f2fs_late_command_mark 312 prepare_target_volatile_mountpoints_for_first_boot
+f2fs_late_command_mark 319 prepare_target_volatile_mountpoints_for_first_boot
 prepare_target_volatile_mountpoints_for_first_boot
-f2fs_late_command_mark 314 stage_target_logging_foundation
+f2fs_late_command_mark 321 stage_target_logging_foundation
 stage_target_logging_foundation || return $?
-f2fs_late_command_mark 316 installer_archive_logs_to_target
+f2fs_late_command_mark 323 installer_archive_logs_to_target
 installer_archive_logs_to_target copy || true
 }

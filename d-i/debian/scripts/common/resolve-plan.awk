@@ -33,7 +33,7 @@ function merge_answer(row, key,value,words,count,i,slot,field,identity) {
   if(answer_owner[row]=="d-i" && answer_question[row] ~ /^apt-setup\/local[0-9]+\//) {
     # CUDA-legacy's explicit authentication exception is owned by its selected
     # apt-setup/pre-pkgsel hooks, never by the generic local-repository generator.
-    if(answer_class[row]=="optional/nvidia-legacy" && ("optional/cuda-legacy" in selected)) return
+    if(answer_class[row]=="optional/cuda-legacy" && ("optional/cuda-legacy" in selected)) return
     slot=answer_question[row]; sub(/^apt-setup\/local/,"",slot); sub(/\/.*/,"",slot)
     field=answer_question[row]; sub(/^apt-setup\/local[0-9]+\//,"",field)
     identity=answer_class[row] SUBSEP slot

@@ -61,11 +61,11 @@ preseed_env_cmdline_key_matches() {
 }
 
 # Credential-valued boot keys are classified before any command-line value is
-# consumed. Every registered PRESEED_* field may be supplied as an explicit
-# command-line override; when it is absent, the resolver falls back to the
-# protected initrd/preseed file. Unrecognized secret-looking parameters are
-# ignored by the command-line filters; they never abort installation or become
-# credential inputs.
+# consumed. Secret values are accepted only from the protected initrd/preseed
+# file. Non-secret selectors such as the primary username may still use the
+# kernel command line. Unrecognized secret-looking parameters are ignored by
+# the command-line filters; they never abort installation or become credential
+# inputs.
 preseed_env_is_secret_key() {
   case "${1:-}" in
     wifi_wep|netcfg/wireless_wpa|wireless_wpa|wifi_wpa|fruux_password|\
@@ -84,13 +84,8 @@ preseed_env_is_secret_key() {
 }
 
 preseed_env_cmdline_secret_allowed() {
-  # Recognized credential fields may be supplied on the kernel command line as
-  # an explicit override. If the field is absent there, the normal resolver
-  # falls back to the protected /preseed.env input. Unknown secret-looking
-  # parameters are filtered before this resolver can consume them.
-  if preseed_env_variable_name "${1:-}" >/dev/null 2>&1; then
-    return 0
-  fi
+  # Keep this compatibility predicate explicit: the kernel command line is
+  # observable through /proc/cmdline and is never a supported secret channel.
   return 1
 }
 

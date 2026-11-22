@@ -329,6 +329,19 @@ desktop_xwayland_validate_repository_deb() {
   [ "$xwayland_repository_architecture" = "$xwayland_repository_expected_architecture" ] ||
     desktop_xwayland_fail \
       "downloaded ${xwayland_repository_expected_package} package has unexpected Architecture: ${xwayland_repository_architecture:-unset}"
+  xwayland_repository_sha256=$(
+    capture_in_target \
+      "hash private ${xwayland_repository_expected_package} package" \
+      __INSTALLER_PATH_DIR_USR_BIN__/sha256sum \
+      "$xwayland_repository_deb" |
+      awk '{print $1}'
+  )
+  desktop_xwayland_validate_sha256 \
+    "private ${xwayland_repository_expected_package} package SHA-256" \
+    "$xwayland_repository_sha256"
+  XWAYLAND_PRIVATE_PACKAGE_VERSION=$xwayland_repository_version
+  XWAYLAND_PRIVATE_PACKAGE_ARCHITECTURE=$xwayland_repository_architecture
+  XWAYLAND_PRIVATE_PACKAGE_SHA256=$xwayland_repository_sha256
 }
 
 desktop_xwayland_extract_private_deb() {
@@ -416,6 +429,33 @@ desktop_xwayland_validate_private_deb() {
     desktop_xwayland_fail "downloaded ${xwayland_private_expected_package} package has unexpected Architecture: ${xwayland_private_architecture:-unset}"
 
   XWAYLAND_PRIVATE_PACKAGE_SHA256=$xwayland_private_deb_sha256
+}
+
+desktop_xwayland_append_package_receipt() {
+  xwayland_receipt_package=$1
+  xwayland_receipt_version=$2
+  xwayland_receipt_architecture=$3
+  xwayland_receipt_sha256=$4
+  xwayland_receipt_source=$5
+
+  case "$xwayland_receipt_source" in
+    snapshot|apt-metadata) ;;
+    *) desktop_xwayland_fail "private Xwayland receipt source is invalid: ${xwayland_receipt_source:-unset}" ;;
+  esac
+  desktop_xwayland_validate_token XWAYLAND_RECEIPT_PACKAGE "$xwayland_receipt_package"
+  desktop_xwayland_validate_token XWAYLAND_RECEIPT_VERSION "$xwayland_receipt_version"
+  desktop_xwayland_validate_token XWAYLAND_RECEIPT_ARCHITECTURE "$xwayland_receipt_architecture"
+  desktop_xwayland_validate_sha256 XWAYLAND_RECEIPT_SHA256 "$xwayland_receipt_sha256"
+  [ -n "${xwayland_receipt_work_host:-}" ] &&
+    [ -f "$xwayland_receipt_work_host" ] &&
+    [ ! -L "$xwayland_receipt_work_host" ] ||
+    desktop_xwayland_fail 'private Xwayland package receipt workspace is unavailable'
+  printf '%s\t%s\t%s\t%s\t%s\n' \
+    "$xwayland_receipt_package" \
+    "$xwayland_receipt_version" \
+    "$xwayland_receipt_architecture" \
+    "$xwayland_receipt_sha256" \
+    "$xwayland_receipt_source" >>"$xwayland_receipt_work_host"
 }
 
 desktop_xwayland_require_target_package() {
@@ -548,9 +588,16 @@ desktop_install_xwayland() {
   xwayland_repository_root="${xwayland_work_dir}/packages"
   xwayland_repository_root_host="${TARGET_ROOT}${xwayland_repository_root}"
   xwayland_find_output="${xwayland_work_host}/find-output"
+  xwayland_receipt_work_host="${xwayland_work_host}/private-xwayland-package-receipt.tsv"
 
   rm -rf -- "$xwayland_work_host"
   install -d -m 0700 "$xwayland_extract_host" "$xwayland_repository_root_host"
+  {
+    printf '%s\n' 'FORMAT=1'
+    printf 'RUNTIME_ROOT=%s\n' "$LABWC_XWAYLAND_RUNTIME_ROOT"
+    printf '%s\n' 'PACKAGE VERSION ARCHITECTURE SHA256 SOURCE'
+  } >"$xwayland_receipt_work_host"
+  chmod 0600 "$xwayland_receipt_work_host"
 
   desktop_xwayland_download_private_deb \
     xwayland \
@@ -576,6 +623,12 @@ desktop_install_xwayland() {
     "$LABWC_XWAYLAND_VERSION" \
     "$LABWC_XWAYLAND_ARCHITECTURE" \
     "$LABWC_XWAYLAND_SHA256"
+  desktop_xwayland_append_package_receipt \
+    "$xwayland_private_package" \
+    "$xwayland_private_version" \
+    "$xwayland_private_architecture" \
+    "$xwayland_private_deb_sha256" \
+    snapshot
 
   desktop_xwayland_validate_private_deb \
     "$xwayland_common_deb" \
@@ -584,6 +637,12 @@ desktop_install_xwayland() {
     "$LABWC_XWAYLAND_COMMON_VERSION" \
     "$LABWC_XWAYLAND_COMMON_ARCHITECTURE" \
     "$LABWC_XWAYLAND_COMMON_SHA256"
+  desktop_xwayland_append_package_receipt \
+    "$xwayland_private_package" \
+    "$xwayland_private_version" \
+    "$xwayland_private_architecture" \
+    "$xwayland_private_deb_sha256" \
+    snapshot
 
   desktop_xwayland_validate_private_deb \
     "$xwayland_xcb_cursor_deb" \
@@ -592,6 +651,12 @@ desktop_install_xwayland() {
     "$LABWC_XWAYLAND_XCB_CURSOR_VERSION" \
     "$LABWC_XWAYLAND_ARCHITECTURE" \
     "$LABWC_XWAYLAND_XCB_CURSOR_SHA256"
+  desktop_xwayland_append_package_receipt \
+    "$xwayland_private_package" \
+    "$xwayland_private_version" \
+    "$xwayland_private_architecture" \
+    "$xwayland_private_deb_sha256" \
+    snapshot
 
   desktop_xwayland_validate_private_deb \
     "$xwayland_xkbcomp_deb" \
@@ -600,6 +665,12 @@ desktop_install_xwayland() {
     "$LABWC_XWAYLAND_XKBCOMP_VERSION" \
     "$LABWC_XWAYLAND_XKBCOMP_ARCHITECTURE" \
     "$LABWC_XWAYLAND_XKBCOMP_SHA256"
+  desktop_xwayland_append_package_receipt \
+    "$xwayland_private_package" \
+    "$xwayland_private_version" \
+    "$xwayland_private_architecture" \
+    "$xwayland_private_deb_sha256" \
+    snapshot
 
   xwayland_depends=$(capture_in_target "read private Xwayland dependencies" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-deb -f "$xwayland_deb" Depends)
   for xwayland_required_dependency in \
@@ -733,6 +804,12 @@ desktop_install_xwayland() {
       "$xwayland_repository_deb_host" \
       "$xwayland_private_dependency_package" \
       "$XWAYLAND_TARGET_ARCHITECTURE"
+    desktop_xwayland_append_package_receipt \
+      "$xwayland_repository_package" \
+      "$XWAYLAND_PRIVATE_PACKAGE_VERSION" \
+      "$XWAYLAND_PRIVATE_PACKAGE_ARCHITECTURE" \
+      "$XWAYLAND_PRIVATE_PACKAGE_SHA256" \
+      apt-metadata
     desktop_xwayland_extract_private_deb \
       "$xwayland_private_dependency_package" \
       "$xwayland_repository_deb" \
@@ -804,6 +881,32 @@ desktop_install_xwayland() {
   [ -z "$xwayland_setid_member" ] ||
     desktop_xwayland_fail "private Xwayland packages contain a set-ID file: ${xwayland_setid_member}"
 
+  xwayland_symlink_scan="${xwayland_work_host}/symlinks"
+  if ! find "$xwayland_extract_host" -xdev -type l -print >"$xwayland_symlink_scan"; then
+    desktop_xwayland_fail 'failed to inspect private Xwayland symlink members'
+  fi
+  while IFS= read -r xwayland_symlink_member || [ -n "$xwayland_symlink_member" ]; do
+    [ -n "$xwayland_symlink_member" ] || continue
+    xwayland_symlink_target=$(readlink -- "$xwayland_symlink_member") ||
+      desktop_xwayland_fail "private Xwayland symlink is unreadable: ${xwayland_symlink_member}"
+    case "$xwayland_symlink_target" in
+      /*) xwayland_symlink_resolution="${xwayland_extract_host}${xwayland_symlink_target}" ;;
+      *) xwayland_symlink_resolution="${xwayland_symlink_member%/*}/${xwayland_symlink_target}" ;;
+    esac
+    xwayland_symlink_resolution=$(readlink -f -- "$xwayland_symlink_resolution") ||
+      desktop_xwayland_fail "private Xwayland symlink target is unresolved: ${xwayland_symlink_member}"
+    case "$xwayland_symlink_resolution" in
+      "$xwayland_extract_host"/*) ;;
+      *) desktop_xwayland_fail "private Xwayland symlink escapes its managed runtime: ${xwayland_symlink_member}" ;;
+    esac
+  done <"$xwayland_symlink_scan"
+
+  xwayland_writable_directory=$(
+    find "$xwayland_extract_host" -xdev -type d -perm /022 -print | sed -n '1p'
+  )
+  [ -z "$xwayland_writable_directory" ] ||
+    desktop_xwayland_fail "private Xwayland runtime contains a writable directory: ${xwayland_writable_directory}"
+
   xwayland_unexpected_top_level=$(
     desktop_xwayland_find_first_path \
       "top-level entries" \
@@ -833,6 +936,21 @@ desktop_install_xwayland() {
   rm -rf -- "$xwayland_runtime_host"
   mv "$xwayland_extract_host" "$xwayland_runtime_host"
 
+  [ -n "${DIR_VAR_LIB_INSTALLER_STATE:-}" ] ||
+    desktop_xwayland_fail 'installer state root is unavailable for the private Xwayland receipt'
+  xwayland_receipt_target="${TARGET_ROOT}${DIR_VAR_LIB_INSTALLER_STATE}/private-xwayland-package-receipt.tsv"
+  xwayland_receipt_target_dir=${xwayland_receipt_target%/*}
+  [ -d "$xwayland_receipt_target_dir" ] && [ ! -L "$xwayland_receipt_target_dir" ] ||
+    desktop_xwayland_fail 'installer state directory is unavailable for the private Xwayland receipt'
+  if [ -e "$xwayland_receipt_target" ] || [ -L "$xwayland_receipt_target" ]; then
+    cmp -s "$xwayland_receipt_work_host" "$xwayland_receipt_target" ||
+      desktop_xwayland_fail 'existing private Xwayland receipt differs from the validated package set'
+    rm -f -- "$xwayland_receipt_work_host"
+  else
+    chmod 0644 "$xwayland_receipt_work_host"
+    install -m 0644 "$xwayland_receipt_work_host" "$xwayland_receipt_target"
+  fi
+
   rm -rf -- "$xwayland_work_host"
   desktop_xwayland_assert_public_runtime_absent
   unset \
@@ -841,5 +959,13 @@ desktop_install_xwayland() {
     xwayland_special_member \
     xwayland_unexpected_top_level \
     xwayland_unsafe_xkbcomp \
-    xwayland_work_dir
+    xwayland_work_dir \
+    xwayland_receipt_target \
+    xwayland_receipt_target_dir \
+    xwayland_receipt_work_host \
+    xwayland_symlink_member \
+    xwayland_symlink_resolution \
+    xwayland_symlink_scan \
+    xwayland_symlink_target \
+    xwayland_writable_directory
 }

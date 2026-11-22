@@ -48,9 +48,8 @@ if ! installer_nvidia_legacy_selected 2>/dev/null; then
   exit 0
 fi
 
-if ! installer_nvidia_gpu_detected 2>/dev/null; then
-  installer_info "skipping legacy NVIDIA DKMS bootstrap because no NVIDIA PCI display adapter was detected"
-  exit 0
+if ! installer_nvidia_legacy_gpu_detected 2>/dev/null; then
+  nvidia_legacy_prepkgsel_fatal "legacy NVIDIA requires exactly one approved Quadro P520 display adapter (10de:1d34)"
 fi
 
 install -d -m 0700 "$TMP_ENV_DIR"
@@ -150,6 +149,7 @@ wrapper_path="${TARGET_ROOT}${DIR_USR_SBIN}/dkms"
 
 cat >"$TMP_ENV_DIR/dkms-wrapper" <<'EOF'
 #!/bin/sh
+# NV_INSTALLER_NVIDIA_LEGACY_DKMS_WRAPPER_V1
 set -eu
 
 patch_nv_linux_header() {
@@ -636,6 +636,16 @@ real_dkms=/usr/sbin/dkms.distrib
   printf '%s\n' 'fatal: diverted DKMS executable missing: /usr/sbin/dkms.distrib' >&2
   exit 127
 }
+
+case "${DPKG_MAINTSCRIPT_PACKAGE:-}" in
+  nvidia-dkms-580|nvidia-kernel-common-580)
+    # The diversion remains only for the package maintainer transaction. All
+    # other DKMS callers use the vendor executable without source rewrites.
+    ;;
+  *)
+    exec "$real_dkms" "$@"
+    ;;
+esac
 
 patch_legacy_nvidia_source_tree
 exec "$real_dkms" "$@"

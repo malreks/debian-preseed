@@ -143,6 +143,11 @@ family_d_i_early_main() {
   # before stock 10apt-cdrom-setup performs an ordinary target APT update.
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/09-cuda-legacy-cleanup)" "${DIR_INSTALLER_FINISH_INSTALL_D}/09-cuda-legacy-cleanup"
   chmod 0755 "${DIR_INSTALLER_FINISH_INSTALL_D}/09-cuda-legacy-cleanup"
+  # Restore the packaged DKMS entrypoint after the scoped NVIDIA maintainer
+  # transaction. The source hook remains repository data; only this installer
+  # copy receives its executable target mode.
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/10-nvidia-legacy-cleanup)" "${DIR_INSTALLER_FINISH_INSTALL_D}/10-nvidia-legacy-cleanup"
+  chmod 0755 "${DIR_INSTALLER_FINISH_INSTALL_D}/10-nvidia-legacy-cleanup"
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/94zz-99-validate-target)" ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-99-validate-target
   # Interpose on the first base-installer APT update, not on the later
   # apt-setup generator. The adapter rejects unknown d-i waypoint layouts.

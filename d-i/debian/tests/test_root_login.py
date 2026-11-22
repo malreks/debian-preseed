@@ -112,18 +112,18 @@ class RootFixture(unittest.TestCase):
 
 class RootAccountTests(RootFixture):
     @skip_unless_trusted_credential_ancestry
-    def test_cmdline_wins_over_preseed_env_in_all_shells(self):
+    def test_secret_cmdline_is_ignored_in_favor_of_preseed_env_in_all_shells(self):
         self.seed_env("Fallback-Fixture-Only!2026")
         self.env["INSTALLER_CMDLINE"] += " root_password=" + TEST_ROOT
         for name, shell in SHELLS:
             with self.subTest(shell=name):
                 result = self.render(shell)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assert_answers(TEST_ROOT)
+                self.assert_answers("Fallback-Fixture-Only!2026")
                 self.assertEqual(result.stdout + result.stderr, "")
 
     @skip_unless_trusted_credential_ancestry
-    def test_first_duplicate_parameter_wins(self):
+    def test_duplicate_secret_cmdline_parameters_are_ignored(self):
         self.seed_env("Fallback-Fixture-Only!2026")
         self.env["INSTALLER_CMDLINE"] += (
             " root_password=" + TEST_ROOT + " root_password=Second-Fixture-Only!2026"
@@ -132,7 +132,7 @@ class RootAccountTests(RootFixture):
             with self.subTest(shell=name):
                 result = self.render(shell)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assert_answers(TEST_ROOT)
+                self.assert_answers("Fallback-Fixture-Only!2026")
 
     @skip_unless_trusted_credential_ancestry
     def test_absent_parameter_uses_preseed_env_in_all_shells(self):
@@ -151,20 +151,26 @@ class RootAccountTests(RootFixture):
         self.seed_env("")
         self.assert_render_fails()
 
-    def test_empty_cmdline_parameter_blocks_fallback(self):
+    def test_empty_cmdline_secret_does_not_block_fallback(self):
         self.seed_env()
         self.env["INSTALLER_CMDLINE"] += " root_password="
-        self.assert_render_fails()
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_answers(TEST_ROOT)
 
-    def test_bare_cmdline_parameter_blocks_fallback(self):
+    def test_bare_cmdline_secret_does_not_block_fallback(self):
         self.seed_env()
         self.env["INSTALLER_CMDLINE"] += " root_password"
-        self.assert_render_fails()
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_answers(TEST_ROOT)
 
-    def test_first_empty_parameter_does_not_use_second_value(self):
+    def test_duplicate_cmdline_secrets_do_not_override_the_file(self):
         self.seed_env()
         self.env["INSTALLER_CMDLINE"] += " root_password= root_password=" + TEST_ROOT
-        self.assert_render_fails()
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_answers(TEST_ROOT)
 
     @skip_unless_trusted_credential_ancestry
     def test_old_root_login_environment_cannot_reinstate_disabled_default(self):
@@ -203,25 +209,24 @@ class RootAccountTests(RootFixture):
         self.assertIn("single printable token", result.stderr)
 
     @skip_unless_trusted_credential_ancestry
-    def test_cmdline_glob_characters_are_literal_not_filesystem_patterns(self):
+    def test_secret_cmdline_glob_characters_are_ignored(self):
         self.seed_env()
         (self.path / "root_password=Expanded-Not-The-Password").touch()
-        password = "*"
-        self.env["INSTALLER_CMDLINE"] += " root_password=" + password
+        self.env["INSTALLER_CMDLINE"] += " root_password=*"
         for name, shell in SHELLS:
             with self.subTest(shell=name):
                 result = self.render(shell)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assert_answers(password)
+                self.assert_answers(TEST_ROOT)
 
     @skip_unless_trusted_credential_ancestry
-    def test_root_password_shell_metacharacters_are_not_executed(self):
+    def test_secret_cmdline_shell_metacharacters_are_ignored(self):
         self.seed_env()
         password = "$(touch${IFS}SHOULD_NOT_EXIST);x'\"`:$[]?*\\end"
         self.env["INSTALLER_CMDLINE"] += " root_password=" + password
         result = self.render()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_answers(password)
+        self.assert_answers(TEST_ROOT)
         self.assertFalse(payload_source_exists(self.path / "SHOULD_NOT_EXIST"))
 
     @skip_unless_trusted_credential_ancestry
@@ -268,10 +273,10 @@ class RootAccountTests(RootFixture):
     def test_installer_and_runtime_resolvers_agree_and_preserve_caller_state(self):
         self.seed_env()
         cases = [("quiet", TEST_ROOT),
-                 ("root_password=first root_password=second", "first"),
-                 ("root_password= root_password=second", ""),
-                 ("root_password root_password=second", ""),
-                 ("root_password=*", "*")]
+                 ("root_password=first root_password=second", TEST_ROOT),
+                 ("root_password= root_password=second", TEST_ROOT),
+                 ("root_password root_password=second", TEST_ROOT),
+                 ("root_password=*", TEST_ROOT)]
         (self.path / "root_password=Wrong-Expansion").touch()
         for lib, prefix in ((RUNTIME, "runtime"), (INSTALLER, "installer")):
             for name, shell in SHELLS:
@@ -388,12 +393,12 @@ class DebconfRootTests(RootFixture):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assert_database(password)
 
-    def test_password_command_line_is_accepted_before_debconf(self):
+    def test_password_command_line_is_ignored_before_debconf(self):
         password = "test-only-$x!'\"[]*?=one\\two\\\\"
         self.env["INSTALLER_CMDLINE"] += " root_password=" + password
         result = self.apply()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_database(password)
+        self.assert_database(TEST_ROOT)
 
     def test_set_selections_failure_is_not_reported_as_success(self):
         result = self.render(

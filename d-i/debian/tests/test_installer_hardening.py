@@ -301,6 +301,9 @@ class LifecycleTests(unittest.TestCase):
         self.assertIn('failed to publish the authenticated Debian APT source', network_apt)
         self.assertIn('base_network_apt_update', network_apt)
         self.assertIn('class-selected APT repository answers available before first target update', network_apt)
+        self.assertNotIn('bootstrap_source_common_support_libs', network_apt)
+        self.assertNotIn('capture_in_target', network_apt)
+        self.assertNotIn('key fingerprint', network_apt)
         self.assertNotIn('installer_apt_stage_default_release', network_apt)
         self.assertLess(network_apt.index('apt_bootstrap_source'),
                         network_apt.index('base_network_apt_update'))
@@ -1309,6 +1312,9 @@ printf '%s\n' 1
         text = payload_read_text(ROOT/'hooks/installer/d-i/early.sh')
         early_apt_hook = '09-cuda-legacy-cleanup)" "${DIR_INSTALLER_FINISH_INSTALL_D}/09-cuda-legacy-cleanup"'
         self.assertIn(early_apt_hook, text)
+        nvidia_cleanup_hook = '10-nvidia-legacy-cleanup)" "${DIR_INSTALLER_FINISH_INSTALL_D}/10-nvidia-legacy-cleanup"'
+        self.assertIn(nvidia_cleanup_hook, text)
+        self.assertIn('chmod 0755 "${DIR_INSTALLER_FINISH_INSTALL_D}/10-nvidia-legacy-cleanup"', text)
         self.assertTrue('07preseed' < '09-cuda-legacy-cleanup' < '10apt-cdrom-setup')
         finish_hook = '99-normalize-finish)" "/usr/lib/finish-install.d/94zz-10-normalize-finish"'
         apt_hook = '95-normalize-apt)" "/usr/lib/finish-install.d/94zz-20-normalize-apt"'
