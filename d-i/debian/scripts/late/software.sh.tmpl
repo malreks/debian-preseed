@@ -1944,7 +1944,7 @@ software_run_selected_app() {
   selected_worker=$3
   selected_result=$4
   installer_class_selected_any $selected_classes || return 0
-  installer_operation_context_repo scripts/late/software.sh.tmpl 1947 "install_managed_application:${selected_worker}"
+  installer_operation_context_repo scripts/late/software.sh.tmpl 1953 "install_managed_application:${selected_worker}"
   software_info "starting ${selected_label}"
   # A required worker runs outside a conditional context so Dash keeps errexit.
   (

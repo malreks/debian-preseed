@@ -9,3 +9,14 @@ Pin-Priority: 100
 Package: nvidia-dkms-580 nvidia-kernel-common-580 nvidia-utils-580 libnvidia-gl-580 libnvidia-compute-580 nvidia-compute-utils-580 nvidia-vaapi-driver libnvidia-egl-wayland1 nvidia-firmware-580-580.142 libnvidia-common-580 libnvidia-encode-580 libnvidia-decode-580 libnvidia-extra-580 libnvidia-fbc1-580 nvidia-kernel-source-580
 Pin: release o=xanmod
 Pin-Priority: 900
+
+# Prefer the render-node/PRIME-corrected EGLWayland 1 compatibility library.
+# Equal priority to the native suite permits a newer Debian version; never
+# force a downgrade or import Pop!_OS drivers, kernels, Mesa or dependencies.
+Package: libnvidia-egl-wayland1
+Pin: origin apt.pop-os.org
+Pin-Priority: 990
+
+Package: *
+Pin: origin apt.pop-os.org
+Pin-Priority: -1

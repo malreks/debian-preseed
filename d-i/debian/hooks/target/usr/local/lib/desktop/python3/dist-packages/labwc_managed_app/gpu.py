@@ -120,6 +120,7 @@ class Selection:
             if self.vendor == "intel":
                 environment["LIBVA_DRIVER_NAME"] = "iHD"
         diagnostics.record_gpu(self.vendor, self.pci, str(self.node), self.bindings, self.discovery)
+        diagnostics.record_environment(environment)
 
     def chromium_arguments(self, arguments: list[str]) -> list[str]:
         """Replace the Ozone device hint, preserving operands after '--'."""

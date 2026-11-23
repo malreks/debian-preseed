@@ -10,6 +10,7 @@ import argparse
 import collections
 import contextlib
 import datetime as dt
+import errno
 import fcntl
 import glob
 import gzip
@@ -70,7 +71,7 @@ UNIT_PROPERTIES = ('Id,LoadState,ActiveState,SubState,Result,MainPID,ControlGrou
     'FragmentPath,DropInPaths,KillMode,KillSignal,SendSIGKILL,TimeoutStartUSec,TimeoutStopUSec,'
     'PrivatePIDs,PrivateUsers,ProtectProc,ProcSubset,NoNewPrivileges,AppArmorProfile,'
     'MemoryCurrent,MemoryPeak,TasksCurrent,TasksMax,CPUUsageNSec,OOMPolicy,OOMKilled')
-GPU_PATTERN = '(?i)drm|atomic.*(fail|error|timeout)|page.?flip|vblank|GPU.*(hang|reset|fault)|NVRM|Xid|i915|amdgpu|nouveau|nvidia|\\bxe\\b'
+GPU_PATTERN = '(?i)drm|atomic.*(fail|error|timeout)|page.?flip|vblank|GPU.*(hang|reset|fault)|NVRM|Xid|i915|amdgpu|nouveau|nvidia|EGL|createImageFromDmaBufs|Failed to create texture|Failed to upload buffer|\\bxe\\b'
 
 # Root reads only root-owned logs. Application-writable logs are opened AFTER
 # dropping privileges, even when they live below __INSTALLER_PATH_DIR_VAR_LOG__/managed.
@@ -405,12 +406,25 @@ def expand_braces(pattern: str) -> list[str]:
 def direct_text(path: Path, limit: int = MAX_FILE, sysfs: bool = False) -> tuple[str, dict]:
     # __INSTALLER_PATH_DIR_SYS__/class paths are kernel-owned aliases; resolve only within /sys.
     original = path
-    if sysfs:
-        path = path.resolve()
-        if not path.is_relative_to('__INSTALLER_PATH_DIR_SYS__'):
-            return '', {'status':'unsafe-symlink'}
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
     try:
+        if path.is_symlink() and path == Path('__INSTALLER_PATH_DIR_ETC__/os-release'):
+            target = path.resolve(strict=True)
+            if target != Path('__INSTALLER_PATH_DIR_USR_LIB__/os-release'):
+                return '', {'status': 'unsafe-symlink', 'path': str(original)}
+            info = target.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                return '', {'status': 'unsafe-symlink', 'path': str(original)}
+            path = target
+        elif path.is_symlink() and path == Path('__INSTALLER_PATH_DIR_PROC__/mounts'):
+            target = path.resolve(strict=True)
+            if target != Path('__INSTALLER_PATH_DIR_PROC__') / str(os.getpid()) / 'mounts':
+                return '', {'status': 'unsafe-symlink', 'path': str(original)}
+            path = target
+        if sysfs:
+            path = path.resolve(strict=True)
+            if not path.is_relative_to('__INSTALLER_PATH_DIR_SYS__'):
+                return '', {'status': 'unsafe-symlink', 'path': str(original)}
         fd = os.open(path, flags)
         try:
             info = os.fstat(fd)
@@ -613,6 +627,97 @@ def user_log(application: str, index: int) -> int:
             print(json.dumps(meta), '\n'+text, flush=True)
     return 0 if complete else 1
 
+
+def codex_auth_metadata(uid, path=Path('__INSTALLER_PATH_DIR_DATA__/codex/usr/home/auth.json')):
+    """Inspect trust metadata only; never read credentials or try a login."""
+    if uid is None:
+        return {'state': 'unavailable', 'reason': 'no-desktop-account'}
+    try:
+        with input_directory(path.parent) as directory:
+            info = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) != 0o600):
+            return {'state': 'unsafe', 'reason': 'auth-file-trust-mismatch',
+                    'uid': info.st_uid, 'mode': oct(stat.S_IMODE(info.st_mode))}
+        return {'state': 'present', 'reason': 'metadata-valid-authentication-not-verified'}
+    except FileNotFoundError:
+        return {'state': 'missing', 'reason': 'not-configured'}
+    except DebugError as error:
+        return {'state': 'unsafe', 'reason': type(error).__name__}
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            return {'state': 'unsafe', 'reason': 'auth-parent-trust-mismatch'}
+        return {'state': 'unavailable', 'reason': type(error).__name__}
+
+
+def evidence_class(label, text, metadata, source):
+    """Classify evidence semantics without replacing the raw probe status."""
+    status = metadata.get('status')
+    argv = source if isinstance(source, (list, tuple)) else ()
+    command = Path(argv[0]).name if argv else ''
+    if status in {'configuration-error', 'unsafe-log', 'unsafe-symlink', 'unsafe-debugfs-path'}:
+        return 'failed-requirement'
+    if status in {'not-configured', 'not-armed', 'no-match', 'information', 'unsupported-or-unavailable'}:
+        return 'expected-or-informational'
+    if status == 'ok':
+        # An empty scan/log is no completed security or health result.
+        return 'verified-evidence' if text.strip() else 'collection-unavailable-or-incomplete'
+    if status == 'nonzero':
+        if command == 'systemd-detect-virt' and text.strip() == 'none':
+            return 'expected-or-informational'
+        if command == 'journalctl':
+            if any(arg.startswith('--grep=') for arg in argv) and not text.strip():
+                return 'expected-or-informational'
+            if 'Required key not available' in text:
+                return 'collection-unavailable-or-incomplete'
+        if command == 'ethtool' and re.search(r'not supported|no stats available', text, re.I):
+            return 'expected-or-informational'
+    return 'collection-unavailable-or-incomplete'
+
+
+def network_file_inventory(root=Path('__INSTALLER_PATH_DIR_SYS__/class/net')):
+    """Physical interfaces first, then a fair bounded virtual-interface sample."""
+    interfaces, limited = [], False
+    try:
+        with os.scandir(root) as entries:
+            for count, entry in enumerate(entries, 1):
+                if count > 1024:
+                    limited = True
+                    break
+                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,31}', entry.name):
+                    interfaces.append(root / entry.name)
+    except OSError as error:
+        return [], {'interfaces': {}, 'limited': True, 'errno': error.errno, 'maximum_files': 3500}
+    physical = sorted(path for path in interfaces if (path / 'device').is_dir())
+    physical_set = set(physical)
+    virtual = sorted(path for path in interfaces if path not in physical_set)
+    files, coverage = [], {}
+    for path in physical:
+        candidates = [path / leaf for leaf in ('mtu', 'operstate', 'speed', 'duplex', 'carrier')]
+        stats = list(itertools.islice((path / 'statistics').glob('*'), 65))
+        limited |= len(stats) > 64
+        candidates.extend(sorted(stats)[:64])
+        coverage[path.name] = {'kind': 'physical', 'files': 0}
+        for candidate in candidates:
+            if len(files) >= 3500:
+                limited = True
+                break
+            files.append(str(candidate))
+            coverage[path.name]['files'] += 1
+    leaves = ('mtu', 'operstate', 'carrier', 'statistics/rx_bytes', 'statistics/tx_bytes',
+              'statistics/rx_errors', 'statistics/tx_errors', 'statistics/rx_dropped', 'statistics/tx_dropped')
+    coverage.update({path.name: {'kind': 'virtual', 'files': 0} for path in virtual})
+    for leaf in leaves:
+        for path in virtual:
+            if len(files) >= 3500:
+                limited = True
+                break
+            files.append(str(path / leaf))
+            coverage[path.name]['files'] += 1
+    return files, {'interfaces': coverage, 'limited': limited, 'maximum_files': 3500,
+                   'virtual_fields_per_interface': len(leaves)}
+
+
 class Report:
     def __init__(self, categories: list[str], prefix: str = 'report', user_name: str | None = None):
         self.user = desktop_account(user_name)
@@ -645,10 +750,14 @@ class Report:
         safe = re.sub('[^A-Za-z0-9_-]', '_', label)[:95]
         name = f'evidence/{number:04d}-{safe}.txt'
         atomic_write(self.path/name, encoded)
-        self.records.append(dict(id=number, category=category, label=label, source=source,
-                                 evidence=name, bytes=len(encoded), sha256=hashlib.sha256(encoded).hexdigest(), **metadata))
+        assessment = evidence_class(label, text, metadata, source)
+        self.records.append(dict(metadata, id=number, category=category, label=label, source=source,
+                                 evidence=name, bytes=len(encoded), sha256=hashlib.sha256(encoded).hexdigest(),
+                                 health_class=assessment))
         # Only short excerpts kept for overview/rule evaluation, not entire logs.
         self.contents[label] = encoded[:24000].decode(errors='replace')
+        if '/vulnerabilities/' in str(source) and 'SMT vulnerable' in text:
+            self.contents['cpu-smt-exposure'] = 'Residual SMT exposure is reported by the kernel. SMT is retained by the performance policy; this collector does not change mitigations.'
 
     def command(self, category: str, label: str, argv: list[str], timeout: int = 30, cap: int = MAX_OUTPUT):
         if self.total >= MAX_TOTAL:
@@ -670,7 +779,19 @@ class Report:
             for label, argv in PROBES[category]:
                 self.command(category,label,argv,60 if label in ('unit-hardening','hardware-tree','journal-integrity') else 30)
             seen = set()
+            if category == 'network':
+                network_files, coverage = network_file_inventory()
+                self.add(category, 'network-file-coverage', json.dumps(coverage, sort_keys=True),
+                         {'status': 'collection-limit' if coverage['limited'] else 'information'})
+                for name in network_files:
+                    if self.total >= MAX_TOTAL or time.monotonic() >= self.deadline:
+                        self.add(category, 'network-file-deadline', '', {'status': 'collection-limit'})
+                        break
+                    self.file_evidence(category, name)
+                    seen.add(name)
             for pattern in FILES[category]:
+                if category == 'network' and '/class/net/' in pattern:
+                    continue  # The bounded per-interface inventory owns these.
                 matched = False
                 for expanded in expand_braces(pattern):
                     # A bounded iterator avoids expanding a massive tree in RAM.
@@ -843,8 +964,24 @@ class Report:
                 ['journalctl', '-b', f'_UID={self.user.pw_uid}', '--no-pager', '-n', '3000',
                  '--grep=(?i)codex|chatgpt|app-server|bwrap|app-veth'], bus_required=False)
         if category == 'codex':
-            self.codex_probe('codex-version', ['--version'])
-            result = self.codex_probe('codex-help', ['--help'])
+            auth = codex_auth_metadata(self.user.pw_uid if self.user else None)
+            self.add(category, 'codex-auth-state', json.dumps(auth, sort_keys=True),
+                     {'status': 'not-configured' if auth['state'] == 'missing' else
+                                'configuration-error' if auth['state'] == 'unsafe' else
+                                'information' if auth['state'] == 'present' else 'unavailable'})
+            result = None
+            if auth['state'] == 'present':
+                self.codex_probe('codex-version', ['--version'])
+                result = self.codex_probe('codex-help', ['--help'])
+            else:
+                # This deployed wrapper requires auth even for metadata. Do
+                # not create failed transient units on an unconfigured host.
+                for label in ('codex-version', 'codex-help'):
+                    self.add(category, label,
+                             'Not executed: wrapper metadata requires safe authentication state. '
+                             'No version/help output or authenticated operation is claimed.',
+                             {'status': 'not-configured' if auth['state'] == 'missing' else 'unavailable',
+                              'auth_state': auth['state'], 'executed': False})
             # Unknown bare words can become a model prompt. Never invoke doctor
             # unless THIS installed CLI advertises the literal subcommand.
             if result and result[1]['status'] == 'ok' and re.search(r'^\s+doctor(?:\s|$)', result[0], re.M):
@@ -882,6 +1019,14 @@ class Report:
                 self.user_probe(category, label, argv, wayland=True)
             self.user_probe(category, 'gpu-compositor-journal',
                 ['journalctl', '--user', '-b', '--no-pager', '-n', '4000', '--grep='+GPU_PATTERN], bus_required=False)
+            # Unit scope preserves the actual EGL/import messages without a
+            # semantic filter; success means capture completed, not GPU health.
+            self.user_probe(category, 'gpu-compositor-unit-journal',
+                ['journalctl', '--user', '-b', '--no-pager', '-o', 'short-precise',
+                 '-n', '4000', '-u', 'labwc-compositor.service'], bus_required=False)
+            self.user_probe(category, 'gpu-compositor-effective-unit',
+                ['systemctl', '--user', 'show', 'labwc-compositor.service',
+                 '--property=Id,MainPID,InvocationID,FragmentPath,DropInPaths,DevicePolicy,DeviceAllow,PrivateDevices,InaccessiblePaths,BindPaths,BindReadOnlyPaths,ProtectSystem,RootDirectory'])
         if category in ('boot', 'journal'):
             self.boot_logs(category)
         if category == 'units':
@@ -922,8 +1067,12 @@ class Report:
             elif ok and text.strip() == 'xfs':
                 self.command(category,'xfs-root',['xfs_info','/'])
         if category == 'network':
-            for path in sorted(Path('__INSTALLER_PATH_DIR_SYS__/class/net').glob('*')):
-                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,31}',path.name) and path.name != 'lo':
+            paths = list(itertools.islice(Path('__INSTALLER_PATH_DIR_SYS__/class/net').glob('*'), 1025))
+            if len(paths) > 1024:
+                self.add(category, 'network-command-coverage', '', {'status': 'collection-limit'})
+            for path in sorted(paths[:1024]):
+                if (re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,31}',path.name)
+                        and path.name != 'lo' and (path / 'device').is_dir()):
                     for suffix, option in [('driver','-i'),('offloads','-k'),('rings','-g'),('coalescing','-c')]:
                         self.command(category,'nic-'+path.name+'-'+suffix,['ethtool',option,path.name])
         if category == 'desktop':
@@ -1001,7 +1150,9 @@ class Report:
         summary={'created_utc':self.started,'completed_utc':dt.datetime.now(dt.timezone.utc).isoformat(),
                  'categories':self.categories,'effective_uid':os.geteuid(),'desktop_account':self.user.pw_name if self.user else None,
                  'interrupted':interrupted,'evidence_count':len(self.records),'bytes':self.total,'outcomes':dict(counts),
-                 'coverage':coverage,'limits':{'probe_bytes':MAX_OUTPUT,'file_bytes':MAX_FILE,'report_bytes':MAX_TOTAL,'files_per_category':MAX_FILES,'log_bytes':MAX_LOG,'rotations_per_log':MAX_ROTATIONS,'records':MAX_RECORDS,'user_log_probe_bytes':MAX_USER_LOG_OUTPUT},
+                  'coverage':coverage,'limits':{'probe_bytes':MAX_OUTPUT,'file_bytes':MAX_FILE,'report_bytes':MAX_TOTAL,'files_per_category':MAX_FILES,'log_bytes':MAX_LOG,'rotations_per_log':MAX_ROTATIONS,'records':MAX_RECORDS,'user_log_probe_bytes':MAX_USER_LOG_OUTPUT},
+                  'health_classes': dict(collections.Counter(item['health_class'] for item in self.records)),
+                  'health_scope': 'Probe/evidence outcomes, not automatic certification of system health or cryptographic verification.',
                  'privacy':'Root-only; redaction is best-effort. Inspect before sharing. No private key contents or process environments were collected.'}
         atomic_write(self.path/'manifest.json',json.dumps(self.records,indent=2).encode())
         atomic_write(self.path/'summary.json',json.dumps(summary,indent=2).encode())
@@ -1019,6 +1170,9 @@ class Report:
             rec=matches[0]; excerpt=self.contents[label][:6000]
             overview += ['',f'## {label} ({rec["status"]})',f'Evidence: [{rec["evidence"]}]({rec["evidence"]})','',
                          '```text',excerpt.replace('```','[code fence]'),'```']
+        if 'cpu-smt-exposure' in self.contents:
+            overview += ['', '## CPU mitigation policy', self.contents['cpu-smt-exposure'],
+                         'The raw per-vulnerability files remain the authority. This report does not claim complete MMIO stale-data protection while SMT is active.']
         overview += ['', '## Evidence index', '', '| ID | Area | Probe/source | Outcome | Evidence |', '|---|---|---|---|---|']
         for rec in self.records:
             label=rec['label'].replace('|','\\|').replace('\n',' ')

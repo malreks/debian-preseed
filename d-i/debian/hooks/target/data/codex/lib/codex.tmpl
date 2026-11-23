@@ -2370,8 +2370,10 @@ def codex_run_sandboxed(installation_id_fd: int | None) -> int:
         CODEX_BWRAP_PROCESS = None
         CODEX_SANDBOX_PID = None
         return status if status >= 0 else 128 - status
+    except CodexError:
+        raise
     except (OSError, ValueError, RuntimeError) as exc:
-        codex_die(f"kernel namespace network failed: {exc}")
+        codex_die(f"sandbox setup failed: {exc}")
     finally:
         # The monitor can exit when Codex exits while namespace PID 1 still
         # owns inherited stdio/MCP helpers. Terminate the pinned init on every

@@ -16,6 +16,7 @@ PROFILES = {
     "electron": {"ELECTRON_ENABLE_LOGGING": "1", "ELECTRON_ENABLE_STACK_DUMPING": "1"},
     "wayland-graphics": {"WAYLAND_DEBUG": "client", "LIBGL_DEBUG": "verbose",
                          "MESA_DEBUG": "1", "EGL_LOG_LEVEL": "debug",
+                         "__NV_GBM_TRACE_ENABLED": "1",
                          "VK_LOADER_DEBUG": "error,warn,info,driver"},
     "full": {}, "xwayland": {},
 }
@@ -91,13 +92,19 @@ def record_gpu(vendor, pci, node, bindings, discovery) -> None:
         "render_access": nodes(bindings), "metadata_only": nodes(discovery)})
 
 
-def record_environment(environment: dict[str, str]) -> None:
+def record_environment(environment: dict[str, str], *, final: bool = True) -> None:
     """Record only fixed diagnostic and renderer-policy names, never secrets."""
     names = DIAGNOSTIC_NAMES | {"GDK_BACKEND", "QT_QPA_PLATFORM", "GSK_RENDERER", "GDK_DISABLE",
                                 "ANGLE_DEFAULT_PLATFORM", "QSG_RHI_BACKEND", "QT_OPENGL",
-                                "SDL_VIDEODRIVER", "SDL_VIDEO_DRIVER", "WGPU_BACKEND"}
-    _publish(f"environment-{os.getpid()}.json", {
-        "pid": os.getpid(), "values": {name: environment[name] for name in sorted(names) if name in environment}})
+                                "SDL_VIDEODRIVER", "SDL_VIDEO_DRIVER", "WGPU_BACKEND",
+                                "DRI_PRIME", "GBM_BACKEND", "LIBVA_DRIVER_NAME", "NVD_BACKEND",
+                                "NVD_DRM_DEVICE", "MOZ_DRM_DEVICE", "__NV_PRIME_RENDER_OFFLOAD",
+                                "__GLX_VENDOR_LIBRARY_NAME", "__EGL_VENDOR_LIBRARY_FILENAMES",
+                                "__EGL_VENDOR_LIBRARY_DIRS", "LIBGL_ALWAYS_SOFTWARE"}
+    phase = "final" if final else "requested"
+    _publish(f"environment-{phase}-{os.getpid()}.json", {
+        "pid": os.getpid(), "phase": phase, "evidence": "launch environment, not initialized GL identity",
+        "values": {name: environment[name] for name in sorted(names) if name in environment}})
 
 
 def context(source: dict[str, str] | None = None) -> dict[str, str]:

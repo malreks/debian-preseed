@@ -573,7 +573,7 @@ class PopupIdentityFixtures(unittest.TestCase):
             if kind in ('GtkMenu', 'GtkMenuItem', 'GtkSeparatorMenuItem'):
                 cls = Menu if kind == 'GtkMenu' else Separator if kind == 'GtkSeparatorMenuItem' else Item
                 objects[identity] = cls(identity, element.find('./child[@type="submenu"]') is not None)
-        builder = SimpleNamespace(add_from_file=lambda _path: None,
+        builder = SimpleNamespace(add_from_string=lambda _xml: None,
                                   get_object=objects.get, get_objects=lambda: list(objects.values()))
         gtk = SimpleNamespace(Menu=Menu, MenuItem=Item, SeparatorMenuItem=Separator,
                               Buildable=SimpleNamespace(get_name=lambda obj: obj.identity),
@@ -596,6 +596,9 @@ class PopupIdentityFixtures(unittest.TestCase):
         module = json.loads(re.sub(r'__[A-Z0-9_]+__(?=\s*[,}\]])', '0', text))
         entry = module['custom/' + button]
         xml = (root / 'gtk' / (button + '-menu.xml.tmpl')).read_text()
+        # Identity/dispatch fixtures isolate icon decoding; native fixtures
+        # separately exercise recoverable pixbuf loading and the fallback.
+        helper.prepared_menu_xml = lambda _path: (xml, [])
         toolkit, objects = self.toolkit(xml)
         actions = {key: helper.fixed_action(value) for key, value in entry['menu-actions'].items()}
         popup = helper.Popup(toolkit, button, Path('fixture.xml'), Path('fixture.css'), actions)

@@ -34,6 +34,9 @@ desktop_render_labwc_default_config() {
     LABWC_DESKTOP_SESSION_NAME "$(desktop_shell_config_value "${LABWC_DESKTOP_SESSION_NAME:-Labwc}")" \
     LABWC_DESKTOP_SESSION_COMMAND "$(desktop_shell_config_value "${LABWC_DESKTOP_SESSION_COMMAND:-__INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-session}")" \
     LABWC_WLR_RENDERER "$(desktop_shell_config_value "${LABWC_WLR_RENDERER-gles2}")" \
+    LABWC_COMPOSITOR_GPU "$(desktop_shell_config_value "${LABWC_COMPOSITOR_GPU:-auto}")" \
+    LABWC_WLR_EGL_NO_MODIFIERS "$(desktop_shell_config_value "${LABWC_WLR_EGL_NO_MODIFIERS:-0}")" \
+    LABWC_WLR_DRM_NO_MODIFIERS "$(desktop_shell_config_value "${LABWC_WLR_DRM_NO_MODIFIERS:-0}")" \
     LABWC_GSK_RENDERER "$(desktop_shell_config_value "${LABWC_GSK_RENDERER-opengl}")" \
     LABWC_GDK_DISABLE "$(desktop_shell_config_value "${LABWC_GDK_DISABLE-vulkan}")" \
     LABWC_WLR_NO_HARDWARE_CURSORS "$(desktop_shell_config_value "${LABWC_WLR_NO_HARDWARE_CURSORS-1}")" \

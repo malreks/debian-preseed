@@ -277,6 +277,119 @@ def captured_output(directory: int) -> tuple[list[dict], str]:
     return reports, '\n'.join(text)[:MAX_FILE]
 
 
+def dmabuf_layouts(text: str) -> dict:
+    """Decode only linux-dmabuf parameter requests, never application payloads.
+
+    A client protocol trace observes submitted metadata, not EGL import or
+    successful pixels. The trace has no reliable cross-process connection ID;
+    duplicate active parameter IDs are reported as ambiguous, never merged.
+    """
+    params, layouts = {}, []
+    malformed = ambiguous = 0
+    limited = len(text) > MAX_FILE
+    request = re.compile(r'zwp_linux_buffer_params_v1[@#]([0-9]{1,10})\.(add|create_immed|create|destroy)\(([^()\n]{0,768})\)')
+
+    def number(value):
+        value = value.strip()
+        if re.fullmatch(r'(?:0x[0-9a-fA-F]{1,8}|[0-9]{1,10})', value) is None:
+            raise ValueError('invalid protocol integer')
+        result = int(value, 16 if value.startswith('0x') else 10)
+        if result > 0xffffffff:
+            raise ValueError('protocol integer out of range')
+        return result
+
+    for line in text[:MAX_FILE].splitlines():
+        created = re.search(r'\.create_params\(new id zwp_linux_buffer_params_v1[@#]([0-9]{1,10})\)', line)
+        if created:
+            key = created[1]
+            if key in params:
+                params[key] = None
+                ambiguous += 1
+            elif len(params) < 128:
+                params[key] = []
+            else:
+                limited = True
+        match = request.search(line)
+        if match is None:
+            continue
+        key, operation, arguments = match.groups()
+        if operation == 'destroy':
+            params.pop(key, None)
+            continue
+        if key not in params:
+            if len(params) >= 128:
+                limited = True
+                continue
+            # A bounded trace can begin after create_params. Keep that limit
+            # explicit instead of declaring the complete connection observed.
+            params[key] = []
+        planes = params[key]
+        if planes is None:
+            continue
+        fields = arguments.split(',')
+        try:
+            if operation == 'add':
+                if len(fields) != 6 or len(planes) >= 4:
+                    raise ValueError('invalid or excessive plane metadata')
+                fd = fields[0].strip()
+                if not fd.startswith('fd '):
+                    raise ValueError('missing protocol fd label')
+                descriptor = number(fd[3:])
+                index, offset, stride, high, low = map(number, fields[1:])
+                planes.append({'index': index, 'fd_number': descriptor, 'offset': offset,
+                               'stride': stride, 'modifier': f'0x{(high << 32) | low:016x}'})
+                continue
+            buffer_id = None
+            if operation == 'create_immed':
+                if len(fields) != 5:
+                    raise ValueError('invalid immediate buffer request')
+                buffer = re.fullmatch(r'\s*new id wl_buffer[@#]([0-9]{1,10})\s*', fields.pop(0))
+                if buffer is None:
+                    raise ValueError('missing buffer identity')
+                buffer_id = number(buffer[1])
+            if len(fields) != 4:
+                raise ValueError('invalid buffer request')
+            width, height, fourcc, flags = map(number, fields)
+            code = fourcc.to_bytes(4, 'little')
+            layouts.append({'params_id': number(key), 'buffer_id': buffer_id,
+                            'width': width, 'height': height, 'fourcc': f'0x{fourcc:08x}',
+                            'fourcc_ascii': code.decode('ascii') if all(32 <= c < 127 for c in code) else None,
+                            'flags': flags, 'plane_count': len(planes), 'planes': planes,
+                            'plane_indices_contiguous': sorted(p['index'] for p in planes) == list(range(len(planes)))})
+            params.pop(key, None)
+            if len(layouts) >= 64:
+                limited = True
+                break
+        except ValueError:
+            malformed += 1
+            params[key] = None
+    return {'schema': 1, 'layouts': layouts, 'malformed_requests': malformed,
+            'ambiguous_parameter_ids': ambiguous, 'limited': limited,
+            'evidence': 'observed client protocol submissions; import success and failing-buffer attribution unverified',
+            'fd_identity': 'process-local numbers only; exporter/device identity is not inferred'}
+
+
+def capture_dmabuf_layouts(directory: int) -> dict:
+    captures = []
+    for name in names(directory):
+        if not name.startswith('capture-') or not name.endswith('.jsonl'):
+            continue
+        messages = []
+        try:
+            raw = read_file(directory, name, 256 * 1024)
+            for line in raw.splitlines(keepends=True):
+                if line.endswith(b'\n'):
+                    record = json.loads(line)
+                    if record.get('event') == 'output':
+                        messages.append(str(record.get('message', '')))
+            captures.append({'capture': name, **dmabuf_layouts('\n'.join(messages))})
+        except (OSError, ValueError) as error:
+            captures.append({'capture': name, 'unavailable': type(error).__name__})
+        if len(captures) >= 4:
+            break
+    return {'captures': captures, 'scope': 'opt-in selected application; captures are never merged across supervisors'}
+
+
 def build_bundle(directory: int) -> None:
     members = {}
     total = 0
@@ -409,6 +522,7 @@ def collect(session: str) -> None:
                 pass
             time.sleep(min(4, max(0, deadline-time.monotonic())))
         events, output = captured_output(directory)
+        write_json(directory, 'dmabuf-layouts.json', capture_dmabuf_layouts(directory))
         write_json(directory, 'identity.json', {'baseline': baseline, 'snapshots': snapshots,
                    'app_ids_from_selected_client_protocol_trace': protocol_ids,
                    'correlation': 'protocol set_app_id is direct client evidence; new toplevels are temporal candidates',
@@ -422,6 +536,10 @@ def collect(session: str) -> None:
             unit_journals.append(command(['__INSTALLER_PATH_DIR_USR__/bin/journalctl', '--user', '--boot', '--no-pager',
                                          '--output=short-precise', '--lines=100', '--unit=' + unit], seconds=1))
         write_json(directory, 'service-journal.json', unit_journals)
+        write_json(directory, 'compositor-journal.json', command([
+            '__INSTALLER_PATH_DIR_USR_BIN__/journalctl', '--user', '--boot', '--no-pager',
+            '--output=short-precise', '--lines=4000', '--unit=labwc-compositor.service'],
+            seconds=3, limit=256 * 1024))
         write_file(directory, 'README.txt', (
             'Labwc application diagnostic bundle\n'
             'Capture files contain real stdout/stderr copied by the existing private output supervisor.\n'

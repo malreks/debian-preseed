@@ -119,7 +119,7 @@ class NativeMenuHoverTests(unittest.TestCase):
                             self.assertNotIn('fixture', argv)
                             count += 1
         # Six native menu contracts contain 55 actionable leaves on each bar.
-        self.assertEqual(count, len(self.profiles) * 2 * 55)
+        self.assertEqual(count, len(self.profiles) * 2 * 66)
 
     def test_active_color_owners_are_explicit_and_no_fake_native_popup_latch_exists(self):
         """Check the supported lifetime owners without inventing a menu observer."""
@@ -152,9 +152,8 @@ class NativeMenuHoverTests(unittest.TestCase):
                 self.assertTrue(apps['click-to-reveal'])
                 self.assertEqual(bar['custom/tomat']['menu'], 'on-click')
                 self.assertNotIn('on-click-release', bar['custom/tomat'])
-                self.assertNotIn('menu', bar['custom/wayscriber'])
-                self.assertEqual(shlex.split(bar['custom/wayscriber']['on-click-release']),
-                                 ['/usr/local/libexec/labwc-waybar-run', '--menu=wayscriber'])
+                self.assertEqual(bar['custom/wayscriber']['menu'], 'on-click')
+                self.assertNotIn('on-click-release', bar['custom/wayscriber'])
 
     def test_every_action_has_the_intended_backend_not_just_an_existing_id(self):
         expected = {

@@ -170,8 +170,8 @@ class PolicyTests(unittest.TestCase):
             prefix = installer.PREFIXES["intel"]
             self.assertFalse(any(key.endswith("MAX_TEMPERATURE_C") for key in env))
             self.assertEqual(env, duo)
-            self.assertEqual(env[prefix + "PERFORMANCE_CPU_MIN_PERF_PCT"], "min")
-            self.assertEqual(env[prefix + "HIGH_CPU_MIN_PERF_PCT"], "min")
+            self.assertEqual(env[prefix + "PERFORMANCE_CPU_MIN_PERF_PCT"], "keep")
+            self.assertEqual(env[prefix + "HIGH_CPU_MIN_PERF_PCT"], "keep")
             self.assertEqual(env[prefix + "PERFORMANCE_CPU_GOVERNOR"], "performance")
             for profile, platform, up, down in (("PERFORMANCE", "performance", "80", "60"),
                                                ("HIGH", "performance", "90", "75"),
@@ -182,7 +182,7 @@ class PolicyTests(unittest.TestCase):
                 self.assertEqual(env[prefix + profile + "_GPU_RPS_DOWN_THRESHOLD_PCT"], down)
             for profile in ("PERFORMANCE", "HIGH"):
                 for setting, value in (("CPU_GOVERNOR", "performance"),
-                                       ("CPU_MIN_PERF_PCT", "min"),
+                                       ("CPU_MIN_PERF_PCT", "keep"),
                                        ("UNCORE_MIN_FREQ_KHZ", "min"),
                                        ("UNCORE_MAX_FREQ_KHZ", "max"),
                                        ("GPU_MIN_FREQ_MHZ", "min"),

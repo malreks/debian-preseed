@@ -616,6 +616,14 @@ desktop_validate_policy_env() {
   desktop_validate_internal_output_prefixes
   desktop_validate_identifier_list LABWC_GREETER_USER_CANDIDATES "${LABWC_GREETER_USER_CANDIDATES:-_greetd greeter greetd}"
   desktop_validate_identifier_list LABWC_WLR_RENDERER "${LABWC_WLR_RENDERER-gles2}"
+  case "${LABWC_COMPOSITOR_GPU:-auto}" in
+    auto|intel) ;;
+    *) desktop_fatal "LABWC_COMPOSITOR_GPU must be auto or intel" ;;
+  esac
+  case "${LABWC_WLR_EGL_NO_MODIFIERS:-0}:${LABWC_WLR_DRM_NO_MODIFIERS:-0}" in
+    0:0|0:1|1:0|1:1) ;;
+    *) desktop_fatal "Labwc modifier policies must be 0 or 1" ;;
+  esac
   desktop_validate_identifier_list LABWC_GSK_RENDERER "${LABWC_GSK_RENDERER-opengl}"
   desktop_validate_identifier_list LABWC_GDK_DISABLE "${LABWC_GDK_DISABLE-vulkan}"
   desktop_validate_identifier_list LABWC_WLR_NO_HARDWARE_CURSORS "${LABWC_WLR_NO_HARDWARE_CURSORS-1}"

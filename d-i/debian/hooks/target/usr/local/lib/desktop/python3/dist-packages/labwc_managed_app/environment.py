@@ -1132,5 +1132,5 @@ def build_environment(app_name: str, mode: str) -> dict[str, str]:
         if name.startswith(("VK_", "__VK_", "MESA_VK_")):
             env.pop(name)
     diagnostics.apply(env, compatibility=app_name in {"zoom", "discord"})
-    diagnostics.record_environment(env)
+    diagnostics.record_environment(env, final=False)
     return env

@@ -184,12 +184,9 @@ def retain_failure(reason):
         retain_query(reason)
     except (OSError, ValueError, IndexError) as error:
         print('selected_units_diagnostic=unavailable reason=' + type(error).__name__)
-# Treat systemd's escaped unit names as opaque argument data. Depending on the
-# property and systemd version, literal backslashes can themselves be escaped;
-# decoding or enforcing one textual escape spelling rejects valid device units.
-# Bound each atom, reject controls and real path separators, and retain the
-# explicit '--' when returning names to systemctl. No name is shell text.
-UNIT = re.compile(r'(?=.{1,255}\Z)[^\x00-\x20/\x7f]+\Z')
+# Canonical unit escaping is opaque identity data. systemctl's displayed vector
+# can add one quoted representation layer; remove that layer exactly once.
+UNIT = re.compile(r'(?=.{1,255}\Z)(?:[A-Za-z0-9:_.@-]|\\x[0-9a-fA-F]{2})+\.(?:service|socket|target|device|mount|automount|swap|timer|path|slice|scope)\Z')
 STRICT = {'apparmor.service', 'auditd.service', 'journal-sealing.service',
           'nftables.service', 'rsyslog.service',
           'rsyslog-journal-forwarding.service', 'syslog.socket'}
@@ -197,6 +194,45 @@ PROPERTIES = ('Id', 'Names', 'Requires', 'LoadState', 'ActiveState', 'SubState',
               'ExecMainStartTimestampMonotonic', 'ConditionResult', 'AssertResult',
               'ConditionTimestampMonotonic', 'AssertTimestampMonotonic',
               'TriggeredBy', 'WantedBy', 'RequiredBy')
+VECTORS = ('Names', 'Requires', 'TriggeredBy', 'WantedBy', 'RequiredBy')
+
+
+def transport_atoms(value, *, canonical=True):
+    """Support the captured quoted/unquoted transport, not arbitrary shell text."""
+    if len(value) > 65536:
+        raise ValueError('unit-vector-too-large')
+    decoder = json.JSONDecoder()
+    result, position = [], 0
+    while position < len(value):
+        if value[position] == ' ':
+            position += 1
+            continue
+        if len(result) >= 4096:
+            raise ValueError('too-many-unit-vector-atoms')
+        if value[position] == '"':
+            try:
+                atom, end = decoder.raw_decode(value, position)
+            except ValueError as error:
+                raise ValueError('malformed-unit-vector-quote') from error
+            # systemd's observed representation needs only escaped quotes and
+            # backslashes. Never decode a canonical unquoted \\xNN atom.
+            raw = value[position + 1:end - 1]
+            if re.search(r'\\(?![\\"])', re.sub(r'\\[\\"]', '', raw)):
+                raise ValueError('unsupported-unit-vector-escape')
+            if end < len(value) and value[end] != ' ':
+                raise ValueError('concatenated-unit-vector-atoms')
+            position = end
+        else:
+            end = value.find(' ', position)
+            if end < 0:
+                end = len(value)
+            atom, position = value[position:end], end
+        if (not isinstance(atom, str) or not atom or
+                (canonical and UNIT.fullmatch(atom) is None) or
+                any(ord(char) <= 32 or ord(char) == 127 or char in '/"' for char in atom)):
+            raise ValueError('invalid-canonical-unit' if canonical else 'invalid-inventory-atom')
+        result.append(atom)
+    return tuple(result)
 
 
 class CleanupUnknown(Exception):
@@ -324,7 +360,7 @@ def enabled_units():
     selected = set()
     for line in capture(['list-unit-files', '--state=enabled,enabled-runtime',
                          '--no-legend', '--plain']).splitlines():
-        fields = line.split()
+        fields = transport_atoms(line, canonical=False)
         if (len(fields) not in (2, 3) or not UNIT.fullmatch(fields[0]) or
                 fields[1] not in ('enabled', 'enabled-runtime')):
             raise ValueError('malformed-enabled-inventory')
@@ -357,7 +393,12 @@ def show(units):
         offset += 1
         line_number += 1
         name = record.get('Id', '')
-        aliases = record.get('Names', '').split()
+        for key in VECTORS:
+            LAST_QUERY.update(property=key, canonical_id=name,
+                              offending_record=ascii(record.get(key, '')[:256]))
+            value = record.get(key, '')
+            record[key] = () if key != 'Names' and value in {'n/a', '-', '[not set]'} else transport_atoms(value)
+        aliases = record['Names']
         if (not UNIT.fullmatch(name) or name not in aliases or
                 any(not UNIT.fullmatch(alias) for alias in aliases) or
                 'LoadState' not in record or 'ActiveState' not in record):
@@ -369,8 +410,10 @@ def show(units):
     used = set()
     for requested in units:
         matches = [record for record in records.values()
-                   if requested in record['Names'].split()]
+                   if requested in record['Names']]
         if len(matches) != 1:
+            LAST_QUERY.update(property='Names', requested_unit=requested,
+                              canonical_ids=sorted(records)[:64])
             raise ValueError('incomplete-unit-properties')
         mapped[requested] = matches[0]
         used.add(matches[0]['Id'])
@@ -379,24 +422,15 @@ def show(units):
     return mapped
 
 
-def dependencies(record):
+def dependencies(record, fields=('Requires',)):
     names = set()
-    for key in ('Requires', 'TriggeredBy', 'WantedBy', 'RequiredBy'):
-        value = record.get(key, '')
-        if value in {'n/a', '-', '[not set]'}:
-            continue
-        for name in value.split():
-            # Some systemd unit types report an unset relationship as a
-            # sentinel. It is metadata, not a unit identity.
-            if name in {'n/a', '-'}:
-                continue
-            if not UNIT.fullmatch(name):
-                raise ValueError('invalid-related-unit')
-            names.add(name)
+    for key in fields:
+        names.update(record.get(key, ()))
     return names
 
 
 def classify(name, record, related):
+    strict = name in STRICT or any(alias in STRICT for alias in record['Names'])
     active = record['ActiveState']
     if record['LoadState'] != 'loaded' or active == 'failed':
         return 'failed', 'load-or-execution-failed'
@@ -419,20 +453,20 @@ def classify(name, record, related):
     if (record.get('ConditionResult') == 'no' and
             record.get('ConditionTimestampMonotonic', '0').isdecimal() and
             int(record.get('ConditionTimestampMonotonic', '0')) > 0):
-        return ('failed', 'required-condition-failed') if name in STRICT else (
+        return ('failed', 'required-condition-failed') if strict else (
             'expected', 'condition-not-applicable')
     stamp = record.get('ExecMainStartTimestampMonotonic', '0')
     if (record.get('Type') == 'oneshot' and stamp.isdecimal() and int(stamp) > 0
             and record.get('Result') == 'success'):
         return 'verified', 'oneshot-completed'
-    triggers = [item for item in record.get('TriggeredBy', '').split()
+    triggers = [item for item in record.get('TriggeredBy', ())
                 if item in related]
     if triggers and any(related[item]['ActiveState'] == 'active' for item in triggers):
         return 'expected', 'armed-by-active-trigger'
     parents = [item for item in
-               (record.get('WantedBy', '') + ' ' + record.get('RequiredBy', '')).split()
+               (*record.get('WantedBy', ()), *record.get('RequiredBy', ()))
                if item in related]
-    if name not in STRICT and parents and all(
+    if not strict and parents and all(
             related[item]['LoadState'] == 'loaded' and
             related[item]['ActiveState'] == 'inactive' for item in parents):
         return 'expected', 'armed-for-inactive-target'
@@ -459,7 +493,10 @@ def main():
         required.update(extra)
     else:
         raise ValueError('required-dependency-depth-exceeded')
-    extra = set().union(*(dependencies(record) for record in records.values())) - required
+    # Reverse parents and triggers explain inactivity; they do not recursively
+    # promote rescue/initrd/shutdown branches into this boot's obligations.
+    extra = set().union(*(dependencies(record, ('TriggeredBy', 'WantedBy', 'RequiredBy'))
+                          for record in records.values())) - required
     if len(extra) > 8192:
         raise ValueError('too-many-related-units')
     related = {**records, **(show(extra) if extra else {})}
@@ -470,12 +507,13 @@ def main():
     pending = False
     for name in sorted(templates):
         print('unit=' + name + ' state=expected reason=template-with-installed-instances')
-    for name, record in sorted(records.items()):
+    obligations = {record['Id']: record for record in records.values()}
+    for name, record in sorted(obligations.items()):
         state, reason = classify(name, record, related)
         print('unit=' + name + ' state=' + state + ' reason=' + reason)
         bad |= state == 'failed'
         pending |= state == 'pending'
-    print('selected_units_count=' + str(len(required)))
+    print('selected_units_count=' + str(len(obligations)))
     return 1 if bad else 75 if pending else 0
 
 

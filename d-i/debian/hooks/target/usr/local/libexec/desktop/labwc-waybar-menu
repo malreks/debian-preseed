@@ -19,6 +19,7 @@ import signal
 import stat
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 
 POPUPS = {
@@ -127,6 +128,35 @@ def fixed_action(command: str) -> list[str]:
     if argv.count("--") != 1 or any(";" in value or "&&" in value or "|" in value for value in argv):
         raise ValueError("Waybar menu action contains shell syntax")
     return argv
+
+
+def prepared_menu_xml(path: Path) -> tuple[str, list[tuple[str, str, int]]]:
+    """Remove lazy icon-name properties before GTK can realize the widgets."""
+    text = read_regular(path, MAX_MENU_BYTES)
+    if len(text) > MAX_MENU_BYTES or re.search(r'<!\s*(?:DOCTYPE|ENTITY)\b', text, re.I):
+        raise ValueError("unsupported menu XML declaration or size")
+    tree = ET.fromstring(text)
+    icons = []
+    for image in tree.iter("object"):
+        if image.get("class") != "GtkImage":
+            continue
+        properties = {prop.get("name"): prop for prop in image.findall("property")}
+        if any(key in properties for key in ("gicon", "file", "pixbuf", "stock", "resource", "surface")):
+            raise ValueError("menu image must use the fixed themed-icon contract")
+        if "icon-name" not in properties:
+            continue
+        identity = image.get("id", "")
+        name = properties["icon-name"].text or ""
+        size = properties.get("pixel-size")
+        pixels = int(size.text) if size is not None else 16
+        if (not identity or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}", name) is None
+                or not 1 <= pixels <= 512 or len(icons) >= 64):
+            raise ValueError("invalid menu icon metadata")
+        image.remove(properties["icon-name"])
+        if "use-fallback" in properties:
+            image.remove(properties["use-fallback"])
+        icons.append((identity, name, pixels))
+    return ET.tostring(tree, encoding="unicode"), icons
 
 
 class Popup:
@@ -340,6 +370,38 @@ class Popup:
         self.finish(0 if self.child.returncode == 0 else 3)
         return False
 
+    def populate_icons(self, builder, specifications) -> None:
+        if not specifications:
+            return
+        theme = self.Gtk.IconTheme.get_default()
+        if theme is None:
+            raise ValueError("GTK icon theme unavailable")
+        flags = self.Gtk.IconLookupFlags.FORCE_SIZE
+        # A broken image-missing loader can otherwise turn a later GTK theme
+        # fallback into a C assertion. This recoverable call fails cleanly.
+        theme.load_icon("image-missing", 16, flags)
+        images, loaded = [], []
+        try:
+            for identity, name, size in specifications:
+                image = builder.get_object(identity)
+                if not isinstance(image, self.Gtk.Image):
+                    raise ValueError("menu icon object is missing")
+                images.append(image)
+                loaded.append((image, theme.load_icon(name, size, flags)))
+        except self.GLib.Error as error:
+            diagnostic("icons-text-only", error)
+            for identity, _name, _size in specifications:
+                image = builder.get_object(identity)
+                if isinstance(image, self.Gtk.Image):
+                    image.clear()
+                    image.set_no_show_all(True)
+                    image.hide()
+        else:
+            for image, pixbuf in loaded:
+                image.set_from_pixbuf(pixbuf)
+        # Reopen against the new theme instead of reviving unchecked GIcons.
+        theme.connect("changed", lambda *_args: self.finish(0))
+
     def activate(self) -> None:
         provider = self.Gtk.CssProvider()
         provider.load_from_path(str(self.style_path))
@@ -349,7 +411,8 @@ class Popup:
         self.Gtk.StyleContext.add_provider_for_screen(
             screen, provider, self.Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
         builder = self.Gtk.Builder()
-        builder.add_from_file(str(self.menu_path))
+        xml, icons = prepared_menu_xml(self.menu_path)
+        builder.add_from_string(xml)
         self.menu = builder.get_object("menu")
         if not isinstance(self.menu, self.Gtk.Menu):
             raise ValueError("Waybar menu object is missing")
@@ -365,6 +428,7 @@ class Popup:
             if obj not in leaves:
                 raise ValueError("Waybar action is not a menu leaf")
             obj.connect("activate", self.action, action_id)
+        self.populate_icons(builder, icons)
         for event in ("deactivate", "selection-done", "hide", "destroy"):
             self.menu.connect(event, self.dismiss)
         self.menu.connect("button-press-event", self.menu_button_press)
@@ -388,13 +452,17 @@ def main(arguments: list[str]) -> int:
         gi.require_version("Gdk", "3.0")
         gi.require_version("GtkLayerShell", "0.1")
         from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
+        try:
+            from gi.repository import GLibUnix
+            signal_add = GLibUnix.signal_add
+        except ImportError:
+            signal_add = GLib.unix_signal_add
         initialized, _remaining = Gtk.init_check([])
         if not initialized or Gdk.Display.get_default() is None:
             raise ValueError("GTK display unavailable")
         popup = Popup((Gdk, GLib, Gtk, GtkLayerShell), module_name, menu_path, style_path, actions)
         for signum in (signal.SIGTERM, signal.SIGINT):
-            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum,
-                                 lambda: popup.finish(0))
+            signal_add(GLib.PRIORITY_DEFAULT, signum, lambda: popup.finish(0))
         popup.activate()
         if not popup.done:
             Gtk.main()

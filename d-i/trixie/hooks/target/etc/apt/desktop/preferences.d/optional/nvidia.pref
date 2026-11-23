@@ -9,3 +9,14 @@ Pin-Priority: 100
 Package: nvidia-kernel-open-dkms nvidia-driver-cuda nvidia-kernel-support nvidia-modprobe nvidia-persistenced nvidia-powerd nvidia-opencl-icd nvidia-egl-icd firmware-nvidia-gsp libnvidia* libcuda1 libcudadebugger1 libnvcuvid1 libnvoptix1 libegl-nvidia0 libgles-nvidia1 libgles-nvidia2 libglx-nvidia0
 Pin: release o=NVIDIA,l=NVIDIA CUDA
 Pin-Priority: 900
+
+# Prefer the render-node/PRIME-corrected EGLWayland 1 compatibility library.
+# Equal priority to the native suite permits a newer Debian version; never
+# force a downgrade or import Pop!_OS drivers, kernels, Mesa or dependencies.
+Package: libnvidia-egl-wayland1
+Pin: origin apt.pop-os.org
+Pin-Priority: 990
+
+Package: *
+Pin: origin apt.pop-os.org
+Pin-Priority: -1

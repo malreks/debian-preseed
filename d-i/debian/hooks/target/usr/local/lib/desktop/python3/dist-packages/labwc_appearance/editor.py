@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import os
 import subprocess
 import sys
 
@@ -44,6 +45,11 @@ def grammar_description(grammars):
 
 
 def main() -> int:
+    # This local preferences editor has no accelerated-workload contract.
+    # Keep its small GTK4 form independent of inherited NVIDIA EGL selectors;
+    # designated managed NVIDIA applications retain their separate policy.
+    os.environ['GSK_RENDERER'] = 'cairo'
+    os.environ['GDK_DISABLE'] = 'gl,vulkan,dmabuf'
     try:
         import gi
         gi.require_version('Gdk', '4.0')

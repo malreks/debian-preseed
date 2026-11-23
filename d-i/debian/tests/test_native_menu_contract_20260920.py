@@ -51,10 +51,11 @@ CALENDAR.update({key: ['/usr/local/libexec/labwc-calendar-actions', action]
 MODULES = (('custom/tomat', 'tomat', 'on-click'),
            ('pulseaudio', 'audio', 'on-click'),
            ('custom/notifications', 'notifications', 'on-click'),
-           ('custom/power', 'power', 'on-click'),
+            ('custom/power', 'power', 'on-click'),
+            ('custom/wayscriber', 'wayscriber', 'on-click'),
            ('clock', 'calendar', 'on-click'),
            ('backlight', 'brightness', 'on-click'))
-POPUP_MODULES = MODULES + (('custom/wayscriber', 'wayscriber', 'popup'),)
+POPUP_MODULES = MODULES
 
 RELEASE_BINDINGS = (
     ('custom/launcher', 'on-click-release', 'on-click'),
@@ -114,7 +115,7 @@ class MenuContractTests(unittest.TestCase):
                     self.assertEqual(argv[:boundary], ['/usr/local/libexec/labwc-waybar-run'])
                     self.assertGreater(len(argv[boundary + 1:]), 0)
                     count += 1
-        self.assertEqual(count, 110)
+        self.assertEqual(count, 132)
 
     def test_calendar_mapping_and_secondary_clicks(self):
         for bar in bars():
@@ -185,9 +186,8 @@ class MenuContractTests(unittest.TestCase):
     def test_wayscriber_left_menu_keeps_right_click_toggle_and_light_passthrough(self):
         for bar in bars():
             entry = bar['custom/wayscriber']
-            self.assertNotIn('menu', entry)
-            self.assertEqual(shlex.split(entry['on-click-release']),
-                             ['/usr/local/libexec/labwc-waybar-run', '--menu=wayscriber'])
+            self.assertEqual(entry['menu'], 'on-click')
+            self.assertNotIn('on-click-release', entry)
             self.assertEqual(shlex.split(entry['on-click-right-release']),
                              ['/usr/local/libexec/labwc-waybar-run', '--',
                               '/usr/local/bin/labwc-wayscriber-toggle'])

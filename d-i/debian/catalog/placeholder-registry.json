@@ -10231,6 +10231,34 @@
       "consumer": {
         "module": "hooks/target/etc/labwc/desktop.conf.tmpl",
         "source_members": [
+          "hooks/target/etc/labwc/desktop.conf.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_LABWC_COMPOSITOR_GPU",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "desktop_render_labwc_default_config",
+        "module": "scripts/desktop/components/core-renderers.sh.tmpl",
+        "phase": "desktop-late"
+      },
+      "producer_map": "desktop_render_role_target_template: validated LABWC_COMPOSITOR_GPU",
+      "publication_kind": "template",
+      "required": true,
+      "source_family": [
+        "target-asset"
+      ],
+      "syntax": "auto-or-intel",
+      "token": "__INSTALLER_LABWC_COMPOSITOR_GPU__"
+    },
+    {
+      "consumer": {
+        "module": "hooks/target/etc/labwc/desktop.conf.tmpl",
+        "source_members": [
           "hooks/target/etc/labwc/desktop.conf.tmpl",
           "hooks/target/etc/skel-desktop/.config/crystal-dock/labwc/appearance.conf.tmpl"
         ]
@@ -17157,6 +17185,62 @@
       "consumer": {
         "module": "hooks/target/etc/labwc/desktop.conf.tmpl",
         "source_members": [
+          "hooks/target/etc/labwc/desktop.conf.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_LABWC_WLR_DRM_NO_MODIFIERS",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "desktop_render_labwc_default_config",
+        "module": "scripts/desktop/components/core-renderers.sh.tmpl",
+        "phase": "desktop-late"
+      },
+      "producer_map": "desktop_render_role_target_template: validated LABWC_WLR_DRM_NO_MODIFIERS",
+      "publication_kind": "template",
+      "required": true,
+      "source_family": [
+        "target-asset"
+      ],
+      "syntax": "zero-or-one",
+      "token": "__INSTALLER_LABWC_WLR_DRM_NO_MODIFIERS__"
+    },
+    {
+      "consumer": {
+        "module": "hooks/target/etc/labwc/desktop.conf.tmpl",
+        "source_members": [
+          "hooks/target/etc/labwc/desktop.conf.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_LABWC_WLR_EGL_NO_MODIFIERS",
+      "namespace": "SCALAR",
+      "owner": {
+        "function": "desktop_render_labwc_default_config",
+        "module": "scripts/desktop/components/core-renderers.sh.tmpl",
+        "phase": "desktop-late"
+      },
+      "producer_map": "desktop_render_role_target_template: validated LABWC_WLR_EGL_NO_MODIFIERS",
+      "publication_kind": "template",
+      "required": true,
+      "source_family": [
+        "target-asset"
+      ],
+      "syntax": "zero-or-one",
+      "token": "__INSTALLER_LABWC_WLR_EGL_NO_MODIFIERS__"
+    },
+    {
+      "consumer": {
+        "module": "hooks/target/etc/labwc/desktop.conf.tmpl",
+        "source_members": [
           "hooks/target/etc/labwc/desktop.conf.tmpl",
           "hooks/target/etc/skel-desktop/.config/labwc/environment.d/10-wayland.env.tmpl",
           "hooks/target/etc/skel-desktop/.config/labwc/environment.tmpl",
@@ -17995,8 +18079,7 @@
         "source_members": [
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
           "hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl",
-          "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -18015,7 +18098,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -18031,8 +18113,7 @@
           "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl",
           "hooks/target/usr/local/libexec/common/debugsys.py.tmpl",
           "hooks/target/usr/local/libexec/common/log-layout.tmpl",
-          "hooks/target/usr/local/libexec/common/rsyslog-size-rotate.tmpl",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/usr/local/libexec/common/rsyslog-size-rotate.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -18051,7 +18132,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -18065,8 +18145,7 @@
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
           "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl",
           "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/profiles.py.tmpl",
-          "hooks/target/usr/local/libexec/desktop/rsyslog-openai-socket.tmpl",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/usr/local/libexec/desktop/rsyslog-openai-socket.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -18085,7 +18164,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -18097,8 +18175,7 @@
         "source_members": [
           "hooks/target/etc/logrotate.d/chatgpt-runtime.tmpl",
           "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl",
-          "hooks/target/usr/local/libexec/common/debugsys.py.tmpl",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/usr/local/libexec/common/debugsys.py.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -18117,7 +18194,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -18129,8 +18205,7 @@
         "source_members": [
           "hooks/target/etc/logrotate.d/chatgpt-runtime.tmpl",
           "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl",
-          "hooks/target/usr/local/libexec/common/debugsys.py.tmpl",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/usr/local/libexec/common/debugsys.py.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -18149,7 +18224,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -19524,8 +19598,7 @@
         "source_members": [
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
           "hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl",
-          "hooks/target/usr/local/libexec/common/log-layout.tmpl",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/usr/local/libexec/common/log-layout.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -19544,7 +19617,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -19649,8 +19721,7 @@
         "source_members": [
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
           "hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl",
-          "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -19669,7 +19740,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -19911,8 +19981,7 @@
           "hooks/target/etc/tmpfiles.d/common/58-native-logs.conf.tmpl",
           "hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl",
           "hooks/target/etc/tmpfiles.d/common/75-auditd-storage.conf.tmpl",
-          "hooks/target/etc/tmpfiles.d/server/59-server-logs.conf.tmpl",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/etc/tmpfiles.d/server/59-server-logs.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -19931,7 +20000,6 @@
       "publication_kind": "template",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
@@ -24128,6 +24196,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-kanshi",
           "hooks/target/usr/local/libexec/desktop/labwc-output-watch",
           "hooks/target/usr/local/libexec/desktop/labwc-recovery-action-root",
+          "hooks/target/usr/local/libexec/desktop/labwc-session-check",
           "hooks/target/usr/local/libexec/desktop/labwc-ssh-key-load",
           "hooks/target/usr/local/libexec/desktop/labwc-system-action-root",
           "hooks/target/usr/local/libexec/desktop/mullvad-daemon-start",
@@ -25154,6 +25223,7 @@
           "hooks/target/usr/local/libexec/desktop/labwc-plans.pl",
           "hooks/target/usr/local/libexec/desktop/labwc-primary-gpg",
           "hooks/target/usr/local/libexec/desktop/labwc-proxy-session",
+          "hooks/target/usr/local/libexec/desktop/labwc-session-check",
           "hooks/target/usr/local/libexec/desktop/labwc-swaybg.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-swaylock.tmpl",
           "hooks/target/usr/local/libexec/desktop/labwc-system-action-root",
@@ -25233,7 +25303,6 @@
           "scripts/late/target-assets.sh",
           "scripts/late/volatile-storage.sh",
           "scripts/late/whisper.sh",
-          "scripts/late/zram-swap.sh",
           "scripts/server/setup.py.tmpl"
         ]
       },
@@ -25626,8 +25695,7 @@
           "scripts/desktop/samloader.sh",
           "scripts/late/core.sh",
           "scripts/late/devops/policy-resolution.sh.tmpl",
-          "scripts/late/llama.sh",
-          "scripts/late/mullvad.sh"
+          "scripts/late/llama.sh"
         ]
       },
       "default_policy": "fail-closed",
@@ -26206,7 +26274,6 @@
           "hooks/target/usr/local/share/desktop/applications/sleek.desktop.tmpl",
           "scripts/desktop/calendar-install.py",
           "scripts/desktop/satty.sh",
-          "scripts/desktop/virtualization.sh",
           "scripts/desktop/waypaper.sh",
           "scripts/desktop/xwayland.sh",
           "scripts/firstboot/04-validation.sh.tmpl",
@@ -30441,6 +30508,7 @@
           "hooks/target/usr/local/libexec/common/tpm2-policy-check",
           "hooks/target/usr/local/libexec/desktop/bluetooth-controller-init",
           "hooks/target/usr/local/libexec/desktop/labwc-debug-session",
+          "hooks/target/usr/local/libexec/desktop/labwc-session-check",
           "hooks/target/usr/local/libexec/desktop/labwc-system-action-root",
           "hooks/target/usr/local/libexec/desktop/labwc-thinkpad-hotkeys",
           "hooks/target/usr/local/libexec/desktop/labwc-waybar-battery",
@@ -30703,6 +30771,7 @@
         "module": "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
         "source_members": [
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
+          "hooks/target/etc/apparmor.d/desktop/labwc-session",
           "hooks/target/etc/apparmor.d/server/codex-server.tmpl",
           "hooks/target/etc/rsyslog.d/server/20-server-security.conf.tmpl",
           "hooks/target/etc/skel-base/.profile",
@@ -30718,6 +30787,7 @@
           "hooks/target/usr/local/libexec/common/incus-host",
           "hooks/target/usr/local/libexec/common/network-wifi-configure",
           "hooks/target/usr/local/libexec/common/tpm2-policy-check",
+          "hooks/target/usr/local/libexec/desktop/labwc-debug-session",
           "hooks/target/usr/local/libexec/desktop/labwc-output-watch",
           "hooks/target/usr/local/libexec/desktop/labwc-session-check",
           "hooks/target/usr/local/libexec/server/ci-github-job-start.sh.tmpl",
@@ -30737,7 +30807,6 @@
           "scripts/desktop/components/compz.sh",
           "scripts/desktop/components/core-renderers.sh.tmpl",
           "scripts/desktop/components/desktop-config.sh",
-          "scripts/desktop/components/desktop-helpers.sh",
           "scripts/desktop/components/devices-network.sh",
           "scripts/desktop/components/gpg-bootstrap.sh",
           "scripts/desktop/components/logging.sh.tmpl",
@@ -30780,8 +30849,6 @@
           "scripts/late/devops/account-execution.sh",
           "scripts/late/devops/codex-appserver.sh",
           "scripts/late/devops/codex-layout.sh",
-          "scripts/late/devops/codex-provision.sh",
-          "scripts/late/devops/codex-release.sh",
           "scripts/late/devops/gitbuild.sh",
           "scripts/late/devops/main-orchestration.sh",
           "scripts/late/devops/publication-layout.sh",
@@ -30887,8 +30954,7 @@
       "consumer": {
         "module": "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm",
         "source_members": [
-          "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm"
         ]
       },
       "default_policy": "fail-closed",
@@ -30904,10 +30970,9 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30917,8 +30982,7 @@
       "consumer": {
         "module": "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm",
         "source_members": [
-          "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm"
         ]
       },
       "default_policy": "fail-closed",
@@ -30934,10 +30998,9 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -30947,8 +31010,7 @@
       "consumer": {
         "module": "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm",
         "source_members": [
-          "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm",
-          "scripts/late/software.sh.tmpl"
+          "hooks/target/usr/local/lib/common/perl5/site_perl/apt-repo-local/APTRepoLocal/Servicing/ChatGPT.pm"
         ]
       },
       "default_policy": "fail-closed",
@@ -30964,10 +31026,9 @@
         "phase": "base-stage"
       },
       "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
+      "publication_kind": "plain",
       "required": true,
       "source_family": [
-        "late-command",
         "target-asset"
       ],
       "syntax": "absolute-normalized-target-path",
@@ -31003,9 +31064,11 @@
     },
     {
       "consumer": {
-        "module": "hooks/target/etc/initramfs-tools/hooks/tpm2-cryptroot",
+        "module": "hooks/target/etc/apparmor.d/desktop/abstractions/desktop-runtime",
         "source_members": [
+          "hooks/target/etc/apparmor.d/desktop/abstractions/desktop-runtime",
           "hooks/target/etc/initramfs-tools/hooks/tpm2-cryptroot",
+          "hooks/target/usr/local/libexec/common/debugsys.py.tmpl",
           "hooks/target/usr/local/libexec/common/tpm2-policy-check",
           "scripts/desktop/components/desktop-helpers.sh",
           "scripts/desktop/components/target-assets.sh",
@@ -31015,10 +31078,8 @@
           "scripts/late/btrfs-family.sh",
           "scripts/late/core.sh",
           "scripts/late/devops/codex-appserver.sh",
-          "scripts/late/devops/main-orchestration.sh",
           "scripts/late/grub.sh",
-          "scripts/late/mullvad.sh",
-          "scripts/late/tor-browser.sh"
+          "scripts/late/mullvad.sh"
         ]
       },
       "default_policy": "fail-closed",
@@ -31085,7 +31146,6 @@
           "hooks/target/etc/skel-desktop/.config/systemd/user/crystal-dock.service",
           "hooks/target/etc/skel-desktop/.config/systemd/user/kanshi.service",
           "hooks/target/etc/skel-desktop/.config/systemd/user/labwc-adb-server.service",
-          "hooks/target/etc/skel-desktop/.config/systemd/user/labwc-compositor.service",
           "hooks/target/etc/skel-desktop/.config/systemd/user/labwc-health-notify.service",
           "hooks/target/etc/skel-desktop/.config/systemd/user/labwc-mute-default-microphone.service",
           "hooks/target/etc/skel-desktop/.config/systemd/user/labwc-output-watch.service",
@@ -32361,7 +32421,6 @@
           "scripts/desktop/components/desktop-config.sh",
           "scripts/desktop/components/devices-network.sh",
           "scripts/desktop/components/gpg-bootstrap.sh",
-          "scripts/desktop/components/logging.sh.tmpl",
           "scripts/desktop/components/target-assets.sh",
           "scripts/desktop/digital-assets.sh",
           "scripts/desktop/fonts.sh",
@@ -32392,22 +32451,18 @@
           "scripts/late/assets/etc/skel-desktop/.profile.installer-base",
           "scripts/late/core.sh",
           "scripts/late/devops/account-execution.sh",
-          "scripts/late/devops/codex-layout.sh",
           "scripts/late/gitbuild-policy.py",
           "scripts/late/grub.sh",
           "scripts/late/mullvad.sh",
           "scripts/late/network-generate.pl",
           "scripts/late/network-sharing.py",
-          "scripts/late/security.sh",
           "scripts/late/software.sh.tmpl",
           "scripts/late/ssh/ssh-install.py",
           "scripts/late/tailscale.sh",
           "scripts/late/templates/network/inet4.tmpl",
           "scripts/late/templates/network/inet6.tmpl",
           "scripts/late/templates/network/performance.tmpl",
-          "scripts/late/tor-browser.sh",
           "scripts/late/whisper.sh",
-          "scripts/late/zram-swap.sh",
           "scripts/server/setup.py.tmpl"
         ]
       },
@@ -32698,8 +32753,9 @@
     },
     {
       "consumer": {
-        "module": "hooks/target/etc/apparmor.d/desktop/calendars",
+        "module": "hooks/target/etc/apparmor.d/desktop/abstractions/wrapper-gui",
         "source_members": [
+          "hooks/target/etc/apparmor.d/desktop/abstractions/wrapper-gui",
           "hooks/target/etc/apparmor.d/desktop/calendars",
           "hooks/target/etc/apparmor.d/desktop/desktop-utilities",
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
@@ -33529,7 +33585,6 @@
           "scripts/late/devops-tools.py",
           "scripts/late/devops/account-execution.sh",
           "scripts/late/devops/bazelisk-node.sh",
-          "scripts/late/devops/codex-release.sh",
           "scripts/late/devops/policy-resolution.sh.tmpl",
           "scripts/late/gitbuild-policy.py",
           "scripts/late/llama.sh",
@@ -34722,34 +34777,6 @@
     },
     {
       "consumer": {
-        "module": "scripts/late/software.sh.tmpl",
-        "source_members": [
-          "scripts/late/software.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_FILE_LOGROTATE_CONF",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "late-command"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_FILE_LOGROTATE_CONF__"
-    },
-    {
-      "consumer": {
         "module": "scripts/firstboot/03-network.sh",
         "source_members": [
           "scripts/firstboot/03-network.sh",
@@ -34983,34 +35010,6 @@
       ],
       "syntax": "absolute-normalized-target-path",
       "token": "__INSTALLER_PATH_FILE_PYTHON3_SITE_DESKTOP_RUNTIME__"
-    },
-    {
-      "consumer": {
-        "module": "scripts/late/software.sh.tmpl",
-        "source_members": [
-          "scripts/late/software.sh.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_PATH_FILE_RSYSLOG_CONF",
-      "namespace": "PATH",
-      "owner": {
-        "function": "installer_runtime_path_placeholder_map",
-        "module": "scripts/common/modules/files-logging.sh",
-        "phase": "base-stage"
-      },
-      "producer_map": "installer_runtime_path_placeholder_map",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "late-command"
-      ],
-      "syntax": "absolute-normalized-target-path",
-      "token": "__INSTALLER_PATH_FILE_RSYSLOG_CONF__"
     },
     {
       "consumer": {
@@ -109388,7 +109387,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "cc3bc59555a8d50fc0ff2db3bf17c616d3effc5256a8be5dd6a789a1c743ef00",
+  "source_fingerprint": "0498cd19d8410b9323d752d239e6b918aa55ef56b39d4a8d4affbe59a4b536b4",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

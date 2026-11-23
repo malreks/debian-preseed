@@ -20,6 +20,8 @@ profile labwc-desktop-appearance __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-desk
   __INSTALLER_PATH_DIR_VAR__/ r,
   __INSTALLER_PATH_DIR_VAR_LIB__/ r,
   owner @{HOME}/ r,
+  # Same-owner process metadata (the pid glob is not a self-only selector).
+  owner @{PROC}/@{pid}/{cmdline,stat} r,
   signal (send, receive) peer=@{profile_name},
   signal (receive) peer=unconfined,
   include <abstractions/dbus-session-strict>

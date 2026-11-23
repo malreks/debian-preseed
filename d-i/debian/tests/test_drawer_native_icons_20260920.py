@@ -61,8 +61,8 @@ class NativeDrawerTests(unittest.TestCase):
                 self.assertEqual(entry['format'],' ')
                 self.assertEqual(entry['tooltip-format'],tooltip)
                 if module == 'custom/wayscriber':
-                    self.assertEqual(entry['on-click-release'],
-                                     '/usr/local/libexec/labwc-waybar-run --menu=wayscriber')
+                    self.assertEqual(entry['menu'], 'on-click')
+                    self.assertNotIn('on-click-release', entry)
                 else:
                     click = entry['on-click']
                     self.assertIn('--property=PartOf=labwc-session.target',click)

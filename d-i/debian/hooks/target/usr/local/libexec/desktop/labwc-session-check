@@ -1,12 +1,204 @@
 #!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
 """Fixed user-service operations; no generic command or shell interface."""
 import os
+import itertools
 import re
 from pathlib import Path
+import shlex
 import signal
 import stat
 import subprocess
 import sys
+
+
+COMPOSITOR_SELECTORS = frozenset({
+    "WLR_BACKENDS", "WLR_DRM_DEVICES", "WLR_RENDER_DRM_DEVICE", "WLR_RENDERER",
+    "WLR_RENDERER_ALLOW_SOFTWARE", "WLR_RENDER_NO_EXPLICIT_SYNC", "WLR_DRM_NO_ATOMIC",
+    "WLR_EGL_NO_MODIFIERS", "WLR_DRM_NO_MODIFIERS", "GBM_BACKEND", "DRI_PRIME",
+    "MESA_LOADER_DRIVER_OVERRIDE", "LIBGL_ALWAYS_SOFTWARE", "__NV_PRIME_RENDER_OFFLOAD",
+    "__NV_PRIME_RENDER_OFFLOAD_PROVIDER", "__GLX_VENDOR_LIBRARY_NAME",
+    "__EGL_VENDOR_LIBRARY_FILENAMES", "__EGL_VENDOR_LIBRARY_DIRS",
+})
+
+
+def compositor_policy(path=Path("__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf")):
+    """Read fixed policy values as data, never source the shell settings file."""
+    wanted = {"LABWC_WLR_RENDERER", "LABWC_COMPOSITOR_GPU", "LABWC_INTEL_ACCELERATION_AVAILABLE",
+              "LABWC_WLR_EGL_NO_MODIFIERS", "LABWC_WLR_DRM_NO_MODIFIERS", "LABWC_WLR_DRM_NO_ATOMIC"}
+    values = {}
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        meta = os.fstat(fd)
+        if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+            raise ValueError("unsafe compositor policy")
+        raw = os.read(fd, 256 * 1024 + 1)
+        if len(raw) > 256 * 1024:
+            raise ValueError("compositor policy exceeds its bound")
+        for line in raw.decode("utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key in wanted:
+                fields = shlex.split(value, comments=False, posix=True)
+                if key in values or len(fields) != 1:
+                    raise ValueError("invalid compositor policy assignment")
+                values[key] = fields[0]
+    finally:
+        os.close(fd)
+    if values.get("LABWC_WLR_RENDERER") not in {"gles2", "pixman", "vulkan"}:
+        raise ValueError("unsupported compositor renderer")
+    if values.get("LABWC_INTEL_ACCELERATION_AVAILABLE") not in {"true", "false"}:
+        raise ValueError("missing compositor hardware policy")
+    if values.get("LABWC_COMPOSITOR_GPU", "auto") not in {"auto", "intel"}:
+        raise ValueError("unsupported compositor GPU policy")
+    for key in ("LABWC_WLR_EGL_NO_MODIFIERS", "LABWC_WLR_DRM_NO_MODIFIERS", "LABWC_WLR_DRM_NO_ATOMIC"):
+        if values.get(key, "0") not in {"0", "1"}:
+            raise ValueError("invalid compositor compatibility policy")
+    return values
+
+
+def compositor_intel_devices(dev_root=Path("__INSTALLER_PATH_DIR_DEV__"),
+                             sys_root=Path("__INSTALLER_PATH_DIR_SYS__")):
+    """Pair primary/render identities by PCI device, independent of numbering."""
+    def attribute(path):
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            meta = os.fstat(fd)
+            if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+                raise ValueError("unsafe DRM identity attribute")
+            data = os.read(fd, 65)
+            if len(data) > 64:
+                raise ValueError("oversized DRM identity attribute")
+            return data.decode("ascii").strip()
+        finally:
+            os.close(fd)
+
+    def kernel_link(path, root):
+        meta = path.lstat()
+        resolved = path.resolve(strict=True)
+        if (not stat.S_ISLNK(meta.st_mode) or meta.st_uid != 0
+                or not resolved.is_relative_to(root) or not resolved.is_dir()):
+            raise ValueError("unsafe DRM identity link")
+        return resolved
+
+    groups, identities, primary = {}, [], []
+    directory = sys_root / "class/drm"
+    with os.scandir(directory) as entries:
+        for count, entry in enumerate(entries, 1):
+            if count > 256:
+                raise ValueError("DRM enumeration exceeds its bound")
+            match = re.fullmatch(r"(card|renderD)([0-9]{1,5})", entry.name)
+            if match is None:
+                continue
+            minor = int(match[2])
+            if (match[1] == "card" and minor >= 64) or (match[1] == "renderD" and minor < 128):
+                raise ValueError("invalid DRM node number")
+            kernel = kernel_link(directory / entry.name, sys_root / "devices")
+            device = kernel_link(kernel / "device", sys_root / "devices")
+            if attribute(kernel / "dev") != f"226:{minor}":
+                raise ValueError("DRM sysfs identity disagrees with node name")
+            node = dev_root / "dri" / entry.name
+            meta = node.lstat()
+            if (not stat.S_ISCHR(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o7111
+                    or node.resolve(strict=True) != node or meta.st_rdev != os.makedev(226, minor)):
+                raise ValueError("invalid compositor DRM device identity")
+            if match[1] == "card":
+                primary.append(node)
+            try:
+                vendor = attribute(device / "vendor")
+            except FileNotFoundError:
+                continue  # Non-PCI renderers cannot satisfy an Intel request.
+            if vendor != "0x8086":
+                continue
+            driver = kernel_link(device / "driver", sys_root / "bus").name
+            if driver not in {"i915", "xe"} or re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]", device.name) is None:
+                raise ValueError("Intel compositor driver/PCI identity is invalid")
+            groups.setdefault(device.name, {}).setdefault(match[1], []).append(node)
+            identities.append((node, (meta.st_dev, meta.st_ino, meta.st_rdev)))
+    if len(groups) != 1:
+        raise ValueError("compositor requires one unambiguous Intel PCI device")
+    pci, pair = next(iter(groups.items()))
+    if len(pair.get("card", ())) != 1 or len(pair.get("renderD", ())) != 1:
+        raise ValueError("Intel compositor primary/render pair is incomplete")
+    return pci, pair["card"][0], pair["renderD"][0], tuple(identities), tuple(sorted(primary))
+
+
+def compositor_environment(source, home, policy, *, dev_root=Path("__INSTALLER_PATH_DIR_DEV__"),
+                           sys_root=Path("__INSTALLER_PATH_DIR_SYS__")):
+    environment = {key: value for key, value in source.items() if key not in COMPOSITOR_SELECTORS}
+    environment["WLR_RENDERER"] = policy["LABWC_WLR_RENDERER"]
+    for key in ("WLR_EGL_NO_MODIFIERS", "WLR_DRM_NO_MODIFIERS", "WLR_DRM_NO_ATOMIC"):
+        if policy.get("LABWC_" + key, "0") == "1":
+            environment[key] = "1"
+    mode = policy.get("LABWC_COMPOSITOR_GPU", "auto")
+    intel = mode == "intel" or policy["LABWC_INTEL_ACCELERATION_AVAILABLE"] == "true"
+    pci, identities = "auto", ()
+    if intel:
+        pci, card, render, identities, primary = compositor_intel_devices(dev_root, sys_root)
+        # Explicit Intel-only profiles own Intel outputs. Auto keeps the
+        # other output backends available, with Intel first for allocation.
+        backends = [card] if mode == "intel" else [card, *(p for p in primary if p != card)]
+        environment["WLR_DRM_DEVICES"] = ":".join(map(str, backends))
+        environment["WLR_RENDER_DRM_DEVICE"] = str(render)
+    raw_home = source.get("XDG_CONFIG_HOME", str(home / ".config"))
+    roots = []
+    if raw_home:
+        if not Path(raw_home).is_absolute() or any(char in raw_home for char in "$~:"):
+            raise ValueError("compositor configuration home must be an absolute literal path")
+        roots.append(Path(raw_home) / "labwc")
+    raw_dirs = source.get("XDG_CONFIG_DIRS", "__INSTALLER_PATH_DIR_ETC__/xdg")
+    config_dirs = raw_dirs.split(":") if raw_dirs else []
+    if len(config_dirs) > 16:
+        raise ValueError("too many compositor configuration directories")
+    for value in config_dirs:
+        if not value or not Path(value).is_absolute() or any(char in value for char in "$~"):
+            raise ValueError("invalid compositor configuration directory")
+        roots.append(Path(value) / "labwc")
+    files = []
+    for root in dict.fromkeys(roots):
+        fragments = list(itertools.islice((root / "environment.d").glob("*.env"), 65))
+        if len(fragments) > 63:
+            raise ValueError("too many compositor environment files")
+        candidate = root / "environment"
+        # Labwc without --merge-config uses the first directory with either
+        # environment or environment.d/*.env, not every XDG directory.
+        if candidate.exists() or candidate.is_symlink() or fragments:
+            files = [candidate, *sorted(fragments)]
+            break
+    for path in files:
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        except FileNotFoundError:
+            continue
+        try:
+            meta = os.fstat(fd)
+            if (not stat.S_ISREG(meta.st_mode) or meta.st_uid not in {0, os.getuid()}
+                    or meta.st_mode & 0o022):
+                raise ValueError("unsafe compositor environment file")
+            data = os.read(fd, 64 * 1024 + 1)
+            if len(data) > 64 * 1024:
+                raise ValueError("compositor environment file exceeds its bound")
+            for line in data.decode("utf-8").splitlines():
+                key, separator, value = line.partition("=")
+                key = key.strip()
+                if separator and key in COMPOSITOR_SELECTORS:
+                    # Labwc trims whitespace but does not parse shell quotes,
+                    # export prefixes or trailing comments. Reserved selectors
+                    # must be literal policy values, with no later expansion.
+                    if value.strip() != environment.get(key):
+                        raise ValueError("conflicting compositor environment assignment: " + key)
+        finally:
+            os.close(fd)
+    for node, identity in identities:
+        meta = node.lstat()
+        if (meta.st_dev, meta.st_ino, meta.st_rdev) != identity:
+            raise ValueError("compositor DRM device replaced during selection")
+    print("labwc-compositor: policy_gpu=" + mode + " intel_pci=" + pci +
+          " backend_devices=" + environment.get("WLR_DRM_DEVICES", "auto") +
+          " render_device=" + environment.get("WLR_RENDER_DRM_DEVICE", "auto") +
+          " renderer=" + environment["WLR_RENDERER"] +
+          " egl_modifiers=" + ("disabled" if environment.get("WLR_EGL_NO_MODIFIERS") == "1" else "default") +
+          " drm_modifiers=" + ("disabled" if environment.get("WLR_DRM_NO_MODIFIERS") == "1" else "default"),
+          file=sys.stderr, flush=True)
+    return environment
 
 
 def kwallet_ready() -> int:
@@ -52,25 +244,9 @@ def main(args: list[str]) -> int:
         config = Path.home() / ".config/labwc/rc.xml"
         if not os.access(config, os.R_OK):
             return 1
-        environment = dict(os.environ)
-        # Only this compositor receives the wlroots workaround. Do not import
-        # it into the user manager or change any private compatibility runtime.
-        for name in ("WLR_EGL_NO_MODIFIERS", "WLR_DRM_NO_MODIFIERS"):
-            environment.pop(name, None)
-        try:
-            with open("__INSTALLER_PATH_DIR_PROC__/driver/nvidia/version", encoding="ascii") as stream:
-                legacy_nvidia = re.search(r"\b580\.", stream.read(4096)) is not None
-        except FileNotFoundError:
-            legacy_nvidia = False
-        if legacy_nvidia:
-            # DRM plane modifiers and EGL client-buffer imports are separate.
-            # Retain the DRM workaround for the hardware canary, but let EGL
-            # import modifier-bearing client buffers through its default path.
-            environment["WLR_DRM_NO_MODIFIERS"] = "1"
-            print("labwc-compositor: loaded_driver=nvidia-580 egl_modifiers=default drm_modifiers=disabled",
-                  file=sys.stderr, flush=True)
+        environment = compositor_environment(dict(os.environ), Path.home(), compositor_policy())
         executable = "__INSTALLER_PATH_DIR_USR_BIN__/labwc"
-        os.execve(executable, [executable, "--config", str(config), "--startup",
+        os.execve(executable, [executable, "--verbose", "--config", str(config), "--startup",
                               "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-autostart"], environment)
     elif args == ["session-ready"]:
         runtime = os.environ.get("XDG_RUNTIME_DIR", "")
@@ -130,5 +306,7 @@ def main(args: list[str]) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main(sys.argv[1:]))
-    except (OSError, subprocess.TimeoutExpired, ValueError):
+    except (OSError, subprocess.TimeoutExpired, ValueError) as error:
+        print("labwc-session-check: " + str(error).encode("unicode_escape").decode("ascii")[:384],
+              file=sys.stderr)
         raise SystemExit(1)
