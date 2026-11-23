@@ -1,4 +1,5 @@
 # Static inspection plus controlled isolated native validation
+No Subagents are to be used across this code base!
 
 ## Host scratch storage prohibition
 
