@@ -5,6 +5,13 @@ module(load="imuxsock" SysSock.Use="on" SysSock.IgnoreOwnMessages="on"
        SysSock.Annotate="on" SysSock.ParseTrusted="on" SysSock.UsePIDFromSystem="on"
        SysSock.FlowControl="off" SysSock.RateLimit.Interval="0")
 module(load="imklog")
+module(load="imjournal" StateFile="__INSTALLER_LOG_RSYSLOG_SPOOL_DIR__/auth-journal.state"
+       FileCreateMode="0600" PersistStateInterval="64" IgnorePreviousMessages="off"
+       IgnoreNonValidStatefile="off" Ratelimit.Interval="0" UsePid="system")
+if ($inputname == "imjournal" and
+    $syslogfacility-text != "auth" and $syslogfacility-text != "authpriv") then {
+  stop
+}
 $FileOwner root
 $FileGroup adm
 $FileCreateMode 0640

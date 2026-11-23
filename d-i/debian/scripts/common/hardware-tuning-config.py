@@ -65,7 +65,7 @@ def boolean(value: str) -> bool:
 def policy(environment: dict, vendor: str, settings: dict) -> dict:
     from common import validate_policy
     prefix = PREFIXES[vendor]
-    suffixes = {"ENABLE", "ALLOW_OVERCLOCK", "ALLOW_POWER_INCREASE", "EXCLUSIVE_CLOCK_CONTROL", "MAX_TEMPERATURE_C"}
+    suffixes = {"ENABLE", "ALLOW_OVERCLOCK", "ALLOW_POWER_INCREASE", "EXCLUSIVE_CLOCK_CONTROL"}
     suffixes.update(profile.upper() + "_" + setting for profile in PROFILES for setting in settings)
     if vendor == "intel":
         suffixes.add("ALLOW_VERIFIED_BOUNDS")
@@ -77,7 +77,6 @@ def policy(environment: dict, vendor: str, settings: dict) -> dict:
         "allow_overclock": boolean(environment[prefix + "ALLOW_OVERCLOCK"]),
         "allow_power_increase": boolean(environment[prefix + "ALLOW_POWER_INCREASE"]),
         "exclusive_clock_control": boolean(environment[prefix + "EXCLUSIVE_CLOCK_CONTROL"]),
-        "max_temperature_c": int(environment[prefix + "MAX_TEMPERATURE_C"]),
         "profiles": {}}
     if vendor == "intel":
         result["allow_verified_bounds"] = boolean(environment[prefix + "ALLOW_VERIFIED_BOUNDS"])

@@ -76,7 +76,7 @@ def package_activation(root):
 
 def simple_policy(settings):
     return {"version": 1, "allow_overclock": False, "allow_power_increase": False,
-            "exclusive_clock_control": False, "max_temperature_c": 85,
+            "exclusive_clock_control": False,
             "profiles": {name: {"knobs": {k: v[i] for k, v in settings.items()}, "overrides": {}}
                          for i, name in enumerate(common.PROFILES)}}
 
@@ -117,7 +117,7 @@ class FakeBackend:
 
 
 class PolicyTests(unittest.TestCase):
-    def test_boot_profiles_disable_cross_thread_policy_and_preserve_other_boundaries(self):
+    def test_boot_profiles_retain_automatic_mitigations_and_other_boundaries(self):
         profiles = sorted((FORKY / "hosts/profiles").glob("*.env"))
         self.assertEqual(len(profiles), 10)
         for path in profiles:
@@ -133,7 +133,7 @@ class PolicyTests(unittest.TestCase):
                 with self.subTest(path=path.name, profile=profile):
                     flags = values["GRUB_SECURITY_CORE_FLAGS"] + values[f"GRUB_PROFILE_{profile}_FLAGS"]
                     self.assertEqual([flag for flag in flags if flag.startswith("mitigations=")],
-                                     ["mitigations=auto,no_cross_thread"])
+                                     ["mitigations=auto"])
                     self.assertEqual([flag for flag in flags if flag.startswith("pti=")], ["pti=auto"])
                     self.assertFalse(any("nosmt" in flag or flag.startswith("smt=") for flag in flags))
                     self.assertFalse(any(vector in flag for flag in flags for vector in
@@ -160,24 +160,18 @@ class PolicyTests(unittest.TestCase):
                         for i, profile in enumerate(common.PROFILES):
                             self.assertEqual(value["profiles"][profile]["knobs"], {k: vals[i] for k, vals in module.SETTINGS.items()})
                 self.assertEqual(env["HARDWARE_TUNING_AUTOSTART_ENABLE"], str(path.stem in enabled).lower())
-                self.assertEqual(env["HARDWARE_TUNING_IDLE_AC"], "performance" if path.stem in enabled else "balanced")
+                self.assertEqual(env["HARDWARE_TUNING_IDLE_AC"], "balanced")
                 self.assertEqual(env["HARDWARE_TUNING_IDLE_BATTERY"], "silent")
 
-    def test_ac_laptop_pairs_preserve_policy_and_explicit_thermal_limits(self):
-        for name, floor, temperature, duo_temperature in (("p15s", "100", "99", "99"),
-                                                         ("flex", "100", "99", "99")):
+    def test_ac_laptop_pairs_preserve_policy_without_temperature_ceilings(self):
+        for name in ("p15s", "flex"):
             env = environment("btrfs-de-" + name)
             duo = environment("btrfs-de-" + name + "-duo")
             prefix = installer.PREFIXES["intel"]
-            self.assertEqual(env[prefix + "MAX_TEMPERATURE_C"], temperature)
-            self.assertEqual(duo[prefix + "MAX_TEMPERATURE_C"], duo_temperature)
-            if name == "p15s":
-                self.assertEqual(env[installer.PREFIXES["nvidia"] + "MAX_TEMPERATURE_C"], "85")
-                self.assertEqual(duo[installer.PREFIXES["nvidia"] + "MAX_TEMPERATURE_C"], "85")
-            duo[prefix + "MAX_TEMPERATURE_C"] = temperature
+            self.assertFalse(any(key.endswith("MAX_TEMPERATURE_C") for key in env))
             self.assertEqual(env, duo)
-            self.assertEqual(env[prefix + "PERFORMANCE_CPU_MIN_PERF_PCT"], floor)
-            self.assertEqual(env[prefix + "HIGH_CPU_MIN_PERF_PCT"], "100")
+            self.assertEqual(env[prefix + "PERFORMANCE_CPU_MIN_PERF_PCT"], "min")
+            self.assertEqual(env[prefix + "HIGH_CPU_MIN_PERF_PCT"], "min")
             self.assertEqual(env[prefix + "PERFORMANCE_CPU_GOVERNOR"], "performance")
             for profile, platform, up, down in (("PERFORMANCE", "performance", "80", "60"),
                                                ("HIGH", "performance", "90", "75"),
@@ -188,10 +182,10 @@ class PolicyTests(unittest.TestCase):
                 self.assertEqual(env[prefix + profile + "_GPU_RPS_DOWN_THRESHOLD_PCT"], down)
             for profile in ("PERFORMANCE", "HIGH"):
                 for setting, value in (("CPU_GOVERNOR", "performance"),
-                                       ("CPU_MIN_PERF_PCT", "100"),
-                                       ("UNCORE_MIN_FREQ_KHZ", "max"),
+                                       ("CPU_MIN_PERF_PCT", "min"),
+                                       ("UNCORE_MIN_FREQ_KHZ", "min"),
                                        ("UNCORE_MAX_FREQ_KHZ", "max"),
-                                       ("GPU_MIN_FREQ_MHZ", "max"),
+                                       ("GPU_MIN_FREQ_MHZ", "min"),
                                        ("CPU_EPP", "performance"), ("CPU_EPB", "0"),
                                        ("CPU_MAX_PERF_PCT", "100"), ("CPU_NO_TURBO", "0"),
                                        ("CPU_HWP_DYNAMIC_BOOST", "1")):
@@ -256,21 +250,16 @@ class PolicyTests(unittest.TestCase):
 
     def test_strict_schema_types(self):
         settings = {"X": ("keep",) * 4}
-        for key, bad in (("version", True), ("allow_overclock", "true"), ("max_temperature_c", "85"), ("max_temperature_c", 100)):
+        for key, bad in (("version", True), ("allow_overclock", "true"), ("max_temperature_c", 85)):
             value = simple_policy(settings)
             value[key] = bad
             with self.subTest(key=key, bad=bad), self.assertRaises(common.TuningError):
                 common.validate_policy(value, settings)
 
-    def test_both_vendor_guards_accept_99_and_reject_100_or_110(self):
-        for settings, ceiling in ((intel.SETTINGS, 99), (nvidia.SETTINGS, 99)):
+    def test_both_vendor_policies_have_no_temperature_ceiling(self):
+        for settings in (intel.SETTINGS, nvidia.SETTINGS):
             value = simple_policy(settings)
-            value["max_temperature_c"] = ceiling
-            self.assertEqual(common.validate_policy(value, settings)["max_temperature_c"], ceiling)
-            for invalid in (ceiling + 1, 110):
-                value["max_temperature_c"] = invalid
-                with self.subTest(ceiling=ceiling, invalid=invalid), self.assertRaises(common.TuningError):
-                    common.validate_policy(value, settings)
+            self.assertNotIn("max_temperature_c", common.validate_policy(value, settings))
 
     def test_semantic_value_injection_and_unknown_override_are_rejected(self):
         for bad in ("10\n20", "/sys/devices/foo", "$(id)", "1 2", True, 10):
@@ -684,35 +673,32 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(set(control["profiles"]), set(common.PROFILES))
         self.assertEqual(control["profiles"]["balanced"]["resolved"], None)
 
-    def test_thermal_interlock_rejects_before_any_write(self):
+    def test_hot_sensor_is_telemetry_and_does_not_block_a_profile(self):
         self.backend.add("x", "X", 1)
-        self.backend.temperature_value = 90
+        self.backend.temperature_value = 100
         settings = {"X": ("9",) * 4}
-        with self.assertRaisesRegex(common.TuningError, "thermal"):
-            self.make(settings).apply("high", settings)
-        self.assertEqual(self.backend.writes, [])
+        result = self.make(settings).apply("high", settings)
+        self.assertEqual(result["temperature_c"], 100)
+        self.assertEqual(self.backend.values["x"], 9)
 
-    def test_99_degree_guard_accepts_captured_93_and_preserves_apply_and_health_trip(self):
+    def test_temperature_changes_do_not_latch_faults_and_reset_still_restores(self):
         self.backend.add("x", "X", 1)
         settings = {"X": ("9",) * 4}
         policy = simple_policy(settings)
-        policy["max_temperature_c"] = 99
         common.validate_policy(policy, settings)
         work = engine.Engine(self.backend, self.path, policy)
         self.backend.temperature_value = 93.0
         work.apply("high", settings)
         self.assertEqual(self.backend.values["x"], 9)
         self.assertEqual(work.health()["conflicts"], [])
-        self.backend.temperature_value = 99.0
-        self.assertIn("thermal interlock: 99.0 C >= 99 C", work.health()["conflicts"])
+        self.backend.temperature_value = 100.0
+        self.assertEqual(work.health()["conflicts"], [])
         work.reset()
         self.assertEqual(self.backend.values["x"], 1)
-        writes = list(self.backend.writes)
-        with self.assertRaisesRegex(common.TuningError, "thermal"):
-            work.apply("high", settings)
-        self.assertEqual(self.backend.writes, writes)
+        work.apply("high", settings)
+        self.assertEqual(self.backend.values["x"], 9)
 
-    def test_positive_offset_requires_opt_in_and_temperature(self):
+    def test_positive_offset_requires_opt_in_with_observational_temperature(self):
         self.backend.add("x", "X", 0, -200, 200, overclock=True)
         settings = {"X": ("100",) * 4}
         work = self.make(settings)
@@ -720,9 +706,6 @@ class EngineTests(unittest.TestCase):
             work.apply("high", settings)
         work.policy["allow_overclock"] = True
         self.backend.temperature_value = None
-        with self.assertRaisesRegex(common.TuningError, "temperature sensor"):
-            work.apply("high", settings)
-        self.backend.temperature_value = 35
         work.apply("high", settings)
         self.assertEqual(self.backend.values["x"], 100)
 
@@ -776,7 +759,7 @@ class EngineTests(unittest.TestCase):
                 work.plan("high", settings)
         self.assertEqual(self.backend.writes, [])
 
-    def test_conditional_power_request_retains_permission_thermal_and_recovery_gates(self):
+    def test_conditional_power_request_retains_permission_and_recovery_gates(self):
         self.backend.add("power", "POWER_LIMIT_MW", 25, 10, 35, power_default=25)
         settings = {"POWER_LIMIT_MW": ("keep",) * 4}
         work = self.make(settings)
@@ -786,10 +769,6 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(self.backend.writes, [])
         work.policy["allow_power_increase"] = True
         self.backend.temperature_value = None
-        with self.assertRaisesRegex(common.TuningError, "readable temperature"):
-            work.apply("high", settings)
-        self.assertEqual(self.backend.writes, [])
-        self.backend.temperature_value = 35
         work.apply("high", settings)
         self.assertEqual(self.backend.values["power"], 35)
         work.reset()
@@ -1717,7 +1696,7 @@ class ReviewHardeningTests(unittest.TestCase):
             self.assertEqual(hardware.values["power"], 25)
             self.assertEqual(work.journal["entries"], [])
 
-    def test_temperature_disappearance_while_overclocking_trips_interlock(self):
+    def test_temperature_disappearance_retains_telemetry_and_owned_recovery(self):
         with private_temp() as temporary:
             hardware = FakeBackend()
             hardware.add("offset", "GPU_OFFSET_MHZ", 0, -200, 200, overclock=True)
@@ -1726,7 +1705,8 @@ class ReviewHardeningTests(unittest.TestCase):
             work = engine.Engine(hardware, Path(temporary) / "journal.json", policy)
             work.apply("high", settings)
             hardware.temperature_value = None
-            self.assertIn("thermal sensor disappeared", work.health()["conflicts"][0])
+            self.assertEqual(work.health()["conflicts"], [])
+            self.assertFalse(work.health()["temperature_available"])
             work.reset()
             self.assertEqual(hardware.values["offset"], 0)
 

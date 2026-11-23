@@ -432,19 +432,23 @@ class AuthenticationRoutingTests(unittest.TestCase):
                         .replace('dirGroup="logreader"', f'dirGroup="{group}"'))
 
             auth = private(read_text(TARGET / 'etc/rsyslog.d/20-auth.conf'))
+            # This private socket simulates imjournal's trusted metadata only.
+            # It does not prove journald attestation, replay or live PAM logs.
+            auth = (auth.replace('$inputname == "imuxsock"', '$programname == "fixture-forwarded"')
+                    .replace('$inputname == "imjournal"', '$inputname == "imuxsock"'))
             declarations, auth_rule = auth.split('\nif (', 1)
             app_policy = private(read_text(TARGET / 'etc/rsyslog.d/21-apps.conf'))
             boundary = app_policy.index('\n# No call from the journal-forwarding ruleset:')
             apps, journal_stop = app_policy[:boundary], app_policy[boundary:]
             # Only origin metadata is simulated. This never invokes sudo, PAM,
             # a journal, a real security engine or an installed managed helper.
-            origin = '''set $!uid = "1000";
-set $!pid = "123";
-unset $!exe;
-if ($programname == "fixture-sudo") then { set $!exe = "/usr/bin/sudo"; }
-if ($programname == "fixture-root") then { set $!uid = "0"; }
-if ($programname == "fixture-logger") then { set $!exe = "/usr/bin/logger"; }
-if ($programname == "fixture-missing-uid") then { unset $!uid; }
+            origin = '''set $!_UID = "1000";
+set $!_PID = "123";
+unset $!_EXE;
+if ($programname == "fixture-sudo") then { set $!_EXE = "/usr/bin/sudo"; }
+if ($programname == "fixture-root") then { set $!_UID = "0"; }
+if ($programname == "fixture-logger") then { set $!_EXE = "/usr/bin/logger"; }
+if ($programname == "fixture-missing-uid") then { unset $!_UID; }
 '''
             auth_socket, app_socket = root / 'auth.sock', root / 'app.sock'
             configuration = (f'global(workDirectory="{spool}")\n'
@@ -494,6 +498,7 @@ if ($programname == "fixture-missing-uid") then { unset $!uid; }
                         for program, priority, message, _destination in records:
                             sender.sendto(f'<{priority}>{program}[123]: {message}'.encode(), str(auth_socket))
                         sender.sendto(b'<86>sudo[123]: private-app authentication failure', str(app_socket))
+                        sender.sendto(b'<86>fixture-forwarded[123]: duplicate-socket-copy', str(auth_socket))
                     wait_for(lambda: all(message in paths[destination].read_text()
                                          for _program, _priority, message, destination in records)
                              and 'private-app' in paths['apps.log'].read_text())
@@ -515,6 +520,8 @@ if ($programname == "fixture-missing-uid") then { unset $!uid; }
             self.assertNotIn('origin=unverified-auth', paths['auth.log'].read_text())
             self.assertEqual(paths['signal'].read_text(), 'auth\nauth\n')
             self.assertEqual(len(paths['apps.log'].read_text().splitlines()), 1)
+            for name in ('auth.log', 'unverified.log', 'apps.log'):
+                self.assertNotIn('duplicate-socket-copy', paths[name].read_text())
 
 
 def exercise_native_rsyslog(case: unittest.TestCase) -> None:

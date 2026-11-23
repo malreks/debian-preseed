@@ -1,7 +1,13 @@
 # Only local, kernel-attested privileged authentication enters CrowdSec input.
 # Tags and message text alone never authorize a remediation input.
 if ($syslogfacility-text == "auth" or $syslogfacility-text == "authpriv") then {
-  if ($inputname == "imuxsock" and exists($!uid) and exists($!pid) and
+  if ($inputname == "imuxsock") then { stop }
+  if ($inputname == "imjournal") then {
+    set $!uid = $!_UID;
+    set $!pid = $!_PID;
+    set $!exe = $!_EXE;
+  }
+  if ($inputname == "imjournal" and exists($!_UID) and exists($!_PID) and
       ($!uid == "0" or $!exe == "__INSTALLER_PATH_DIR_USR_BIN__/su" or
        $!exe == "__INSTALLER_PATH_DIR_USR_BIN__/sudo" or
        $!exe == "__INSTALLER_PATH_DIR_USR_SBIN__/sshd" or

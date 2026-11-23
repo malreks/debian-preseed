@@ -260,8 +260,7 @@ class Knob:
 
 
 def validate_policy(data: Any, settings: dict[str, tuple[str, ...]]) -> dict[str, Any]:
-    fields = {"version", "allow_overclock", "allow_power_increase", "exclusive_clock_control",
-              "max_temperature_c", "profiles"}
+    fields = {"version", "allow_overclock", "allow_power_increase", "exclusive_clock_control", "profiles"}
     optional = {"allow_verified_bounds", "verified_bounds"}
     if (not isinstance(data, dict) or not fields <= set(data) or set(data) - fields - optional
             or type(data["version"]) is not int or data["version"] != 1):
@@ -285,10 +284,6 @@ def validate_policy(data: Any, settings: dict[str, tuple[str, ...]]) -> dict[str
     for key in ("allow_overclock", "allow_power_increase", "exclusive_clock_control"):
         if type(data[key]) is not bool:
             raise TuningError(f"{key} must be a JSON boolean")
-    if type(data["max_temperature_c"]) is not int:
-        raise TuningError("max_temperature_c must be a JSON integer")
-    # This software interlock does not alter driver/firmware thermal limits.
-    integer(data["max_temperature_c"], 50, 99)
     if not isinstance(data["profiles"], dict) or set(data["profiles"]) != set(PROFILES):
         raise TuningError("all four profiles must be specified")
     for profile_name, profile in data["profiles"].items():

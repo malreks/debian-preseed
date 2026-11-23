@@ -1,9 +1,8 @@
-# Local socket transport; no journal database reader, cursor or network input.
-# journald forwards original SCM_CREDENTIALS. Only
-# kernel-attested uid/pid and live /proc executable identity are used as trust
-# evidence; application tags are routing hints, never authorization.
-# Socket forwarding has no replay after collector downtime. The host-selected
-# journal storage policy remains independent and retains structured records.
+# Socket transport owns ordinary system messages. Authentication alone uses
+# the structured journal's saved trusted credentials/executable, avoiding the
+# later /proc lookup race for short-lived PAM/sudo senders. Its private cursor
+# permits catch-up after collector downtime. Auth socket copies are discarded
+# by 20-auth; all other journal copies stop here, before the shared routes.
 # Forwarding starts only after rsyslog is ready and stops before an orderly
 # collector stop; early boot records remain in the journal without replay.
 # Private application inputs write only their file sinks, at every severity.
@@ -20,6 +19,13 @@ module(load="imuxsock" SysSock.Use="on" SysSock.IgnoreOwnMessages="on"
        SysSock.RateLimit.Severity="5")
 # journald ReadKMsg=no: imklog remains the single managed kernel-log input.
 module(load="imklog")
+module(load="imjournal" StateFile="__INSTALLER_LOG_RSYSLOG_SPOOL_DIR__/auth-journal.state"
+       FileCreateMode="0600" PersistStateInterval="64" IgnorePreviousMessages="off"
+       IgnoreNonValidStatefile="off" Ratelimit.Interval="0" UsePid="system")
+if ($inputname == "imjournal" and
+    $syslogfacility-text != "auth" and $syslogfacility-text != "authpriv") then {
+  stop
+}
 $FileOwner __INSTALLER_LOG_OWNER__
 $FileGroup __INSTALLER_LOG_GROUP__
 $FileCreateMode __INSTALLER_LOG_FILE_MODE__

@@ -20,7 +20,7 @@ from unittest import mock
 from payload_fixture import python_library
 TARGET = Path(__file__).resolve().parents[1] / "hooks/target"
 sys.path.insert(0, str(python_library(TARGET / "usr/local/lib/python3/dist-packages")))
-from labwc_managed_app import gpu
+from labwc_managed_app import gpu, mounts
 
 
 class NativeGPUSelection(unittest.TestCase):
@@ -78,6 +78,14 @@ class NativeGPUSelection(unittest.TestCase):
                       st_rdev=os.makedev(*self.nodes[path]))
         return types.SimpleNamespace(**fields)
 
+    def primary(self, minor, device):
+        node = self.node(f"dri/card{minor}", 226, minor)
+        entry = device / "drm" / node.name
+        entry.mkdir(parents=True)
+        (entry / "dev").write_text(f"226:{minor}\n", encoding="ascii")
+        (self.sys / "class/drm" / node.name).symlink_to(entry, target_is_directory=True)
+        return node
+
     def select(self, mode):
         with mock.patch.object(Path, "lstat", lambda path, **kw: self.metadata(path, **kw)):
             return gpu.select(mode, dev_root=self.dev, sys_root=self.sys, proc_root=self.proc,
@@ -98,10 +106,13 @@ class NativeGPUSelection(unittest.TestCase):
                     with mock.patch.object(Path, "lstat", lambda path, **kw: self.metadata(path, **kw)):
                         selected.add_binds(command, dev_root=self.dev)
                     self.assertIn("/dev/dri/" + node.name, command)
-                    self.assertNotIn("/dev/dri/" + (intel_node if mode == "nvidia" else nvidia_node).name, command)
+                    other_node = intel_node if mode == "nvidia" else nvidia_node
+                    other_index = command.index(str(other_node))
+                    self.assertEqual(command[other_index - 1], "--ro-bind")
                     if mode == "nvidia":
                         self.assertEqual(command, [
                             "--dir", "/dev/dri",
+                            "--ro-bind", str(intel_node), "/dev/dri/" + intel_node.name,
                             "--dev-bind", str(nvidia_node), "/dev/dri/" + nvidia_node.name,
                             "--dev-bind", str(self.dev / "nvidiactl"), "/dev/nvidiactl",
                             "--dev-bind", str(self.dev / "nvidia2"), "/dev/nvidia2",
@@ -203,6 +214,57 @@ class NativeGPUSelection(unittest.TestCase):
                                                "--", "--render-node-override=operand"])
         self.assertEqual(result, ["browser", "--render-node-override=" + str(selected.node),
                                   "--", "--render-node-override=operand"])
+
+    def test_hybrid_main_device_metadata_does_not_grant_other_renderer(self):
+        intel, intel_device = self.render(131, "0000:00:02.0", "0x8086", "i915")
+        nvidia, nvidia_device = self.render(128, "0000:2d:00.0", "0x10de", "nvidia")
+        primary = [self.primary(1, intel_device), self.primary(0, nvidia_device)]
+        selected = self.select("nvidia")
+        command = []
+        with mock.patch.object(Path, "lstat", lambda path, **kw: self.metadata(path, **kw)):
+            selected.add_binds(command, dev_root=self.dev)
+        for node in primary:
+            index = command.index(str(node))
+            self.assertEqual(command[index - 1], "--ro-bind")
+        self.assertEqual(command[command.index(str(intel)) - 1], "--ro-bind")
+        self.assertIn(str(nvidia), command)
+        mounts.validate_no_host_display_device_binds("vivaldi", command)
+        with mock.patch.object(mounts, "fail", side_effect=SystemExit), self.assertRaises(SystemExit):
+            mounts.validate_no_host_display_device_binds("vivaldi", ["--dev-bind", "/dev/dri/card0", "/dev/dri/card0"])
+        self.nodes[primary[0]] = (226, 7)
+        command = ["existing"]
+        with mock.patch.object(Path, "lstat", lambda path, **kw: self.metadata(path, **kw)):
+            with self.assertRaises(SystemExit): selected.add_binds(command, dev_root=self.dev)
+        self.assertEqual(command, ["existing"])
+
+    def test_reported_main_render_device_remains_discoverable_without_open_authority(self):
+        intel, intel_device = self.render(128, "0000:00:02.0", "0x8086", "i915")
+        nvidia, nvidia_device = self.render(129, "0000:2d:00.0", "0x10de", "nvidia")
+        self.primary(1, intel_device)
+        self.primary(0, nvidia_device)
+        selected = self.select("nvidia")
+        # wayland-info in the supplied debugsys capture reports main_device
+        # 0xE280 == makedev(226, 128), not either primary node's dev_t.
+        self.assertEqual(os.makedev(226, 128), 0xE280)
+        discovery = dict(selected.discovery)
+        self.assertEqual(discovery[intel][2], os.makedev(226, 128))
+        self.assertNotIn(nvidia, discovery)
+        self.assertEqual([p for p, _identity in selected.bindings],
+                         [nvidia, self.dev / "nvidiactl", self.dev / "nvidia2"])
+
+    def test_primary_metadata_requires_matching_kernel_identity(self):
+        _, device = self.render(128, "0000:00:02.0", "0x8086", "i915")
+        self.primary(0, device)
+        (device / "drm/card0/dev").write_text("226:1\n", encoding="ascii")
+        with self.assertRaises(SystemExit): self.select("intel")
+
+    def test_render_metadata_does_not_consume_the_primary_inventory_bound(self):
+        _, intel_device = self.render(128, "0000:00:02.0", "0x8086", "i915")
+        self.render(129, "0000:2d:00.0", "0x10de", "nvidia")
+        for minor in range(16):
+            self.primary(minor, intel_device)
+        selected = self.select("nvidia")
+        self.assertEqual(sum(path.name.startswith("card") for path, _identity in selected.discovery), 16)
 
 
 if __name__ == "__main__":

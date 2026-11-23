@@ -175,26 +175,19 @@ class PlatformTransactions(unittest.TestCase):
         self.assertEqual(self.hardware.values["gpu/min"], 100)
         self.assertFalse(self.tx.journal["entries"])
 
-    def test_performance_requires_thermal_coverage_before_mutation_and_during_ownership(self):
+    def test_missing_temperature_is_observational_before_and_during_ownership(self):
         self.hardware.temperature_value = None
-        with self.assertRaisesRegex(base.common.TuningError, "readable temperature"):
-            self.tx.apply("performance", self.settings)
-        self.assertFalse(self.hardware.writes)
-        self.hardware.temperature_value = 40
         self.tx.apply("performance", self.settings)
-        self.hardware.temperature_value = None
-        self.assertTrue(any("thermal sensor disappeared" in s for s in self.tx.health()["conflicts"]))
+        self.assertEqual(self.tx.health()["conflicts"], [])
+        self.assertFalse(self.tx.health()["temperature_available"])
 
-    def test_thermal_refusal_reports_reading_and_limit_before_any_mutation(self):
-        for temperature in (85, 91.25):
+    def test_hot_reading_is_reported_without_software_temperature_ceiling(self):
+        for temperature in (85, 91.25, 100):
             with self.subTest(temperature=temperature):
-                self.policy['max_temperature_c'] = 85
                 self.hardware.temperature_value = temperature
-                with self.assertRaisesRegex(base.common.TuningError,
-                                            rf'{temperature:g} C >= 85 C'):
-                    self.tx.apply('high', self.settings)
-                self.assertFalse(self.hardware.writes)
-                self.assertFalse(self.tx.journal['entries'])
+                self.assertEqual(self.tx.apply('high', self.settings)['temperature_c'], temperature)
+                self.assertEqual(self.tx.health()['conflicts'], [])
+                self.tx.reset()
 
     def test_rps_hysteresis_and_restore_order(self):
         hardware = base.FakeBackend()

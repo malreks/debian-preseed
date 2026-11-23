@@ -244,6 +244,8 @@ def systemd_command(command: tuple[str, ...], output_class: str | None) -> list[
     if nested_state:
         options.append("--setenv=LABWC_WAYBAR_ACTION_ID=" + invocation_id)
         options.append("--setenv=LABWC_WAYBAR_STATE_BUTTON=" + state_button)
+    if popup_owner:
+        options.append("--setenv=LABWC_WAYBAR_ACTION_ID=" + invocation_id)
     if command[:4] == ("__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal", "-e", "btop", "--config"):
         monitor = "CPU" if command[-1].endswith("btop-cpu.conf") else "Memory"
         options.append("--setenv=LABWC_TERMINAL_TITLE=Labwc-" + monitor + "-" + invocation_id[:8])

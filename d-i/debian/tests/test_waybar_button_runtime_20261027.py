@@ -528,16 +528,185 @@ class WaybarSeparationFixtures(unittest.TestCase):
                 count += 1
         self.assertEqual(count, 13)
 
-    def test_pointer_cursor_is_explicit_for_status_and_popup_controls(self):
+
+class PopupIdentityFixtures(unittest.TestCase):
+    """Actual helper and XML, mocked GTK/processes inside the isolated image."""
+
+    def toolkit(self, xml):
+        import xml.etree.ElementTree as ET
+
+        class Item:
+            def __init__(self, identity, submenu=False):
+                self.identity, self.submenu, self.callbacks = identity, submenu, {}
+
+            def get_name(self):
+                return 'GtkMenuItem'  # CSS name deliberately differs from XML ID.
+
+            def get_submenu(self):
+                return object() if self.submenu else None
+
+            def connect(self, event, callback, *data):
+                self.callbacks[event] = (callback, data)
+
+        class Separator(Item):
+            pass
+
+        class Menu:
+            def __init__(self, identity, _submenu=False):
+                self.identity, self.callbacks = identity, {}
+
+            def connect(self, event, callback, *data):
+                self.callbacks[event] = (callback, data)
+
+            def popdown(self):
+                for event in ('deactivate', 'selection-done', 'hide'):
+                    if event in self.callbacks:
+                        callback, data = self.callbacks[event]
+                        callback(self, *data)
+
+            def popup_at_pointer(self, _event):
+                pass
+
+        objects = {}
+        for element in ET.fromstring(xml).iter('object'):
+            kind, identity = element.get('class'), element.get('id')
+            if kind in ('GtkMenu', 'GtkMenuItem', 'GtkSeparatorMenuItem'):
+                cls = Menu if kind == 'GtkMenu' else Separator if kind == 'GtkSeparatorMenuItem' else Item
+                objects[identity] = cls(identity, element.find('./child[@type="submenu"]') is not None)
+        builder = SimpleNamespace(add_from_file=lambda _path: None,
+                                  get_object=objects.get, get_objects=lambda: list(objects.values()))
+        gtk = SimpleNamespace(Menu=Menu, MenuItem=Item, SeparatorMenuItem=Separator,
+                              Buildable=SimpleNamespace(get_name=lambda obj: obj.identity),
+                              Builder=lambda: builder,
+                              CssProvider=lambda: SimpleNamespace(load_from_path=lambda _path: None),
+                              StyleContext=SimpleNamespace(add_provider_for_screen=lambda *_args: None),
+                               STYLE_PROVIDER_PRIORITY_USER=800,
+                               get_current_event=lambda: None,
+                              main_level=lambda: 1, main_quit=mock.Mock())
+        glib = SimpleNamespace(PRIORITY_DEFAULT=0, child_watch_add=mock.Mock(),
+                               idle_add=mock.Mock())
+        gdk = SimpleNamespace(Screen=SimpleNamespace(get_default=lambda: object()),
+                              EventType=SimpleNamespace(BUTTON_PRESS=4))
+        return (gdk, glib, gtk, None), objects
+
+    def popup(self, button):
+        helper = load_helper('labwc-waybar-menu')
+        root = TARGET / 'etc/skel-desktop/.config/waybar'
+        text = rendered_path_text((root / 'modules' / (button + '.tmpl')).read_text())
+        module = json.loads(re.sub(r'__[A-Z0-9_]+__(?=\s*[,}\]])', '0', text))
+        entry = module['custom/' + button]
+        xml = (root / 'gtk' / (button + '-menu.xml.tmpl')).read_text()
+        toolkit, objects = self.toolkit(xml)
+        actions = {key: helper.fixed_action(value) for key, value in entry['menu-actions'].items()}
+        popup = helper.Popup(toolkit, button, Path('fixture.xml'), Path('fixture.css'), actions)
+        # Native layer-shell anchoring is exercised in the disconnected GTK
+        # guest; these fixtures isolate builder identity and dispatch ordering.
+        popup.prepare_surfaces = mock.Mock()
+        return helper, popup, objects
+
+    def test_all_four_action_maps_use_builder_leaf_ids_not_css_names(self):
+        for button in ('notifications', 'power', 'tomat', 'wayscriber'):
+            with self.subTest(button=button):
+                _helper, popup, objects = self.popup(button)
+                popup.activate()
+                bound = {identity for identity, obj in objects.items() if 'activate' in obj.callbacks}
+                self.assertEqual(bound, set(popup.actions))
+                for identity in bound:
+                    self.assertEqual(objects[identity].callbacks['activate'][1], (identity,))
+                popup.actions['not_an_xml_leaf'] = ['/not-executed']
+                with self.assertRaisesRegex(ValueError, 'leaves'):
+                    popup.activate()
+
+    def test_popdown_clears_exact_marker_but_waits_for_one_child_result(self):
+        helper, popup, objects = self.popup('wayscriber')
+        popup.activate()
+        child = SimpleNamespace(pid=1234, returncode=None)
+        with mock.patch.dict(os.environ, {'LABWC_WAYBAR_ACTION_ID': 'a' * 32}, clear=True), \
+                mock.patch.object(helper.subprocess, 'run') as clear, \
+                mock.patch.object(helper.subprocess, 'Popen', return_value=child) as start:
+            action_id = next(iter(popup.actions))
+            popup.action(objects[action_id], action_id)
+            popup.action(objects[action_id], action_id)
+            self.assertEqual(start.call_count, 1)
+            self.assertEqual(clear.call_count, 1)
+            self.assertEqual(clear.call_args.args[0][-3:], ['cleanup', 'wayscriber', 'a' * 32])
+            self.assertFalse(popup.done)
+            popup.Gtk.main_quit.assert_not_called()
+            popup.action_done(child.pid, 1 << 8)
+            self.assertEqual(popup.status, 3)
+            self.assertEqual(child.returncode, 1)
+            popup.Gtk.main_quit.assert_called_once()
+
+    def test_dismissal_and_marker_failure_have_distinct_results(self):
+        for error, status in ((None, 0), (OSError('fixture failure'), 3)):
+            _helper, popup, _objects = self.popup('wayscriber')
+            with mock.patch.dict(os.environ, {'LABWC_WAYBAR_ACTION_ID': 'b' * 32}, clear=True), \
+                    mock.patch.object(subprocess, 'run', side_effect=error) as clear, redirect_stderr(io.StringIO()):
+                popup.dismiss()
+                if error is None:
+                    self.assertFalse(popup.done)
+                    popup.dismissed()
+                popup.dismiss()  # Later GTK close/destroy callbacks must not retry.
+                clear.assert_called_once()
+            self.assertTrue(popup.done)
+            self.assertEqual(popup.status, status)
+
+    def test_gtk_deactivation_before_activation_does_not_discard_action(self):
+        helper, popup, objects = self.popup('wayscriber')
+        popup.activate()
+        child = SimpleNamespace(pid=1234, returncode=None)
+        with mock.patch.dict(os.environ, {'LABWC_WAYBAR_ACTION_ID': 'c' * 32}, clear=True), \
+                mock.patch.object(helper.subprocess, 'run') as clear, \
+                mock.patch.object(helper.subprocess, 'Popen', return_value=child) as start:
+            # GTK 3.24 gtk_menu_shell_activate_item deactivates before
+            # gtk_widget_activate emits the leaf's activation signal.
+            popup.menu.popdown()
+            self.assertFalse(popup.done)
+            self.assertTrue(popup.dismiss_pending)
+            popup.GLib.idle_add.assert_called_once_with(popup.dismissed)
+            action_id = next(iter(popup.actions))
+            popup.action(objects[action_id], action_id)
+            popup.dismissed()
+            self.assertFalse(popup.done)
+            start.assert_called_once()
+            clear.assert_called_once()
+            popup.action_done(child.pid, 0)
+            self.assertEqual(popup.status, 0)
+
+    def test_menu_grab_routes_anchor_click_through_its_release(self):
+        helper, popup, _objects = self.popup('wayscriber')
+        popup.activate()
+        anchor = SimpleNamespace(hide=mock.Mock(), destroy=mock.Mock())
+        popup.windows = [anchor]
+        event = SimpleNamespace(button=1, x=100, y=100)
+        with mock.patch.dict(os.environ, {'LABWC_WAYBAR_ACTION_ID': 'e' * 32}, clear=True), \
+                mock.patch.object(helper.subprocess, 'run') as clear, \
+                mock.patch.object(popup.Gtk, 'get_event_widget', create=True, return_value=anchor):
+            self.assertTrue(popup.menu_button_press(popup.menu, event))
+            self.assertEqual(popup.buttons, {1})
+            clear.assert_not_called()
+            self.assertTrue(popup.menu_button_release(popup.menu, event))
+            self.assertEqual(popup.buttons, set())
+            clear.assert_called_once()
+            popup.dismissed()
+            self.assertTrue(popup.done)
+            self.assertEqual(popup.status, 0)
+
+
+class WaybarMenuSourceFixtures(unittest.TestCase):
+
+    def test_cursor_retry_is_disabled_for_every_native_and_custom_module(self):
         root = TARGET / 'etc/skel-desktop/.config/waybar/modules'
-        expected = ('disk.tmpl', 'cpu.tmpl', 'memory.tmpl', 'backlight.tmpl',
-                    'power.tmpl', 'notifications.tmpl', 'tomat.tmpl')
-        for name in expected:
-            text = (root / name).read_text(encoding='utf-8')
+        # Both supplied crashes match the 0.15.0 setCursor timeout lambda at
+        # ELF offset 0xb11fd. Removing the key is insufficient: mouse enter
+        # and leave then invoke the same retry through the default path.
+        for path in sorted(root.glob('*.tmpl')):
+            text = path.read_text(encoding='utf-8')
             rendered = re.sub(r'__[A-Z0-9_]+__', '0', text)
             value = json.loads(rendered)
-            self.assertEqual(len(value), 1)
-            self.assertIs(value[next(iter(value))].get('cursor'), True)
+            for module_name, configuration in value.items():
+                with self.subTest(file=path.name, module=module_name):
+                    self.assertIs(configuration.get('cursor'), False)
 
     @staticmethod
     def dispatcher():

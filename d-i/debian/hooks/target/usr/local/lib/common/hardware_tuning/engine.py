@@ -64,17 +64,9 @@ class Engine:
             except (OSError, TuningError) as exc:
                 conflicts.append(str(exc))
         temperature = self.backend.temperature()
-        if temperature is None:
-            for entry in self.journal["entries"]:
-                knob = self.backend.knobs.get(entry["id"])
-                value = entry["requested"]
-                if knob and ((knob.setting == "PLATFORM_PROFILE" and value == "performance")
-                        or type(value) is int and ((knob.overclock and value > 0)
-                        or (knob.power_default is not None and value > knob.power_default))):
-                    conflicts.append("thermal sensor disappeared while an overclock/power increase is owned")
-                    break
-        if self.policy and temperature is not None and temperature >= self.policy["max_temperature_c"]:
-            conflicts.append(f"thermal interlock: {temperature} C >= {self.policy['max_temperature_c']} C")
+        # Temperature is telemetry. The broker does not impose a second
+        # ceiling or latch a fault from a hot/missing sensor; firmware, driver
+        # and thermald controls retain their existing protection authority.
         return {"conflicts": conflicts, "temperature_c": temperature,
                 "temperature_available": temperature is not None}
 
@@ -241,8 +233,6 @@ class Engine:
             value = profile["overrides"].get(key, profile["knobs"].get(knob.setting, "keep"))
             resolved = knob.resolve(value, self.policy)
             if resolved is not None:
-                if knob.setting == "TARGET_TEMPERATURE_C" and resolved > self.policy["max_temperature_c"]:
-                    raise TuningError("temperature target exceeds the thermal interlock")
                 # Retain even initially equal requests until coupling has been
                 # resolved: a preceding governor/turbo write may change them.
                 values[key] = resolved
@@ -284,18 +274,10 @@ class Engine:
             conflicts = self.health()["conflicts"]
             if conflicts:
                 self.reset()
-                raise TuningError("yielding to external/thermal policy: " + "; ".join(conflicts))
+                raise TuningError("yielding to external policy: " + "; ".join(conflicts))
             self.reset()
         values, skipped = self.plan(name, settings)
         temperature = self.backend.temperature()
-        if temperature is not None and temperature >= self.policy["max_temperature_c"]:
-            raise TuningError(f"thermal interlock prevents applying this profile: "
-                              f"{temperature:g} C >= {self.policy['max_temperature_c']} C")
-        risky = any(self.backend.knobs[k].overclock and v > 0 for k, v in values.items())
-        risky = risky or any(self.backend.knobs[k].power_default is not None and v > self.backend.knobs[k].power_default for k, v in values.items())
-        risky = risky or any(self.backend.knobs[k].setting == "PLATFORM_PROFILE" and v == "performance" for k, v in values.items())
-        if risky and temperature is None:
-            raise TuningError("overclock/power increases require a readable temperature sensor")
         # Snapshot only changed controls and their side-effect domains. Avoid
         # owning or repeatedly writing already-correct independent attributes.
         changed = {k for k, v in values.items()

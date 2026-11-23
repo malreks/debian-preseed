@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 import stat
@@ -28,6 +29,14 @@ POPUPS = {
 }
 MAX_CONFIG_BYTES = 256 * 1024
 MAX_MENU_BYTES = 512 * 1024
+MAX_MONITORS = 16
+
+
+def diagnostic(stage: str, error: Exception) -> None:
+    # GTK errors can contain newlines or hostile XML. Keep one bounded record.
+    message = str(error).encode("unicode_escape").decode("ascii")[:384]
+    print(f"labwc-waybar-menu: stage={stage} type={type(error).__name__} message={message}",
+          file=sys.stderr, flush=True)
 
 
 def secure_path(path: Path, *, directory: bool = False) -> Path:
@@ -122,7 +131,7 @@ def fixed_action(command: str) -> list[str]:
 
 class Popup:
     def __init__(self, toolkit, module_name: str, menu_path: Path, style_path: Path, actions: dict[str, list[str]]):
-        self.Gdk, self.GLib, self.Gtk = toolkit
+        self.Gdk, self.GLib, self.Gtk, self.LayerShell = toolkit
         self.module_name = module_name
         self.menu_path = menu_path
         self.style_path = style_path
@@ -131,6 +140,53 @@ class Popup:
         self.done = False
         self.status = 0
         self.child = None
+        self.dispatching = False
+        self.marker_cleared = False
+        self.dismiss_pending = False
+        self.windows = []
+        self.opened = False
+        self.buttons = set()
+
+    def dismiss(self, *_args) -> bool:
+        if self.done:
+            return False
+        # Reuse the transient's exact marker identity. ExecStopPost remains
+        # the cleanup fallback if GTK or this process is killed.
+        if not self.marker_cleared:
+            try:
+                invocation = os.environ.get("LABWC_WAYBAR_ACTION_ID", "")
+                if re.fullmatch(r"[0-9a-f]{32}", invocation) is None:
+                    raise ValueError("missing popup lifecycle identity")
+                subprocess.run(["__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state",
+                                "cleanup", self.module_name, invocation],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               timeout=2, check=True)
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                diagnostic("lifecycle", error)
+                return self.finish(3, False)
+            self.marker_cleared = True
+        # Native menus can close on the outside button press. Retain the
+        # transparent input surface through its release, so another Waybar
+        # release action cannot consume an unpaired dismissing click.
+        event = self.Gtk.get_current_event()
+        if event is not None and event.type == self.Gdk.EventType.BUTTON_PRESS:
+            self.buttons.add(event.button)
+        if not self.buttons:
+            for window in self.windows:
+                window.hide()
+        if not self.dispatching and not self.done and not self.dismiss_pending and not self.buttons:
+            # GtkMenuShell deactivates/hides before emitting the item's
+            # activate signal. Let that same event finish dispatching before
+            # deciding whether this was dismissal without an action.
+            self.dismiss_pending = True
+            self.GLib.idle_add(self.dismissed)
+        return False
+
+    def dismissed(self) -> bool:
+        self.dismiss_pending = False
+        if not self.dispatching and not self.buttons:
+            return self.finish(0, False)
+        return False
 
     def finish(self, status: int = 0, popdown: bool = True) -> bool:
         if self.done:
@@ -139,27 +195,149 @@ class Popup:
         self.status = status
         if popdown and self.menu is not None:
             self.menu.popdown()
+        for window in self.windows:
+            window.destroy()
         if self.Gtk.main_level():
             self.Gtk.main_quit()
         return False
 
-    def action(self, item) -> None:
-        action_id = item.get_name()
+    def pointer_entered(self, window, event) -> bool:
+        if self.done or self.opened:
+            return False
+        self.opened = True
+        self.LayerShell.set_keyboard_mode(window, self.LayerShell.KeyboardMode.EXCLUSIVE)
+        rectangle = self.Gdk.Rectangle()
+        rectangle.x, rectangle.y = int(event.x), int(event.y)
+        rectangle.width = rectangle.height = 1
+        self.menu.show_all()
+        self.menu.popup_at_rect(window.get_window(), rectangle,
+                                self.Gdk.Gravity.NORTH_WEST, self.Gdk.Gravity.NORTH_WEST, event)
+        return False
+
+    def outside_press(self, _window, event) -> bool:
+        self.buttons.add(event.button)
+        return True
+
+    def outside_release(self, _window, event) -> bool:
+        # Consume a complete outside click, never the opening button release.
+        if event.button in self.buttons:
+            self.buttons.remove(event.button)
+            if not self.buttons:
+                self.menu.popdown()
+                self.dismiss()
+        return True
+
+    def menu_button_press(self, _menu, event) -> bool:
+        # GTK's grab can redirect an anchor-window click to GtkMenu instead
+        # of emitting it on that window. Own dismissal on both recipients.
+        widget = self.Gtk.get_event_widget(event)
+        if (widget in self.windows or
+                (widget is self.menu and not (
+                    0 <= event.x < self.menu.get_allocated_width() and
+                    0 <= event.y < self.menu.get_allocated_height()))):
+            return self.outside_press(_menu, event)
+        return False
+
+    def menu_button_release(self, _menu, event) -> bool:
+        if event.button in self.buttons:
+            return self.outside_release(_menu, event)
+        return False
+
+    def key_pressed(self, _window, event) -> bool:
+        if event.keyval == self.Gdk.KEY_Escape:
+            self.menu.popdown()
+            self.dismiss()
+            return True
+        return False
+
+    def startup_expired(self) -> bool:
+        if (not self.done and not self.marker_cleared
+                and (not self.opened or not self.menu.get_mapped())):
+            diagnostic("anchor", ValueError("popup pointer surface unavailable"))
+            self.finish(3)
+        return False
+
+    def prepare_surfaces(self) -> None:
+        # This separate GTK process has no Waybar GdkWindow or input event.
+        # Own transparent layer surfaces, as the managed Waycal popup does,
+        # and anchor the unchanged native menu to the actual pointer enter.
+        display = self.Gdk.Display.get_default()
+        count = display.get_n_monitors()
+        if not self.LayerShell.is_supported() or not 1 <= count <= MAX_MONITORS:
+            raise ValueError("popup requires bounded Wayland layer-shell outputs")
+        screen = display.get_default_screen()
+        visual = screen.get_rgba_visual()
+        if visual is None:
+            raise ValueError("popup requires an RGBA visual")
+        provider = self.Gtk.CssProvider()
+        provider.load_from_data(b"window.waybar-popup-anchor { background: transparent; "
+                                b"box-shadow: none; border: none; }")
+        self.Gtk.StyleContext.add_provider_for_screen(
+            screen, provider, self.Gtk.STYLE_PROVIDER_PRIORITY_USER + 2)
+        display.connect("monitor-added", lambda *_args: self.finish(0))
+        display.connect("monitor-removed", lambda *_args: self.finish(0))
+        display.connect("closed", lambda *_args: self.finish(3, False))
+        for index in range(count):
+            monitor = display.get_monitor(index)
+            if monitor is None:
+                raise ValueError("popup output disappeared")
+            for name in ("geometry", "scale-factor"):
+                monitor.connect("notify::" + name, lambda *_args: self.finish(0))
+            monitor.connect("invalidate", lambda *_args: self.finish(0))
+            window = self.Gtk.Window(type=self.Gtk.WindowType.TOPLEVEL)
+            self.windows.append(window)
+            window.set_visual(visual)
+            window.set_decorated(False)
+            window.get_style_context().add_class("waybar-popup-anchor")
+            self.LayerShell.init_for_window(window)
+            self.LayerShell.set_namespace(window, "waybar-popup")
+            self.LayerShell.set_monitor(window, monitor)
+            self.LayerShell.set_layer(window, self.LayerShell.Layer.OVERLAY)
+            self.LayerShell.set_keyboard_mode(window, self.LayerShell.KeyboardMode.NONE)
+            self.LayerShell.set_exclusive_zone(window, -1)
+            for edge in (self.LayerShell.Edge.TOP, self.LayerShell.Edge.BOTTOM,
+                         self.LayerShell.Edge.LEFT, self.LayerShell.Edge.RIGHT):
+                self.LayerShell.set_anchor(window, edge, True)
+            if hasattr(self.LayerShell, "set_respect_close"):
+                self.LayerShell.set_respect_close(window, True)
+            window.add_events(self.Gdk.EventMask.ENTER_NOTIFY_MASK
+                              | self.Gdk.EventMask.BUTTON_PRESS_MASK
+                              | self.Gdk.EventMask.BUTTON_RELEASE_MASK
+                              | self.Gdk.EventMask.KEY_PRESS_MASK)
+            window.connect("enter-notify-event", self.pointer_entered)
+            window.connect("button-press-event", self.outside_press)
+            window.connect("button-release-event", self.outside_release)
+            window.connect("key-press-event", self.key_pressed)
+            window.connect("destroy", lambda *_args: self.finish(0))
+        for window in self.windows:
+            if not self.done:
+                window.show_all()
+        self.GLib.timeout_add(2000, self.startup_expired)
+
+    def action(self, _item, action_id: str) -> None:
+        if self.dispatching or self.done:
+            return
         command = self.actions.get(action_id)
         if command is None:
             self.finish(3)
             return
         try:
+            self.dispatching = True
             self.menu.popdown()
+            self.dismiss()
+            if self.done:
+                return
             self.child = subprocess.Popen(command, stdin=subprocess.DEVNULL,
-                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                          stdout=subprocess.DEVNULL,
                                           close_fds=True, start_new_session=True)
             self.GLib.child_watch_add(self.GLib.PRIORITY_DEFAULT, self.child.pid, self.action_done)
-        except (OSError, ValueError):
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            diagnostic("dispatch", error)
             self.finish(3)
 
     def action_done(self, _pid: int, status: int) -> bool:
-        self.finish(0 if os.waitstatus_to_exitcode(status) == 0 else 3)
+        self.child.returncode = os.waitstatus_to_exitcode(status)
+        self.finish(0 if self.child.returncode == 0 else 3)
         return False
 
     def activate(self) -> None:
@@ -173,20 +351,26 @@ class Popup:
         builder = self.Gtk.Builder()
         builder.add_from_file(str(self.menu_path))
         self.menu = builder.get_object("menu")
-        if self.menu is None:
+        if not isinstance(self.menu, self.Gtk.Menu):
             raise ValueError("Waybar menu object is missing")
-        menu_ids = {obj.get_name() for obj in builder.get_objects()
-                    if isinstance(obj, self.Gtk.MenuItem) and obj.get_name()}
-        if menu_ids != set(self.actions):
+        leaves = [obj for obj in builder.get_objects()
+                  if isinstance(obj, self.Gtk.MenuItem)
+                  and not isinstance(obj, self.Gtk.SeparatorMenuItem)
+                  and obj.get_submenu() is None]
+        menu_ids = [self.Gtk.Buildable.get_name(obj) for obj in leaves]
+        if len(menu_ids) != len(set(menu_ids)) or set(menu_ids) != set(self.actions):
             raise ValueError("Waybar menu leaves do not match its fixed actions")
-        for obj in builder.get_objects():
-            if isinstance(obj, self.Gtk.MenuItem) and obj.get_name() in self.actions:
-                obj.connect("activate", self.action)
-        self.menu.connect("deactivate", lambda *_args: self.finish(0, False))
-        self.menu.connect("selection-done", lambda *_args: self.finish(0, False))
-        self.menu.connect("hide", lambda *_args: self.finish(0, False))
-        self.menu.connect("destroy", lambda *_args: self.finish(0, False))
-        self.menu.popup_at_pointer(None)
+        for action_id in self.actions:
+            obj = builder.get_object(action_id)
+            if obj not in leaves:
+                raise ValueError("Waybar action is not a menu leaf")
+            obj.connect("activate", self.action, action_id)
+        for event in ("deactivate", "selection-done", "hide", "destroy"):
+            self.menu.connect(event, self.dismiss)
+        self.menu.connect("button-press-event", self.menu_button_press)
+        self.menu.connect("button-release-event", self.menu_button_release)
+        self.menu.connect("key-press-event", self.key_pressed)
+        self.prepare_surfaces()
 
 
 def main(arguments: list[str]) -> int:
@@ -202,18 +386,21 @@ def main(arguments: list[str]) -> int:
         import gi
         gi.require_version("Gtk", "3.0")
         gi.require_version("Gdk", "3.0")
-        from gi.repository import Gdk, GLib, Gtk
+        gi.require_version("GtkLayerShell", "0.1")
+        from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
         initialized, _remaining = Gtk.init_check([])
         if not initialized or Gdk.Display.get_default() is None:
             raise ValueError("GTK display unavailable")
-        popup = Popup((Gdk, GLib, Gtk), module_name, menu_path, style_path, actions)
+        popup = Popup((Gdk, GLib, Gtk, GtkLayerShell), module_name, menu_path, style_path, actions)
         for signum in (signal.SIGTERM, signal.SIGINT):
             GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum,
                                  lambda: popup.finish(0))
         popup.activate()
-        Gtk.main()
+        if not popup.done:
+            Gtk.main()
         return popup.status
-    except Exception:
+    except Exception as error:
+        diagnostic("popup", error)
         if popup is not None:
             popup.finish(3, False)
         return 3
@@ -223,5 +410,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main(sys.argv[1:]))
     except (OSError, ValueError, subprocess.SubprocessError) as error:
-        print(f"labwc-waybar-menu: {error}", file=sys.stderr)
+        diagnostic("context", error)
         raise SystemExit(3)

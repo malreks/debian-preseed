@@ -455,7 +455,7 @@ class Broker:
         await self.prepare_power_profile()
         self.selection.clear_power_holds()
         self.selection.manual = {vendor: profile for vendor in self.selection.vendors}
-        self.selection.faults.clear()  # Explicit selection retries the thermal check.
+        self.selection.faults.clear()  # Explicit selection retries recorded control/ownership faults.
         self.save()
         await self.reconcile()
         if (self.status()["faults"] or self.recovery_pending
@@ -528,7 +528,7 @@ class Broker:
             self.selection.manual = {v: None for v in self.selection.vendors}
         elif action in {"pause", "resume"}:
             self.selection.paused = action == "pause"
-            # A thermal/ownership fault is not cleared by resume. Pause retries
+            # A recorded control/ownership fault is not cleared by resume. Pause retries
             # pending recovery once; ownership remains excluded during sleep.
             if action == "pause":
                 for vendor in tuple(self.recovery_pending):

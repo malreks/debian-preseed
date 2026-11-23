@@ -9367,35 +9367,6 @@
     },
     {
       "consumer": {
-        "module": "hooks/target/etc/hardware-tuning/intel.json.tmpl",
-        "source_members": [
-          "hooks/target/etc/hardware-tuning/intel.json.tmpl",
-          "hooks/target/etc/hardware-tuning/nvidia.json.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "INSTALLER_HARDWARE_JSON_MAX_TEMPERATURE_C",
-      "namespace": "SCALAR",
-      "owner": {
-        "function": "typed-consumer",
-        "module": "hooks/target/etc/hardware-tuning/intel.json.tmpl",
-        "phase": "target-asset"
-      },
-      "producer_map": "typed consumer contract",
-      "publication_kind": "template",
-      "required": true,
-      "source_family": [
-        "target-asset"
-      ],
-      "syntax": "consumer-defined-validated-scalar-or-block",
-      "token": "__INSTALLER_HARDWARE_JSON_MAX_TEMPERATURE_C__"
-    },
-    {
-      "consumer": {
         "module": "hooks/target/etc/hardware-tuning/broker.json.tmpl",
         "source_members": [
           "hooks/target/etc/hardware-tuning/broker.json.tmpl"
@@ -109417,7 +109388,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "5df8f6196d981a34f6d70a02f198bf5aca255398e7ef7c268746051eb090b899",
+  "source_fingerprint": "cc3bc59555a8d50fc0ff2db3bf17c616d3effc5256a8be5dd6a789a1c743ef00",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

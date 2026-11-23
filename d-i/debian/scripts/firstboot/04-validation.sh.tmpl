@@ -130,7 +130,8 @@ check_command() {
 validate_selected_unit_states() {
   # The installer already encoded selection in systemd's enabled unit links.
   # Batch-read that supported interface; do not load class or renderer inputs.
-  __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B - <<'PY'
+  __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B - "$FIRSTBOOT_DATA_DIR" <<'PY'
+import json
 import os
 from pathlib import Path
 import re
@@ -138,12 +139,51 @@ import selectors
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 MANAGER = '__INSTALLER_PATH_DIR_USR_BIN__/systemctl'
 DEADLINE = time.monotonic() + 45
 LIMIT = 2 * 1024 * 1024
 CAPTURE_BYTES = 0
+LAST_QUERY = {}
+
+
+def retain_query(reason):
+    """Keep exact rejected streams under the existing private firstboot tree."""
+    if not LAST_QUERY:
+        return
+    root = Path(sys.argv[1])
+    for parent in (root, *root.parents):
+        info = parent.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or
+                info.st_gid != 0 or info.st_mode & 0o022):
+            raise ValueError('unsafe-query-diagnostic-directory')
+    directory = Path(tempfile.mkdtemp(prefix='selected-unit-query-', dir=root))
+    metadata = {key: value for key, value in LAST_QUERY.items() if key not in ('stdout', 'stderr')}
+    metadata['reason'] = reason
+    metadata['systemd_version'] = 'unavailable'
+    try:
+        descriptor = os.open(root / 'systemd-version.txt', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(descriptor, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if stat.S_ISREG(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022:
+                metadata['systemd_version'] = stream.read(32768).decode('utf-8', 'backslashreplace')
+    except FileNotFoundError:
+        pass
+    for name in ('stdout', 'stderr', 'metadata.json'):
+        value = (json.dumps(metadata, ensure_ascii=True, indent=2) + '\n').encode('ascii') if name == 'metadata.json' else LAST_QUERY[name]
+        descriptor = os.open(directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        with os.fdopen(descriptor, 'wb') as stream:
+            stream.write(value)
+    print('selected_units_diagnostic=' + str(directory))
+
+
+def retain_failure(reason):
+    try:
+        retain_query(reason)
+    except (OSError, ValueError, IndexError) as error:
+        print('selected_units_diagnostic=unavailable reason=' + type(error).__name__)
 # Treat systemd's escaped unit names as opaque argument data. Depending on the
 # property and systemd version, literal backslashes can themselves be escaped;
 # decoding or enforcing one textual escape spelling rejects valid device units.
@@ -164,20 +204,24 @@ class CleanupUnknown(Exception):
 
 
 def capture(arguments):
-    global CAPTURE_BYTES
+    global CAPTURE_BYTES, LAST_QUERY
     remaining = DEADLINE - time.monotonic()
     if remaining <= 0:
         raise TimeoutError
-    process = subprocess.Popen([MANAGER, '--no-pager', '--no-ask-password', *arguments],
+    command = [MANAGER, '--no-pager', '--no-ask-password', *arguments]
+    LAST_QUERY = {'argv': command, 'status': None, 'truncated': False,
+                  'stdout': bytearray(), 'stderr': bytearray()}
+    process = subprocess.Popen(command,
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT,
+                               stderr=subprocess.PIPE,
                                env={'PATH': '__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_BIN__',
                                     'LC_ALL': 'C', 'SYSTEMD_COLORS': '0'})
     try:
-        output = bytearray()
-        os.set_blocking(process.stdout.fileno(), False)
         with selectors.DefaultSelector() as reader:
-            reader.register(process.stdout, selectors.EVENT_READ)
+            for name in ('stdout', 'stderr'):
+                stream = getattr(process, name)
+                os.set_blocking(stream.fileno(), False)
+                reader.register(stream, selectors.EVENT_READ, name)
             while reader.get_map():
                 remaining = DEADLINE - time.monotonic()
                 if remaining <= 0:
@@ -188,15 +232,19 @@ def capture(arguments):
                         reader.unregister(key.fileobj)
                     else:
                         CAPTURE_BYTES += len(block)
-                        if len(output) + len(block) > LIMIT or CAPTURE_BYTES > 8 * LIMIT:
+                        size = len(LAST_QUERY['stdout']) + len(LAST_QUERY['stderr'])
+                        room = max(0, min(LIMIT - size, 8 * LIMIT - CAPTURE_BYTES + len(block)))
+                        LAST_QUERY[key.data].extend(block[:room])
+                        if len(block) > room:
+                            LAST_QUERY['truncated'] = True
                             raise ValueError('bounded-output-exceeded')
-                        output.extend(block)
             remaining = DEADLINE - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError
-            if process.wait(timeout=remaining):
+            LAST_QUERY['status'] = process.wait(timeout=remaining)
+            if LAST_QUERY['status']:
                 raise ValueError('manager-query-failed')
-        return output.decode('ascii')
+        return LAST_QUERY['stdout'].decode('ascii')
     finally:
         try:
             if process.poll() is None:
@@ -206,7 +254,9 @@ def capture(arguments):
                 except subprocess.TimeoutExpired as error:
                     raise CleanupUnknown from error
         finally:
+            LAST_QUERY['status'] = process.poll()
             process.stdout.close()
+            process.stderr.close()
 
 
 def template_instances(templates):
@@ -291,13 +341,21 @@ def show(units):
     records = {}
     properties = [argument for name in PROPERTIES for argument in ('--property', name)]
     text = capture(['show', *properties, '--', *sorted(units)])
-    for block in text.strip().split('\n\n'):
+    offset = 0
+    line_number = 1
+    for block in text.rstrip('\n').split('\n\n'):
         record = {}
-        for line in block.splitlines():
+        for line in block.split('\n'):
+            LAST_QUERY.update(offset=offset, line=line_number, offending_record=ascii(line[:256]))
             key, separator, value = line.partition('=')
-            if not separator or key not in PROPERTIES or key in record:
+            if (not separator or key not in PROPERTIES or key in record or
+                    any(ord(char) < 32 or ord(char) == 127 for char in line)):
                 raise ValueError('malformed-unit-properties')
             record[key] = value
+            offset += len(line) + 1
+            line_number += 1
+        offset += 1
+        line_number += 1
         name = record.get('Id', '')
         aliases = record.get('Names', '').split()
         if (not UNIT.fullmatch(name) or name not in aliases or
@@ -424,15 +482,18 @@ def main():
 try:
     sys.exit(main())
 except CleanupUnknown:
+    retain_failure('manager-child-reap-unproven')
     print('selected_units_state=outcome-unknown reason=manager-child-reap-unproven')
     sys.exit(75)
 except (TimeoutError, subprocess.TimeoutExpired):
+    retain_failure('operation-deadline')
     print('selected_units_state=timeout reason=operation-deadline')
     sys.exit(124)
 except (OSError, UnicodeError, ValueError) as error:
     reason = str(error) if isinstance(error, ValueError) else type(error).__name__
     if re.fullmatch(r'[A-Za-z0-9-]{1,80}', reason) is None:
         reason = 'invalid-manager-output'
+    retain_failure(reason)
     print('selected_units_state=failed reason=' + reason)
     sys.exit(1)
 PY
@@ -1929,6 +1990,13 @@ check_command rsyslog-journal-forwarding-service __INSTALLER_PATH_DIR_USR_BIN__/
 check_command journal-forwarding-policy __INSTALLER_PATH_DIR_USR_BIN__/timeout --kill-after=2s 20s __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/journal-check --require-forwarding
 check_command syslog-socket __INSTALLER_PATH_DIR_USR_BIN__/timeout --kill-after=2s 10s __INSTALLER_PATH_DIR_USR_BIN__/systemctl is-active --quiet syslog.socket
 capture logging-units.txt __INSTALLER_PATH_DIR_USR_BIN__/systemctl status rsyslog.service rsyslog-journal-forwarding.service syslog.socket --no-pager --lines=40
+
+# A desktop without a selected SSH jail intentionally masks Fail2ban. Report
+# role applicability separately from daemon health and scanner observations.
+if [ -f __INSTALLER_PATH_DIR_ETC__/fail2ban/jail.d/10-sshd.local ] &&
+    grep -Fxq 'enabled = false' __INSTALLER_PATH_DIR_ETC__/fail2ban/jail.d/10-sshd.local; then
+  record 'INFO fail2ban control=not-applicable reason=no-managed-sshd-jail'
+fi
 
 selected_unit_failures=$failures
 check_command selected-unit-states validate_selected_unit_states

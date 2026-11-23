@@ -17,6 +17,7 @@ import stat
 
 from .integrity import system_owner
 from .runtime import fail
+from . import diagnostics
 
 PCI = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]")
 VENDORS = {"0x8086": ("intel", {"i915", "xe"}),
@@ -80,9 +81,20 @@ class Selection:
     pci: str
     node: Path
     bindings: tuple[tuple[Path, tuple[int, int, int]], ...]
+    discovery: tuple[tuple[Path, tuple[int, int, int]], ...] = ()
 
     def add_binds(self, command: list[str], *, dev_root: Path = Path("__INSTALLER_PATH_DIR_DEV__")) -> None:
         candidate = ["--dir", "__INSTALLER_PATH_DIR_DEV__/dri"]
+        # libdrm resolves the compositor's main_device by stat'ing primary
+        # and render nodes, including an adapter other than the selected renderer.
+        # The supplied feedback advertises Intel renderD128 while NVIDIA is
+        # selected; primary nodes alone cannot match that render-node dev_t. These
+        # nodev, read-only mounts expose identity only; --dev-bind remains
+        # limited to the selected render device and its vendor controls.
+        for path, identity in self.discovery:
+            if _identity(path.lstat()) != identity:
+                fail("GPU discovery device was replaced during selection")
+            candidate.extend(["--ro-bind", str(path), "__INSTALLER_PATH_DIR_DEV__/" + str(path.relative_to(dev_root))])
         for path, identity in self.bindings:
             if _identity(path.lstat()) != identity:
                 fail("GPU device was replaced during selection")
@@ -107,6 +119,7 @@ class Selection:
             })
             if self.vendor == "intel":
                 environment["LIBVA_DRIVER_NAME"] = "iHD"
+        diagnostics.record_gpu(self.vendor, self.pci, str(self.node), self.bindings, self.discovery)
 
     def chromium_arguments(self, arguments: list[str]) -> list[str]:
         """Replace the Ozone device hint, preserving operands after '--'."""
@@ -147,10 +160,25 @@ def select(mode: str, *, dev_root: Path = Path("__INSTALLER_PATH_DIR_DEV__"), sy
                 or metadata.st_mode & 0o022 or directory.resolve(strict=True) != directory):
             fail("unsafe GPU device directory")
         identities = []
+        discovery = []
+        primary_count = 0
         with os.scandir(directory) as entries:
             for count, entry in enumerate(entries, 1):
                 if count > 256:
                     fail("GPU device enumeration exceeds its limit")
+                if re.fullmatch(r"card(?:0|[1-9][0-9]{0,2})", entry.name):
+                    primary_count += 1
+                    if primary_count > 16:
+                        fail("too many GPU primary devices")
+                    primary = directory / entry.name
+                    minor = int(entry.name.removeprefix("card"))
+                    if minor >= 64:
+                        fail("invalid GPU primary minor")
+                    kernel_node = _kernel_link(sys_root / "class/drm" / entry.name, sys_root / "devices", owner)
+                    if _attribute(kernel_node / "dev", owner) != f"226:{minor}":
+                        fail("GPU primary node and sysfs disagree")
+                    discovery.append((primary, _identity(_device(primary, owner, 226, minor))))
+                    continue
                 if not re.fullmatch(r"renderD[1-9][0-9]{0,5}", entry.name):
                     continue
                 if len(identities) >= 16:
@@ -162,6 +190,8 @@ def select(mode: str, *, dev_root: Path = Path("__INSTALLER_PATH_DIR_DEV__"), sy
                 kernel_node = _kernel_link(sys_root / "class/drm" / node.name, sys_root / "devices", owner)
                 if _attribute(kernel_node / "dev", owner) != f"226:{minor}":
                     fail("GPU render node and sysfs disagree")
+                device_meta = _device(node, owner, 226, minor)
+                discovery.append((node, _identity(device_meta)))
                 device = _kernel_link(kernel_node / "device", sys_root / "devices", owner)
                 try:
                     vendor_id = _attribute(device / "vendor", owner).lower()
@@ -177,7 +207,6 @@ def select(mode: str, *, dev_root: Path = Path("__INSTALLER_PATH_DIR_DEV__"), sy
                 driver = _kernel_link(device / "driver", sys_root / "bus", owner).name
                 if driver not in policy[1] or PCI.fullmatch(device.name) is None:
                     fail("unsupported GPU vendor, driver or PCI identity")
-                device_meta = _device(node, owner, 226, minor)
                 identities.append((policy[0], device, node, device_meta))
         candidates = [item for item in identities if mode == "launch" or item[0] == mode]
         if mode == "launch" and len(candidates) > 1:
@@ -203,6 +232,9 @@ def select(mode: str, *, dev_root: Path = Path("__INSTALLER_PATH_DIR_DEV__"), sy
             for name, minor in (("nvidiactl", 255), ("nvidia" + match[1], int(match[1]))):
                 path = dev_root / name
                 bindings.append((path, _identity(_device(path, owner, 195, minor))))
-        return Selection(vendor, device.name, node, tuple(bindings))
+        # The selected render node gets one device-enabled bind; other nodes
+        # remain stat-only/nodev so discovery cannot switch the rendering GPU.
+        discovery = [item for item in discovery if item[0] != node]
+        return Selection(vendor, device.name, node, tuple(bindings), tuple(sorted(discovery)))
     except (OSError, ValueError, UnicodeError) as exc:
         fail(f"native GPU identity is unavailable: {exc}")

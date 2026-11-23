@@ -87,6 +87,9 @@ APPS = {
     },
     "calix": {
         "exec": "__INSTALLER_PATH_DIR_OPT__/calix/calix",
+        # This calendar needs no GL features. Avoid its demonstrated EGL
+        # initialization/primary-node write failure without widening policy.
+        "gsk_renderer": "cairo",
         "env": {"GDK_BACKEND": "wayland",
                 "TZ": "Europe/Stockholm",
                 # GTK 4.24 can report conflicting presentation feedback for

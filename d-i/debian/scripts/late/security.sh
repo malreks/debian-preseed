@@ -1599,7 +1599,7 @@ configure_target_fail2ban() {
       0644
   done
   # Create the canonical managed auth sink even before OpenSSH is installed.
-  # Journald retains INFO authentication events and forwards them to rsyslog.
+  # Rsyslog reads INFO auth events with their saved trusted journal metadata.
   stage_target_asset \
     "$(installer_repo_file_value hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/59-log-layout.conf \

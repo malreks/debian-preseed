@@ -666,15 +666,15 @@ class Backend:
             number = I(value)
             self.api.call("nvmlDeviceSetTemperatureThreshold", [H, U, PI], [handle, 5, C.byref(number)])
         key = f"{uuid}/TARGET_TEMPERATURE_C"
-        self.knobs[key] = Knob(key, "TARGET_TEMPERATURE_C", read, write, low, min(high, 95), unit="C",
+        self.knobs[key] = Knob(key, "TARGET_TEMPERATURE_C", read, write, low, high, unit="C",
             note="Acoustic target only. Shutdown/slowdown thermal-protection thresholds are never changed.")
 
     def temperature(self) -> float | None:
         values = [self.optional("temperature", lambda h=h: self.api.scalar("nvmlDeviceGetTemperature", h, 0)) for h in self.handles]
         valid = [v for v in values if v is not None and 0 < v < 150]
-        # A readable sensor on GPU A cannot prove that an offset/power
-        # increase on GPU B is thermally monitored. Preserve unknown coverage
-        # so the engine blocks risky writes and trips its owned-risk interlock.
+        # Preserve unknown coverage instead of reporting GPU A's reading as
+        # GPU B's measurement. This is observational telemetry; temperature
+        # does not gate tuning requests or create a broker fault.
         return float(max(valid)) if valid and len(valid) == len(self.handles) else None
 
     def close(self) -> None:

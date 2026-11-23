@@ -1120,6 +1120,14 @@ def build_environment(app_name: str, mode: str) -> dict[str, str]:
         env.update(NVIDIA_ACCELERATION_ENV)
     env.update(app.get("final_env", {}))
     env.update(MANAGED_NO_VULKAN_ENVIRONMENT)
+    renderer = app.get("gsk_renderer", "opengl")
+    if renderer not in {"opengl", "cairo"}:
+        fail("invalid managed GTK renderer policy")
+    env["GSK_RENDERER"] = renderer
+    if renderer == "cairo":
+        # Keep GDK from probing EGL/GL behind the explicit Cairo selection.
+        # This is application policy; other managed clients retain OpenGL.
+        env["GDK_DISABLE"] = "vulkan,gl,egl"
     for name in tuple(env):
         if name.startswith(("VK_", "__VK_", "MESA_VK_")):
             env.pop(name)

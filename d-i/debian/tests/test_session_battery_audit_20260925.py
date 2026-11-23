@@ -127,7 +127,7 @@ class IntegrationContracts(unittest.TestCase):
             self.assertIn(grant, firstboot_policy)
         self.assertNotIn('/var/lib/journal-sealing/** rw', firstboot_policy)
         self.assertIn('check_command apparmor-log-delivery apparmor_log_delivery', firstboot)
-        self.assertIn('module(load="imfile" mode="inotify")',
+        self.assertIn('module(load="imfile" mode="polling" PollingInterval="1")',
                       source('etc/rsyslog.d/30-apparmor.conf'))
 
     def test_secret_service_readiness_does_not_dump_bus_introspection(self):

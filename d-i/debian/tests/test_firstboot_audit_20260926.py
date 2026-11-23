@@ -439,7 +439,11 @@ class SelectedUnitAcceptanceTests(unittest.TestCase):
             read_fd, write_fd = os.pipe()
             os.close(write_fd)
             stream = os.fdopen(read_fd, 'rb')
+            error_fd, write_fd = os.pipe()
+            os.close(write_fd)
+            error_stream = os.fdopen(error_fd, 'rb')
             child = types.SimpleNamespace(stdout=stream, poll=lambda: None,
+                                          stderr=error_stream,
                                           kill=mock.Mock(), wait=mock.Mock(
                                               side_effect=subprocess.TimeoutExpired('fixture-manager', 2)))
             output = io.StringIO()
@@ -452,8 +456,10 @@ class SelectedUnitAcceptanceTests(unittest.TestCase):
                 self.assertEqual(child.kill.call_count, 1)
                 self.assertEqual(child.wait.call_count, 2)
                 self.assertTrue(stream.closed)
+                self.assertTrue(error_stream.closed)
             finally:
                 stream.close()
+                error_stream.close()
 
     def test_pending_query_cannot_relabel_a_previous_hard_failure(self):
         with tempfile.TemporaryDirectory(prefix='settled-priority-') as temporary:
@@ -508,6 +514,8 @@ import sys
 state = json.loads(Path(''' + repr(str(state)) + ''').read_text())
 with Path(''' + repr(str(trace)) + ''').open('a') as output:
     output.write(json.dumps(sys.argv[1:]) + '\\n')
+# A harmless stderr diagnostic must never become a property/inventory line.
+print('fixture manager warning: retained separately', file=sys.stderr)
 if 'list-unit-files' in sys.argv:
     for name in state['selected']:
         print(name + ' enabled enabled')
@@ -553,19 +561,37 @@ else:
                 ({'apparmor.service': {'ActiveState': 'inactive', 'ConditionResult': 'no',
                                       'ConditionTimestampMonotonic': '1'}},
                  1, 'reason=required-condition-failed'),
+                ({names[0]: {'UnexpectedProperty': 'value'}},
+                 1, 'reason=malformed-unit-properties'),
+                ({names[0]: {'Result': 'success\nResult=success'}},
+                 1, 'reason=malformed-unit-properties'),
             )
             for records, expected, witness in cases:
                 with self.subTest(witness=witness, records=records):
                     state.write_text(json.dumps({'selected': names, 'records': records}))
                     trace.write_text('')
                     result = subprocess.run(
-                        ['/usr/bin/python3', '-I', '-B', '-'], input=program,
+                        ['/usr/bin/python3', '-I', '-B', '-', str(root)], input=program,
                         cwd=root, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'},
                         text=True, capture_output=True, timeout=10,
                     )
                     self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
                     self.assertIn(witness, result.stdout)
-                    self.assertIn('unit=' + names[-1], result.stdout)
+                    if 'malformed-unit-properties' in witness:
+                        directories = sorted(root.glob('selected-unit-query-*'))
+                        self.assertTrue(directories, result.stdout)
+                        diagnostic = directories[-1]
+                        self.assertTrue((diagnostic / 'stdout').read_bytes())
+                        self.assertIn(b'fixture manager warning', (diagnostic / 'stderr').read_bytes())
+                        metadata = json.loads((diagnostic / 'metadata.json').read_text())
+                        self.assertEqual(metadata['status'], 0)
+                        self.assertIn('--no-ask-password', metadata['argv'])
+                        self.assertGreaterEqual(metadata['line'], 1)
+                        self.assertGreaterEqual(metadata['offset'], 0)
+                        for path in diagnostic.iterdir():
+                            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                    else:
+                        self.assertIn('unit=' + names[-1], result.stdout)
                     # Inventory and property reads are batches, not one process
                     # per selected unit. Required parents use bounded extra batches.
                     self.assertLessEqual(len(trace.read_text().splitlines()), 5)

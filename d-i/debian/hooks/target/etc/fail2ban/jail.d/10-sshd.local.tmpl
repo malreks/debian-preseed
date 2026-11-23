@@ -15,7 +15,7 @@ chain = fail2ban_input
 
 [sshd]
 enabled = __INSTALLER_SSHD_JAIL_ENABLED__
-# INFO authentication events are retained in the journal and forwarded to rsyslog.
+# INFO authentication events use rsyslog's structured, trusted journal route.
 # Watch the existing rsyslog auth sink using inotify, including file rotation.
 backend = pyinotify
 logpath = __INSTALLER_LOG_AUTH_FILE__

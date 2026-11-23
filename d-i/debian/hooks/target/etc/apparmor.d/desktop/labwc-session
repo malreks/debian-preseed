@@ -176,13 +176,18 @@ profile labwc-waybar-menu __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-
   #include <abstractions/wrapper-gui>
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu rix,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run rPx -> labwc-waybar-run,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state rPx -> labwc-waybar-state,
   __INSTALLER_PATH_DIR_PYTHON3_SYSTEM_PACKAGES__/gi/{,**} mr,
   __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/ r,
   __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/{Gdk,Gtk,Gio,GLib,GLibUnix,GObject,GModule,GIRepository}-*.typelib mr,
+  __INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/girepository-1.0/GtkLayerShell-0.1.typelib mr,
   owner @{HOME}/.config/waybar/modules/{notifications,power,tomat,wayscriber} r,
   owner @{HOME}/.config/waybar/gtk/{notifications,power,tomat,wayscriber}-menu.xml r,
   owner @{HOME}/.config/waybar/style/gtk.css r,
+  owner @{HOME}/.config/l3afpad/style.css r,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,systemd/private,wayland-[0-9]*} rw,
+  signal (receive) set=(chld) peer={labwc-waybar-run,labwc-waybar-state},
+  signal (send) set=(kill) peer=labwc-waybar-state,
   signal (receive) set=(int, term, hup, kill) peer=unconfined,
   signal (send) set=(chld) peer=waybar,
   include if exists <local/usr.local.libexec.labwc-waybar-menu>
@@ -207,7 +212,7 @@ profile labwc-waybar-run __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-r
   # no additional device access, so storage/system-action children cannot
   # retain the compositor's Bluetooth descriptor.
   signal (receive) set=(int, term, hup, kill) peer=unconfined,
-  signal (send) set=(chld) peer=waybar,
+  signal (send) set=(chld) peer={waybar,labwc-waybar-menu},
   include if exists <local/usr.local.libexec.labwc-waybar-run>
 }
 

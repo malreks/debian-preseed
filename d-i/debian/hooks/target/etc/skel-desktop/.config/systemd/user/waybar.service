@@ -85,6 +85,9 @@ Environment=PATH=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__
 # Waybar callbacks receive only the session variables they need. Do not allow
 # loader, Python, GTK/GIO module, or X11 injection variables from the login
 # environment to alter the managed Wayland panel or its helper transitions.
+# Module templates explicitly disable Waybar's cursor override: 0.15.0 keeps
+# an untracked retry callback after a hidden/output-removed module is freed.
+# Keep native module, menu, scroll and output lifecycles; no restart workaround.
 UnsetEnvironment=LD_PRELOAD LD_AUDIT LD_LIBRARY_PATH PYTHONPATH PYTHONHOME GI_TYPELIB_PATH GIO_MODULE_DIR GTK_MODULES DISPLAY XAUTHORITY
 ExecCondition=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check session-ready
 ExecStart=__INSTALLER_PATH_DIR_USR__/bin/waybar -c %h/.config/waybar/config -s %h/.config/waybar/style.css

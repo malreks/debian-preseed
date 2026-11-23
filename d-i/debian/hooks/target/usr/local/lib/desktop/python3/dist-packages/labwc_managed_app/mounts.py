@@ -117,6 +117,11 @@ def validate_no_host_display_device_binds(
             fail(f"malformed bubblewrap bind while launching {app_name}")
         for raw_path in command[index + 1 : index + 3]:
             normalized_path = os.path.normpath(raw_path)
+            # Metadata-only DRM primary nodes may be mounted read-only with
+            # nodev semantics. Never admit them through a device/writable bind.
+            if (argument == "--ro-bind" and re.fullmatch(
+                    r"__INSTALLER_PATH_DIR_DEV__/dri/card(?:0|[1-9][0-9]{0,2})", normalized_path)):
+                continue
             if (
                 normalized_path == "__INSTALLER_PATH_DIR_DEV__/dri"
                 or (

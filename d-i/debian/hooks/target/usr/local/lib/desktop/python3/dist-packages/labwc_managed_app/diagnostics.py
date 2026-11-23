@@ -81,6 +81,16 @@ def register_unit(unit: str, executable: str) -> None:
     _publish("unit-" + unit + ".json", {"unit": unit, "executable": executable})
 
 
+def record_gpu(vendor, pci, node, bindings, discovery) -> None:
+    """Record the selected render and visible discovery identities, no argv."""
+    def nodes(entries):
+        return [{"path": str(path), "major": os.major(identity[2]),
+                 "minor": os.minor(identity[2])} for path, identity in entries]
+    _publish(f"gpu-{os.getpid()}.json", {
+        "vendor": vendor, "pci": pci, "render_node": node,
+        "render_access": nodes(bindings), "metadata_only": nodes(discovery)})
+
+
 def record_environment(environment: dict[str, str]) -> None:
     """Record only fixed diagnostic and renderer-policy names, never secrets."""
     names = DIAGNOSTIC_NAMES | {"GDK_BACKEND", "QT_QPA_PLATFORM", "GSK_RENDERER", "GDK_DISABLE",

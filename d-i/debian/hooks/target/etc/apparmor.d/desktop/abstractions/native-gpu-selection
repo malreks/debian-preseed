@@ -2,10 +2,13 @@
 # grant DRM primary-node, modeset, sysfs-write or device-management authority.
 __INSTALLER_PATH_DIR_DEV__/ r,
 __INSTALLER_PATH_DIR_DEV__/dri/ r,
+__INSTALLER_PATH_DIR_DEV__/dri/card[0-9]* r,
 __INSTALLER_PATH_DIR_DEV__/dri/renderD[0-9]* r,
 __INSTALLER_PATH_DIR_DEV__/nvidiactl r,
 __INSTALLER_PATH_DIR_DEV__/nvidia[0-9]* r,
 @{sys}/class/drm/ r,
+@{sys}/class/drm/card[0-9]*/{,dev} r,
+@{sys}/devices/**/drm/card[0-9]*/{,dev} r,
 @{sys}/class/drm/renderD[0-9]*/{,device,dev} r,
 @{sys}/devices/**/drm/renderD[0-9]*/{,dev,device} r,
 @{sys}/devices/**/{vendor,driver} r,

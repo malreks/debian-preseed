@@ -19,11 +19,20 @@ if (
   $syslogfacility-text == "auth" or
   $syslogfacility-text == "authpriv"
 ) then {
-  # The facility/tag/message are sender-controlled. Only the local socket's
-  # kernel-attested credentials authorize this protected remediation input.
+  # This facility has one authoritative input. The journal also retains
+  # untrusted injections, which still enter the quarantine below; dropping
+  # its socket copy does not promote or lose those original records.
+  if ($inputname == "imuxsock") then { stop }
+  if ($inputname == "imjournal") then {
+    set $!uid = $!_UID;
+    set $!pid = $!_PID;
+    set $!exe = $!_EXE;
+  }
+  # The facility/tag/message are sender-controlled. Only trusted journal
+  # fields (underscore namespace, supplied by journald) authorize this feed.
   # Setuid PAM tools and OpenSSH/polkit privilege-separated producers can have
   # non-root real UIDs, so retain their exact package-owned executable paths.
-  if (not ($inputname == "imuxsock" and exists($!uid) and exists($!pid) and
+  if (not ($inputname == "imjournal" and exists($!_UID) and exists($!_PID) and
       ($!uid == "0" or
        $!exe == "__INSTALLER_PATH_DIR_USR__/bin/sudo" or $!exe == "__INSTALLER_PATH_DIR_USR__/bin/su" or
        $!exe == "__INSTALLER_PATH_DIR_USR__/bin/login" or $!exe == "__INSTALLER_PATH_DIR_USR__/bin/passwd" or
