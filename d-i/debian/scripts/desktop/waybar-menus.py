@@ -53,7 +53,14 @@ def validate_entries(root, runner, dispatcher, module, used_menus):
         if 'menu-actions' not in value:
             continue
         event, actions, filename = value.get('menu'), value['menu-actions'], value.get('menu-file')
-        if (event not in ('on-click', 'on-click-right', 'on-click-middle')
+        popup = module_name.removeprefix('custom/')
+        popup_owner = (module_name == 'custom/' + popup and popup in dispatcher.MENU_BUTTONS
+                       and value.get('on-click-release') == str(runner) + ' --menu=' + popup)
+        if popup_owner:
+            if event is not None or 'on-click' in value or 'on-click' in value.get('actions', {}):
+                raise ValueError('popup menu must have exactly one registered release-event owner')
+            dispatcher.normalize_command(['--menu=' + popup])
+        elif (event not in ('on-click', 'on-click-right', 'on-click-middle')
                 or event in value or event + '-release' in value
                 or event in value.get('actions', {})):
             raise ValueError('native menu must have exactly one registered press-event owner')

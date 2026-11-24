@@ -150,21 +150,23 @@ class NativeMenuHoverTests(unittest.TestCase):
                                   '--', '/usr/local/bin/labwc-main-menu'])
                 apps = bar['group/apps']['drawer']
                 self.assertTrue(apps['click-to-reveal'])
-                self.assertEqual(bar['custom/tomat']['menu'], 'on-click')
-                self.assertNotIn('on-click-release', bar['custom/tomat'])
+                self.assertNotIn('menu', bar['custom/tomat'])
+                self.assertEqual(bar['custom/tomat']['on-click-release'],
+                                 '/usr/local/libexec/labwc-waybar-run --menu=tomat')
                 self.assertEqual(bar['custom/wayscriber']['menu'], 'on-click')
                 self.assertNotIn('on-click-release', bar['custom/wayscriber'])
 
     def test_every_action_has_the_intended_backend_not_just_an_existing_id(self):
         expected = {
             'custom/tomat': {
-                'tomat_default': ['start', 'default'], 'tomat_25': ['start', '25'],
+                'tomat_25': ['start', '25'],
                 'tomat_50': ['start', '50'], 'tomat_90': ['start', '90'],
                 'tomat_custom': ['custom'],
                 'tomat_toggle': ['toggle'], 'tomat_skip': ['skip'], 'tomat_stop': ['stop'],
                 'tomat_config': ['config'], 'tomat_notifications': ['settings', 'notifications'],
                 'tomat_sounds': ['settings', 'sounds'],
-                'tomat_overlays': ['settings', 'overlays'], 'tomat_test': ['start', 'test']},
+                'tomat_overlays': ['settings', 'overlays'], 'tomat_reverse': ['settings', 'reverse'],
+                'tomat_test': ['start', 'test']},
             'custom/notifications': {
                 'notifications_center': ['center'], 'notifications_restore': ['restore'],
                 'notifications_dnd_on': ['dnd-on'], 'notifications_dnd_off': ['dnd-off'],

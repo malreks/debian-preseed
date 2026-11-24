@@ -222,8 +222,33 @@ class TomatControllerTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(payload_source_stat(ctx.config).st_mode), 0o600)
             self.assertNotEqual(payload_source_stat(ctx.config).st_ino, before)
             self.assertEqual(self.mod.validate_config(render_theme_defaults(payload_read_text(ctx.config)))['sound']['mode'], 'none')
-            ctx.run.assert_called_once_with([self.mod.SYSTEMCTL, '--user', 'restart', self.mod.UNIT])
+            ctx.run.assert_any_call([self.mod.SYSTEMCTL, '--user', 'restart', self.mod.UNIT])
             self.assertEqual(sorted(p.name for p in Path(work).iterdir()), ['config.toml'])
+
+    def test_reverse_presets_persist_without_restarting_the_timer(self):
+        with tempfile.TemporaryDirectory() as work:
+            ctx = self.context(work)
+            original = ctx.config.read_bytes()
+            self.assertFalse(ctx.reverse_enabled())
+            with contextlib.redirect_stdout(io.StringIO()):
+                ctx.toggle_reverse()
+            self.assertTrue(ctx.reverse_enabled())
+            self.assertEqual(ctx.config.read_bytes(), original)
+            for name, pair in (('25', ('25', '5')), ('50', ('50', '10')), ('90', ('90', '15'))):
+                self.assertEqual(self.mod.preset_values(name), pair)
+                self.assertEqual(self.mod.preset_values(name, ctx.reverse_enabled()), pair[::-1])
+            ctx.show.assert_not_called()
+            ctx.wait_ready.assert_not_called()
+            with contextlib.redirect_stdout(io.StringIO()):
+                ctx.toggle_reverse()
+            self.assertFalse(ctx.reverse_enabled())
+
+    def test_reverse_action_does_not_ensure_a_daemon(self):
+        ctx = mock.MagicMock()
+        with mock.patch.object(self.mod, 'Context', return_value=ctx):
+            self.assertEqual(self.mod.main(['settings', 'reverse']), 0)
+        ctx.toggle_reverse.assert_called_once_with()
+        ctx.ensure.assert_not_called()
 
     def test_concurrent_config_edit_is_not_overwritten(self):
         with tempfile.TemporaryDirectory() as work:
@@ -321,14 +346,18 @@ class MenuAndHookTests(unittest.TestCase):
                                        ('custom/notifications','notifications','on-click'), ('custom/power','power','on-click'),
                                        ('clock','calendar','on-click')]:
                 entry = bar[module]
-                self.assertEqual(entry['menu'], event); self.assertNotIn(event, entry)
-                tree = ET.parse(payload_source_path(SKEL / 'waybar' / 'menus' / (name + '-menu.xml')))
+                if module == 'custom/tomat':
+                    self.assertNotIn('menu', entry)
+                    self.assertEqual(entry['on-click-release'], '/usr/local/libexec/labwc-waybar-run --menu=tomat')
+                else:
+                    self.assertEqual(entry['menu'], event)
+                self.assertNotIn(event, entry)
+                tree = ET.parse(payload_source_path(SKEL / 'waybar' / 'gtk' / (name + '-menu.xml')))
                 ids = [node.get('id') for node in tree.iter('object') if node.get('class') == 'GtkMenuItem' and node.get('id')]
                 self.assertEqual(len(ids), len(set(ids)))
                 self.assertEqual(set(ids), set(entry['menu-actions']))
                 for command in entry['menu-actions'].values():
-                    self.assertIn('--property=PartOf=labwc-session.target', command)
-                    self.assertIn('--property=KillMode=control-group', command)
+                    self.assertEqual(shlex.split(command)[0], '/usr/local/libexec/labwc-waybar-run')
                 self.assertNotIn('labwc-power-menu', json.dumps(entry))
             self.assertEqual(bar['custom/tomat']['restart-interval'], 120)
             self.assertFalse(bar['custom/tomat']['exec-on-event'])

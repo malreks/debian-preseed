@@ -34,7 +34,7 @@
     },
     {
       "type": "paragraph",
-      "text": "Start session offers the configured default or a duration preset. Presets change work and short-break duration while retaining the configured long break and session count. Settings exposes notification, sound and break-overlay switches. Open config edits ~/.config/tomat/config.toml; keep valid TOML and the managed hook commands."
+      "text": "Start session offers 25 / 5, 50 / 10, 90 / 15 and Custom. Settings → Reverse (toggle) swaps work and short-break durations for the three presets; the next popup shows 5 / 25, 10 / 50 and 15 / 90. Toggle again to restore the normal order. The choice is saved per user and applies to newly started presets without restarting the current timer. Custom keeps its explicit duration choices. Presets retain the configured long break and session count. Settings also exposes notification, sound and break-overlay switches. Open config edits ~/.config/tomat/config.toml; keep valid TOML and the managed hook commands."
     },
     {
       "type": "paragraph",

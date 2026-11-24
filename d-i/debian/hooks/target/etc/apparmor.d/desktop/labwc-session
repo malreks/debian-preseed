@@ -184,6 +184,8 @@ profile labwc-waybar-menu __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-
   owner @{HOME}/.config/waybar/modules/{notifications,power,tomat,wayscriber} r,
   owner @{HOME}/.config/waybar/gtk/{notifications,power,tomat,wayscriber}-menu.xml r,
   owner @{HOME}/.config/waybar/style/gtk.css r,
+  owner @{HOME}/.config/tomat/ r,
+  owner @{HOME}/.config/tomat/reverse.enabled r,
   owner @{HOME}/.config/l3afpad/style.css r,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,systemd/private,wayland-[0-9]*} rw,
   signal (receive) set=(chld) peer={labwc-waybar-run,labwc-waybar-state},

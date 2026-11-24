@@ -42,6 +42,13 @@ PRESETS = {
     # Tomat durations are minutes; 1/6 minute is exactly ten seconds.
     "test": ("0.1666667", "0.1666667"),
 }
+
+
+def preset_values(name: str, reverse: bool = False) -> tuple[str, ...]:
+    values = PRESETS[name]
+    return values[::-1] if reverse else values
+
+
 CUSTOM_CHOICES = {
     "work": [("5 minutes", "5"), ("15 minutes", "15"), ("25 minutes", "25"),
               ("45 minutes", "45"), ("60 minutes", "60"), ("90 minutes", "90"),
@@ -531,12 +538,49 @@ class Context:
         self.owned(self.show())
         self.run([SYSTEMCTL, "--user", "restart", UNIT])
         self.wait_ready()
-        # The GTK menu is static, so report the authoritative post-restart
-        # setting through Mako without making notification delivery part of
-        # the config transaction's success condition.
-        self.run(["__INSTALLER_PATH_DIR_USR__/bin/notify-send", "--app-name=Tomat", "--urgency=low",
-                  "--category=tomat.settings", "Tomat", message], timeout=5, check=False)
+        self.notify_setting(message)
+
+    def notify_setting(self, message: str) -> None:
+        # Notification delivery is independent of the completed setting change.
+        try:
+            self.run(["__INSTALLER_PATH_DIR_USR__/bin/notify-send", "--app-name=Tomat", "--urgency=low",
+                      "--category=tomat.settings", "Tomat", message], timeout=5, check=False)
+        except (Error, OSError, subprocess.SubprocessError):
+            pass
         print(message)
+
+    def reverse_enabled(self, directory_fd: int | None = None) -> bool:
+        # Presence of this private, empty menu-preference marker means reverse.
+        # The GTK popup reads the same fixed leaf; upstream config is untouched.
+        path = "reverse.enabled" if directory_fd is not None else self.directory / "reverse.enabled"
+        try:
+            info = os.stat(path, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != self.uid
+                or info.st_mode & 0o022 or info.st_nlink != 1):
+            raise Error("unsafe Tomat reverse preference")
+        return True
+
+    def toggle_reverse(self) -> None:
+        # Called under the existing control lock. Atomic presence changes let
+        # the next popup/start observe either the previous or the new setting.
+        directory_fd = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            enabled = not self.reverse_enabled(directory_fd)
+            if enabled:
+                descriptor = os.open("reverse.enabled", os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                                     | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=directory_fd)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+            else:
+                os.unlink("reverse.enabled", dir_fd=directory_fd)
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        self.notify_setting("Reverse presets " + ("enabled" if enabled else "disabled"))
 
     def custom_start(self) -> bool:
         """Choose bounded per-session values; never edit the persistent config."""
@@ -580,13 +624,13 @@ class Context:
 
 def main(argv: list[str]) -> int:
     if not argv or argv[0] not in {"watch", "ensure", "start", "toggle", "skip", "stop", "settings", "config", "custom"}:
-        raise Error("usage: labwc-tomat watch|ensure|start [default|25|50|90|test]|toggle|skip|stop|settings notifications|sounds|overlays|config|custom")
+        raise Error("usage: labwc-tomat watch|ensure|start [default|25|50|90|test]|toggle|skip|stop|settings notifications|sounds|overlays|reverse|config|custom")
     action = argv[0]
     if action == "start":
         if len(argv) > 2 or (len(argv) == 2 and argv[1] not in PRESETS):
             raise Error("invalid Tomat start preset")
     elif action == "settings":
-        if len(argv) != 2 or argv[1] not in {"notifications", "sounds", "overlays"}:
+        if len(argv) != 2 or argv[1] not in {"notifications", "sounds", "overlays", "reverse"}:
             raise Error("invalid Tomat settings action")
     elif len(argv) != 1:
         raise Error("unexpected Tomat arguments")
@@ -617,16 +661,20 @@ def main(argv: list[str]) -> int:
         if not context.custom_start():
             return 0
     with context.locked():
+        if action == "settings" and argv[1] == "reverse":
+            context.toggle_reverse()
+            return 0
         context.ensure()
         if action == "settings":
             context.setting(argv[1])
             return 0
+        if action == "start":
+            values = preset_values(argv[1] if len(argv) == 2 else "default", context.reverse_enabled())
     if action == "ensure":
         return 0
     if action == "watch":
         return watch_status([TOMAT, "watch", "--interval", "1", "--output", "waybar"], context.env)
     elif action == "start":
-        values = PRESETS[argv[1] if len(argv) == 2 else "default"]
         command = [TOMAT, "--quiet", "start"]
         if values:
             command += ["--work", values[0], "--break", values[1]]

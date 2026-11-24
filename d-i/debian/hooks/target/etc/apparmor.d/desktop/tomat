@@ -23,6 +23,7 @@ profile labwc-tomat __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-tomat flags=(
   owner @{HOME}/.config/ r,
   owner @{HOME}/.config/tomat/ rw,
   owner @{HOME}/.config/tomat/config.toml rw,
+  owner @{HOME}/.config/tomat/reverse.enabled rw,
   owner @{HOME}/.config/tomat/.config.toml.* rw,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ r,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-waybar-state/ r,

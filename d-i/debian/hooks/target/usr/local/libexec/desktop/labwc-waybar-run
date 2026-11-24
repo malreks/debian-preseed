@@ -148,8 +148,9 @@ def allowed(command: tuple[str, ...]) -> bool:
     if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-tomat":
         return arguments in [
             ["toggle"], ["skip"], ["stop"], ["config"], ["custom"],
-            ["start", "default"], ["start", "25"], ["start", "50"], ["start", "90"], ["start", "test"],
+            ["start", "25"], ["start", "50"], ["start", "90"], ["start", "test"],
             ["settings", "notifications"], ["settings", "sounds"], ["settings", "overlays"],
+            ["settings", "reverse"],
         ]
     if executable == "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/whisper-record-toggle":
         return arguments in (["start"], ["stop"])

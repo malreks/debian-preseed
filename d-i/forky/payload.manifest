@@ -87,7 +87,7 @@ format=3
 121096	6b1eeb8118de57b2a483717eab1bb64a7a7f25e62aad8e2757ff0796b4be7f33	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.env
 154545	eb037e1b7887191c931ccff0e6659d54b1081290bda6cc799dacf1faf06d414a	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.provenance.json
 12135	381cacb2687ba38e7aac6ef99ac2950a3cd95da2fef716586e495375e4b5d2eb	catalog/compiled/profile-assets.tsv
-154	3e2fd25c12adcca975babaf18cc7d21beb5f37fe8d34ce0ddac057ef04aff609	catalog/compiled/release.tsv
+154	1e39120fadac35f5f7db01c3f6b2d93401ecc2a2bc21c476e623beefa67a722a	catalog/compiled/release.tsv
 22105	3d0bd73d48a0577301724b209c9afb0b42ad006a7de9ee1cf156a8460e84982a	catalog/compiled/shared-perl-assets.tsv
 177204	54ade07dcc587e6967af7864052c871ad6c7d1f495c4f206d93267ec5e6d4158	catalog/compiled/source-members.tsv
 513	7e8a843e51a8d28472e5eb07fa9fdedc7f69760491de02682a6e018be5b6056b	catalog/compiled/suite-qualification.tsv
@@ -175,7 +175,7 @@ format=3
 8353	0572eb248ddcb62d7f4069013c2d2b830c9b3a15fa14d0aa7d0adc696f7977da	catalog/compiled/trixie/profiles/server/f2fs-srv-hp14.artifacts.json
 121100	30404c0fba24c3511d7e59f2ee8807977abb00ac42656756b575171b44cec388	catalog/compiled/trixie/profiles/server/f2fs-srv-hp14.env
 154548	433f79258bad1d300904e74a201212ffe12ca9a8c98c3c4c88a3634d6e3de109	catalog/compiled/trixie/profiles/server/f2fs-srv-hp14.provenance.json
-2253794	b168ba2d5bc729cfbdb731fcaad46fbda164a45901d7feaef89cb9ad59a812ca	catalog/placeholder-registry.tsv
+2253635	ee7e6b146e71518d0412df1944c43a65af6afbfd1e1ee8122c0d5ed2da335b6e	catalog/placeholder-registry.tsv
 42828	2ccf9fa8df4f5c17ecb603f2796d733fb53e4ccd077c95b86a7b2b53128f1475	catalog/runtime-paths.tsv
 10854	da1bf52a0fbb1850fc18a94f277b69bee0b2b1788096dff6f1ec18a7751dcc97	catalog/selection.json
 4716	1b938d3ee476875f63c18fa1bad8e7df7a639928876591567175d0c86e46df09	catalog/target-assets.tsv
@@ -526,7 +526,7 @@ format=3
 770	8e58035bc7e9606f0714fbb6420e50b5f209bd486f26bbf9af4c575273cb4e45	hooks/target/etc/apparmor.d/desktop/incus-desktop-ui
 8072	2fa9faf3c6fc7d03c0226112093a76d80069c9f973b4d367e3af50c1056611d3	hooks/target/etc/apparmor.d/desktop/labwc-appearance
 6132	545b2404867b4de09cbd2478b00226f138ccec6c56520ba56d79a4f0ea42220f	hooks/target/etc/apparmor.d/desktop/labwc-network-sharing
-29157	c04ece3900255f88a980549345bb5daebd36d8a0db37ad56471da3b0552dba25	hooks/target/etc/apparmor.d/desktop/labwc-session
+29240	6bb7145a0db6638e2128b8344f250b23c06002bd376bcba91930813eb6e1117b	hooks/target/etc/apparmor.d/desktop/labwc-session
 431	22b1f65c41a7e6d636f113ce276bbfe3a11d427b38c8018922a00bcd4e1d023d	hooks/target/etc/apparmor.d/desktop/local/abstractions/codex-user-media.tmpl
 229	f90d55c3deb3551aea8cd4f5671016a07e0537d934254103334e55e4b368f11a	hooks/target/etc/apparmor.d/desktop/local/abstractions/desktop-user-media.tmpl
 2270	b834882df793c1e5f289c6e7a3772f3959710fbc430cd6403882a2c24c8efa98	hooks/target/etc/apparmor.d/desktop/local/chromium
@@ -549,7 +549,7 @@ format=3
 3586	9ea8580ddcc94f1ed7aa828fe22b9ef29c8124b57b3218acdc0768e5ee3a155f	hooks/target/etc/apparmor.d/desktop/opt.postman.app.Postman
 7880	41e70e3780a81cf040b0c548a961f5da8b7fa6b7275a27b25da5eec02348e9cd	hooks/target/etc/apparmor.d/desktop/opt.tuta-mail.AppRun
 1110	6aca2c8bf3a1a2f8787dc52757b7b3b9e8d4a04ba96ea05f9d5e331b26e5e084	hooks/target/etc/apparmor.d/desktop/sleek
-7916	1e4d3c267214480112fe6183346298240cb5b1b7ad59f05b6adc0ab44667bde5	hooks/target/etc/apparmor.d/desktop/tomat
+7966	1c39bf9d960e5718550b77f31f8d13cd1ee2c51b8ca9875203374ed98c5cefed	hooks/target/etc/apparmor.d/desktop/tomat
 698	f7aadbb32764971512ae1ce1b1250187fb920d10b1db47dddba0b004e4458d04	hooks/target/etc/apparmor.d/desktop/tor-browser
 2052	5e921fdd706a0d51c71a4323b694b36ee0a2ec5bc0f43398e188886b0b9befa3	hooks/target/etc/apparmor.d/desktop/usr.bin.keepassxc
 729	a70c2cd2531136bbf70986334a9043e963ca0b946a214cdd1331bdabd63f3f30	hooks/target/etc/apparmor.d/desktop/usr.bin.pwsh
@@ -1007,7 +1007,7 @@ format=3
 7228	84439305b294cb36adf2436aee7be725e4ca83a160bebf380381d0fe72e0790d	hooks/target/etc/skel-desktop/.config/waybar/gtk/power-menu.xml.tmpl
 5801	415c59e92ef929735a58896ad670169b15dbb6509f036ed6b30bd2ba1ad91bec	hooks/target/etc/skel-desktop/.config/waybar/gtk/screenshot-menu.xml.tmpl
 120585	084f736a2f5d74d9f4f8ea381c2c9f99ddb895f1a17843477a3997aba4b7b780	hooks/target/etc/skel-desktop/.config/waybar/gtk/system-menu.xml.tmpl
-24000	e461ac31b4855d91ee36cd015c0e0e2d8593d109517e718c5ab2b472cec8041a	hooks/target/etc/skel-desktop/.config/waybar/gtk/tomat-menu.xml.tmpl
+24009	88a420167fd87a9ac8d9580d41d53178547f731eddb8095f909e8d36f8c65d5c	hooks/target/etc/skel-desktop/.config/waybar/gtk/tomat-menu.xml.tmpl
 18721	249b685a6c00ea1d25e996ac2b4e27aa8c699ca1ac76b1bb6bea13d546015f73	hooks/target/etc/skel-desktop/.config/waybar/gtk/wayscriber-menu.xml.tmpl
 656	759d92ba19dc5cc136c14a05a061fdbc6270da5c335fe587c8d8eb2d6f244e54	hooks/target/etc/skel-desktop/.config/waybar/icons/apps-symbolic.svg.tmpl
 228	a1ed2a675aa15446e1e97a7b42ac432efba25ecebdce95c816db1f30cb330d83	hooks/target/etc/skel-desktop/.config/waybar/icons/wayscriber-symbolic.svg.tmpl
@@ -1042,7 +1042,7 @@ format=3
 3423	b02ba38d0dde9be85546b1addd1ebe24fd2d576ccb67b3ee1db58957f997f174	hooks/target/etc/skel-desktop/.config/waybar/modules/pulseaudio.tmpl
 1392	7869ee0fd34ab48bf7a36d38dc884ef4cfbf06f62c91409a8eb217138bc65a02	hooks/target/etc/skel-desktop/.config/waybar/modules/screenshot.tmpl
 11977	c17d71b3b8b750ebd990b332275b5db7650d79173575991b2f097c35277e2811	hooks/target/etc/skel-desktop/.config/waybar/modules/system.tmpl
-2776	8b62c0b9072c5a5d1c2b871a8c256e799b683b728e6e3aaa89dec3d0d0600f7a	hooks/target/etc/skel-desktop/.config/waybar/modules/tomat.tmpl
+2853	7725f0a5cc38ddc8f83b04aea2317c8c65df49c4c7f5b5020db09c8778dcfb94	hooks/target/etc/skel-desktop/.config/waybar/modules/tomat.tmpl
 2297	b9354ebf8acddab537e4cbbc5ae6860b53331ec45a7135f9c04ca34631735073	hooks/target/etc/skel-desktop/.config/waybar/modules/wayscriber.tmpl
 568	aa922b8dbc6f25e77040bf3aa2b4013563da670e09eb64e44964c9f3c66fd115	hooks/target/etc/skel-desktop/.config/waybar/modules/window-switcher.tmpl
 179	6b21b63b02aaea17e345511050637f3f4331ce96c1d1456f15b30a793bb6aff8	hooks/target/etc/skel-desktop/.config/waybar/modules/workspaces.tmpl
@@ -1955,13 +1955,13 @@ format=3
 1650	c2d4225d4ee9e38a38b45659534f3fb18b746275ac07f9a046f3538677a75ddb	hooks/target/usr/local/libexec/desktop/labwc-thinkpad-hotkeys
 17016	726c62f67a67cab951a98e827dfe12e1993cd59443bca569630edd9dac86e167	hooks/target/usr/local/libexec/desktop/labwc-tomat-hook
 16341	af8c2df6ed4e6f7af0bbfdf81f57ebecf6e33d30531257d3d3ebecbf7246d59f	hooks/target/usr/local/libexec/desktop/labwc-tomat-overlay.tmpl
-32686	9b6bef59118615f3a22eb787db6c2976aa799fd36ce0817df7e24c0e4fc85961	hooks/target/usr/local/libexec/desktop/labwc-tomat.tmpl
+34779	a06e2a2a1125c887c982fe40e5a50f21b3e794e522d2a963ffc3cb174db35e8a	hooks/target/usr/local/libexec/desktop/labwc-tomat.tmpl
 16857	a1bb35b6a977b9ede098664f7e4072c131e59e0091b0d18c6dcf32a2d2660320	hooks/target/usr/local/libexec/desktop/labwc-wallpaper-control
 7631	27dbaa16362b726fb24918aae601560b3b39f31609f9e51f727d6274b4985324	hooks/target/usr/local/libexec/desktop/labwc-waybar-battery
 14529	d5eee6a8048333b221565ac29008dcf5319646bbc7a985d8feef0388a313b6d9	hooks/target/usr/local/libexec/desktop/labwc-waybar-events.tmpl
 4943	93184dcbdc7bbc18a9f14a256137bbed108d7f7a22affff4d4364474fccc6b38	hooks/target/usr/local/libexec/desktop/labwc-waybar-exec
-22053	1882fd745846e7f4664f4804d234e2e569106eebe4343ff1db4e58fb40138fdb	hooks/target/usr/local/libexec/desktop/labwc-waybar-menu
-16782	7f6fbfd8a81bf4a4a20f4a9e520441924c98db88e2db484c027b074957bf492c	hooks/target/usr/local/libexec/desktop/labwc-waybar-run
+23332	79351c8686ce21b4c67984f0bf032fbf53393d21e8ae6cb44ccb820f55a36e49	hooks/target/usr/local/libexec/desktop/labwc-waybar-menu
+16797	44b54a5612ae6ce180da36c9a752d41211f863f50aad10de8e1634d02b80e9f2	hooks/target/usr/local/libexec/desktop/labwc-waybar-run
 6022	c0ee971cafb6d72b0712338323740ea0b1c65e9c5a00b3d81895ea7c7c3c8c30	hooks/target/usr/local/libexec/desktop/labwc-waybar-state
 13231	a45d187142c7f2966a8a7f19c6973c6c98b2b8a36b4448f0fa42774c2f6f7f80	hooks/target/usr/local/libexec/desktop/labwc-waycal-control
 10680	9d1c2d4df579234ec7f5e7cbb5a5ee4960b4ed9f75157a52453e8c4a2c2c3683	hooks/target/usr/local/libexec/desktop/labwc-waycal-popup
@@ -2076,7 +2076,7 @@ format=3
 1449	a1b131d719e8e70bd162b14169094098d61ab00ecab451a5fb6af6ac0729d2cb	hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.labwc.json
 1203	39b5f64c662b503b5af34df4bdaa0fb846ba3becde1e9204c862302703ae0442	hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.mako.json
 2978	e0694ad54210d9c3fa3348ab898596613f7a8839dcfa805bf7786c6391da26f5	hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.scx.json
-2121	dd4ee4907d6015d6f30627ef12b802227abdf01312189d6764c26f9de5bb0041	hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.tomat.json
+2402	89cf1a4b6d999e0ec75a890b7cb5fbc763bcaa2645ef5fc5f6efc15ba53b2f3d	hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.tomat.json
 2136	e24546b9078500d9ad97bfdd0b6edef6e0a0d0eb6a7cf6f8ac7ff2c75f721407	hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.waybar.json
 2100	cf498e4226c8dac02fde5d03ca6523eb01bfe50128fc1b0f7bf198c7b786e863	hooks/target/usr/local/share/desktop/labwc-help/articles/desktop.wayscriber.json
 1117	391378b2c562478ea9cc793fe852a9be5b261a84468f902dddfdd855a202abcf	hooks/target/usr/local/share/desktop/labwc-help/articles/hardware.gpu.json
@@ -2186,9 +2186,9 @@ format=3
 26082	bb8758788a0ebadfc8a70cf78f87cec573f96af5360813c17cb50746a46b9d61	hosts/profiles/templates/f2fs-server.env
 13211	bfd679f11f62d4836854ba41f451c75dace91ee0c9e47d30374013d1ead0398f	hosts/themes/README.md
 20833	32093c464f73a4f7c8a89681e8f270c06801f700808cd6e1226d3de3f215be5c	hosts/themes/apps.env
-77161	ac21c25a560e42e71c9e19e4b3ac98419b9742271e01f466ebf662a6796bd276	hosts/themes/base.env
+77172	33a5cf5ce96be4d19d06bf102519c5dc406fe8cd470fc2fc80cc8f566a8af3d8	hosts/themes/base.env
 18164	d3198d571c2bd96573ec413baa75d85e55c83af75cdb0a78a23b92b5c2900c5b	hosts/themes/office.env
-117450	38db7fe351db29d33fb1359317386b07a4e6e75d69c39a54ea26f6b81bc4ba47	hosts/themes/theme-schema.tsv
+117450	e80f567a21bbb1d3dad8319452b2380bcdba899b065834e6047a95f30f61f6c4	hosts/themes/theme-schema.tsv
 6103	07493586d53926ede6aa18a8a6ba5f3190db9913a3443c938c54d6fc752fc030	repo.env
 19175	fe2c044d0d2781d7323fa789dde2a237ef0d27fa08508888d7678fcb0ca767f6	scripts/common/apt-sources.sh
 47260	48ca964ba6b7b2f5398f546f5533aa4ad880a4627d2164ad996e9d0274dc150a	scripts/common/bootstrap.sh
@@ -2288,7 +2288,7 @@ format=3
 3450	6d349a0c66ae194d1c6f91a29f044066a757217f09d5c01d15f49e5fd9ad03ee	scripts/desktop/virtualization.sh
 20217	91afac934c6705cbd8b00ebba2059ee4202dbee0140e0a242ab5cf9a15149896	scripts/desktop/vivaldi-codecs-install.py
 2178	6fd8d4b599c4d160c7738bbf4e03aae5e9a3db838d0123676bf33c0a10acb9b7	scripts/desktop/waybar-geometry.tsv
-5839	22cd4e145bfa90c56106693ebe57094faa8eb49aea583a2f6b794f4c0524f904	scripts/desktop/waybar-menus.py
+6365	6b155a4c811689aaf680fbad488cdbc59b07b3e6d4689c47b05bb395956360fa	scripts/desktop/waybar-menus.py
 8023	97aa85e35af5a3720b0647e055f1a4a4ddc6fc8b4ca7ec06611a6a80ca4266a6	scripts/desktop/waybar_geometry.py
 14980	607285dc335394980d6b3f8b2ddc661c888ee6729b1111ee727fb9c003dced82	scripts/desktop/waypaper.sh
 40316	fee378c04c156ff286281a6f5ea5f1f21369e7db99034a683147ad60230e4b86	scripts/desktop/xwayland.sh

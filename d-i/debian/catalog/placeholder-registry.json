@@ -23608,7 +23608,6 @@
           "hooks/target/usr/local/sbin/common/account-create",
           "scripts/common/filen-install.py",
           "scripts/common/filen.sh",
-          "scripts/common/hardware-tuning-config.py",
           "scripts/desktop/android-platform-tools.sh",
           "scripts/desktop/calendar-install.py",
           "scripts/desktop/components/artifacts-identities.sh",
@@ -25693,7 +25692,6 @@
           "scripts/desktop/android-platform-tools.sh",
           "scripts/desktop/digital-assets.sh",
           "scripts/desktop/samloader.sh",
-          "scripts/late/core.sh",
           "scripts/late/devops/policy-resolution.sh.tmpl",
           "scripts/late/llama.sh"
         ]
@@ -30841,7 +30839,6 @@
           "scripts/firstboot/assets/var/lib/firstboot/bin/tailscale-up",
           "scripts/firstboot/firstboot.sh",
           "scripts/late/account.sh",
-          "scripts/late/core.sh",
           "scripts/late/crowdsec.sh",
           "scripts/late/crypto-bootstrap.py.tmpl",
           "scripts/late/devops-rust-tools.py",
@@ -31079,7 +31076,6 @@
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
           "scripts/firstboot/assets/etc/initramfs-tools/scripts/installer-health-common",
           "scripts/late/btrfs-family.sh",
-          "scripts/late/core.sh",
           "scripts/late/devops/codex-appserver.sh",
           "scripts/late/grub.sh",
           "scripts/late/mullvad.sh"
@@ -32357,7 +32353,6 @@
           "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
           "scripts/late/assets/etc/skel-desktop/.profile.installer-base",
           "scripts/late/codex-installer-session.py",
-          "scripts/late/core.sh",
           "scripts/late/dbus-broker.sh",
           "scripts/late/devops-tools.py",
           "scripts/late/devops/account-execution.sh",
@@ -32416,7 +32411,6 @@
           "hooks/target/usr/local/sbin/common/fwops-mode",
           "scripts/common/filen-install.py",
           "scripts/common/filen.sh",
-          "scripts/common/hardware-tuning.sh",
           "scripts/desktop/android-platform-tools.sh",
           "scripts/desktop/components/artifacts-identities.sh",
           "scripts/desktop/components/compz.sh",
@@ -99320,34 +99314,6 @@
       "final_assertion": "forbidden installer marker absent from every project-owned final target file",
       "literal_members": [],
       "must_be_absent_from_final_target": true,
-      "name": "THEME_WAYBAR_DROPDOWN_TOMAT_DEFAULT_ICON_NAME",
-      "namespace": "THEME",
-      "owner": {
-        "function": "installer_load_themes",
-        "module": "scripts/late/themes.sh",
-        "phase": "appearance"
-      },
-      "producer_map": "theme registry",
-      "publication_kind": "appearance",
-      "required": true,
-      "source_family": [
-        "target-asset"
-      ],
-      "syntax": "theme-schema-value",
-      "token": "__THEME_WAYBAR_DROPDOWN_TOMAT_DEFAULT_ICON_NAME__"
-    },
-    {
-      "consumer": {
-        "module": "hooks/target/etc/skel-desktop/.config/waybar/gtk/tomat-menu.xml.tmpl",
-        "source_members": [
-          "hooks/target/etc/skel-desktop/.config/waybar/gtk/tomat-menu.xml.tmpl"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
       "name": "THEME_WAYBAR_DROPDOWN_TOMAT_NOTIFICATIONS_ICON_NAME",
       "namespace": "THEME",
       "owner": {
@@ -99363,6 +99329,34 @@
       ],
       "syntax": "theme-schema-value",
       "token": "__THEME_WAYBAR_DROPDOWN_TOMAT_NOTIFICATIONS_ICON_NAME__"
+    },
+    {
+      "consumer": {
+        "module": "hooks/target/etc/skel-desktop/.config/waybar/gtk/tomat-menu.xml.tmpl",
+        "source_members": [
+          "hooks/target/etc/skel-desktop/.config/waybar/gtk/tomat-menu.xml.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "THEME_WAYBAR_DROPDOWN_TOMAT_REVERSE_ICON_NAME",
+      "namespace": "THEME",
+      "owner": {
+        "function": "installer_load_themes",
+        "module": "scripts/late/themes.sh",
+        "phase": "appearance"
+      },
+      "producer_map": "theme registry",
+      "publication_kind": "appearance",
+      "required": true,
+      "source_family": [
+        "target-asset"
+      ],
+      "syntax": "theme-schema-value",
+      "token": "__THEME_WAYBAR_DROPDOWN_TOMAT_REVERSE_ICON_NAME__"
     },
     {
       "consumer": {
@@ -109362,7 +109356,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "3956e9dfea14b545ed1ec256b68972e8acd40d3e33773d5fa3a7654b627f3fd9",
+  "source_fingerprint": "5eaa17ef0fa0b3b0e80bfcc305c13774dff71ad4e81b7241973a0f13cc2a51d0",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"
