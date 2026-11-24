@@ -10,6 +10,8 @@ capability sys_admin,
 # do not expose the corresponding NVML symbols. No shell or arbitrary child
 # executable is permitted by this include.
 __INSTALLER_PATH_DIR_USR__/bin/nvidia-smi rix,
+# Debian/Pika alternatives resolve the fixed command to this package binary.
+__INSTALLER_PATH_DIR_USR_LIB__/nvidia/current/nvidia-smi rix,
 __INSTALLER_PATH_DIR_DEV__/nvidiactl rw,
 __INSTALLER_PATH_DIR_DEV__/nvidia[0-9]* rw,
 __INSTALLER_PATH_DIR_DEV__/nvidia-uvm rw,

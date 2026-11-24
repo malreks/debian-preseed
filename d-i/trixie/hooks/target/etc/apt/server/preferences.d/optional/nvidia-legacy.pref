@@ -1,23 +1,44 @@
 # Managed by the installer apt-setup preferences generator.
-# Keep the broader XanMod archive available for recovery while pinning the
-# managed NVIDIA stack to XanMod.
-
-Package: *
-Pin: release o=xanmod
-Pin-Priority: 100
-
-Package: nvidia-dkms-580 nvidia-kernel-common-580 nvidia-utils-580 libnvidia-gl-580 libnvidia-compute-580 nvidia-compute-utils-580 nvidia-vaapi-driver libnvidia-egl-wayland1 nvidia-firmware-580-580.142 libnvidia-common-580 libnvidia-encode-580 libnvidia-decode-580 libnvidia-extra-580 libnvidia-fbc1-580 nvidia-kernel-source-580
-Pin: release o=xanmod
-Pin-Priority: 900
-
-# Prefer the render-node/PRIME-corrected EGLWayland 1 compatibility library.
-# Desktop roles enable Pika Cockatiel; no Pika source is enabled for servers.
-# Priority 990 permits a newer native version without forcing a downgrade.
-Package: libnvidia-egl-wayland1
+# Keep the proprietary 580 DKMS, firmware and userspace ABI in one Pika family.
+# Source matching includes the branch's exact-version dependencies and virtual
+# providers without selecting open modules, driver metapackages or X.Org.
+Package: src:nvidia-graphics-drivers-580:any
 Pin: origin ppa.pika-os.com
 Pin-Priority: 990
 
-# Keep the disabled Pop!_OS fallback excluded.
+# EGL/GBM platform libraries retain their fixes independently of driver updates.
+Package: libnvidia-egl-wayland1 libnvidia-egl-gbm1
+Pin: origin ppa.pika-os.com
+Pin-Priority: 990
+
+# XanMod supplies the kernel (15-kernel.pref), never competing NVIDIA packages.
+Package: nvidia*:any libnvidia*:any libcuda*:any libcudadebugger*:any libegl-nvidia*:any libgles-nvidia*:any libglx-nvidia*:any libnvcuvid*:any libnvoptix*:any firmware-nvidia*:any
+Pin: origin deb.xanmod.org
+Pin-Priority: -1
+
+# Pika's EGL implementation requires coherent GBM/Mesa runtime dependencies.
+# This policy is staged only for the hardware-approved legacy NVIDIA class.
+# Equal native/Pika priority selects newer versions without forced downgrades.
+Package: libgbm1 libgl1-mesa-dri libegl-mesa0 libglx-mesa0 libglapi-mesa mesa-libgallium libdrm-common libdrm2 src:glibc:any src:wayland:any libllvm21 libxml2-16
+Pin: release o=Debian,n=trixie
+Pin-Priority: 990
+
+Package: libgbm1 libgl1-mesa-dri libegl-mesa0 libglx-mesa0 libglapi-mesa mesa-libgallium libdrm-common libdrm2
+Pin: origin ppa.pika-os.com
+Pin-Priority: 990
+
+# Keep the required runtime families coherent, as in the desktop graphics
+# policy; the rest of the Forky archive remains excluded on Trixie servers.
+Package: src:glibc:any src:wayland:any src:libdrm:any libllvm21 libxml2-16
+Pin: release o=Debian,n=forky
+Pin-Priority: 990
+
+# Other Pika packages remain opt-in, including on NVIDIA-enabled server roles.
+Package: *
+Pin: origin ppa.pika-os.com
+Pin-Priority: 100
+
+# Keep the disabled Ubuntu-based fallback excluded.
 Package: *
 Pin: origin apt.pop-os.org
 Pin-Priority: -1

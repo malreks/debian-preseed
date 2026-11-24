@@ -18,7 +18,6 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from test_nvidia_legacy_dkms import wrapper_text
 
 REPO = Path(__file__).resolve().parents[3]
 SCRIPT = REPO / 'tools/repair_nvidia_580.sh'
@@ -38,7 +37,7 @@ class Nvidia580RecoveryTests(unittest.TestCase):
         (self.target / f'lib/modules/{self.kernel}/build/Module.symvers').write_text('fixture\n')
         (self.target / 'dev/null').symlink_to('/dev/null')
         (self.target / 'proc/self').symlink_to('/proc/self')
-        for name in ('dkms', 'dkms.distrib'):
+        for name in ('dkms',):
             (self.target / f'usr/sbin/{name}').write_text('#!/bin/sh\nexit 0\n')
             (self.target / f'usr/sbin/{name}').chmod(0o755)
         bindir = self.root / 'bin'
@@ -49,20 +48,27 @@ set -eu
 shift
 printf '%s\t' "$@" >> "$RECOVERY_LOG"
 printf '\n' >> "$RECOVERY_LOG"
+if [ "$1" = /usr/bin/env ] && [ "${2%%=*}" = DPKG_MAINTSCRIPT_PACKAGE ]; then
+  [ "$2" = "DPKG_MAINTSCRIPT_PACKAGE=${RECOVERY_EXPECT_PACKAGE:-nvidia-kernel-dkms-580}" ] || exit 93
+  shift 2
+fi
+if [ "$1" = dpkg-query ] && [ "${RECOVERY_OLD_PACKAGE:-false}" = true ]; then
+  case " $* " in *' nvidia-kernel-dkms-580 '*) exit 1;; esac
+fi
 kind=$1
 [ "$1" != /usr/sbin/dkms ] || kind=$2
 [ "$kind" != "${RECOVERY_FAIL:-}" ] || exit 37
 case $1 in
   dpkg-query)
     case " $* " in
-      *' -f=${Version} '*) printf '%s\n' "${RECOVERY_VERSION:-580.142-1}" ;;
+      *' -f=${Version} '*) printf '%s\n' "${RECOVERY_VERSION:-580.196.07-101pika2}" ;;
       *' -f=${Status} '*) printf '%s\n' "${RECOVERY_STATUS:-install ok installed}" ;;
-      *) printf '%s\n' 'nvidia-dkms-580 580.142-1' ;;
+      *) printf '%s\n' 'nvidia-kernel-dkms-580 580.196.07-101pika2' ;;
     esac ;;
   modinfo)
     case " $* " in
       *' -F vermagic '*) printf '%s\n' "${RECOVERY_VERMAGIC:-7.2.4-x64v3-xanmod1 SMP preempt mod_unload modversions}" ;;
-      *) printf '%s\n' "${RECOVERY_MODVERSION:-580.142}" ;;
+      *) printf '%s\n' "${RECOVERY_MODVERSION:-580.196.07}" ;;
     esac ;;
 esac
 ''')
@@ -77,14 +83,10 @@ esac
         calls = [line.rstrip('\t').split('\t') for line in payload_read_text(self.log).splitlines()] if payload_source_exists(self.log) else []
         return p, calls
 
-    def test_success_uses_identical_wrapper_explicit_kernel_and_verifies_modules(self):
-        old = payload_read_bytes(self.target / 'usr/sbin/dkms')
+    def test_success_uses_packaged_dkms_and_verifies_modules(self):
         p, calls = self.run_repair()
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertEqual(payload_read_text(self.target / 'usr/sbin/dkms'), wrapper_text()+'\n')
-        self.assertEqual(payload_read_bytes(list((self.target / 'usr/sbin').glob('dkms.before-r2.*'))[0]), old)
-        self.assertFalse(list((self.target / 'usr/sbin').glob('dkms.r2.*')))
-        build = ['/usr/sbin/dkms', 'build', '-m', 'nvidia', '-v', '580.142', '-k', self.kernel, '--force']
+        build = ['/usr/sbin/dkms', 'build', '-m', 'nvidia', '-v', '580.196.07', '-k', self.kernel, '--force']
         install = build.copy(); install[1] = 'install'
         self.assertIn(build, calls)
         self.assertIn(install, calls)
@@ -99,13 +101,13 @@ esac
     def test_build_failure_is_not_hidden_and_configuration_does_not_run(self):
         p, calls = self.run_repair(RECOVERY_FAIL='build')
         self.assertEqual(p.returncode, 37)
-        self.assertEqual(calls[-1][1], 'build')
+        self.assertIn('build', calls[-1])
         self.assertFalse(any('dpkg' in c or 'install' in c for c in calls))
 
     def test_install_failure_is_not_hidden(self):
         p, calls = self.run_repair(RECOVERY_FAIL='install')
         self.assertEqual(p.returncode, 37)
-        self.assertEqual(calls[-1][1], 'install')
+        self.assertIn('install', calls[-1])
 
     def test_wrong_module_version_blocks_package_configuration(self):
         p, calls = self.run_repair(RECOVERY_MODVERSION='590.1')
@@ -124,17 +126,22 @@ esac
         self.assertNotEqual(p.returncode, 0)
         self.assertNotIn('repair completed', p.stdout)
 
-    def test_rejects_different_driver_branch_before_wrapper_change(self):
+    def test_rejects_different_driver_branch_before_dkms_change(self):
         original = payload_read_bytes(self.target / 'usr/sbin/dkms')
         p, _ = self.run_repair(RECOVERY_VERSION='590.1-1')
         self.assertNotEqual(p.returncode, 0)
         self.assertEqual(payload_read_bytes(self.target / 'usr/sbin/dkms'), original)
 
     def test_epoch_and_package_revision_are_not_part_of_dkms_version(self):
-        p, calls = self.run_repair(RECOVERY_VERSION='1:580.142-2~local')
+        p, calls = self.run_repair(RECOVERY_VERSION='1:580.196.07-2~local')
         self.assertEqual(p.returncode, 0, p.stderr)
-        build = next(c for c in calls if len(c)>1 and c[1]=='build')
-        self.assertEqual(build[build.index('-v')+1], '580.142')
+        build = next(c for c in calls if 'build' in c)
+        self.assertEqual(build[build.index('-v')+1], '580.196.07')
+
+    def test_current_recovery_requires_the_pika_package_name(self):
+        p, calls = self.run_repair(RECOVERY_OLD_PACKAGE='true')
+        self.assertNotEqual(p.returncode, 0)
+        self.assertNotIn('/usr/bin/env', [c[0] for c in calls])
 
     def test_missing_headers_stop_before_any_chroot(self):
         (self.target / f'lib/modules/{self.kernel}/build/Module.symvers').unlink()

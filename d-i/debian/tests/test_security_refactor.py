@@ -231,78 +231,20 @@ class DebugLauncherTests(unittest.TestCase):
 
 # Additional production-path regressions discovered during integration review.
 class AdditionalProductionRegressions(unittest.TestCase):
-    def test_dkms_wrapper_fails_instead_of_recursing_and_preserves_arguments(self):
+    def test_pika_nvidia_580_dkms_uses_vendor_source_and_no_local_wrapper(self):
         text = payload_read_text(SEED/'hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh')
-        self.assertIn('--rename --add /usr/sbin/dkms', text)
-        wrapper = text.split("<<'EOF'\n",1)[1].split('\nEOF',1)[0]
-        tail = wrapper[wrapper.index('real_dkms='):]
-        with tempfile.TemporaryDirectory(prefix='dkms-wrapper-') as tmp:
-            real = Path(tmp)/'dkms.distrib'
-            script = 'patch_legacy_nvidia_source_tree() { :; }\n' + tail.replace('/usr/sbin/dkms.distrib',str(real))
-            result = subprocess.run(payload_installed_argv(['/bin/sh','-eu','-c',script,'sh','test argument']),capture_output=True,text=True,timeout=5)
-            self.assertEqual(result.returncode,127)
-            real.write_text('#!/bin/sh\nprintf "%s\\n" "$1"\n'); real.chmod(0o755)
-            result = subprocess.run(payload_installed_argv(['/bin/sh','-eu','-c',script,'sh','test argument']),capture_output=True,text=True,timeout=5)
-            self.assertEqual(result.returncode,0,result.stderr)
-            self.assertEqual(result.stdout,'test argument\n')
+        self.assertIn('PikaOS 580.196.07-101pika2', text)
+        self.assertIn('package\'s normal DKMS maintainer hooks', text)
+        self.assertNotIn('dkms-wrapper', text)
+        self.assertNotIn('patch_nv_', text)
+        self.assertNotIn('patch_legacy_nvidia_source_tree', text)
+        self.assertNotIn('dpkg-divert --quiet --local --divert /usr/sbin/dkms', text)
 
-    def test_nvidia_580_header_patch_adds_string_and_gpio_compat_once(self):
-        text = payload_read_text(SEED/'hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh')
-        wrapper = text.split("<<'EOF'\n",1)[1].split('\nEOF',1)[0]
-        patcher = wrapper[:wrapper.index('\npatch_legacy_nvidia_source_tree()')]
-        script = patcher + '\npatch_nv_linux_header "$1"\n'
-        with tempfile.TemporaryDirectory(prefix='nvidia-header-') as tmp:
-            header = Path(tmp)/'nv-linux.h'
-            header.write_text('#ifndef _NV_LINUX_H_\n#include "conftest.h"\n'
-                              '#include <linux/of_gpio.h>\n#endif\n')
-            header.chmod(0o640)
-            first_run = subprocess.run(payload_installed_argv(['/bin/sh','-eu','-c',script,'sh',str(header)]),
-                                       capture_output=True,text=True,timeout=5)
-            self.assertEqual(first_run.returncode,0,first_run.stderr)
-            first = payload_read_bytes(header)
-            second_run = subprocess.run(payload_installed_argv(['/bin/sh','-eu','-c',script,'sh',str(header)]),
-                                        capture_output=True,text=True,timeout=5)
-            self.assertEqual(second_run.returncode,0,second_run.stderr)
-            self.assertEqual(payload_read_bytes(header),first)
-            rewritten = first.decode()
-            self.assertIn('#include "conftest.h"\n#include <linux/string.h>\n'
-                          '/* NV_INSTALLER_NVIDIA_LEGACY_STRING_COMPAT */', rewritten)
-            self.assertEqual(rewritten.count('#include <linux/string.h>'),1)
-            self.assertEqual(rewritten.count('NV_INSTALLER_NVIDIA_LEGACY_STRING_COMPAT'),1)
-            self.assertEqual(rewritten.count('NV_INSTALLER_NVIDIA_LEGACY_OF_GPIO_COMPAT'),1)
-            self.assertEqual(rewritten.count('#include <linux/gpio/consumer.h>'),1)
-            self.assertEqual(stat.S_IMODE(payload_source_stat(header).st_mode),0o640)
-            self.assertEqual(list(header.parent.glob('nv-linux.h.tmp.*')),[])
-
-    def test_nvidia_580_header_patch_fails_closed_without_known_anchor(self):
-        text = payload_read_text(SEED/'hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh')
-        wrapper = text.split("<<'EOF'\n",1)[1].split('\nEOF',1)[0]
-        tree_patcher = wrapper[:wrapper.index('\nreal_dkms=')]
-        self.assertIn('/usr/src/nvidia-580.*',tree_patcher)
-        self.assertIn('/usr/src/nvidia-current-580.*',tree_patcher)
-        self.assertNotIn('/usr/src/nvidia-*',tree_patcher)
-        self.assertNotIn('/var/lib/dkms/nvidia/*/',tree_patcher)
-        with tempfile.TemporaryDirectory(prefix='nvidia-header-invalid-') as tmp:
-            source = Path(tmp)/'nvidia-580.142'
-            header = source/'common/inc/nv-linux.h'
-            header.parent.mkdir(parents=True)
-            original = '#include <linux/of_gpio.h>\n'
-            header.write_text(original)
-            replacements = {
-                '/usr/src/nvidia-580.*': str(Path(tmp)/'nvidia-580.*'),
-                '/usr/src/nvidia-current-580.*': str(Path(tmp)/'missing-current-580.*'),
-                '/var/lib/dkms/nvidia/580.*/source': str(Path(tmp)/'missing-dkms-580.*/source'),
-                '/var/lib/dkms/nvidia/580.*/build': str(Path(tmp)/'missing-dkms-580.*/build'),
-            }
-            for installed,fixture in replacements.items():
-                tree_patcher = tree_patcher.replace(installed,fixture)
-            result = subprocess.run(payload_installed_argv(['/bin/sh','-eu','-c',tree_patcher+'\npatch_legacy_nvidia_source_tree\n']),
-                                    capture_output=True,text=True,timeout=5)
-            self.assertNotEqual(result.returncode,0)
-            self.assertIn('cannot transform recognized NVIDIA 580 header',result.stderr)
-            self.assertIn('failed to patch NVIDIA 580 source header before DKMS compilation',result.stderr)
-            self.assertEqual(payload_read_text(header),original)
-            self.assertEqual(list(header.parent.glob('nv-linux.h.tmp.*')),[])
+    def test_obsolete_dkms_cleanup_is_limited_to_interrupted_old_installs(self):
+        text = payload_read_text(SEED/'hooks/installer/finish-install.d/10-nvidia-legacy-cleanup')
+        self.assertIn('obsolete installer diversion', text)
+        self.assertIn('NV_INSTALLER_NVIDIA_LEGACY_DKMS_WRAPPER_V1', text)
+        self.assertIn('if ! dpkg-divert --list /usr/sbin/dkms', text)
 
     @skip_unless_trusted_credential_ancestry
     def test_secret_files_harden_read_bits_but_reject_other_writers(self):

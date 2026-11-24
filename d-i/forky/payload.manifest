@@ -1,6 +1,6 @@
 format=3
 12171	51e39a4394d06537bf245bceba04b4b3969f915ef2fc7e8045e38ee9d280a903	catalog/compiled/apt-assets.tsv
-321271	90c2dc82abb47c263bdb42f3ac6bf79d6afb073dd5ff94ec0041f96ea418b36d	catalog/compiled/class-plan.tsv
+323768	b59948a7bb34833e478b42d4504c8925fa74168cea2aaf52dd451c01f6200e95	catalog/compiled/class-plan.tsv
 7507	792584a115b31c75cee77ed78a03d7e7770cee715aa070db48f561148bedac48	catalog/compiled/class-registry.conf
 8617	5a724fae4c394d83c80dd314bfe36f185273ba0ba8c93adc775f728d194c67f1	catalog/compiled/class-registry.tsv
 36579	b08ade62ab9d29f862c1900b4ad807681a4e97e0c3f0bb2e77aa9e614ae677b9	catalog/compiled/forky/plans/desktop/base/amd64.json
@@ -87,7 +87,7 @@ format=3
 121096	6b1eeb8118de57b2a483717eab1bb64a7a7f25e62aad8e2757ff0796b4be7f33	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.env
 154545	eb037e1b7887191c931ccff0e6659d54b1081290bda6cc799dacf1faf06d414a	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.provenance.json
 12135	381cacb2687ba38e7aac6ef99ac2950a3cd95da2fef716586e495375e4b5d2eb	catalog/compiled/profile-assets.tsv
-154	158a90de88e4dcfedaf6a6f861aa71342689a56bd7b230443f4d2b1f95d4cad6	catalog/compiled/release.tsv
+154	a93238cc00d3dc4a9b8a17d0ed3f95f0f18340762dfcf1b9a68be4d06cca9180	catalog/compiled/release.tsv
 22105	3d0bd73d48a0577301724b209c9afb0b42ad006a7de9ee1cf156a8460e84982a	catalog/compiled/shared-perl-assets.tsv
 177204	54ade07dcc587e6967af7864052c871ad6c7d1f495c4f206d93267ec5e6d4158	catalog/compiled/source-members.tsv
 513	7e8a843e51a8d28472e5eb07fa9fdedc7f69760491de02682a6e018be5b6056b	catalog/compiled/suite-qualification.tsv
@@ -175,7 +175,7 @@ format=3
 8353	0572eb248ddcb62d7f4069013c2d2b830c9b3a15fa14d0aa7d0adc696f7977da	catalog/compiled/trixie/profiles/server/f2fs-srv-hp14.artifacts.json
 121100	30404c0fba24c3511d7e59f2ee8807977abb00ac42656756b575171b44cec388	catalog/compiled/trixie/profiles/server/f2fs-srv-hp14.env
 154548	433f79258bad1d300904e74a201212ffe12ca9a8c98c3c4c88a3634d6e3de109	catalog/compiled/trixie/profiles/server/f2fs-srv-hp14.provenance.json
-2254042	156181ff4cf2bdc7a8da8e2f3fb91f751b75617f2154c6feb7361c6d8c91b9f6	catalog/placeholder-registry.tsv
+2253794	b168ba2d5bc729cfbdb731fcaad46fbda164a45901d7feaef89cb9ad59a812ca	catalog/placeholder-registry.tsv
 42828	2ccf9fa8df4f5c17ecb603f2796d733fb53e4ccd077c95b86a7b2b53128f1475	catalog/runtime-paths.tsv
 10854	da1bf52a0fbb1850fc18a94f277b69bee0b2b1788096dff6f1ec18a7751dcc97	catalog/selection.json
 4716	1b938d3ee476875f63c18fa1bad8e7df7a639928876591567175d0c86e46df09	catalog/target-assets.tsv
@@ -216,7 +216,7 @@ format=3
 1112	3321598f9145decb78ad42d5c63638ca3d75198f82333c48d427b74fc65532f5	frontends/forky/classes/class-select/network/static.cfg
 2488	bf9e6e05f405577bad1182b578ef8e1da78db1db58530d2f4f87554d4b7ac44a	frontends/forky/classes/class-select/optional/cuda-legacy.cfg
 298	c1ef73fe29c21e49351db57042f90f0640a3ff07dc9c66f46faec49b34b52538	frontends/forky/classes/class-select/optional/cuda.cfg
-1267	55f6c96df5c235c446dc9d1dc8e71fc7a83b9d426f2d4bc48aa151abfe394489	frontends/forky/classes/class-select/optional/nvidia-legacy.cfg
+2031	f7cdb9b0182ebe2f6e6ede2f55191ff5d042d115900c72caa27375da3fe66c53	frontends/forky/classes/class-select/optional/nvidia-legacy.cfg
 1523	d453d26c33c268cf24b8b92a9b37e822770578d2b6e156c61f8c8e577504f21e	frontends/forky/classes/class-select/optional/nvidia.cfg
 6271	8c693d38a4bba670cfa1bd932ae32a5e8699a80677e55c2f5292fe523e647927	frontends/forky/classes/class-select/role/desktop/base.cfg
 12731	39369debd242da8ceef3654f8d8dbfd6cec193f9d8d19f95e5b2a3cf0d1bb716	frontends/forky/classes/class-select/role/desktop/full.cfg
@@ -266,7 +266,7 @@ format=3
 241	c6e85a92952c9fcf43f1c611ee3f54d38628cfeb2318dccfbbb5c0b636c66f3a	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/dbus.pref
 1557	df538f838f81410faa7f057660f587381b1f7f590dd2a0cdcdff4c483761f4ed	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/cuda-legacy.pref
 359	aa30c317c11f07654d518291166945e7874ca72e1ae6bb4aaf55768f22484902	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/cuda.pref
-1003	b3cca23177713cc943be17d9a0298633154f33e089b39e58fe40d16fb633465c	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-legacy.pref
+1114	0cf118a98589d25f3aa74f5e0e8ba326ca1e2c60d067612f2d0e49dbbf62da48	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-legacy.pref
 1044	f0807aa36985641cda05e26f57a17843d10d91937fa1d887b97278bf0935f576	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-opt-in.pref
 1050	fcb2ee7e5451b9283c989795e69b05e3ef1e26aef9d9d783dd2918812457fcc5	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia.pref
 778	f1bf7d0bf738e3c897ca67827fdb54bd174c130c5ab94603e5e1d9e8044cbc7d	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/x11.pref
@@ -283,7 +283,7 @@ format=3
 241	c6e85a92952c9fcf43f1c611ee3f54d38628cfeb2318dccfbbb5c0b636c66f3a	frontends/forky/hooks/target/etc/apt/server/preferences.d/dbus.pref
 1557	df538f838f81410faa7f057660f587381b1f7f590dd2a0cdcdff4c483761f4ed	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/cuda-legacy.pref
 359	aa30c317c11f07654d518291166945e7874ca72e1ae6bb4aaf55768f22484902	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/cuda.pref
-1003	b3cca23177713cc943be17d9a0298633154f33e089b39e58fe40d16fb633465c	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia-legacy.pref
+1664	d0eb911b14c632b81c543eb431fd4d2ab55dd2b2843e6e89ac00f88114bfc3d8	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia-legacy.pref
 1044	f0807aa36985641cda05e26f57a17843d10d91937fa1d887b97278bf0935f576	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia-opt-in.pref
 1050	fcb2ee7e5451b9283c989795e69b05e3ef1e26aef9d9d783dd2918812457fcc5	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref
 778	f1bf7d0bf738e3c897ca67827fdb54bd174c130c5ab94603e5e1d9e8044cbc7d	frontends/forky/hooks/target/etc/apt/server/preferences.d/x11.pref
@@ -325,7 +325,7 @@ format=3
 1112	3321598f9145decb78ad42d5c63638ca3d75198f82333c48d427b74fc65532f5	frontends/trixie/classes/class-select/network/static.cfg
 2488	bf9e6e05f405577bad1182b578ef8e1da78db1db58530d2f4f87554d4b7ac44a	frontends/trixie/classes/class-select/optional/cuda-legacy.cfg
 298	c1ef73fe29c21e49351db57042f90f0640a3ff07dc9c66f46faec49b34b52538	frontends/trixie/classes/class-select/optional/cuda.cfg
-1267	55f6c96df5c235c446dc9d1dc8e71fc7a83b9d426f2d4bc48aa151abfe394489	frontends/trixie/classes/class-select/optional/nvidia-legacy.cfg
+2031	f7cdb9b0182ebe2f6e6ede2f55191ff5d042d115900c72caa27375da3fe66c53	frontends/trixie/classes/class-select/optional/nvidia-legacy.cfg
 1523	d453d26c33c268cf24b8b92a9b37e822770578d2b6e156c61f8c8e577504f21e	frontends/trixie/classes/class-select/optional/nvidia.cfg
 6158	3a01ecc40a3b32640b294a52ff6c37c847c08ea4828d525c9e5cee68b72627d4	frontends/trixie/classes/class-select/role/desktop/base.cfg
 12703	a451375c1fdf76cd8256a26e679aa0e159c5664e1b18f228483f09bf79dec704	frontends/trixie/classes/class-select/role/desktop/full.cfg
@@ -375,7 +375,7 @@ format=3
 241	c6e85a92952c9fcf43f1c611ee3f54d38628cfeb2318dccfbbb5c0b636c66f3a	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/dbus.pref
 1557	df538f838f81410faa7f057660f587381b1f7f590dd2a0cdcdff4c483761f4ed	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/cuda-legacy.pref
 359	aa30c317c11f07654d518291166945e7874ca72e1ae6bb4aaf55768f22484902	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/cuda.pref
-1003	b3cca23177713cc943be17d9a0298633154f33e089b39e58fe40d16fb633465c	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-legacy.pref
+1114	0cf118a98589d25f3aa74f5e0e8ba326ca1e2c60d067612f2d0e49dbbf62da48	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-legacy.pref
 1044	f0807aa36985641cda05e26f57a17843d10d91937fa1d887b97278bf0935f576	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-opt-in.pref
 1050	fcb2ee7e5451b9283c989795e69b05e3ef1e26aef9d9d783dd2918812457fcc5	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia.pref
 759	aa9c7c8f1b8d7b05eb84b8b3738bcecbc7fcc6fbc3bdd4668d8832546a6dc74d	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/x11.pref
@@ -392,7 +392,7 @@ format=3
 241	c6e85a92952c9fcf43f1c611ee3f54d38628cfeb2318dccfbbb5c0b636c66f3a	frontends/trixie/hooks/target/etc/apt/server/preferences.d/dbus.pref
 1557	df538f838f81410faa7f057660f587381b1f7f590dd2a0cdcdff4c483761f4ed	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/cuda-legacy.pref
 359	aa30c317c11f07654d518291166945e7874ca72e1ae6bb4aaf55768f22484902	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/cuda.pref
-1003	b3cca23177713cc943be17d9a0298633154f33e089b39e58fe40d16fb633465c	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia-legacy.pref
+1990	ef64e398e0e0021dfee12a23e1fe39cdaffc60f160944e72094b0bee3518b4a1	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia-legacy.pref
 1044	f0807aa36985641cda05e26f57a17843d10d91937fa1d887b97278bf0935f576	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia-opt-in.pref
 1050	fcb2ee7e5451b9283c989795e69b05e3ef1e26aef9d9d783dd2918812457fcc5	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref
 772	94baeed7859a83e8e469cac8b91b58e1992e803584a8576215c5a1d89d0e42f5	frontends/trixie/hooks/target/etc/apt/server/preferences.d/x11.pref
@@ -409,7 +409,7 @@ format=3
 3341	80229f55d1bab3efe4377ad38f88a6a92f79a5d02591041599997c2e085518cc	hooks/installer/di.env
 787	7797a7e0d4c73f2904725535da71100d62a5d797776151fdfc7ff3a3509b7863	hooks/installer/finish-install.d/00-installer-guard
 1011	578942e580672d07fa908cb2d240f703eaec7674a019b38d2ddb472c85128657	hooks/installer/finish-install.d/09-cuda-legacy-cleanup
-1834	6a532df12f3d38b345bb92e7966d4e6e0ff2afed07b8456d99c634cde7d585ca	hooks/installer/finish-install.d/10-nvidia-legacy-cleanup
+2133	215b2339f6fdd5c24bf85c5d17598aecc00bac45b36333b86dd87759dd52b1d9	hooks/installer/finish-install.d/10-nvidia-legacy-cleanup
 243	40bfb475d534ea42783ae6ad2eb8f772ca3b3087cc24f8d374786cd2cd974b22	hooks/installer/finish-install.d/94zz-99-validate-target
 6904	bb47cbc6b74d8ad9bade9c25098a39132e06b3f3b9c7b8979b6c1ced36a90043	hooks/installer/finish-install.d/95-normalize-apt
 940	14ef7bb024efe1ba52881261f9b5ac768de0cb375a8a05875ccc6bcf99c2367a	hooks/installer/finish-install.d/96-custom-apt
@@ -433,7 +433,7 @@ format=3
 4037	37eee00af844243afa9fd1044dd061f95601909da93b311768114dec240f4fde	hooks/installer/pre-pkgsel.d/89temporary-unshare.sh
 4496	f8ad0457f77109cc127e00e8d7e696650e26a3c9d95ffe67fee48e1790ddcf37	hooks/installer/pre-pkgsel.d/90secure-boot-dkms.sh
 6115	94a7a1748f7f568eb4b80753e903080b43a6fddb4b6931dddc9082536812f16f	hooks/installer/pre-pkgsel.d/91cuda-legacy-apt.sh
-27634	7d0c3a2de288f524395ee78b603db678027e90b81f9e4c20c64dad5696b7f207	hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh
+7885	02bd1b087f458894d25fc0e33146a7c30363afe3d5b17b29d49748f8060274fd	hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh
 513	7e8a843e51a8d28472e5eb07fa9fdedc7f69760491de02682a6e018be5b6056b	hooks/installer/suite-policy.tsv
 96030	df2387c9f4f60b50ade7c878932c28503ea6ca9a12061ccce56f618b1a62049d	hooks/target/data/codex/lib/codex.tmpl
 334	b5bf9b3d03506203538e807253072633e76de3655c1e45abd3f31be3ff1217c9	hooks/target/data/config/podman/templates/devops/client.conf
@@ -462,7 +462,7 @@ format=3
 2235	49568f77935a304b250e6b39501527929abfbed8c3ee4ee1198260bd48c0156f	hooks/target/etc/apparmor.d/common/abstractions/bwrap-common
 1494	8dd536eb9bb7a72d3993cb42f3a20ce8d42cb0a488064f48120eb54c86ba1bf9	hooks/target/etc/apparmor.d/common/abstractions/crun-runtime
 1911	3fbb993f698d8b9de7f9f3f1279f21e6c50bcbec8efbf72b40ba430682ac512d	hooks/target/etc/apparmor.d/common/abstractions/hardware-tuning-intel
-1734	9d57387d9a0184a856617d838007fb772a5c095e079b41de46d1d75069afafae	hooks/target/etc/apparmor.d/common/abstractions/hardware-tuning-nvidia
+1873	4a4c73eed9aabfb7503fff420c2affaae60e3083ea217e7225a6eab863c2bdaa	hooks/target/etc/apparmor.d/common/abstractions/hardware-tuning-nvidia
 544	027ee3401bab30a882ad02b3bb85dc8af06c2fac4f47406a24d0699a1cb7fe40	hooks/target/etc/apparmor.d/common/abstractions/timeshift-runtime
 2190	068819e043432c0247135a670bfdfdf432314b2816d5e8d167baadb7b5f8cc6c	hooks/target/etc/apparmor.d/common/abstractions/workflow-auth
 953	84e958ece5baa5bdccb9953c4afac04235d69864dfa571b60ba8b0b0b0ec5178	hooks/target/etc/apparmor.d/common/abstractions/wrapper-base
@@ -503,7 +503,7 @@ format=3
 138	b79b1e24c9b066f2a6f35c1f256e535d7603a3e8a0c958381116141dfb583643	hooks/target/etc/apparmor.d/desktop/abstractions/hardware-tuning-desktop-parent
 139	7a0a8bb10ce084e2b9c0aecd4536d085988eedb8291a27dc8146d7f211fc36e7	hooks/target/etc/apparmor.d/desktop/abstractions/hardware-tuning-fuzzel-parent
 199	fc6d6a17b54ac4f11766366f5c3d63a71fe49e7a88dd9fc86cce2a786e87d0eb	hooks/target/etc/apparmor.d/desktop/abstractions/hardware-tuning-management-parent
-890	86d27d25863f54d0300cec81e7784293a5d992b9fd54cd483180b7b6eeb4879d	hooks/target/etc/apparmor.d/desktop/abstractions/llama-whisper-coordination
+1029	dc842da278c361cc575088d008b5e4ce022660160b123d1b037d141d286d3eed	hooks/target/etc/apparmor.d/desktop/abstractions/llama-whisper-coordination
 867	07b88ca95a689a92a4c06789a09d9a71413867b15042fd62f66c0d859e140123	hooks/target/etc/apparmor.d/desktop/abstractions/native-gpu-selection
 2426	205bc564544c69491018f6e1bce1e518ddeafa8887312a6b695ed38d49e499c8	hooks/target/etc/apparmor.d/desktop/abstractions/pipewire-audio
 2291	01d74f6e6a49b6dbf77d1fa9eee780c44df129abaff56e4a00595329372d034d	hooks/target/etc/apparmor.d/desktop/abstractions/qbittorrent-runtime
@@ -1572,7 +1572,7 @@ format=3
 15489	92f7c8bcb9d9b68cd348305faf8a43d0cd7526893f0631868f0eefce469c9d42	hooks/target/usr/local/lib/common/hardware_tuning/common.py
 29014	a4bdf2dfb2567db61add08311e8a345b1544d5e3e559c818818b71ebe0f9c31d	hooks/target/usr/local/lib/common/hardware_tuning/engine.py
 20321	83faa8ec298ff3ce84d6884f79e30d8e858ed4f52fce4dab67b5f15a3e278520	hooks/target/usr/local/lib/common/hardware_tuning/intel.py
-35778	e62c1580885700d7b0b754efa32998a4b3465cbe1baa7b9a07b3055434ca702c	hooks/target/usr/local/lib/common/hardware_tuning/nvidia.py
+37046	43f5a4eaaf27ed9a6bea4427b344c3ce6cc9438c7646f0623ee3aa53790f476b	hooks/target/usr/local/lib/common/hardware_tuning/nvidia.py
 18992	84cd62caff2295ac1fb140b4d02cd3f43ec2d2af8627333799dc0e95d288e01f	hooks/target/usr/local/lib/common/hardware_tuning/policy_owner.py
 16608	909efd56a716094e0c4ef3aedc12662230439325c7ae7b503aa155950a5aad9b	hooks/target/usr/local/lib/common/hardware_tuning/power_profiles.py
 7752	2d117f3a64eb7a48cc6debf9a1286858e0bf115b754a4d19271b57571fe76b73	hooks/target/usr/local/lib/common/hardware_tuning/system_state.py

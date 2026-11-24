@@ -18,7 +18,10 @@ installer_load_data_env "$host_env"
 installer_nvidia_legacy_selected 2>/dev/null || exit 0
 
 installer_operation_context_repo hooks/installer/finish-install.d/10-nvidia-legacy-cleanup 21 finish_install_nvidia_cleanup
-run_in_target 'remove scoped NVIDIA DKMS diversion' /bin/sh -eu -c '
+# Current Pika 580 source already contains the Linux 7.2+ compatibility code,
+# so new installs never create a DKMS diversion. Keep this narrowly-scoped
+# recovery for an interrupted install made by an older repository snapshot.
+run_in_target 'remove obsolete NVIDIA DKMS diversion when present' /bin/sh -eu -c '
 if dpkg-divert --list /usr/sbin/dkms 2>/dev/null | grep -Fq "/usr/sbin/dkms.distrib"; then
   if [ -e /usr/sbin/dkms ] || [ -L /usr/sbin/dkms ]; then
     [ -f /usr/sbin/dkms ] && [ ! -L /usr/sbin/dkms ] || {
@@ -32,10 +35,13 @@ if dpkg-divert --list /usr/sbin/dkms 2>/dev/null | grep -Fq "/usr/sbin/dkms.dist
     rm -f -- /usr/sbin/dkms
   fi
   dpkg-divert --quiet --local --rename --remove /usr/sbin/dkms
+else
+  test -x /usr/sbin/dkms
+  exit 0
 fi
 [ ! -e /usr/sbin/dkms.distrib ] && [ ! -L /usr/sbin/dkms.distrib ]
 test -x /usr/sbin/dkms
 ! grep -Fq "NV_INSTALLER_NVIDIA_LEGACY_DKMS_WRAPPER_V1" /usr/sbin/dkms
 ' sh
 
-installer_info 'removed scoped NVIDIA DKMS wrapper and restored the packaged dkms executable'
+installer_info 'kept the packaged DKMS executable; removed only an obsolete installer diversion when present'

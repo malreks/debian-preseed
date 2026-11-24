@@ -4,6 +4,8 @@ __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/ r,
 __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_ai_copilots/ r,
 __INSTALLER_PATH_DIR_PYTHON3_SITE_PACKAGES__/labwc_ai_copilots/{__init__,gguf,resources}.py r,
 __INSTALLER_PATH_DIR_USR__/bin/{systemctl,nvidia-smi} rix,
+# Debian/Pika alternatives resolve the fixed command to this package binary.
+__INSTALLER_PATH_DIR_USR_LIB__/nvidia/current/nvidia-smi rix,
 @{PROC}/meminfo r,
 @{PROC}/devices r,
 owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/ rw,

@@ -47,13 +47,32 @@ class NvidiaSmi:
     """Fixed-command fallback for drivers with incomplete NVML clock ABIs."""
 
     COMMAND = Path('__INSTALLER_PATH_DIR_USR__/bin/nvidia-smi')
+    # Debian/Pika registers this exact package binary through alternatives.
+    # Keep regular /usr/bin binaries supported for the other driver class.
+    DEBIAN_COMMAND = Path('__INSTALLER_PATH_DIR_USR_LIB__/nvidia/current/nvidia-smi')
     MAX_OUTPUT = 64 * 1024
 
     def __init__(self, command: Path | None = None) -> None:
         self.command = command or self.COMMAND
         try:
             metadata = self.command.lstat()
-        except OSError as exc:
+            if command is None and stat.S_ISLNK(metadata.st_mode):
+                resolved = self.command.resolve(strict=True)
+                if resolved != self.DEBIAN_COMMAND:
+                    raise NvidiaSmiFailure('nvidia-smi alternatives target is not the package binary')
+                # The privileged worker accepts only this fixed package path,
+                # rooted in administrator-owned, non-writable directories.
+                for parent in resolved.parents:
+                    parent_metadata = parent.lstat()
+                    if (not stat.S_ISDIR(parent_metadata.st_mode)
+                            or parent_metadata.st_uid != 0 or parent_metadata.st_gid != 0
+                            or parent_metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
+                        raise NvidiaSmiFailure('nvidia-smi package directory is not trusted')
+                self.command = resolved
+                metadata = self.command.lstat()
+        except NvidiaSmiFailure:
+            raise
+        except (OSError, RuntimeError) as exc:
             raise NvidiaSmiFailure(f'nvidia-smi is unavailable: {exc}') from exc
         if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0
                 or metadata.st_gid != 0

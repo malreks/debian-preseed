@@ -31064,10 +31064,13 @@
     },
     {
       "consumer": {
-        "module": "hooks/target/etc/apparmor.d/desktop/abstractions/desktop-runtime",
+        "module": "hooks/target/etc/apparmor.d/common/abstractions/hardware-tuning-nvidia",
         "source_members": [
+          "hooks/target/etc/apparmor.d/common/abstractions/hardware-tuning-nvidia",
           "hooks/target/etc/apparmor.d/desktop/abstractions/desktop-runtime",
+          "hooks/target/etc/apparmor.d/desktop/abstractions/llama-whisper-coordination",
           "hooks/target/etc/initramfs-tools/hooks/tpm2-cryptroot",
+          "hooks/target/usr/local/lib/common/hardware_tuning/nvidia.py",
           "hooks/target/usr/local/libexec/common/debugsys.py.tmpl",
           "hooks/target/usr/local/libexec/common/tpm2-policy-check",
           "scripts/desktop/components/desktop-helpers.sh",
@@ -45343,34 +45346,6 @@
       ],
       "syntax": "consumer-defined-validated-scalar-or-block",
       "token": "__NFS_TCP_WMEM__"
-    },
-    {
-      "consumer": {
-        "module": "hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh",
-        "source_members": [
-          "hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh"
-        ]
-      },
-      "default_policy": "fail-closed",
-      "encoding": "UTF-8",
-      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
-      "literal_members": [],
-      "must_be_absent_from_final_target": true,
-      "name": "NVIDIA_DRM_CONFTEST_H",
-      "namespace": "SCALAR",
-      "owner": {
-        "function": "typed-consumer",
-        "module": "hooks/installer/pre-pkgsel.d/92nvidia-legacy-dkms.sh",
-        "phase": "installer-hook"
-      },
-      "producer_map": "typed consumer contract",
-      "publication_kind": "plain",
-      "required": true,
-      "source_family": [
-        "installer-hook"
-      ],
-      "syntax": "consumer-defined-validated-scalar-or-block",
-      "token": "__NVIDIA_DRM_CONFTEST_H__"
     },
     {
       "consumer": {
@@ -109387,7 +109362,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "0aaaf45d7e3ee5a4007c784fcca6b36f08cc0e71f8baecfb8e2c33575860f5d0",
+  "source_fingerprint": "3956e9dfea14b545ed1ec256b68972e8acd40d3e33773d5fa3a7654b627f3fd9",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"
