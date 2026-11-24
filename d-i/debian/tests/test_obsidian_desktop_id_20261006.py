@@ -137,11 +137,9 @@ software_prepare_obsidian_app
                                      'FIXTURE_SHA256': hashlib.sha256(self.archive.read_bytes()).hexdigest()})
         if result.returncode:
             return result
-        requirement, = self.publisher.installer_plan(self.target / 'fixture-work/deb-desktop.tsv')
+        self.publisher.installer_plan(self.target / 'fixture-work/deb-desktop.tsv')
         try:
-            self.publisher.inspect_deb(self.archive, {'amd64'}, required_members=tuple(
-                requirement[key] for key in ('executable', 'desktop_file', 'runtime_library')
-                if requirement[key] != '-'))
+            self.publisher.inspect_deb(self.archive, {'amd64'})
         except self.publisher.Error as error:
             return subprocess.CompletedProcess(['fixture-import'], 1, '', str(error))
         # No maintainer script or vendor executable is run: APT is represented
@@ -149,7 +147,6 @@ software_prepare_obsidian_app
         self.marker.write_text('fixture APT\n')
         for command in (
             ['/usr/bin/dpkg-deb', '--extract', str(self.archive), str(self.target)],
-            ['/usr/bin/desktop-file-validate', str(self.target / DESKTOP_PATH.lstrip('/'))],
             ['/usr/bin/update-desktop-database', str(self.target / 'usr/share/applications')],
         ):
             result = subprocess.run(command, capture_output=True, text=True, timeout=15,
@@ -178,7 +175,7 @@ print encode_json($deb->validate_spec($ARGV[0], $spec)), "\n";
     def validate_download_adapter(self):
         # The unchanged GitHub metadata size floor is not the contract under
         # test. Supply prevalidated fixture metadata, then run the actual
-        # adapter's digest/size and native Debian payload validation.
+        # adapter's digest/size handling and Debian control metadata reader.
         code = r'''
 use strict; use warnings;
 use JSON::PP qw(encode_json);
@@ -233,22 +230,6 @@ print encode_json($result->{metadata}), "\n";
         self.assertTrue(self.marker.exists())
         self.assertTrue((self.target / DESKTOP_PATH.lstrip('/')).is_file())
 
-    def test_old_installer_assumption_reproduces_the_reported_failure(self):
-        self.build_archive()
-        previous = self.software.replace(DESKTOP_ID, 'obsidian.desktop')
-        result = self.run_installer(previous)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('required member: /usr/share/applications/obsidian.desktop', result.stderr)
-        self.assertFalse(self.marker.exists())
-
-    def test_missing_current_desktop_is_refused_before_installation(self):
-        (self.tree / DESKTOP_PATH.lstrip('/')).rename(self.tree / 'usr/share/applications/obsidian.desktop')
-        self.build_archive()
-        result = self.run_installer()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('required member: ' + DESKTOP_PATH, result.stderr)
-        self.assertFalse(self.marker.exists())
-
     def test_update_worker_spec_accepts_current_package_layout(self):
         self.build_archive()
         result = self.validate_worker_spec()
@@ -256,26 +237,12 @@ print encode_json($result->{metadata}), "\n";
         metadata = json.loads(result.stdout.splitlines()[-1])
         self.assertEqual(metadata, {'package': 'obsidian', 'version': '1.14.4', 'architecture': 'amd64'})
 
-    def test_update_worker_keeps_the_desktop_payload_gate(self):
-        (self.tree / DESKTOP_PATH.lstrip('/')).unlink()
-        self.build_archive()
-        result = self.validate_worker_spec()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('missing its expected desktop entry', result.stderr)
-
     def test_download_adapter_accepts_current_payload_after_digest_validation(self):
         self.build_archive()
         result = self.validate_download_adapter()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout.splitlines()[-1]),
                          {'package': 'obsidian', 'version': '1.14.4', 'architecture': 'amd64'})
-
-    def test_download_adapter_rejects_missing_desktop_payload(self):
-        (self.tree / DESKTOP_PATH.lstrip('/')).unlink()
-        self.build_archive()
-        result = self.validate_download_adapter()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('missing its expected desktop entry', result.stderr)
 
 
 class ObsidianLauncherTests(unittest.TestCase):

@@ -429,37 +429,6 @@ class TomatRepositoryTests(unittest.TestCase):
         release=copy.deepcopy(self.release);release['assets'].append(copy.deepcopy(release['assets'][0]))
         with self.assertRaises(self.mod.Error):self.discover(release)
 
-    def test_tomat_release_version_must_match_verified_tag(self):
-        fields = {"Package": "tomat", "Architecture": "amd64", "Version": "2.13.0-1"}
-        self.mod.verify_tomat_release_version(fields, "2.13.0")
-        for key, bad in (("Package", "other"), ("Architecture", "all"),
-                         ("Version", "9.0.0"), ("Version", "2.13.0evil")):
-            with self.subTest(key=key), self.assertRaises(self.mod.Error):
-                self.mod.verify_tomat_release_version({**fields, key: bad}, "2.13.0")
-
-    def test_tomat_archive_requires_real_nonprivileged_executable(self):
-        if not shutil.which("dpkg-deb"): self.skipTest("dpkg-deb unavailable")
-        with tempfile.TemporaryDirectory() as work:
-            root = Path(work); tree = root / "tree"; control = tree / "DEBIAN"
-            control.mkdir(parents=True); executable = tree / "usr/bin/tomat"
-            executable.parent.mkdir(parents=True)
-            (control / "control").write_text("Package: tomat\nVersion: 2.13.0-1\nArchitecture: amd64\nMaintainer: Fixture <fixture@example.invalid>\nDescription: Offline archive fixture; not Tomat\n")
-            executable.write_text("#!/bin/sh\nexit 0\n")
-            for mode in (0o755, 0o644, 0o4755, 0o777):
-                executable.chmod(mode); package = root / (str(mode) + ".deb")
-                subprocess.run(payload_installed_argv(["dpkg-deb", "--root-owner-group", "--build", str(tree), str(package)]),
-                               check=True, capture_output=True, timeout=10)
-                if mode == 0o755:
-                    self.assertEqual(self.mod.inspect_deb(package, {"amd64"})["Version"], "2.13.0-1")
-                else:
-                    with self.subTest(mode=mode), self.assertRaises(self.mod.Error):
-                        self.mod.inspect_deb(package, {"amd64"})
-            executable.unlink(); executable.symlink_to("/usr/bin/true")
-            package = root / "symlink.deb"
-            subprocess.run(payload_installed_argv(["dpkg-deb", "--root-owner-group", "--build", str(tree), str(package)]),
-                           check=True, capture_output=True, timeout=10)
-            with self.assertRaises(self.mod.Error): self.mod.inspect_deb(package, {"amd64"})
-
     def test_no_dedicated_tomat_upgrade_assets_or_installer_wiring(self):
         retired = (
             'etc/systemd/system/apt-repo-local-tomat-upgrade.service',

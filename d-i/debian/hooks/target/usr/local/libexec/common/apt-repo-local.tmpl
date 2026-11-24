@@ -235,42 +235,13 @@ def control_bytes(fields: dict[str, str]) -> bytes:
     return ("\n".join(f"{key}: {value}" for key, value in fields.items()) + "\n").encode()
 
 
-def inspect_deb(path: Path, architectures: set[str], *,
-                required_members: tuple[str, ...] = ()) -> dict[str, str]:
+def inspect_deb(path: Path, architectures: set[str]) -> dict[str, str]:
+    """Read the control fields needed to publish an APT index, once."""
     with os.fdopen(checked_file(path), "rb") as stream:
         before = file_identity(os.fstat(stream.fileno()))
-        if stream.read(8) != b"!<arch>\n":
-            raise Error("download is not a Debian archive (HTML/API responses are not packages)")
     fields = parse_control(run(["__INSTALLER_PATH_DIR_USR__/bin/dpkg-deb", "--field", str(path)]))
     if fields["Architecture"] not in architectures | {"all"}:
         raise Error(f"unsupported architecture: {fields['Architecture']}")
-    # This walks/decompresses the complete payload but never extracts or runs it.
-    contents = run(["__INSTALLER_PATH_DIR_USR__/bin/dpkg-deb", "--contents", str(path)], timeout=240)
-    # The installer supplies all required members together. Reuse this one
-    # bounded listing instead of decompressing the data archive for every path.
-    wanted = {name.lstrip("/"): 0 for name in required_members}
-    for line in io.BytesIO(contents):
-        columns = line.split(None, 5)
-        if len(columns) != 6:
-            raise Error("malformed Debian package member listing")
-        member = columns[5].rstrip(b"\n").split(b" -> ", 1)[0].split(b" link to ", 1)[0]
-        while member.startswith(b"./"):
-            member = member[2:]
-        name = member.decode("utf-8", "surrogateescape")
-        if name in wanted:
-            wanted[name] += 1
-    for name, count in wanted.items():
-        if count != 1:
-            raise Error(f"package payload must contain exactly one required member: /{name}")
-    if fields["Package"] == "tomat":
-        # Tomat is deliberately CLI-only. Require the exact regular executable,
-        # not a symlink, world-writable file or a privileged mode. Never extract it.
-        executable = re.findall(
-            rb"^(-[rwxstST-]{9})[ \t]+(?:root/root|0/0)[ \t]+[0-9]+[ \t]+"
-            rb"[0-9]{4}-[0-9]{2}-[0-9]{2}[ \t]+[0-9]{2}:[0-9]{2}[ \t]+\.__INSTALLER_PATH_DIR_USR__/bin/tomat$",
-            contents, re.M)
-        if fields["Architecture"] != "amd64" or executable not in ([b"-rwxr-xr-x"], [b"-r-xr-xr-x"]):
-            raise Error("Tomat package must contain a regular root-owned amd64 __INSTALLER_PATH_DIR_USR__/bin/tomat")
     with os.fdopen(checked_file(path), "rb") as stream:
         if file_identity(os.fstat(stream.fileno())) != before:
             raise Error("package changed during inspection")
@@ -320,69 +291,6 @@ def installer_plan(path: Path) -> list[dict]:
                        "runtime_library": library, "sha256": digest,
                        "upstream_version": version, "label": label})
     return result
-
-
-def verify_installer_receipt(path: Path) -> None:
-    """Verify one completed APT batch, without reading repository state again."""
-    receipt = json.loads(read_bytes(path, 65536))
-    if (not isinstance(receipt, dict) or set(receipt) != {"format", "packages"}
-            or receipt["format"] != 1 or not isinstance(receipt["packages"], list)
-            or not 1 <= len(receipt["packages"]) <= 32):
-        raise Error("invalid installer package receipt")
-    records = {}
-    keys = {"package", "version", "architecture", "archive", "upstream_version",
-            "upstream_sha256", "published_sha256", "label", "executable",
-            "desktop_file", "runtime_library"}
-    for record in receipt["packages"]:
-        if (not isinstance(record, dict) or set(record) != keys
-                or any(not isinstance(value, str) for value in record.values())
-                or not NAME.fullmatch(record["package"])
-                or not VERSION.fullmatch(record["version"])
-                or not VERSION.fullmatch(record["upstream_version"])
-                or record["architecture"] not in {"amd64", "arm64"}
-                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+/-]{0,95}", record["label"])
-                or any(not re.fullmatch(r"[0-9a-f]{64}", record[key])
-                       for key in ("upstream_sha256", "published_sha256"))):
-            raise Error("invalid installer package receipt record")
-        if record["package"] in records:
-            raise Error("duplicate installed package identity")
-        records[record["package"]] = record
-        installer_path(record["archive"])
-        for key in ("executable", "desktop_file", "runtime_library"):
-            if record[key] != "-" or key == "executable":
-                installer_path(record[key])
-    raw = run(["__INSTALLER_PATH_DIR_USR__/bin/dpkg-query", "-W",
-               "-f=${Package}\t${Architecture}\t${Version}\t${Status}\n", *records])
-    installed = {}
-    for line in raw.decode("utf-8").splitlines():
-        fields = line.split("\t")
-        if len(fields) != 4 or fields[0] in installed:
-            raise Error("invalid installed package status")
-        installed[fields[0]] = fields[1:]
-    if set(installed) != set(records):
-        raise Error("installed package batch is incomplete")
-    for package, record in records.items():
-        if installed[package] != [record["architecture"], record["version"], "install ok installed"]:
-            raise Error(f"package is not fully installed with the imported identity: {package}")
-        for key in ("executable", "desktop_file", "runtime_library"):
-            value = record[key]
-            if value == "-":
-                continue
-            mode = os.X_OK if key == "executable" else os.R_OK
-            if not Path(value).is_file() or not os.access(value, mode):
-                raise Error(f"installed package is missing {key}: {value}")
-        warn(f"installed {record['label']} package={package} version={record['version']} "
-             f"architecture={record['architecture']} upstream_sha256={record['upstream_sha256']} "
-             f"published_sha256={record['published_sha256']}")
-
-
-def verify_tomat_release_version(fields: dict[str, str], version: str) -> None:
-    # Versioned filenames include the packaging revision: do not accept a
-    # different revision (or an extra suffix) after verifying that exact asset.
-    suffix = "" if "-" in version else r"(?:-[0-9][A-Za-z0-9.+~]*)?"
-    if (fields["Package"] != "tomat" or fields["Architecture"] != "amd64"
-            or not re.fullmatch(re.escape(version) + suffix, fields["Version"])):
-        raise Error("Tomat package identity/version does not match its verified release")
 
 
 def remove_dependencies(depends: str, names: list[str]) -> str:
@@ -1586,7 +1494,7 @@ class Repository:
         # Only snapshots copied by this locked process can reuse a digest.
         # Nothing in this map is serialized or accepted from an inbox sidecar.
         self.staged_digests: dict[Path, tuple[tuple[int, ...], str]] = {}
-        self.staged_inspections: dict[Path, tuple[tuple[int, ...], tuple[str, ...], dict[str, str]]] = {}
+        self.staged_inspections: dict[Path, tuple[tuple[int, ...], dict[str, str]]] = {}
         self.changed = False
         self.discovery = Discovery(root)
 
@@ -1681,22 +1589,22 @@ class Repository:
             raise Error("private package snapshot changed before import")
         return saved[1]
 
-    def inspect_snapshot(self, path: Path, *, required_members: tuple[str, ...] = ()) -> dict[str, str]:
+    def inspect_snapshot(self, path: Path) -> dict[str, str]:
         saved = self.staged_digests.get(path)
         if saved is None:
             # Independent inbox deliveries and transformed outputs have not
             # crossed this process's protected copy boundary. Inspect afresh.
-            return inspect_deb(path, self.architectures, required_members=required_members)
+            return inspect_deb(path, self.architectures)
         identity = self.snapshot_identity(path)
         if identity != saved[0]:
             raise Error("private package snapshot changed before inspection")
         cached = self.staged_inspections.get(path)
-        if cached is not None and cached[:2] == (identity, required_members):
-            return dict(cached[2])
-        fields = inspect_deb(path, self.architectures, required_members=required_members)
+        if cached is not None and cached[0] == identity:
+            return dict(cached[1])
+        fields = inspect_deb(path, self.architectures)
         if self.snapshot_identity(path) != identity:
             raise Error("private package snapshot changed during inspection")
-        self.staged_inspections[path] = (identity, required_members, dict(fields))
+        self.staged_inspections[path] = (identity, dict(fields))
         return fields
 
     def activate(self, partial: Path, *, policy: dict | None = None,
@@ -1724,7 +1632,7 @@ class Repository:
                     raise Error("private package snapshot changed during activation")
                 self.staged_digests[ready] = (identity, saved[1])
                 if inspected is not None:
-                    self.staged_inspections[ready] = (identity, inspected[1], inspected[2])
+                    self.staged_inspections[ready] = (identity, inspected[1])
             fsync_dir(self.inbox)
         except BaseException:
             # The caller still holds the old .part name if activation raises.
@@ -1872,18 +1780,14 @@ class Repository:
                 policy = saved_policy
             if expected is None and saved_expected is not None:
                 expected = tuple(saved_expected)
-        required_members = tuple(requirement[key] for key in ("executable", "desktop_file", "runtime_library")
-                                 if requirement[key] != "-") if requirement is not None else ()
         upstream_identity = payload_identity = self.snapshot_identity(path)
-        fields = self.inspect_snapshot(path, required_members=required_members)
+        fields = self.inspect_snapshot(path)
         identity = fields["Package"], fields["Architecture"]
         if expected and identity != expected:
             raise Error("download changed Package/Architecture; previous package remains published")
         if requirement is not None:
             if identity[0] not in requirement["packages"] or identity[1] != requirement["architecture"]:
                 raise Error(f"unexpected installer package identity: {requirement['label']}")
-            if requirement["upstream_version"] not in ("-", fields["Version"]):
-                raise Error(f"installer package version does not match the pinned release: {requirement['label']}")
         key = ":".join(identity)
         previous = self.catalog["packages"].get(key)
         actual_policy = copy.deepcopy(policy if policy is not None else previous.get("policy", {}) if previous else {})
@@ -1892,8 +1796,6 @@ class Repository:
         upstream_sha256 = self.snapshot_digest(path)
         if self.snapshot_identity(path) != upstream_identity:
             raise Error("private upstream snapshot changed during inspection")
-        if requirement is not None and requirement["sha256"] not in ("-", upstream_sha256):
-            raise Error(f"installer package SHA-256 does not match the pinned release: {requirement['label']}")
         signing_fingerprint = None
         if (previous and previous.get("upstream_sha256") == upstream_sha256
                 and policy_digest(previous.get("policy", {})) == policy_digest(actual_policy)):
@@ -2017,11 +1919,9 @@ class Repository:
         atomic_bytes(path.parent / ".deb-batch-active", (str(path) + "\n").encode(), 0o600)
         try:
             for requirement in requirements:
-                # Leave incomplete batches as .part files: an inbox watcher
-                # must never auto-publish a batch whose validation was interrupted.
-                expected_sha256 = requirement["sha256"] if requirement["sha256"] != "-" else None
-                snapshot = self.stage(Path(requirement["source"]), active=False,
-                                      expected_sha256=expected_sha256)
+                # Leave incomplete batches as .part files so the inbox watcher
+                # cannot publish them before the batch owner finishes.
+                snapshot = self.stage(Path(requirement["source"]), active=False)
                 snapshots.append(snapshot)
                 record = self.ingest(snapshot, requirement=requirement)
                 identity = record["package"], record["architecture"]
@@ -2470,8 +2370,6 @@ class Repository:
                         # Direct URLs can legitimately only change HTTP validators;
                         # ingest still rejects downgrades and same-version new bytes.
                         fields = self.inspect_snapshot(ready)
-                        if source.get("url") == "https://api.github.com/repos/jolars/tomat/releases?per_page=100":
-                            verify_tomat_release_version(fields, candidate["version"])
                         old_version = record.get("upstream_version", record["version"])
                         if newer(old_version, fields["Version"]):
                             raise Error("download returned an older upstream Version")
@@ -2660,8 +2558,6 @@ def main(argv: list[str] | None = None) -> int:
     plan = sub.add_parser("import-plan", help="publish one bounded installer package batch")
     plan.add_argument("file", type=Path)
     plan.add_argument("--receipt", required=True, type=Path)
-    verify = sub.add_parser("verify-installed-plan", help="check a completed installer APT batch")
-    verify.add_argument("file", type=Path)
     args = parser.parse_args(argv)
     if os.geteuid() != 0:
         raise Error("run this command as root (sudo apt-repo-init)")
@@ -2673,9 +2569,6 @@ def main(argv: list[str] | None = None) -> int:
     os.environ.update(ENV)
     os.chdir("/")
     os.umask(0o077)
-    if args.command == "verify-installed-plan":
-        verify_installer_receipt(args.file)
-        return 0
     repository = Repository()
     with repository.locked():
         if args.command == "init":

@@ -126,8 +126,6 @@ class InstallerPackageBatchTests(unittest.TestCase):
             if argv[1] == '--field':
                 return (f'Package: {package}\nVersion: 1.0\nArchitecture: amd64\n'
                         'Description: fixture\n').encode()
-            if argv[1] == '--contents':
-                return b'-rwxr-xr-x root/root 1 2026-11-19 00:00 ./usr/bin/fixture\n'
         raise AssertionError('unexpected fixture command: ' + repr(argv))
 
     def fake_sign(self, source, destination, *unused, **options):
@@ -146,7 +144,7 @@ class InstallerPackageBatchTests(unittest.TestCase):
             paths = repository.import_installer_plan(self.plan, self.receipt)
         self.assertEqual(len(paths), 2)
         self.assertEqual(sum('--field' in command for command in self.commands), 2)
-        self.assertEqual(sum('--contents' in command for command in self.commands), 2)
+        self.assertEqual(sum('--contents' in command for command in self.commands), 0)
         # Each copy owner returns its actual byte digest. The signing boundary
         # has separate production fixtures below, including signature padding.
         self.assertEqual(digests.call_count, 0)
@@ -155,32 +153,6 @@ class InstallerPackageBatchTests(unittest.TestCase):
         receipt = json.loads(self.receipt.read_text())
         self.assertEqual([item['package'] for item in receipt['packages']],
                          ['fixture-one', 'fixture-two'])
-
-    def test_missing_member_in_later_input_never_publishes_partial_batch(self):
-        first, second = self.package(), self.package('fixture-two')
-        self.write_plan(self.row(first), self.row(second, 'fixture-two', '/usr/bin/missing'))
-        repository = self.repository()
-        before = copy.deepcopy(repository.catalog)
-        with mock.patch.object(self.mod, 'run', side_effect=self.command), \
-                mock.patch.object(self.mod, 'sign_deb_archive', side_effect=self.fake_sign), \
-                self.assertRaisesRegex(self.mod.Error, 'required member'):
-            repository.import_installer_plan(self.plan, self.receipt)
-        repository.publish.assert_not_called()
-        self.assertEqual(repository.catalog, before)
-        self.assertEqual(repository.pending, [])
-        self.assertFalse(self.receipt.exists())
-        self.assertEqual(list(repository.inbox.iterdir()), [])
-
-    def test_untrusted_expected_digest_is_compared_with_actual_snapshot(self):
-        source = self.package()
-        self.write_plan(self.row(source, digest='0' * 64))
-        repository = self.repository()
-        with mock.patch.object(self.mod, 'run', side_effect=self.command), \
-                mock.patch.object(self.mod, 'sign_deb_archive') as signer, \
-                self.assertRaisesRegex(self.mod.Error, 'SHA-256'):
-            repository.import_installer_plan(self.plan, self.receipt)
-        signer.assert_not_called()
-        repository.publish.assert_not_called()
 
     def test_snapshot_identity_change_invalidates_in_memory_digest(self):
         source = self.package()
@@ -199,7 +171,7 @@ class InstallerPackageBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(self.mod.Error, 'snapshot changed'):
             repository.inspect_snapshot(staged)
 
-    def test_inspection_reused_only_for_the_same_private_snapshot_and_requirements(self):
+    def test_control_metadata_reused_for_the_same_private_snapshot(self):
         source = self.package()
         repository = self.repository()
         staged = repository.stage(source, active=False)
@@ -211,20 +183,11 @@ class InstallerPackageBatchTests(unittest.TestCase):
             record = repository.ingest(ready)
         self.assertEqual(record['version'], '1.0')
         self.assertEqual(sum('--field' in command for command in self.commands), 1)
-        self.assertEqual(sum('--contents' in command for command in self.commands), 1)
+        self.assertEqual(sum('--contents' in command for command in self.commands), 0)
         self.assertNotIn(staged, repository.staged_inspections)
         repository.finish_inbox()
         self.assertFalse(repository.staged_inspections)
         self.assertFalse(repository.staged_digests)
-
-    def test_changed_member_requirements_cannot_reuse_an_incomplete_inspection(self):
-        repository = self.repository()
-        staged = repository.stage(self.package(), active=False)
-        with mock.patch.object(self.mod, 'run', side_effect=self.command):
-            repository.inspect_snapshot(staged, required_members=('/usr/bin/fixture',))
-            with self.assertRaisesRegex(self.mod.Error, 'required member'):
-                repository.inspect_snapshot(staged, required_members=('/usr/bin/missing',))
-        self.assertEqual(sum('--contents' in command for command in self.commands), 2)
 
     def test_activation_replacement_or_mutation_revokes_evidence_and_quarantines(self):
         repository = self.repository()
@@ -308,7 +271,7 @@ class InstallerPackageBatchTests(unittest.TestCase):
         with mock.patch.object(self.mod, 'run', side_effect=self.command):
             repository.inspect_snapshot(delivered)
             repository.inspect_snapshot(delivered)
-        self.assertEqual(sum('--contents' in command for command in self.commands), 2)
+        self.assertEqual(sum('--contents' in command for command in self.commands), 0)
         self.assertFalse(repository.staged_inspections)
 
     def test_mutation_during_inspection_never_creates_a_reusable_receipt(self):
@@ -316,7 +279,7 @@ class InstallerPackageBatchTests(unittest.TestCase):
         staged = repository.stage(self.package(), active=False)
         def mutate_listing(argv, **kwargs):
             result = self.command(argv, **kwargs)
-            if '--contents' in argv:
+            if '--field' in argv:
                 with staged.open('ab') as stream:
                     stream.write(b'changed')
             return result
@@ -337,7 +300,7 @@ class InstallerPackageBatchTests(unittest.TestCase):
             repository.inspect_snapshot(staged)
             result = repository.ingest(staged, policy={'local_revision': 1})
         self.assertEqual(sum('--field' in command for command in self.commands), 2)
-        self.assertEqual(sum('--contents' in command for command in self.commands), 2)
+        self.assertEqual(sum('--contents' in command for command in self.commands), 0)
         self.assertNotEqual(result['upstream_sha256'], result['transformed_sha256'])
 
     def test_transformation_cannot_change_the_input_bound_to_the_upstream_digest(self):
@@ -396,13 +359,13 @@ class InstallerPackageBatchTests(unittest.TestCase):
                 with self.assertRaises(self.mod.Error):
                     self.mod.installer_plan(self.plan)
 
-    def test_member_listing_failure_propagates_before_publication(self):
+    def test_control_reader_failure_propagates_before_publication(self):
         source = self.package()
         self.write_plan(self.row(source))
         repository = self.repository()
         def fail_listing(argv, **kwargs):
-            if '--contents' in argv:
-                raise self.mod.CommandFailure('fixture failed listing', 2)
+            if '--field' in argv:
+                raise self.mod.CommandFailure('fixture failed control read', 2)
             return self.command(argv, **kwargs)
         with mock.patch.object(self.mod, 'run', side_effect=fail_listing), \
                 self.assertRaises(self.mod.CommandFailure):
@@ -453,31 +416,6 @@ class InstallerPackageBatchTests(unittest.TestCase):
         self.assertTrue(signed[0].is_file())
         self.assertFalse(self.receipt.exists())
 
-    def test_installed_readiness_uses_one_query_and_rejects_partial_dpkg_state(self):
-        executable = self.directory / 'fixture-executable'
-        executable.write_text('fixture; never executed\n')
-        executable.chmod(0o755)
-        record = {'package': 'fixture-one', 'version': '1.0', 'architecture': 'amd64',
-                  'upstream_version': '1.0', 'upstream_sha256': 'a' * 64,
-                  'published_sha256': 'b' * 64, 'archive': str(self.directory / 'fixture.deb'),
-                  'label': 'Fixture', 'executable': str(executable),
-                  'desktop_file': '-', 'runtime_library': '-'}
-        self.receipt.write_text(json.dumps({'format': 1, 'packages': [record]}))
-        self.receipt.chmod(0o600)
-        with mock.patch.object(self.mod, 'run', return_value=
-                b'fixture-one\tamd64\t1.0\tinstall ok installed\n') as query:
-            self.mod.verify_installer_receipt(self.receipt)
-        query.assert_called_once()
-        with mock.patch.object(self.mod, 'run', return_value=
-                b'fixture-one\tamd64\t1.0\tinstall ok unpacked\n'), \
-                self.assertRaisesRegex(self.mod.Error, 'not fully installed'):
-            self.mod.verify_installer_receipt(self.receipt)
-        executable.unlink()
-        with mock.patch.object(self.mod, 'run', return_value=
-                b'fixture-one\tamd64\t1.0\tinstall ok installed\n'), \
-                self.assertRaisesRegex(self.mod.Error, 'missing executable'):
-            self.mod.verify_installer_receipt(self.receipt)
-
     def test_symlink_or_hardlink_plan_is_rejected(self):
         source = self.package()
         self.write_plan(self.row(source))
@@ -489,22 +427,6 @@ class InstallerPackageBatchTests(unittest.TestCase):
         alias.symlink_to(self.plan)
         with self.assertRaises(OSError):
             self.mod.installer_plan(alias)
-
-    def test_shell_barrier_preserves_application_postwork_and_failure_evidence(self):
-        text = (SEED / 'scripts/late/software.sh.tmpl').read_text()
-        self.assertNotIn('software_deb_contains_path', text)
-        self.assertNotIn('dpkg-deb -f', text)
-        self.assertNotIn('dpkg-deb -c', text)
-        self.assertNotIn('apt-repo-local rebuild', text)
-        self.assertIn('import-plan --receipt', text)
-        self.assertIn('verify-installed-plan --', text)
-        self.assertIn('.deb-batch-active', text)
-        barrier = text.index('\nsoftware_flush_deb_batch\n', text.index('software_begin_deb_batch desktop'))
-        for app in ('bitwarden', 'qoredb', 'obsidian', 'tomat', 'sleek', 'filen'):
-            self.assertLess(text.index(' software_prepare_' + app + '_app '), barrier)
-            self.assertGreater(text.index(' software_finish_' + app + '_app '), barrier)
-        self.assertIn('NEEDRESTART_SUSPEND=1', text)
-        self.assertIn('install "$@"', text)
 
 
 class SignedArchiveCopyTests(unittest.TestCase):

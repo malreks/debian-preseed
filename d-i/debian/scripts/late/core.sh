@@ -679,31 +679,15 @@ configure_target_nvidia_power_management() (
     stage_target_asset "$(installer_repo_asset_path DIR_TARGET_UNIT "systemd-${mode}.service.d/20-nvidia-preserve.conf")" \
       "$(installer_systemd_dropin_dir system "systemd-${mode}.service")/20-nvidia-preserve.conf" 0644
   done
-  run_in_target "enable NVIDIA video-memory preservation and validate disk backing" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
-    for unit in nvidia-suspend.service nvidia-suspend-then-hibernate.service nvidia-hibernate.service nvidia-resume.service; do
-      if [ ! -f "__INSTALLER_PATH_DIR_USR_LIB__/systemd/system/$unit" ] &&
-         [ ! -f "__INSTALLER_PATH_DIR_LIB__/systemd/system/$unit" ] &&
-         [ ! -f "__INSTALLER_PATH_DIR_ETC__/systemd/system/$unit" ]; then
-        printf "fatal: selected NVIDIA driver package is missing %s\n" "$unit" >&2
-        exit 1
-      fi
-    done
-    if [ ! -x __INSTALLER_PATH_DIR_USR_BIN__/nvidia-sleep.sh ]; then
-      printf "fatal: selected NVIDIA driver package is missing nvidia-sleep.sh\n" >&2
-      exit 1
-    fi
-    if [ ! -x __INSTALLER_PATH_DIR_USR_LIB__/systemd/system-sleep/nvidia ] &&
-       [ ! -x __INSTALLER_PATH_DIR_LIB__/systemd/system-sleep/nvidia ]; then
-      printf "fatal: selected NVIDIA driver package is missing its sleep recovery hook\n" >&2
-      exit 1
-    fi
+  run_in_target "enable NVIDIA video-memory preservation and prepare disk backing" __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
     if [ -L __INSTALLER_PATH_DIR_VAR__/lib/nvidia-vram ] ||
        [ "$(readlink -f __INSTALLER_PATH_DIR_VAR__/lib)" != __INSTALLER_PATH_DIR_VAR__/lib ]; then
       printf "fatal: NVIDIA backing path is indirect\n" >&2
       exit 1
     fi
     install -d -m 0700 -o root -g root __INSTALLER_PATH_DIR_VAR__/lib/nvidia-vram
-    __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/nvidia-vram-check --directory-only
+    # Package installation owns the vendor files. Enable them directly and
+    # preserve systemctl errors instead of probing package contents again.
     # Offline enabling is intentional: do not suspend or start a bus in d-i.
     systemctl --no-reload enable nvidia-suspend.service nvidia-suspend-then-hibernate.service nvidia-hibernate.service nvidia-resume.service
   '

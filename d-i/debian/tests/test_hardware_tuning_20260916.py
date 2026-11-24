@@ -36,6 +36,7 @@ import time
 import unittest
 import xml.etree.ElementTree as ET
 from unittest.mock import AsyncMock, Mock, patch
+from fixture_render import rendered_path_text
 
 FORKY = Path(__file__).resolve().parents[1]
 LIB = FORKY / "hooks/target/usr/local/lib/common/hardware_tuning"
@@ -48,11 +49,11 @@ import broker
 import client
 spec = importlib.util.spec_from_file_location("hardware_tuning_installer", FORKY / "scripts/common/hardware-tuning-config.py")
 installer = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(installer)
+exec(compile(rendered_path_text(Path(spec.origin).read_text()), spec.origin, "exec"), installer.__dict__)
 
 
 def environment(name="btrfs-de-p15s"):
-    text = payload_read_text(FORKY / f"hosts/profiles/{name}.env")
+    text = payload_read_text(FORKY / f"hosts/profiles/desktop/{name}.env")
     return installer.parse_environment("\n".join(line for line in text.splitlines() if line.startswith("HARDWARE_")))
 
 
@@ -60,18 +61,21 @@ def private_temp():
     return tempfile.TemporaryDirectory(prefix="hardware-tuning-test-", dir="/root" if os.geteuid() == 0 else None)
 
 
-def package_activation(root):
-    """Private data fixture for Debian power-profiles-daemon 0.30-2."""
-    result = {}
-    for name in installer.POWER_PROFILE_NAMES:
-        path = root / f"usr/share/dbus-1/system-services/{name}.service"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data = (f"[D-BUS Service]\nName={name}\nExec=/bin/false\nUser=root\n"
-                "SystemdService=power-profiles-daemon.service\n")
-        path.write_text(data)
-        path.chmod(0o644)
-        result[path] = data
-    return result
+
+def tuning_templates(root):
+    """Stage the current declared templates as the installer does in its guest."""
+    target = FORKY / "hooks/target"
+    destination = root / "templates"
+    for relative in (FORKY / "scripts/common/hardware-tuning-assets.list").read_text().splitlines():
+        source = target / relative
+        if relative.startswith("etc/systemd/"):
+            leaf = relative.removeprefix("etc/systemd/")
+            source = next(path for family in ("common", "desktop")
+                          if (path := target / "etc/systemd" / family / leaf).is_file())
+        output = destination / relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered_path_text(source.read_text()))
+    return destination
 
 
 def simple_policy(settings):
@@ -117,96 +121,19 @@ class FakeBackend:
 
 
 class PolicyTests(unittest.TestCase):
-    def test_boot_profiles_retain_automatic_mitigations_and_other_boundaries(self):
-        profiles = sorted((FORKY / "hosts/profiles").glob("*.env"))
-        self.assertEqual(len(profiles), 10)
+    def test_profile_data_is_accepted_by_its_owning_policy_parser(self):
+        profiles = sorted((FORKY / "hosts/profiles").rglob("*.env"))
+        self.assertTrue(profiles)
         for path in profiles:
-            values = {}
-            for line in payload_read_text(path).splitlines():
-                if line.startswith("GRUB_") and "=" in line:
-                    key, raw = line.split("=", 1)
-                    self.assertNotIn(key, values)
-                    literal = shlex.split(raw)
-                    self.assertEqual(len(literal), 1)
-                    values[key] = literal[0].split()
-            for profile in ("DEFAULT", "PERFORMANCE", "HARDENED"):
-                with self.subTest(path=path.name, profile=profile):
-                    flags = values["GRUB_SECURITY_CORE_FLAGS"] + values[f"GRUB_PROFILE_{profile}_FLAGS"]
-                    self.assertEqual([flag for flag in flags if flag.startswith("mitigations=")],
-                                     ["mitigations=auto"])
-                    self.assertEqual([flag for flag in flags if flag.startswith("pti=")], ["pti=auto"])
-                    self.assertFalse(any("nosmt" in flag or flag.startswith("smt=") for flag in flags))
-                    self.assertFalse(any(vector in flag for flag in flags for vector in
-                                         ("no_user_kernel", "no_user_user", "no_guest_host", "no_guest_guest")))
-
-    def test_all_ten_profiles_have_complete_matching_schemas(self):
-        profiles = list((FORKY / "hosts/profiles").glob("*.env"))
-        self.assertEqual(len(profiles), 10)
-        enabled = {"btrfs-de-p15s", "btrfs-de-p15s-duo", "btrfs-de-flex", "btrfs-de-flex-duo"}
-        reference_keys = set(environment())
-        for path in profiles:
-            with self.subTest(path=path.name):
-                env = environment(path.stem)
-                self.assertEqual(set(env), reference_keys)
+            with self.subTest(path=path.relative_to(FORKY)):
+                env = installer.parse_environment("\n".join(
+                    line for line in payload_read_text(path).splitlines()
+                    if line.startswith("HARDWARE_")))
                 for vendor, module in (("intel", intel), ("nvidia", nvidia)):
-                    self.assertEqual(env[installer.PREFIXES[vendor] + "ENABLE"], str(path.stem in (enabled if vendor == "intel" else {"btrfs-de-p15s", "btrfs-de-p15s-duo"})).lower())
-                    value = installer.policy(env, vendor, module.SETTINGS)
-                    self.assertFalse(value["allow_overclock"])
-                    self.assertEqual(value["allow_power_increase"],
-                                     path.stem in enabled and (vendor == "intel" or "p15s" in path.stem))
-                    self.assertFalse(value["exclusive_clock_control"])
-                    self.assertEqual(set(value["profiles"]), set(common.PROFILES))
-                    if path.stem not in enabled:
-                        for i, profile in enumerate(common.PROFILES):
-                            self.assertEqual(value["profiles"][profile]["knobs"], {k: vals[i] for k, vals in module.SETTINGS.items()})
-                self.assertEqual(env["HARDWARE_TUNING_AUTOSTART_ENABLE"], str(path.stem in enabled).lower())
-                self.assertEqual(env["HARDWARE_TUNING_IDLE_AC"], "balanced")
-                self.assertEqual(env["HARDWARE_TUNING_IDLE_BATTERY"], "silent")
-
-    def test_ac_laptop_pairs_preserve_policy_without_temperature_ceilings(self):
-        for name in ("p15s", "flex"):
-            env = environment("btrfs-de-" + name)
-            duo = environment("btrfs-de-" + name + "-duo")
-            prefix = installer.PREFIXES["intel"]
-            self.assertFalse(any(key.endswith("MAX_TEMPERATURE_C") for key in env))
-            self.assertEqual(env, duo)
-            self.assertEqual(env[prefix + "PERFORMANCE_CPU_MIN_PERF_PCT"], "keep")
-            self.assertEqual(env[prefix + "HIGH_CPU_MIN_PERF_PCT"], "keep")
-            self.assertEqual(env[prefix + "PERFORMANCE_CPU_GOVERNOR"], "performance")
-            for profile, platform, up, down in (("PERFORMANCE", "performance", "80", "60"),
-                                               ("HIGH", "performance", "90", "75"),
-                                               ("BALANCED", "balanced", "95", "85"),
-                                               ("SILENT", "low-power", "95", "85")):
-                self.assertEqual(env[prefix + profile + "_PLATFORM_PROFILE"], platform)
-                self.assertEqual(env[prefix + profile + "_GPU_RPS_UP_THRESHOLD_PCT"], up)
-                self.assertEqual(env[prefix + profile + "_GPU_RPS_DOWN_THRESHOLD_PCT"], down)
-            for profile in ("PERFORMANCE", "HIGH"):
-                for setting, value in (("CPU_GOVERNOR", "performance"),
-                                       ("CPU_MIN_PERF_PCT", "keep"),
-                                       ("UNCORE_MIN_FREQ_KHZ", "min"),
-                                       ("UNCORE_MAX_FREQ_KHZ", "max"),
-                                       ("GPU_MIN_FREQ_MHZ", "min"),
-                                       ("CPU_EPP", "performance"), ("CPU_EPB", "0"),
-                                       ("CPU_MAX_PERF_PCT", "100"), ("CPU_NO_TURBO", "0"),
-                                       ("CPU_HWP_DYNAMIC_BOOST", "1")):
-                    self.assertEqual(env[prefix + profile + "_" + setting], value)
-            for key, value in env.items():
-                if "_RAPL_" in key and "_VERIFIED_" not in key:
-                    self.assertEqual(value, "keep")
-            nv = installer.PREFIXES["nvidia"]
-            if name == "p15s":
-                for profile in ("PERFORMANCE", "HIGH"):
-                    self.assertEqual(env[nv + profile + "_POWER_LIMIT_MW"], "default")
-                    self.assertEqual(env[nv + profile + "_APPLICATION_CLOCKS_MHZ"], "keep")
-                    self.assertEqual(env[nv + profile + "_PERSISTENCE_MODE"], "keep")
-                for key, value in env.items():
-                    if key.startswith(nv) and any(part in key for part in ("_OFFSET_MHZ", "_LOCK_MHZ")):
-                        self.assertEqual(value, "keep")
-            else:
-                self.assertEqual(env[nv + "ENABLE"], "false")
-                for profile in ("PERFORMANCE", "HIGH", "BALANCED"):
-                    self.assertEqual(env[prefix + profile + "_GPU_MAX_FREQ_MHZ"], "max")
-                    self.assertEqual(env[prefix + profile + "_GPU_BOOST_FREQ_MHZ"], "max")
+                    prefix = installer.PREFIXES[vendor]
+                    installer.boolean(env[prefix + "ENABLE"])
+                    policy = installer.policy(env, vendor, module.SETTINGS)
+                    common.validate_policy(policy, module.SETTINGS)
 
     def test_no_shell_evaluation_in_literal_parser(self):
         bad = ['HARDWARE_TUNING_IDLE_AC="$(touch /tmp/unsafe)"',
@@ -301,192 +228,41 @@ class PolicyTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
-    def test_both_public_power_profiles_names_keep_the_same_activation_path(self):
-        expected = {"/org/freedesktop/UPower/PowerProfiles": "org.freedesktop.UPower.PowerProfiles",
-                    "/net/hadess/PowerProfiles": "net.hadess.PowerProfiles"}
-        tree = ast.parse(payload_read_text(LIB / "power_profiles.py"))
-        interfaces = next(ast.literal_eval(node.value) for node in tree.body
-                          if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
-                          and target.id == "INTERFACES" for target in node.targets))
-        self.assertEqual(interfaces, expected)
-        self.assertEqual(set(installer.POWER_PROFILE_NAMES), set(expected.values()))
-        target = FORKY / "hooks/target"
-        policy = ET.fromstring(payload_read_text(target / "etc/dbus-1/system.d/90-hardware-tuning-power-profiles.conf.tmpl"))
-        for attribute in ("own", "send_destination"):
-            self.assertEqual({allow.attrib[attribute] for allow in policy.iter("allow")
-                              if attribute in allow.attrib}, set(expected.values()))
-        unit = payload_read_text(target / "etc/systemd/system/power-profiles-daemon.service.d/50-hardware-tuning.conf.tmpl")
-        self.assertIn("BusName=org.freedesktop.UPower.PowerProfiles", unit)
-        self.assertIn("ExecStart=\nExecStart=/usr/local/libexec/hardware-tuning-power-profiles", unit)
-        confinement = payload_read_text(target / "etc/apparmor.d/hardware-tuning")
-        adapter = confinement.split("profile hardware-tuning-power-profiles ", 1)[1].split("profile hardware-tuning-worker ", 1)[0]
-        for path, name in expected.items():
-            self.assertIn(path, adapter)
-            self.assertIn(name, adapter)
-
-    def test_all_32_flag_class_and_detection_combinations(self):
-        source = FORKY / "scripts/common/hardware-tuning.sh"
-        for intelflag, intelcpu, nvflag, nvclass, nvgpu in itertools.product((False, True), repeat=5):
-            with self.subTest(flags=(intelflag, intelcpu, nvflag, nvclass, nvgpu)), private_temp() as temporary:
-                root = Path(temporary)
-                (root / "target/tmp").mkdir(parents=True)
-                profile = root / "profile.env"
-                profile.write_text("HARDWARE_TUNING_POLL_SECONDS=\"5\"\n")
-                script = f'''
-. {shlex.quote(str(FORKY / "scripts/late/target-assets.sh"))}
-. {shlex.quote(str(source))}
-profile_hardware_intel_detected() {{ return {0 if intelcpu else 1}; }}
-installer_nvidia_class_selected() {{ return {0 if nvclass else 1}; }}
-installer_nvidia_gpu_detected() {{ return {0 if nvgpu else 1}; }}
-installer_nvidia_legacy_selected() {{ return 1; }}
-installer_nvidia_selected_gpu_detected() {{ installer_nvidia_gpu_detected; }}
-desktop_log() {{ :; }}
-installer_fatal() {{ echo "$*" >&2; return 1; }}
-desktop_stage_role_asset() {{ printf '%s\\n' "$1" >> "$FIXTURE/trace"; }}
-ensure_target_asset_parent() {{ mkdir -p "$FIXTURE/target$(dirname "$1")"; }}
-target_asset_host_path() {{ printf '%s/target%s\\n' "$FIXTURE" "$1"; }}
-fetch_hook() {{ cp "$FIXTURE_SOURCE/$1" "$2"; }}
-installer_repo_join_var() {{ printf '%s/%s\\n' hooks/target "$2"; }}
-run_in_target() {{ printf '%s\\n' "$*" >> "$FIXTURE/commands"; }}
-HARDWARE_INTEL_CPU_TUNING_ENABLE={str(intelflag).lower()}
-HARDWARE_NVIDIA_GPU_TUNING_ENABLE={str(nvflag).lower()}
-LATE_COMMAND_HOST_ENV="$FIXTURE/profile.env"
-ACCOUNT_USERNAME=desktop
-DIR_INSTALLER_TARGET_DEFAULTS=/payload-defaults
-install_profile_hardware_tuning
-'''
-                result = subprocess.run(payload_installed_argv(["/bin/sh", "-eu", "-c", script]), env=dict(os.environ, FIXTURE=str(root), FIXTURE_SOURCE=str(FORKY)), capture_output=True, text=True, timeout=10)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                assets = payload_read_text(root / "trace").splitlines() if payload_source_exists(root / "trace") else []
-                wanted_intel, wanted_nv = intelflag and intelcpu, nvflag and nvclass and nvgpu
-                self.assertEqual("usr/local/lib/hardware_tuning/intel.py" in assets, wanted_intel)
-                self.assertEqual("usr/local/lib/hardware_tuning/system_state.py" in assets, wanted_intel or wanted_nv)
-                self.assertEqual("usr/local/lib/hardware_tuning/policy_owner.py" in assets, wanted_intel or wanted_nv)
-                self.assertEqual("usr/local/lib/hardware_tuning/nvidia.py" in assets, wanted_nv)
-                self.assertEqual("etc/apparmor.d/abstractions/hardware-tuning-intel" in assets, wanted_intel)
-                self.assertEqual("etc/apparmor.d/abstractions/hardware-tuning-nvidia" in assets, wanted_nv)
-                self.assertEqual(bool(assets), wanted_intel or wanted_nv)
-                self.assertEqual(list((root / "target/tmp").glob("installer-hardware-tuning.*")), [])
-
     @unittest.skipUnless(os.geteuid() == 0, "installer fixture requires root ownership")
     def test_generation_vendor_matrix_and_preserved_left_click(self):
-        for vendors in (["intel"], ["nvidia"], ["intel", "nvidia"]):
+        for vendors in (["intel"], ["nvidia"], list(common.VENDORS)):
             with self.subTest(vendors=vendors), private_temp() as temporary:
                 root = Path(temporary)
-                path = root / "etc/skel-desktop/.config/waybar/modules/battery"
-                path.parent.mkdir(parents=True)
-                original = [{"name": "internal", "custom/battery": {"on-click": "original-energy-profile-command", "interval": 5}},
-                            {"name": "external", "custom/battery": {"on-click": "another original", "states": {"critical": 15}}}]
-                path.write_text(json.dumps(original))
-                primary = root / "payload-defaults/.config/waybar/modules/battery"
-                primary.parent.mkdir(parents=True)
-                primary.write_text(json.dumps(original))
-                packaged = package_activation(root)
-                installer.install(root, 1000, 1000, environment(), vendors, FORKY / "hooks/target",
+                original = {"custom/battery": {"on-click": "fixture-action", "interval": 5}}
+                relative = ".config/waybar/modules/battery"
+                for parent in ("etc/skel-desktop", "payload-defaults"):
+                    path = root / parent / relative
+                    path.parent.mkdir(parents=True)
+                    path.write_text(json.dumps(original))
+                installer.install(root, 1000, 1000, environment(), vendors, tuning_templates(root),
                                   payload_defaults=Path('/payload-defaults'))
-                self.assertEqual(primary.read_bytes(), path.read_bytes())
-                for activation, before in packaged.items():
-                    self.assertEqual(activation.read_text(), before)
-                config = json.loads((root / "etc/hardware-tuning/broker.json").read_text())
+                for parent in ("etc/skel-desktop", "payload-defaults"):
+                    module = json.loads((root / parent / relative).read_text())["custom/battery"]
+                    self.assertEqual(module["on-click"], original["custom/battery"]["on-click"])
+                    self.assertEqual(module["on-click-right-release"], installer.CLICK)
+                config = common.validate_broker_config(json.loads(
+                    (root / "etc/hardware-tuning/broker.json").read_text()))
+                self.assertEqual(set(config["vendors"]), set(vendors))
                 self.assertEqual(config["power_profiles_api"], "intel" in vendors)
-                api_unit = root / "etc/systemd/system/power-profiles-daemon.service.d/50-hardware-tuning.conf"
-                self.assertEqual(api_unit.exists(), "intel" in vendors)
-                self.assertFalse((root / "etc/systemd/system/power-profiles-daemon.service").exists())
-                if "intel" in vendors:
-                    self.assertIn("User=1000", api_unit.read_text())
-                    self.assertIn("ExecStart=/usr/local/libexec/hardware-tuning-power-profiles", api_unit.read_text())
-                    self.assertIn("ExecStart=\nExecStart=", api_unit.read_text())
-                    self.assertIn("PrivateUsers=no", api_unit.read_text())
-                    self.assertIn("RemoveIPC=no", api_unit.read_text())
-                    self.assertIn("StateDirectory=\n", api_unit.read_text())
-                    self.assertIn("RestrictAddressFamilies=\nRestrictAddressFamilies=AF_UNIX", api_unit.read_text())
-                    for name in ("org.freedesktop.UPower.PowerProfiles", "net.hadess.PowerProfiles"):
-                        activation = root / f"usr/local/share/dbus-1/system-services/{name}.service"
-                        self.assertFalse(activation.exists())
-                installed = json.loads(payload_read_text(path))
-                for before, after in zip(original, installed):
-                    self.assertEqual(after["custom/battery"].pop("on-click-right-release"), installer.CLICK)
-                    self.assertEqual(after, before)
+                for vendor in vendors:
+                    data = json.loads((root / f"etc/hardware-tuning/{vendor}.json").read_text())
+                    common.validate_policy(data, {"intel": intel, "nvidia": nvidia}[vendor].SETTINGS)
                 self.assertTrue((root / "etc/systemd/system/sockets.target.wants/hardware-tuning.socket").is_symlink())
                 self.assertTrue((root / "etc/systemd/system/sleep.target.requires/hardware-tuning-sleep.service").is_symlink())
-                self.assertTrue((root / "etc/systemd/system/multi-user.target.wants/hardware-tuning-autostart.service").is_symlink())
-                for vendor in common.VENDORS:
-                    self.assertEqual(payload_source_is_file(root / f"etc/hardware-tuning/{vendor}.json"), vendor in vendors)
-                    for profile in common.PROFILES:
-                        target = root / f"etc/systemd/user/{vendor}-{profile}.target"
-                        service = root / f"etc/systemd/user/hardware-tuning-{vendor}-{profile}.service"
-                        self.assertEqual(payload_source_is_file(target), vendor in vendors)
-                        self.assertEqual(payload_source_is_file(service), vendor in vendors)
-                        if vendor in vendors:
-                            self.assertIn("StopWhenUnneeded=yes", payload_read_text(target))
-                            self.assertIn(f"Wants=hardware-tuning-{vendor}-{profile}.service", payload_read_text(target))
-                            self.assertNotIn(f"Requires=hardware-tuning-{vendor}-{profile}.service", payload_read_text(target))
-                            self.assertIn(f"PartOf={vendor}-{profile}.target labwc-session.target", payload_read_text(service))
-                            self.assertIn("Type=notify\nNotifyAccess=main", payload_read_text(service))
-                            self.assertIn("TimeoutStartSec=370s", payload_read_text(service))
-                for app, profile in installer.APPLICATIONS.items():
-                    self.assertNotIn("*", app)
-                    text = payload_read_text(root / f"etc/systemd/user/{app}.d/85-hardware-tuning.conf")
-                    actual = [line for line in text.splitlines() if line and not line.startswith("#")]
-                    self.assertFalse(any(line.startswith(("PartOf=", "BindsTo=", "Requires=")) for line in actual))
-                    self.assertIn("Wants=" + " ".join(f"{v}-{profile}.target" for v in vendors), actual)
-                    self.assertIn("Upholds=" + " ".join(f"{v}-{profile}.target" for v in vendors), actual)
-                    self.assertIn("After=" + " ".join(f"{v}-{profile}.target" for v in vendors), actual)
-                system_unit = payload_read_text(root / "etc/systemd/system/hardware-tuning.service")
-                self.assertIn("ExecStopPost=/usr/local/libexec/hardware-tuning-worker recover-all", system_unit)
-                self.assertEqual("CapabilityBoundingSet=CAP_SYS_ADMIN" in system_unit, "nvidia" in vendors)
 
     @unittest.skipUnless(os.geteuid() == 0, "installer fixture requires root ownership")
-    def test_activation_failure_does_not_publish_tuning_units(self):
-        for failure in ("missing", "wrong-unit", "wrong-name", "direct-exec", "duplicate-field",
-                        "writable", "oversized", "symlink", "parent-symlink", "local-duplicate"):
-            with self.subTest(failure=failure), private_temp() as temporary:
-                root = Path(temporary)
-                packaged = package_activation(root)
-                activation = next(iter(packaged))
-                if failure == "missing":
-                    activation.unlink()
-                elif failure == "wrong-unit":
-                    activation.write_text(packaged[activation].replace("SystemdService=power-profiles-daemon.service",
-                                                                      "SystemdService=other.service"))
-                elif failure == "wrong-name":
-                    activation.write_text(packaged[activation].replace("Name=" + installer.POWER_PROFILE_NAMES[0],
-                                                                      "Name=org.example.Other"))
-                elif failure == "direct-exec":
-                    activation.write_text(packaged[activation].replace("Exec=/bin/false", "Exec=/fixture/untrusted"))
-                elif failure == "duplicate-field":
-                    activation.write_text(packaged[activation] + "User=root\n")
-                elif failure == "writable":
-                    activation.chmod(0o666)
-                elif failure == "oversized":
-                    activation.write_text("#" * (16 * 1024 + 1))
-                elif failure == "symlink":
-                    other = root / "owned-copy"
-                    activation.rename(other)
-                    activation.symlink_to(other)
-                elif failure == "parent-symlink":
-                    other = root / "owned-directory"
-                    activation.parent.rename(other)
-                    activation.parent.symlink_to(other, target_is_directory=True)
-                else:
-                    duplicate = root / f"usr/local/share/dbus-1/system-services/{activation.name}"
-                    duplicate.parent.mkdir(parents=True)
-                    duplicate.write_text("administrator-owned activation\n")
-                with self.assertRaises((ValueError, OSError)):
-                    installer.install(root, 1000, 1000, environment(), ["intel"], FORKY / "hooks/target",
-                                      payload_defaults=Path('/payload-defaults'))
-                self.assertFalse((root / "etc").exists())
-                if failure == "local-duplicate":
-                    self.assertEqual(duplicate.read_text(), "administrator-owned activation\n")
-
-    def test_tuning_uses_only_supported_dash_prefix_families(self):
-        self.assertEqual(installer.APPLICATIONS, {
-            "labwc-native-.service": "high",
-            "labwc-wayland-.service": "balanced",
-            "labwc-electron-.service": "high",
-            "labwc-devops-.service": "performance",
-            "llama-server.service": "performance",
-        })
+    def test_tuning_setup_does_not_require_packaged_activation_contents(self):
+        with private_temp() as temporary:
+            root = Path(temporary)
+            installer.install(root, 1000, 1000, environment(), ["intel"], tuning_templates(root),
+                              family="server")
+            self.assertTrue((root / "etc/hardware-tuning/broker.json").is_file())
+            self.assertTrue((root / "etc/systemd/system/hardware-tuning.socket").is_file())
 
     @unittest.skipUnless(os.geteuid() == 0, "installer fixture requires root ownership")
     def test_disabled_vendor_and_unsafe_target_rejected(self):

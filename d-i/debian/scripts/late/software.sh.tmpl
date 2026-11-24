@@ -714,18 +714,6 @@ software_stage_external_servicing_runtime() {
   software_stage_seed_asset \
     "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/apt-repo-local-vendor)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local-vendor 0755
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/grep -Fq \
-    'my $release_policy = $cli->_software_release_policy();' \
-    __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local-vendor ||
-    software_fatal "staged apt-repo-local-vendor lacks release-policy loading"
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/grep -Fq \
-    'release_policy => $release_policy,' \
-    __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local-vendor ||
-    software_fatal "staged apt-repo-local-vendor lacks ChatGPT release-policy wiring"
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/grep -Fq \
-    'release_policy => $vendor_policy,' \
-    __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local-vendor ||
-    software_fatal "staged apt-repo-local-vendor lacks vendor release-policy wiring"
   software_stage_seed_asset \
     "$(installer_repo_file_value hooks/target/usr/local/bin/common/apt-repo-init)" \
     __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/apt-repo-init 0755
@@ -1331,8 +1319,8 @@ software_ensure_temporary_unshare() {
 }
 
 software_flush_deb_batch() {
-  # The marker survives any failed/uncertain import, APT operation or readiness
-  # check. A later invocation must not replay a package mutation automatically.
+  # The marker survives a failed/uncertain import or APT operation. A later
+  # invocation must not replay a package mutation automatically.
   (umask 077; set -C; printf '%s\n' "$software_deb_plan" >"${target_root}${work_dir}/.deb-batch-active") ||
     software_fatal 'cannot acquire the installer package batch marker'
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local \
@@ -1357,8 +1345,8 @@ software_flush_deb_batch() {
     purge_target_cdrom_apt_sources
   fi
   # One serialized APT transaction owns dependency resolution, maintainer
-  # scripts and triggers for this compatible batch. Required application
-  # post-install work runs only after the readiness barrier below.
+  # scripts and triggers for this compatible batch. Application post-install
+  # work runs after APT successfully completes this transaction.
   chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/env -i \
     DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
     NEEDRESTART_SUSPEND=1 HOME=__INSTALLER_PATH_DIR_ROOT_HOME__ LC_ALL=C.UTF-8 \
@@ -1367,9 +1355,6 @@ software_flush_deb_batch() {
       -o DPkg::Lock::Timeout=60 -o DPkg::Use-Pty=0 \
       --no-install-recommends --no-install-suggests install "$@" ||
     software_fatal 'package batch installation failed inside the d-i target'
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local \
-    verify-installed-plan -- "$software_deb_receipt" ||
-    software_fatal 'package batch is not fully installed and configured'
   rm -f -- "${target_root}${work_dir}/.deb-batch-active"
   software_info "completed ${software_batch_name} package batch; receipt=${software_deb_receipt}"
 }
@@ -1944,7 +1929,7 @@ software_run_selected_app() {
   selected_worker=$3
   selected_result=$4
   installer_class_selected_any $selected_classes || return 0
-  installer_operation_context_repo scripts/late/software.sh.tmpl 1953 "install_managed_application:${selected_worker}"
+  installer_operation_context_repo scripts/late/software.sh.tmpl 1932 "install_managed_application:${selected_worker}"
   software_info "starting ${selected_label}"
   # A required worker runs outside a conditional context so Dash keeps errexit.
   (

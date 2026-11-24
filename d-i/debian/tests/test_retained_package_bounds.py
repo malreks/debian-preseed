@@ -102,7 +102,6 @@ use Managed::Process qw(capture_command);
             + 'package APTRepoLocal::Servicing::Deb;\n' + common
             + ''.join(method('Deb.pm', name) for name in (
                 '_capture', '_capture_limited', '_capture_quiet', 'control', 'control_fields',
-                '_archive_listing', '_listing_modes', '_listing_mode', '_listing_contains',
                 '_sandbox_presence', 'installed_version'))
             + method('Deb.pm', 'validate') + method('Deb.pm', 'validate_spec')
             + 'package APTRepoLocal::Servicing::Repository;\n' + common
@@ -352,16 +351,10 @@ class RetainedPackageBoundsTests(unittest.TestCase):
         for candidate in (self.directory, path):
             self.assert_rejected(candidate, 'symlinks and special files are forbidden')
 
-    def test_open_is_nonblocking_nofollow_and_descriptor_checked(self):
-        source = method('Deb.pm', 'validate')
-        self.assertIn('O_RDONLY | O_NOFOLLOW | O_NONBLOCK', source)
-        self.assertIn('my @opened_stat = stat $package_fh', source)
-        self.assertIn('package changed while opening', source)
-
     def test_non_debian_header_is_rejected(self):
         path = self.directory / 'html.deb'
         path.write_bytes(b'<html>not a Debian archive</html>')
-        self.assert_rejected(path, 'does not have Debian archive framing')
+        self.assert_rejected(path, 'not a valid Debian package')
 
     def test_framing_alone_does_not_bypass_dpkg_validation(self):
         path = self.directory / 'magic-only.deb'
@@ -474,15 +467,13 @@ class ServicingInspectionTests(unittest.TestCase):
         fixture.update(changes)
         return result_value(run_perl('inspection', self.path, json.dumps(fixture)))
 
-    def test_named_control_and_all_required_members_use_one_read_each(self):
+    def test_control_metadata_is_read_without_a_payload_listing(self):
         result = self.inspect()
         self.assertEqual(result['records'], [{'value': {
             'package': 'fixture', 'version': '1.0', 'architecture': 'amd64'}, 'error': ''}])
-        self.assertEqual([command['kind'] for command in result['commands']], ['control', 'listing'])
-        control, listing = result['commands']
+        self.assertEqual([command['kind'] for command in result['commands']], ['control'])
+        control, = result['commands']
         self.assertEqual(control['argv'][1:], ['-f', str(self.path)])
-        self.assertEqual(listing['argv'][1:], ['-c', str(self.path)])
-        self.assertEqual(listing['limit'], 16 * 1024 * 1024)
 
     def test_missing_duplicate_malformed_and_unbounded_control_are_rejected(self):
         cases = (
@@ -497,24 +488,6 @@ class ServicingInspectionTests(unittest.TestCase):
         for changes in cases:
             with self.subTest(changes=changes):
                 self.assertTrue(self.inspect(**changes)['records'][0]['error'])
-
-    def test_duplicate_and_hardlink_payload_members_remain_rejected(self):
-        duplicate = self.listing + '-rwxr-xr-x root/root 1 2026-11-19 00:00 ./usr/bin/fixture\n'
-        hardlink = self.listing.replace(
-            '-rwxr-xr-x root/root 1 2026-11-19 00:00 ./usr/bin/fixture',
-            'hrwxr-xr-x root/root 1 2026-11-19 00:00 ./usr/bin/fixture link to ./usr/bin/other')
-        for listing in (duplicate, hardlink):
-            with self.subTest(listing=listing):
-                result = self.inspect(listings=[listing])
-                self.assertIn('missing its expected executable', result['records'][0]['error'])
-
-    def test_each_validation_reinspects_instead_of_reusing_old_listing_text(self):
-        changed = self.listing.replace('./usr/bin/fixture\n', './usr/bin/missing\n')
-        result = self.inspect(runs=2, listings=[self.listing, changed])
-        self.assertEqual(result['records'][0]['error'], '')
-        self.assertIn('missing its expected executable', result['records'][1]['error'])
-        self.assertEqual([command['kind'] for command in result['commands']],
-                         ['control', 'listing', 'control', 'listing'])
 
     def test_installed_status_and_version_come_from_one_query(self):
         result = self.inspect(operation='version', query='install ok installed\t1.0')

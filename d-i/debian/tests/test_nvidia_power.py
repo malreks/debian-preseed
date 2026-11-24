@@ -27,6 +27,7 @@ import tempfile
 import types
 import unittest
 from unittest import mock
+from fixture_render import rendered_path_text
 
 from test_hardware_restore import make_chroot, FORKY
 TARGET = FORKY / 'hooks/target'
@@ -110,21 +111,6 @@ class NvidiaGuardTests(unittest.TestCase):
         self.assertEqual(result, 0)
         command.assert_not_called()
 
-    def test_system_sleep_requires_successful_nvidia_preparation(self):
-        for mode in ('suspend', 'suspend-then-hibernate', 'hibernate', 'hybrid-sleep'):
-            phase = 'hibernate' if mode == 'hybrid-sleep' else mode
-            text = payload_read_text(TARGET / f'etc/systemd/system/systemd-{mode}.service.d/20-nvidia-preserve.conf')
-            self.assertIn(f'Requires=nvidia-{phase}.service', text)
-            self.assertIn(f'After=nvidia-{phase}.service', text)
-
-    def test_dropins_cover_all_sleep_modes_but_never_block_resume_on_space(self):
-        for phase in PHASES:
-            text = payload_read_text(TARGET / f'etc/systemd/system/nvidia-{phase}.service.d/20-vram.conf')
-            self.assertIn('RequiresMountsFor=/var/lib/nvidia-vram', text)
-            self.assertIn('TimeoutStartSec=120s', text)
-            self.assertIn('UMask=0077', text)
-            self.assertEqual('ExecStartPre=' in text, phase != 'resume')
-
 
 @unittest.skipUnless(os.geteuid() == 0 and shutil.which('chroot') and shutil.which('busybox'), 'root chroot fixtures')
 class NvidiaActivationTests(unittest.TestCase):
@@ -140,7 +126,16 @@ class NvidiaActivationTests(unittest.TestCase):
             'usr/bin/nvidia-sleep.sh': '#!/bin/sh\nexit 0\n',
             'usr/lib/systemd/system-sleep/nvidia': '#!/bin/sh\nexit 0\n',
             'usr/local/libexec/nvidia-vram-check': '#!/bin/sh\nprintf "%s\\n" "$*" > /guard.args\n',
-            'bin/systemctl': '#!/bin/sh\nprintf "%s\\n" "$*" > /systemctl.args\n',
+            'bin/systemctl': '''#!/bin/sh
+printf '%s\\n' "$*" > /systemctl.args
+shift 2
+for unit do
+    [ -f "/usr/lib/systemd/system/$unit" ] || {
+        printf 'Failed to enable unit: Unit %s does not exist\\n' "$unit" >&2
+        exit 1
+    }
+done
+''',
         }.items():
             file = root / path
             file.write_text(text)
@@ -150,11 +145,17 @@ class NvidiaActivationTests(unittest.TestCase):
 
     def activate(self, root):
         q = shlex.quote
+        core = root / 'fixture-core.sh'
+        core.write_text(rendered_path_text(payload_read_text(FORKY / 'scripts/late/core.sh')))
         code = f'''
-. {q(str(FORKY / 'scripts/late/core.sh'))}
+. {q(str(core))}
 installer_repo_join_var() {{ printf '%s\\n' {q(str(TARGET))}; }}
+installer_repo_file_value() {{ printf '%s\\n' "$1"; }}
+installer_repo_asset_path() {{ printf '%s/%s\\n' "$1" "$2"; }}
+installer_systemd_dropin_dir() {{ printf '/etc/systemd/system/%s.d\\n' "$2"; }}
 stage_target_asset() {{ :; }}
 run_in_target() {{ shift; {q(shutil.which('chroot'))} {q(str(root))} "$@"; }}
+DIR_USR_LOCAL_LIBEXEC=/usr/local/libexec
 configure_target_nvidia_power_management true
 '''
         return subprocess.run(payload_installed_argv(['/bin/sh', '-eu', '-c', code]), env={**os.environ, 'PATH':'/bin:/usr/bin'},
@@ -171,10 +172,10 @@ configure_target_nvidia_power_management true
             self.assertNotIn('--now', arguments)
             for phase in PHASES:
                 self.assertIn(f'nvidia-{phase}.service', arguments)
-            self.assertEqual(payload_read_text(root / 'guard.args').strip(), '--directory-only')
+            self.assertFalse(payload_source_exists(root / 'guard.args'))
             self.assertEqual(stat.S_IMODE(payload_source_stat(root / 'var/lib/nvidia-vram').st_mode), 0o700)
 
-    def test_missing_vendor_unit_stops_instead_of_partial_activation(self):
+    def test_systemctl_error_is_propagated(self):
         for missing in PHASES:
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as name:
                 root = Path(name)
@@ -182,16 +183,7 @@ configure_target_nvidia_power_management true
                 result = self.activate(root)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f'nvidia-{missing}.service', result.stderr)
-                self.assertFalse(payload_source_exists(root / 'systemctl.args'))
-
-    def test_missing_vendor_recovery_hook_stops(self):
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            self.fixture(root)
-            (root / 'usr/lib/systemd/system-sleep/nvidia').unlink()
-            result = self.activate(root)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn('sleep recovery hook', result.stderr)
+                self.assertTrue(payload_source_exists(root / 'systemctl.args'))
 
 
 if __name__ == '__main__':

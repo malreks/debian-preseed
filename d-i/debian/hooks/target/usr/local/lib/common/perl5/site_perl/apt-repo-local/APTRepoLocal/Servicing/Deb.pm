@@ -10,7 +10,6 @@ use Moo;
 use MooX::StrictConstructor;
 
 use Fcntl qw(O_NOFOLLOW O_NONBLOCK O_RDONLY O_TRUNC O_WRONLY S_IFMT S_IFREG);
-use Errno qw(EINTR);
 use File::Spec;
 use POSIX qw(_exit);
 use APTRepoLocal::Servicing::Atomic;
@@ -78,56 +77,6 @@ sub control_fields {
         $previous = $field;
     }
     return \%fields;
-}
-
-sub _archive_listing {
-    my ($self, $path) = @_;
-    # A validation owns its inventory. Do not reuse a previous call's listing
-    # by pathname and second-resolution timestamps after a download or repack.
-    my $listing = $self->_capture_limited(
-        16 * 1024 * 1024,
-        '__INSTALLER_PATH_DIR_USR__/bin/dpkg-deb',
-        '-c',
-        $path,
-    );
-    return if !defined $listing;
-    $listing !~ /\0/
-        or die "Debian package listing contains invalid data\n";
-    return $listing;
-}
-
-sub _listing_modes {
-    my ($self, $listing, $wanted) = @_;
-    # Keep only requested members, so an archive with many unrelated members
-    # cannot turn the bounded listing into an unbounded pathname cache.
-    my %modes = map { $_ => [0, undef] } @{$wanted};
-    for my $entry (split /\n/, $listing) {
-        my @columns = split /[ \t]+/, $entry, 6;
-        @columns == 6 && length($columns[0]) == 10
-            or die "Debian package listing contains a malformed member\n";
-        my ($mode, $member) = @columns[0, 5];
-        $member =~ s/ -> .*\z// if substr($mode, 0, 1) eq 'l';
-        # Required payload paths historically accept regular files/symlinks,
-        # not tar hardlink declarations or their decorated destination names.
-        next if substr($mode, 0, 1) eq 'h';
-        next if $member !~ s{\A\./}{/};
-        next if !exists $modes{$member};
-        $modes{$member}[0]++;
-        $modes{$member}[1] = $mode;
-    }
-    return \%modes;
-}
-
-sub _listing_mode {
-    my ($self, $modes, $wanted) = @_;
-    my $entries = $modes->{$wanted};
-    return if !defined $entries || $entries->[0] != 1;
-    return $entries->[1];
-}
-
-sub _listing_contains {
-    my ($self, $modes, $wanted) = @_;
-    return defined $self->_listing_mode($modes, $wanted) ? 1 : 0;
 }
 
 sub _installed_executable_valid {
@@ -525,75 +474,13 @@ sub validate {
         && join("\0", @opened_stat[0, 1, 2, 3, 4, 5, 7, 9, 10])
             eq join("\0", @package_stat[0, 1, 2, 3, 4, 5, 7, 9, 10])
         or die "$args{label} package changed while opening: $args{path}\n";
-    binmode $package_fh;
-    my $magic = q{};
-    my $magic_read;
-    do {
-        $magic_read = read $package_fh, $magic, 8;
-    } while (!defined($magic_read) && $! == EINTR);
     close $package_fh
         or die "$args{label} package cannot be closed: $!\n";
-    defined $magic_read && $magic_read == 8 && $magic eq "!<arch>\n"
-        or die "$args{label} does not have Debian archive framing\n";
     my $fields = $self->control_fields($args{path});
     defined $fields
         or die "$args{label} is not a valid Debian package\n";
-    my $validate_payload = defined $args{validate_payload}
-        ? $args{validate_payload}
-        : 1;
-    $validate_payload == 0 || $validate_payload == 1
-        or die "$args{label} payload validation flag is invalid\n";
-    if ($validate_payload) {
-        # Explicitly empty desktop is reserved for CLI-only distributions.
-        defined $args{desktop} or die "$args{label} desktop specification is undefined\n";
-        my @wanted = ($args{executable}, @{$args{required_paths} // []},
-                      @{$args{required_executables} // []});
-        push @wanted, $args{desktop} if $args{desktop} ne q{};
-        push @wanted, $args{library} if defined $args{library} && $args{library} ne q{};
-        push @wanted, $args{sandbox} if defined $args{sandbox} && $args{sandbox} ne q{};
-        for my $wanted (@wanted) {
-            APTRepoLocal::Servicing::Atomic->assert_absolute_path(
-                "$args{label} required payload path", $wanted,
-            );
-        }
-        my $raw_listing = $self->_archive_listing($args{path});
-        defined $raw_listing
-            or die "$args{label} package payload listing is unavailable\n";
-        my $listing = $self->_listing_modes($raw_listing, \@wanted);
-        $self->_listing_contains($listing, $args{executable})
-            or die "$args{label} package is missing its expected executable\n";
-        if ($args{desktop} ne q{}) {
-            $self->_listing_contains($listing, $args{desktop})
-                or die "$args{label} package is missing its expected desktop entry\n";
-        }
-        if (defined $args{library} && $args{library} ne q{}) {
-            $self->_listing_contains($listing, $args{library})
-                or die "$args{label} package is missing its expected runtime library\n";
-        }
-        for my $required_path (@{$args{required_paths} // []}) {
-            $self->_listing_contains($listing, $required_path)
-                or die "$args{label} package is missing required payload: $required_path\n";
-        }
-        for my $required_executable (@{$args{required_executables} // []}) {
-            my $mode = $self->_listing_mode($listing, $required_executable);
-            defined $mode
-                && (
-                    substr($mode, 0, 1) eq 'l'
-                    || (
-                        substr($mode, 0, 1) eq '-'
-                        && substr($mode, 9, 1) =~ /[xt]/
-                    )
-                )
-                or die "$args{label} package is missing required executable payload: $required_executable\n";
-        }
-        if (defined $args{sandbox} && $args{sandbox} ne q{}) {
-            my $presence = $self->_sandbox_presence($args{sandbox_presence});
-            if ($presence eq 'required') {
-                $self->_listing_contains($listing, $args{sandbox})
-                    or die "$args{label} package is missing its required Chromium sandbox\n";
-            }
-        }
-    }
+    # dpkg owns payload unpacking. Read only the control fields needed by the
+    # repository; do not decompress packages to assert vendor file layouts.
     my ($package, $version, $architecture) = @{$fields}{qw(package version architecture)};
     defined $package && grep { $_ eq $package } @{$args{packages}}
         or die "$args{label} package name is unapproved\n";
