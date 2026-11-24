@@ -1,0 +1,23 @@
+#!/bin/sh
+# Installed as 94zz-30-custom-apt, after 94zz-20-normalize-apt and before
+# 95umount. No APT refresh, parser or renderer consumes the custom files here.
+set -eu
+runtime=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
+common_lib="$runtime/bootstrap/common-lib.sh"
+[ -r "$common_lib" ] || {
+  printf '%s\n' 'fatal: installer common library is unavailable for custom APT files' >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+. "$common_lib"
+installer_operation_context_repo hooks/installer/finish-install.d/96-custom-apt 13 finish_install_custom_apt
+host_env="${DIR_INSTALLER_ENV}/host.env"
+[ -r "$host_env" ] || installer_fatal 'composed host policy is unavailable for custom APT files'
+# shellcheck disable=SC1090,SC1091
+installer_load_data_env "$host_env"
+if installer_stage_suite_custom_apt; then
+  :
+else
+  custom_apt_status=$?
+  installer_fatal_status "$custom_apt_status" 'could not copy selected suite/family custom APT files'
+fi

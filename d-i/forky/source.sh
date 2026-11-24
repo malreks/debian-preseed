@@ -974,6 +974,8 @@ source_fetch() (
   # A .tmpl is a source distinction, never an installed filename. Resolve only
   # regular snapshot members; never probe a moving remote source for aliases.
   case "$rel" in
+    # Operator APT drop-ins are opaque files, never template aliases.
+    frontends/*/hooks/target/etc/apt/*/sources.list.d/custom/*|frontends/*/hooks/target/etc/apt/*/preferences.d/custom/*) ;;
     *.tmpl) ;;
     *)
       if [ -e "$cache.tmpl" ] || [ -L "$cache.tmpl" ]; then
@@ -990,6 +992,7 @@ source_fetch() (
   if [ ! -e "$cache" ] && [ ! -L "$cache" ] &&
      [ ! -f "${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}/bootstrap/payload.ready" ]; then
     case "$base:$rel" in
+      /*:frontends/*/hooks/target/etc/apt/*/sources.list.d/custom/*|/*:frontends/*/hooks/target/etc/apt/*/preferences.d/custom/*) : ;;
       /*:*.tmpl) : ;;
       /*:*)
         if [ -e "${base%/}/$rel.tmpl" ] || [ -L "${base%/}/$rel.tmpl" ]; then
@@ -1009,7 +1012,10 @@ source_fetch() (
   fi
   if [ ! -s "$cache" ]; then
     profile_dir=${DIR_CLASSES_PROFILE:-${DIR_CLASSES:-classes}/class-profile}
-    case "$rel" in "$profile_dir"/*.cfg) ;; *) source_error "unexpected empty repository file: $rel"; exit 1 ;; esac
+    case "$rel" in
+      "$profile_dir"/*.cfg|frontends/*/hooks/target/etc/apt/*/sources.list.d/custom/*|frontends/*/hooks/target/etc/apt/*/preferences.d/custom/*) ;;
+      *) source_error "unexpected empty repository file: $rel"; exit 1 ;;
+    esac
   fi
   [ "$cache" != "$destination" ] || { chmod "$mode" "$destination"; exit 0; }
   mkdir -p "$(dirname "$destination")" || exit 1

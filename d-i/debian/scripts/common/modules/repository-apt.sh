@@ -783,3 +783,40 @@ EOF
     fi
   done
 }
+
+# Finish-install only: custom APT inputs are opaque operator-owned bytes. The
+# captured membership table discovers every immediate file, without an extension
+# allow-list, parser, placeholder renderer, or per-file staging declaration.
+installer_stage_suite_custom_apt() (
+  set -eu
+  case "$INSTALLER_HOST_VARIANT" in
+    desktop|server) ;;
+    *) installer_fatal 'invalid APT role family' ;;
+  esac
+  apt_custom_target=${INSTALLER_TARGET_DIR:-$TARGET_ROOT}
+  apt_custom_sources=$(awk -F '\t' -v suite="$INSTALLER_SUITE" -v role="$INSTALLER_HOST_VARIANT" '
+    NR==1 {if($0!="format\t1") exit 1; next}
+    NF!=5 {exit 1}
+    $1!=suite {next}
+    ($2=="common" || $2==role) && $3=="keyrings" && $4 !~ /\// {print $3 "|" $4 "|" $5; next}
+    $2==role && ($3=="preferences.d" || $3=="sources.list.d") && index($4,"custom/")==1 && length($4)>7 && index(substr($4,8),"/")==0 {
+      leaf=$4; sub(/^custom\//,"",leaf); print $3 "|" leaf "|" $5
+    }
+  ' "$INSTALLER_REPO_SOURCE_ROOT/catalog/compiled/apt-assets.tsv") || exit "$?"
+  apt_custom_count=0
+  while IFS='|' read -r apt_custom_kind apt_custom_leaf apt_custom_source; do
+    [ -n "$apt_custom_source" ] || continue
+    case "$apt_custom_kind" in
+      keyrings) apt_custom_directory=$DIR_APT_KEYRINGS ;;
+      preferences.d) apt_custom_directory=$DIR_APT_PREFERENCES_D ;;
+      sources.list.d) apt_custom_directory=$DIR_APT_SOURCES_LIST_D ;;
+    esac
+    install -d -m 0755 "$apt_custom_target$apt_custom_directory" || exit "$?"
+    installer_fetch_file "$(installer_seed_base "")" "$apt_custom_source" \
+      "$apt_custom_target$apt_custom_directory/$apt_custom_leaf" 0644 || exit "$?"
+    apt_custom_count=$((apt_custom_count + 1))
+  done <<EOF
+$apt_custom_sources
+EOF
+  installer_info "copied ${apt_custom_count} suite/family APT keyring and custom files unchanged after modernization"
+)

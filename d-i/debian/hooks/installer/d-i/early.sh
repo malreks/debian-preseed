@@ -137,7 +137,10 @@ family_d_i_early_main() {
   # then repair/modernize sources; both still precede 95umount.
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/99-normalize-finish)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish"
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/95-normalize-apt)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt"
-  chmod 0755 ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish ${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt
+  fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/96-custom-apt)" "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-30-custom-apt"
+  chmod 0755 "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-10-normalize-finish" \
+    "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-20-normalize-apt" \
+    "${DIR_INSTALLER_FINISH_INSTALL_D}/94zz-30-custom-apt"
   fetch_hook_file "$(installer_repo_file_value hooks/installer/finish-install.d/00-installer-guard)" ${DIR_INSTALLER_FINISH_INSTALL_D}/00-installer-guard
   # 07preseed runs late_command. Retire the legacy archive again afterwards,
   # before stock 10apt-cdrom-setup performs an ordinary target APT update.

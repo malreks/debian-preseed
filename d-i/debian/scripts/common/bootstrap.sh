@@ -403,6 +403,8 @@ bootstrap_copy_prepared_file() (
   case "$prepared_mode" in [0-7][0-7][0-7]|0[0-7][0-7][0-7]) ;; *) exit 1 ;; esac
   prepared_source=$BOOTSTRAP_PREPARED_SOURCE_ROOT/$prepared_relative
   case "$prepared_relative" in
+    # Operator APT drop-ins use exact filenames, including .tmpl siblings.
+    frontends/*/hooks/target/etc/apt/*/sources.list.d/custom/*|frontends/*/hooks/target/etc/apt/*/preferences.d/custom/*) ;;
     *.tmpl) ;;
     *)
       if [ -e "$prepared_source.tmpl" ] || [ -L "$prepared_source.tmpl" ]; then

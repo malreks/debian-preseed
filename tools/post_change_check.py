@@ -307,6 +307,15 @@ def _read_text(path: Path) -> str:
     return data.decode('utf-8')
 
 
+def _custom_apt_input(path: Path) -> bool:
+    """Operator-owned finish-install bytes have no content validation here."""
+    return re.fullmatch(
+        r'd-i/(forky|trixie)/hooks/target/etc/apt/(desktop|server)/'
+        r'(sources\.list\.d|preferences\.d)/custom/.+',
+        path.relative_to(ROOT).as_posix(),
+    ) is not None
+
+
 def _runtime_path_schema_rows(text: str | None = None) -> list[tuple[str, str]]:
     """Read the shared canonical map schema without sourcing its shell adapter."""
     if text is None:
@@ -3601,6 +3610,8 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
                    if key.startswith('PATH_')}
     used_runtime_fields = set()
     for name, data in members.items():
+        if name.startswith('frontends/') and _custom_apt_input(ROOT / 'd-i' / name.removeprefix('frontends/')):
+            continue
         used_runtime_fields.update(token.decode() for token in re.findall(rb'__INSTALLER_(PATH_[A-Z][A-Z0-9_]*)__', data))
     if used_runtime_fields - runtime_map:
         raise ValueError('target placeholder has no real publication-map producer: '
@@ -3952,7 +3963,8 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
         for family in ('desktop', 'server'):
             root = f'frontends/{suite}/hooks/target/etc/apt/{family}/preferences.d/'
             preferences.extend(data.decode() for name, data in members.items()
-                               if name.startswith(root) and name.endswith('.pref'))
+                               if name.startswith(root) and name.endswith('.pref')
+                               and not name.startswith(root + 'custom/'))
         preference_text = '\n'.join(preferences)
         for repository in sorted(set(repository_answers)):
             url = repository.split()[0]
@@ -5389,6 +5401,8 @@ def check_diff(errors: list[str]) -> None:
             before, after = Path(directory) / 'before', Path(directory) / 'after'
             before.mkdir(); after.mkdir()
             for name, old in ARCHIVE_CHANGES.items():
+                if _custom_apt_input(ROOT / name):
+                    continue
                 if old is not None:
                     destination = before / name
                     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -5404,8 +5418,12 @@ def check_diff(errors: list[str]) -> None:
                 _report_command(errors, 'git diff --no-index --check (archive baseline)', result)
         return
     for command in (
-        ['git', 'diff', '--check'],
-        ['git', 'diff', '--cached', '--check'],
+        ['git', 'diff', '--check', '--', '.',
+         ':(exclude)d-i/*/hooks/target/etc/apt/*/sources.list.d/custom/**',
+         ':(exclude)d-i/*/hooks/target/etc/apt/*/preferences.d/custom/**'],
+        ['git', 'diff', '--cached', '--check', '--', '.',
+         ':(exclude)d-i/*/hooks/target/etc/apt/*/sources.list.d/custom/**',
+         ':(exclude)d-i/*/hooks/target/etc/apt/*/preferences.d/custom/**'],
     ):
         result = _run(command)
         if result.returncode:
@@ -5424,6 +5442,8 @@ def main() -> int:
     try:
         paths = _changed_paths()
         counts['changed_files'] = len(paths)
+        counts['opaque_custom_apt_files'] = sum(_custom_apt_input(path) for path in paths)
+        paths = [path for path in paths if not _custom_apt_input(path)]
     except (OSError, UnicodeError, RuntimeError, ValueError) as error:
         errors.append(f'checker failure: {error}')
     else:

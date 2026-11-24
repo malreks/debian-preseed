@@ -1,0 +1,58 @@
+# Optional Pika components. Enable only the desired stanza before refreshing APT.
+# Copied unchanged after installer source modernization.
+
+Types: deb
+URIs: https://ppa.pika-os.com/
+Suites: pika
+Components: nest
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/pikaos.asc
+Enabled: no
+
+Types: deb
+URIs: https://ppa.pika-os.com/
+Suites: pika
+Components: raven
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/pikaos.asc
+Enabled: no
+
+Types: deb
+URIs: https://ppa.pika-os.com/
+Suites: pika
+Components: pigeon
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/pikaos.asc
+Enabled: no
+
+Types: deb
+URIs: https://ppa.pika-os.com/
+Suites: pika
+Components: parrot
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/pikaos.asc
+Enabled: no
+
+Types: deb
+URIs: https://ppa.pika-os.com/
+Suites: pika
+Components: canary
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/pikaos.asc
+Enabled: no
+
+Types: deb
+URIs: https://ppa.pika-os.com/
+Suites: pika
+Components: nest-testing
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/pikaos.asc
+Enabled: no
+
+Types: deb
+URIs: https://ppa.pika-os.com/
+Suites: pika
+Components: cockatiel-testing
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/pikaos.asc
+Enabled: no

@@ -300,3 +300,102 @@ mv() {
                 else:
                     self.assertEqual((parts / '00trustcdrom').read_text(), 'ORIGINAL MEDIA POLICY\n')
                     self.assertFalse(list(parts.parent.glob('.installer-apt-policy*')))
+
+
+@unittest.skipUnless(os.geteuid() == 0, 'd-i requires uid 0 inside the isolated test image')
+class CustomAptPublication(unittest.TestCase):
+    """Exercise the copier, without interpreting operator file contents."""
+
+    def invoke(self, root: Path, suite: str, family: str, entries: list[tuple],
+               fail: bool = False) -> subprocess.CompletedProcess[str]:
+        assets = root / 'assets'
+        catalog = assets / 'catalog/compiled/apt-assets.tsv'
+        catalog.parent.mkdir(parents=True, exist_ok=True)
+        rows = ['format\t1\n']
+        for owner_suite, owner_family, kind, leaf, content in entries:
+            member = f'frontends/{owner_suite}/hooks/target/etc/apt/{owner_family}/{kind}/{leaf}'
+            source = assets / member
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(content)
+            rows.append('\t'.join((owner_suite, owner_family, kind, leaf, member)) + '\n')
+        catalog.write_text(''.join(rows), encoding='utf-8')
+        (root / 'target').mkdir(exist_ok=True)
+        environment = {
+            'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'HOME': str(root),
+            'TMPDIR': str(root), 'TMP': str(root), 'TEMP': str(root),
+            'FIXTURE_ROOT': str(root), 'FIXTURE_SOURCE': str(ROOT / 'd-i/debian'),
+            'INSTALLER_SUITE': suite, 'INSTALLER_HOST_VARIANT': family,
+            'FIXTURE_FAIL': 'true' if fail else 'false',
+        }
+        code = r'''
+set -eu
+. "$FIXTURE_SOURCE/scripts/common/modules/repository-apt.sh"
+installer_fatal() { printf '%s\n' "$*" >&2; exit 1; }
+installer_info() { :; }
+installer_seed_base() { printf '%s\n' "$FIXTURE_ROOT/assets"; }
+installer_fetch_file() {
+  [ "$FIXTURE_FAIL" = false ] || return 73
+  case "$2" in frontends/../*|/*) exit 91;; esac
+  case "$3" in "$FIXTURE_ROOT/target/"*) ;; *) exit 92;; esac
+  cp "$FIXTURE_ROOT/assets/$2" "$3" || return "$?"
+  chmod "$4" "$3"
+}
+INSTALLER_REPO_SOURCE_ROOT=$FIXTURE_ROOT/assets
+INSTALLER_TARGET_DIR=$FIXTURE_ROOT/target
+DIR_APT_KEYRINGS=/etc/apt/keyrings
+DIR_APT_PREFERENCES_D=/etc/apt/preferences.d
+DIR_APT_SOURCES_LIST_D=/etc/apt/sources.list.d
+installer_stage_suite_custom_apt
+'''
+        return subprocess.run(['/bin/sh', '-eu', '-c', code], cwd=root, env=environment,
+                              capture_output=True, text=True, timeout=15)
+
+    def test_opaque_files_future_names_and_exact_suite_family_selection(self) -> None:
+        opaque = b'not APT syntax\x00\xff\n__INSTALLER_LEAVE_UNCHANGED__\n'
+        for suite in ('forky', 'trixie'):
+            for family in ('desktop', 'server'):
+                with self.subTest(suite=suite, family=family), tempfile.TemporaryDirectory(
+                        prefix='apt-custom-') as directory:
+                    root = Path(directory)
+                    entries = [
+                        (s, f, kind, 'custom/future.' + suffix, opaque + s.encode() + f.encode())
+                        for s in ('forky', 'trixie') for f in ('desktop', 'server')
+                        for kind, suffix in (('preferences.d', 'pref'), ('sources.list.d', 'sources'),
+                                             ('sources.list.d', 'extension-not-known-to-installer'))
+                    ]
+                    entries.extend((s, f, kind, leaf, content)
+                                   for s in ('forky', 'trixie') for f in ('desktop', 'server')
+                                   for kind, leaf, content in (
+                                       ('sources.list.d', 'custom/future.sources.tmpl', b'literal suffix\n'),
+                                       ('preferences.d', 'custom/empty.pref', b''),
+                                       ('preferences.d', 'custom/empty.pref.tmpl', b'not the empty file\n')))
+                    result = self.invoke(root, suite, family, entries)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    files = sorted((root / 'target').rglob('*'))
+                    files = [path for path in files if path.is_file()]
+                    self.assertEqual(len(files), 6)
+                    expected = {(kind, leaf.removeprefix('custom/')): content
+                                for s, f, kind, leaf, content in entries if (s, f) == (suite, family)}
+                    for path in files:
+                        self.assertEqual(path.read_bytes(), expected[path.parent.name, path.name])
+                        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+                    # A repeat copies the same bytes without deleting unrelated files.
+                    unrelated = root / 'target/etc/apt/preferences.d/keep.pref'
+                    unrelated.write_bytes(b'operator existing data\n')
+                    result = self.invoke(root, suite, family, entries)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(unrelated.read_bytes(), b'operator existing data\n')
+
+    def test_absent_or_empty_custom_directories_are_optional(self) -> None:
+        with tempfile.TemporaryDirectory(prefix='apt-custom-empty-') as directory:
+            root = Path(directory)
+            result = self.invoke(root, 'forky', 'desktop', [])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(list((root / 'target').iterdir()), [])
+
+    def test_acquisition_failure_propagates(self) -> None:
+        with tempfile.TemporaryDirectory(prefix='apt-custom-failure-') as directory:
+            root = Path(directory)
+            result = self.invoke(root, 'trixie', 'server', [
+                ('trixie', 'server', 'sources.list.d', 'custom/future.sources', b'opaque')], fail=True)
+            self.assertEqual(result.returncode, 73, result.stderr)

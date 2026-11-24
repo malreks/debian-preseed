@@ -11,12 +11,13 @@ Pin: release o=NVIDIA,l=NVIDIA CUDA
 Pin-Priority: 900
 
 # Prefer the render-node/PRIME-corrected EGLWayland 1 compatibility library.
-# Equal priority to the native suite permits a newer Debian version; never
-# force a downgrade or import Pop!_OS drivers, kernels, Mesa or dependencies.
+# Desktop roles enable Pika Cockatiel; no Pika source is enabled for servers.
+# Priority 990 permits a newer native version without forcing a downgrade.
 Package: libnvidia-egl-wayland1
-Pin: origin apt.pop-os.org
+Pin: origin ppa.pika-os.com
 Pin-Priority: 990
 
+# Keep the disabled Pop!_OS fallback excluded.
 Package: *
 Pin: origin apt.pop-os.org
 Pin-Priority: -1

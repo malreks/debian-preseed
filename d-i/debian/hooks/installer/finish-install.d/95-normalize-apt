@@ -4,6 +4,8 @@
 # 09-cuda-legacy-cleanup hook already retired CUDA before the stock APT update.
 # The target normalizer groups the exact 3proxy archive into 3proxy.sources,
 # retaining apt-setup's scoped Signed-By key; it does not use global trust.
+# 94zz-30-custom-apt copies operator drop-ins only after this hook completes;
+# they must never enter this normalization/modernization pass.
 set -eu
 
 RUNTIME_DIR=${INSTALLER_RUNTIME_DIR:-/tmp/install-runtime}
@@ -23,7 +25,7 @@ if [ -r "$BOOTSTRAP_LIB" ]; then
   TARGET=${INSTALLER_TARGET_DIR:-${TARGET_ROOT:-}}
   ENV_DIR=${DIR_INSTALLER_ENV}
   HOST_ENV="${ENV_DIR}/host.env"
-  installer_operation_context_repo hooks/installer/finish-install.d/95-normalize-apt 26 finish_install_apt_normalizer
+  installer_operation_context_repo hooks/installer/finish-install.d/95-normalize-apt 28 finish_install_apt_normalizer
   [ -r "$HOST_ENV" ] || {
     printf '%s\n' "fatal: missing host environment: ${HOST_ENV}" >&2
     exit 1

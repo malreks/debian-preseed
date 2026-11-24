@@ -433,11 +433,13 @@ def repository_inventory(sources: dict[str, bytes], snapshot: dict[str, bytes]):
     for name, data in sorted(sources.items()):
         if not name.startswith('frontends/') or not name.endswith('.cfg'):
             continue
+        if re.match(r'frontends/(forky|trixie)/hooks/target/etc/apt/(desktop|server)/(sources.list.d|preferences.d)/custom/', name):
+            continue
         suite = name.split('/')[1]
         records = list(cfg_records(data))
         answers = {}
         for number, line in records:
-            match = re.fullmatch(r'd-i (apt-setup/[^ ]+)/(repository|key|source) (?:string|boolean) (.+)', line)
+            match = re.fullmatch(r'd-i (apt-setup/[^ ]+)/(repository|key|source|options) (?:string|boolean) (.+)', line)
             if match:
                 answers.setdefault(match[1], {})[match[2]] = (number, match[3])
         for slot, values in sorted(answers.items()):
@@ -447,8 +449,12 @@ def repository_inventory(sources: dict[str, bytes], snapshot: dict[str, bytes]):
             tokens = shlex.split(value)
             if len(tokens) < 2:
                 raise ValueError('incomplete APT repository declaration')
+            options = dict(option.split('=', 1) for option in
+                           shlex.split(values.get('options', (0, ''))[1]) if '=' in option)
             declarations.append({'url': tokens[0].rstrip('/'), 'archive': tokens[1],
-                'components': tokens[2:], 'architectures': list(architectures), 'suite': suite,
+                'components': tokens[2:],
+                'architectures': options['arch'].split(',') if 'arch' in options else list(architectures),
+                'suite': suite,
                 'key_urls': [values['key'][1]] if 'key' in values else [],
                 'types': ['deb', 'deb-src'] if values.get('source', (0, 'false'))[1] == 'true' else ['deb'],
                 'source': name, 'line': number, 'slot': slot})
@@ -466,6 +472,8 @@ def repository_inventory(sources: dict[str, bytes], snapshot: dict[str, bytes]):
 
     # Additional Debian/FHS APT source files are data, never shell programs.
     for name, data in sorted(sources.items()):
+        if re.match(r'frontends/(forky|trixie)/hooks/target/etc/apt/(desktop|server)/(sources.list.d|preferences.d)/custom/', name):
+            continue  # Finish-install copies opaque user inputs after pkgsel.
         if '.sources' not in name and not name.endswith(('.list', '.list.tmpl')):
             continue
         suite = name.split('/')[1] if name.startswith('frontends/') else None
@@ -507,6 +515,8 @@ def repository_inventory(sources: dict[str, bytes], snapshot: dict[str, bytes]):
     helper = re.compile(r'\b(?:hook_(?:ensure|preload|require|try)_installer_(?:tool|command|udeb)|ensure_installer_tool)\s+([a-z0-9+.-]+)(?:\s+([a-z0-9+.-]+))?')
     for name, data in sorted(sources.items()):
         if not name.endswith(('.sh', '.tmpl')):
+            continue
+        if re.match(r'frontends/(forky|trixie)/hooks/target/etc/apt/(desktop|server)/(sources.list.d|preferences.d)/custom/', name):
             continue
         for number, line in enumerate(data.decode(errors='replace').splitlines(), 1):
             match = helper.search(line)
@@ -978,6 +988,8 @@ class AptPolicy:
                     if not name.startswith(prefix) or not name.endswith('.pref'):
                         continue
                     leaf = name.removeprefix(prefix)
+                    if leaf.startswith('custom/'):
+                        continue  # Not parsed or applied during installation.
                     records, block, start = [], [], 0
                     for number, line in enumerate(data.decode().splitlines() + [''], 1):
                         if line.lstrip().startswith('#'): continue
@@ -1028,6 +1040,8 @@ class AptPolicy:
                         'files': [{'installed_name': leaf, 'source': record[0]} for leaf, record in sorted(staged.items())]}
         for name, data in sources.items():
             if name.startswith('frontends/') and name.endswith('.cfg'):
+                if re.match(r'frontends/(forky|trixie)/hooks/target/etc/apt/(desktop|server)/(sources.list.d|preferences.d)/custom/', name):
+                    continue
                 for _, line in cfg_records(data):
                     if re.fullmatch(r'd-i (?:pkgsel|base-installer)/install-recommends boolean true', line):
                         raise ValueError('offline selection must explicitly handle enabled Recommends: ' + name)
