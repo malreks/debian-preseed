@@ -521,7 +521,7 @@ installer_cuda_source_line() (
   }
   case "${4:-installer}" in
     installer)
-      printf 'deb [arch=amd64 signed-by=%s trusted=yes allow-insecure=yes allow-weak=yes allow-downgrade-to-insecure=yes check-valid-until=no check-date=no pdiffs=no lang=en] %s /\n' "$keyring" "$repository"
+      printf 'deb [arch=amd64 signed-by=%s trusted=yes allow-insecure=yes allow-weak=yes allow-downgrade-to-insecure=yes check-valid-until=no check-date=no pdiffs=no by-hash=no lang=en] %s /\n' "$keyring" "$repository"
       ;;
     persistent)
       # The installer-only legacy exception never becomes an upgrade policy.
@@ -746,37 +746,59 @@ installer_cuda_refresh_target_apt() (
   repository=$(installer_cuda_repository_url)
   line=$(installer_cuda_source_line "$repository" / "") || exit "$?"
   refresh_source=$(mktemp "$source_dir/.cuda-legacy-refresh.XXXXXX") || exit "$?"
-  refresh_source_path=${refresh_source#"$target"}
+  refresh_config=$(mktemp "$source_dir/.cuda-legacy-refresh.conf.XXXXXX") || exit "$?"
+  if [ "$target" = / ]; then
+    refresh_source_path=$refresh_source
+    refresh_config_path=$refresh_config
+  else
+    refresh_source_path=${refresh_source#"$target"}
+    refresh_config_path=${refresh_config#"$target"}
+  fi
   cleanup_cuda_refresh() {
     status=$?
     trap - 0 HUP INT TERM
-    rm -f "$refresh_source"
+    for artifact in "$refresh_source" "$refresh_config"; do
+      if rm -f "$artifact"; then
+        :
+      else
+        cleanup_status=$?
+        [ "$status" -ne 0 ] || status=$cleanup_status
+      fi
+    done
     exit "$status"
   }
   trap cleanup_cuda_refresh 0 HUP INT TERM
   printf '%s\n' "$line" >"$refresh_source" || exit "$?"
   chmod 0644 "$refresh_source" || exit "$?"
+  {
+    printf '%s\n' \
+      'Dir::Etc::main "/dev/null";' \
+      'Dir::Etc::parts "-";' \
+      'Dir::Etc::sourceparts "-";' \
+      'Dir::Etc::preferences "-";' \
+      'Dir::Etc::preferencesparts "-";'
+    printf 'Dir::Etc::sourcelist "%s";\n' "$refresh_source_path"
+  } >"$refresh_config" || exit "$?"
+  chmod 0600 "$refresh_config" || exit "$?"
   installer_warn 'CUDA-legacy ONLY: archive authentication and metadata-date checks are disabled by explicit class selection; HTTPS and package checksums remain enabled'
-  # Keep APT's insecure-repository gates on this one source-list invocation.
-  # The per-source flags above describe the repository, while these options
-  # override fail-closed defaults in the target APT configuration. With
-  # the main configuration and source parts disabled, no ordinary
-  # Debian/vendor source receives them and the command cannot silently fall
-  # back to the target's regular source list.
-  # Disabling parts also bypasses 25no-pdiffs: repeat its acquisition controls
-  # explicitly for this isolated source-list refresh.
+  # APT reads configuration fragments before it applies command-line options.
+  # Supplying only -o Dir::Etc::sourcelist therefore does not reliably replace
+  # a target's existing source list: the installer log showed every vendor
+  # source being refreshed here, including an unrelated mise hash mismatch.
+  # A private APT_CONFIG clears the target source/configuration parts before
+  # APT parses them, while the normal target list state remains available for
+  # the following pkgsel transaction.
   run_in_target 'refresh explicitly trusted legacy CUDA metadata' \
     env -u APT_SEQUOIA_CRYPTO_POLICY -u SEQUOIA_CRYPTO_POLICY \
+    APT_CONFIG="$refresh_config_path" \
     LC_ALL=C DEBIAN_FRONTEND=noninteractive apt-get \
-    "-o Dir::Etc::main=/dev/null" -o Dir::Etc::parts=- \
-    "-o Dir::Etc::sourcelist=${refresh_source_path}" \
-    -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 \
+    -o APT::Get::List-Cleanup=0 \
     -o Acquire::AllowInsecureRepositories=true \
     -o Acquire::AllowWeakRepositories=true \
     -o Acquire::AllowDowngradeToInsecureRepositories=true \
     -o APT::Get::AllowUnauthenticated=true \
-    -o Acquire::PDiffs=false -o Acquire::Languages=en \
-    -o Acquire::IndexTargets::deb::Translations::DefaultEnabled=true \
+    -o Acquire::PDiffs=false -o Acquire::By-Hash=false -o Acquire::Languages=none \
+    -o Acquire::IndexTargets::deb::Translations::DefaultEnabled=false \
     -o APT::Update::Error-Mode=any \
     -o Acquire::Retries=3 -o Acquire::http::Timeout=45 \
     -o Acquire::https::Timeout=45 -o DPkg::Use-Pty=0 update

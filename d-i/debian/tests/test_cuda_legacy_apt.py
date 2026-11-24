@@ -46,7 +46,7 @@ OLD_SOURCE_KEY_SUFFIX = 'A' * 40
 KEY_PATH = '/etc/apt/keyrings/cuda-legacy-archive-key.asc'
 REQUIRED = ('arch=amd64', f'signed-by={KEY_PATH}', 'trusted=yes', 'allow-insecure=yes', 'allow-weak=yes',
             'allow-downgrade-to-insecure=yes', 'check-valid-until=no', 'check-date=no',
-            'pdiffs=no', 'lang=en')
+            'pdiffs=no', 'by-hash=no', 'lang=en')
 
 
 def shell(text: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
@@ -165,23 +165,27 @@ installer_cuda_refresh_target_apt
                 self.assertEqual(result.returncode, status, result.stderr)
                 text = payload_read_text(calls)
                 self.assertEqual(len(text.splitlines()), 1)
-                self.assertIn('Dir::Etc::sourceparts=-', text)
-                self.assertIn('Dir::Etc::sourcelist=/etc/apt/.cuda-legacy-refresh.', text)
+                self.assertIn('APT_CONFIG=/etc/apt/.cuda-legacy-refresh.conf.', text)
                 self.assertIn('APT::Get::List-Cleanup=0', text)
                 for required in ('Acquire::AllowInsecureRepositories=true',
                                  'Acquire::AllowWeakRepositories=true',
                                  'Acquire::AllowDowngradeToInsecureRepositories=true',
                                  'APT::Get::AllowUnauthenticated=true',
-                                 'Acquire::PDiffs=false', 'Acquire::Languages=en',
-                                 'Acquire::IndexTargets::deb::Translations::DefaultEnabled=true'):
+                                 'Acquire::PDiffs=false', 'Acquire::By-Hash=false',
+                                 'Acquire::Languages=none',
+                                 'Acquire::IndexTargets::deb::Translations::DefaultEnabled=false'):
                     self.assertIn(required, text)
                 self.assertIn('-u APT_SEQUOIA_CRYPTO_POLICY -u SEQUOIA_CRYPTO_POLICY', text)
                 for forbidden in ('Acquire::AllowInsecureRepositories=false',
                                   'Acquire::AllowWeakRepositories=false',
                                   'Acquire::AllowDowngradeToInsecureRepositories=false',
                                   'APT::Get::AllowUnauthenticated=false',
-                                  'Verify-Peer=false', 'sequoia.config'):
+                                  'Verify-Peer=false', 'sequoia.config',
+                                  'Dir::Etc::sourceparts=-',
+                                  'Dir::Etc::sourcelist=/etc/apt/sources.list'):
                     self.assertNotIn(forbidden, text)
+                self.assertFalse(list((self.root/'etc/apt').glob('.cuda-legacy-refresh.conf.*')))
+                self.assertFalse(list((self.root/'etc/apt').glob('.cuda-legacy-refresh.*')))
 
     def test_selected_cuda_stage_does_not_redetect_hardware(self):
         # The frozen class plan owns the NVIDIA hardware gate. CUDA's late
