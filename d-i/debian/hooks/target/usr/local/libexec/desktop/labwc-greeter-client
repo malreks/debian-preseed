@@ -34,4 +34,8 @@ watcher_pid=$!
 # Keep power-helper diagnostics in greetd's journal, not __INSTALLER_PATH_DIR_DEV__/null.
 __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-greeter-power >__INSTALLER_PATH_DIR_DEV__/null &
 power_pid=$!
-__INSTALLER_PATH_DIR_USR__/bin/gtkgreet --layer-shell -s __INSTALLER_PATH_DIR_ETC__/greetd/gtkgreet.css -c "$LABWC_GREETER_SESSION_COMMAND"
+# The greeter compositor already selects one output and makes this app
+# fullscreen. Keep one xdg-shell window: gtkgreet's layer-shell mode reinitializes
+# mapped GTK windows on prompts and destroys the last window on output loss,
+# causing greetd to restart and reclaim the VT during a console switch.
+__INSTALLER_PATH_DIR_USR__/bin/gtkgreet -s __INSTALLER_PATH_DIR_ETC__/greetd/gtkgreet.css -c "$LABWC_GREETER_SESSION_COMMAND"

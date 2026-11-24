@@ -87,7 +87,7 @@ format=3
 121096	6b1eeb8118de57b2a483717eab1bb64a7a7f25e62aad8e2757ff0796b4be7f33	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.env
 154545	eb037e1b7887191c931ccff0e6659d54b1081290bda6cc799dacf1faf06d414a	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.provenance.json
 12135	381cacb2687ba38e7aac6ef99ac2950a3cd95da2fef716586e495375e4b5d2eb	catalog/compiled/profile-assets.tsv
-154	1e39120fadac35f5f7db01c3f6b2d93401ecc2a2bc21c476e623beefa67a722a	catalog/compiled/release.tsv
+154	7f717a1eaa67c753e46f081e5559cf99e407aef3b82dd30c3dcdf2cfd64dc9ee	catalog/compiled/release.tsv
 22105	3d0bd73d48a0577301724b209c9afb0b42ad006a7de9ee1cf156a8460e84982a	catalog/compiled/shared-perl-assets.tsv
 177204	54ade07dcc587e6967af7864052c871ad6c7d1f495c4f206d93267ec5e6d4158	catalog/compiled/source-members.tsv
 513	7e8a843e51a8d28472e5eb07fa9fdedc7f69760491de02682a6e018be5b6056b	catalog/compiled/suite-qualification.tsv
@@ -520,7 +520,7 @@ format=3
 2177	a4bc80d43a4e41be64e1b50d72784d3901cc9a6988e7e18093851e036cb9b000	hooks/target/etc/apparmor.d/desktop/compz
 9674	c452a1b542bcc26f4dfad15cf1864ef31b401898ad8d05d9b5401ed44808dfca	hooks/target/etc/apparmor.d/desktop/desktop-system-wrappers.tmpl
 27254	63200d97aa93022bdc5463100a286fd860c008e40c9f4d8697008ee0a9ad7754	hooks/target/etc/apparmor.d/desktop/desktop-utilities
-252861	cd480b294c192836132e1d21bad665715326fe6f9c965c29e0156d66ec862afc	hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl
+255980	7419a58975aa45c97b28914701d1e88509cf5f17b76cefb0fdfb6330fc0e3746	hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl
 3568	d170bff8cb3e2e38da2a13213d954d2b61093add1377712451247faf524a0a89	hooks/target/etc/apparmor.d/desktop/document-applications
 7662	ad454a0f5ca088372739a924ff0e25d700ea324dd7e5ea93c5adddcbf41d3fdf	hooks/target/etc/apparmor.d/desktop/gitbuild
 770	8e58035bc7e9606f0714fbb6420e50b5f209bd486f26bbf9af4c575273cb4e45	hooks/target/etc/apparmor.d/desktop/incus-desktop-ui
@@ -1271,7 +1271,7 @@ format=3
 1690	6a2787ecdd3353d4c630784dc2257a7f262bd22f571ba1f95eaec1863c7ce1d8	hooks/target/etc/systemd/desktop/system/dnsmasq-app-veth.service
 925	370f2f11d2e3b9b11ef79e3cd91c2a61ab866d7fe70403a720fa34832fd20b5c	hooks/target/etc/systemd/desktop/system/fruux-firstboot.service.tmpl
 182	5f0b9431cef1b3c0d1024050f82ad9e083212f51cee6454b0df763edec915e25	hooks/target/etc/systemd/desktop/system/fwupd.service.d/20-upower-ordering.conf
-541	c08b254ed45d4c282a23e45a74dd80477b28bf275057497b4fdfd7be2b73c2e6	hooks/target/etc/systemd/desktop/system/greetd.service.d/20-labwc-vt.conf
+736	589f9a80fd2f16072f7a8bc7703bdbbabb0328ef1c2d13a4b4bae93832300cb2	hooks/target/etc/systemd/desktop/system/greetd.service.d/20-labwc-vt.conf
 67	23e7705ea302abde96962e0c54c1e6d1faf40538fc8685b709cd175d9db0fb6e	hooks/target/etc/systemd/desktop/system/greetd.service.d/40-fruux-firstboot.conf
 671	4681e97f47a6d05508ccdc3f489f627bf4d899232d3e60e103bb0e52f1690667	hooks/target/etc/systemd/desktop/system/incus-desktop-ui-check.service
 162	2e7877dad0772ed50ec3180298485d54ae8922eea5d43c00ac131f9ec2ae3e64	hooks/target/etc/systemd/desktop/system/incus-user.service.d/60-desktop-ui.conf
@@ -1919,7 +1919,7 @@ format=3
 9818	efadd304325b01d8aa1e86a4cf53de1bdcf33676e5b28a13fb974eb3e0bc020e	hooks/target/usr/local/libexec/desktop/labwc-configure-session-repairs
 30756	7918ef05846cced50f17c9ddc115ce8f4e6560b5a6451fbb422552db93d36055	hooks/target/usr/local/libexec/desktop/labwc-debug-session
 1540	4600a60bd2c3141b52f32e0556257573fd12b3c97d35c2224df6bfce7edaa732	hooks/target/usr/local/libexec/desktop/labwc-firewall-action-root
-1640	75693e18f420442327fdc2fd91bb3013f3294f4ef79fc942a351d83a38dad493	hooks/target/usr/local/libexec/desktop/labwc-greeter-client
+1929	b00c138ea5b48066daae8bfe021bd114d62d92830a02cd728d0cf1b46417e646	hooks/target/usr/local/libexec/desktop/labwc-greeter-client
 17560	4b72733713d48ec6436efaa70a1197547ecfaa80809cd8a07d9e5b3e5ce306d2	hooks/target/usr/local/libexec/desktop/labwc-gvfs-volume-monitor
 569	4e28abaf86e9f92748c55887fa60a24f095467230f25bb518dc3db3d1104996e	hooks/target/usr/local/libexec/desktop/labwc-help-gtk
 6041	e99f0fdacd3f0b08fae2cea7e3debf6f53707287bba9e5a7194f667a08f16926	hooks/target/usr/local/libexec/desktop/labwc-hyprpolkit-agent
@@ -1942,7 +1942,7 @@ format=3
 929	fb321a80e6dc14eb07e7733085451502edf94982483b123298c348359ec1231e	hooks/target/usr/local/libexec/desktop/labwc-reminder-manager
 7501	1a7964ce5b145e9c5334963f783dcff929b1a2497b3920e8a8eeade237537b56	hooks/target/usr/local/libexec/desktop/labwc-samsung-firmware-extract
 221	4eab68de8786a64666f56c60e42da1ae759e8022ce11d98b5f1e6be22b26725f	hooks/target/usr/local/libexec/desktop/labwc-security-action-root
-16043	110b26eaad2451ad5218ee0a92d6c6575715df58caf397c8b7957ff84df8475b	hooks/target/usr/local/libexec/desktop/labwc-session-check
+16849	f64ae0ced290384ea8fc6e07d512349b310453f1d8ba4b087ae2337c66755c10	hooks/target/usr/local/libexec/desktop/labwc-session-check
 9729	d0584b4c967b691763f91c5e1d3c09d89371199afdabae932a5626e3397dc0b1	hooks/target/usr/local/libexec/desktop/labwc-session-state.tmpl
 279	cb9c2ce3ca78a3273f828578b359039cb43a7ee2b73ade00649d597a35a76109	hooks/target/usr/local/libexec/desktop/labwc-ssh-gpg-askpass
 845	03f79981713150e4d5a760fb70c1b32b887bbcc6c2d0a8d149edbc77f7b9e2df	hooks/target/usr/local/libexec/desktop/labwc-ssh-key-load
@@ -2060,7 +2060,7 @@ format=3
 509185	1093e4b2de9f5502a4c42529b9aecc5259c534d180ae7f6551e05a350c3d6d1b	hooks/target/usr/local/share/desktop/labwc-appearance/fields.json.tmpl
 1830	fad923a8908f45f38fc2a5509b0e25693d130fd92880e6874218ce80cda7f81e	hooks/target/usr/local/share/desktop/labwc-appearance/menu-icons.json.tmpl
 17	306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb	hooks/target/usr/local/share/desktop/labwc-greeter/autostart
-886	2848adb855dd82c0a741ba21a6edccbf036eedc914a69fcac4d209b14204bb4c	hooks/target/usr/local/share/desktop/labwc-greeter/rc.xml
+1260	c1b9d635d7b71765d2dc501f0563e62d1d80a8c6f44a57123f94057ddb0c49cc	hooks/target/usr/local/share/desktop/labwc-greeter/rc.xml
 3137	4561628977c00f9f8a052d50bfba2c6d1f698a1c5bbd47b582ce8a85615b8178	hooks/target/usr/local/share/desktop/labwc-help/articles/applications.codex.json
 2169	6ebbfe2ccfe860859a5a97d82c9d9b0a32e979659e6bd7885b54bcbccfa90ea7	hooks/target/usr/local/share/desktop/labwc-help/articles/applications.development.json
 1210	98b60020ab06267050c776ec0d2f9e4a981f4752bad8a4611393fe809d4584a4	hooks/target/usr/local/share/desktop/labwc-help/articles/applications.files.json
@@ -2186,7 +2186,7 @@ format=3
 26082	bb8758788a0ebadfc8a70cf78f87cec573f96af5360813c17cb50746a46b9d61	hosts/profiles/templates/f2fs-server.env
 13211	bfd679f11f62d4836854ba41f451c75dace91ee0c9e47d30374013d1ead0398f	hosts/themes/README.md
 20833	32093c464f73a4f7c8a89681e8f270c06801f700808cd6e1226d3de3f215be5c	hosts/themes/apps.env
-77172	33a5cf5ce96be4d19d06bf102519c5dc406fe8cd470fc2fc80cc8f566a8af3d8	hosts/themes/base.env
+77163	84000a8bfa760a8e03f85342efc3d3b01fd146223cd49e3e96bb567f65a46a30	hosts/themes/base.env
 18164	d3198d571c2bd96573ec413baa75d85e55c83af75cdb0a78a23b92b5c2900c5b	hosts/themes/office.env
 117450	e80f567a21bbb1d3dad8319452b2380bcdba899b065834e6047a95f30f61f6c4	hosts/themes/theme-schema.tsv
 6103	07493586d53926ede6aa18a8a6ba5f3190db9913a3443c938c54d6fc752fc030	repo.env
@@ -2296,7 +2296,7 @@ format=3
 4262	fbec92254fecad3b6491d807782ee2a9623d9bfee1898ae35eb87b4bca2c26b2	scripts/firstboot/01-early.sh
 3577	58557421a3fa82558e6438afd9dec5791c07fe508f957bda627befab17a840bf	scripts/firstboot/02-collect.sh.tmpl
 4561	c73f930d94721756ac6f78f3b3f9de491d967d7b83557ba235720634ea59b44a	scripts/firstboot/03-network.sh
-110758	a5caa65ff751eca4882e38a4d467049fb48bbcc1508e801eb16b760fcff03522	scripts/firstboot/04-validation.sh.tmpl
+110556	4f4b2dad8f3a1b53e9e5ad605ea2cc639ef954dc1cf11734efaae3b9e89f115d	scripts/firstboot/04-validation.sh.tmpl
 3318	098b6dd56de40b4afe510557474941bf84268b7ef164e7f7a9e9605f61b6ddb7	scripts/firstboot/05-cleanup.sh
 14613	dc0fc6d6ebb5d256b2d3524441fda038f2e317f7fb469c4cbe6a3ff1aca686e5	scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl
 358	12ffdb848f62b8db7850bd35298c1d4a7692466b9210b032609a30f55cb3cd5e	scripts/firstboot/assets/etc/initramfs-tools/scripts/init-bottom/90-installer-health

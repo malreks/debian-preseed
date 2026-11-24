@@ -21,16 +21,29 @@ COMPOSITOR_SELECTORS = frozenset({
 })
 
 
+def system_owner_uid():
+    """Use the system owner's visible UID, including in user-service namespaces."""
+    # InaccessiblePaths in a user unit implies PrivateUsers. Host root is then
+    # unmapped, so its files do not report UID 0. Use the same immutable /usr
+    # anchor as the managed application launchers instead of assuming a UID.
+    meta = Path("__INSTALLER_PATH_DIR_USR__").lstat()
+    if not stat.S_ISDIR(meta.st_mode) or meta.st_mode & 0o022:
+        raise ValueError("unsafe compositor system-owner anchor")
+    return meta.st_uid
+
+
 def compositor_policy(path=Path("__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf")):
     """Read fixed policy values as data, never source the shell settings file."""
     wanted = {"LABWC_WLR_RENDERER", "LABWC_COMPOSITOR_GPU", "LABWC_INTEL_ACCELERATION_AVAILABLE",
               "LABWC_WLR_EGL_NO_MODIFIERS", "LABWC_WLR_DRM_NO_MODIFIERS", "LABWC_WLR_DRM_NO_ATOMIC"}
     values = {}
+    owner_uid = system_owner_uid()
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
         meta = os.fstat(fd)
-        if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
-            raise ValueError("unsafe compositor policy")
+        if not stat.S_ISREG(meta.st_mode) or meta.st_uid != owner_uid or meta.st_mode & 0o022:
+            raise ValueError(f"unsafe compositor policy: uid={meta.st_uid} "
+                             f"expected_uid={owner_uid} mode={stat.S_IMODE(meta.st_mode):04o}")
         raw = os.read(fd, 256 * 1024 + 1)
         if len(raw) > 256 * 1024:
             raise ValueError("compositor policy exceeds its bound")
@@ -58,11 +71,13 @@ def compositor_policy(path=Path("__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf")
 def compositor_intel_devices(dev_root=Path("__INSTALLER_PATH_DIR_DEV__"),
                              sys_root=Path("__INSTALLER_PATH_DIR_SYS__")):
     """Pair primary/render identities by PCI device, independent of numbering."""
+    owner_uid = system_owner_uid()
+
     def attribute(path):
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         try:
             meta = os.fstat(fd)
-            if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+            if not stat.S_ISREG(meta.st_mode) or meta.st_uid != owner_uid or meta.st_mode & 0o022:
                 raise ValueError("unsafe DRM identity attribute")
             data = os.read(fd, 65)
             if len(data) > 64:
@@ -74,7 +89,7 @@ def compositor_intel_devices(dev_root=Path("__INSTALLER_PATH_DIR_DEV__"),
     def kernel_link(path, root):
         meta = path.lstat()
         resolved = path.resolve(strict=True)
-        if (not stat.S_ISLNK(meta.st_mode) or meta.st_uid != 0
+        if (not stat.S_ISLNK(meta.st_mode) or meta.st_uid != owner_uid
                 or not resolved.is_relative_to(root) or not resolved.is_dir()):
             raise ValueError("unsafe DRM identity link")
         return resolved
@@ -97,7 +112,7 @@ def compositor_intel_devices(dev_root=Path("__INSTALLER_PATH_DIR_DEV__"),
                 raise ValueError("DRM sysfs identity disagrees with node name")
             node = dev_root / "dri" / entry.name
             meta = node.lstat()
-            if (not stat.S_ISCHR(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o7111
+            if (not stat.S_ISCHR(meta.st_mode) or meta.st_uid != owner_uid or meta.st_mode & 0o7111
                     or node.resolve(strict=True) != node or meta.st_rdev != os.makedev(226, minor)):
                 raise ValueError("invalid compositor DRM device identity")
             if match[1] == "card":
@@ -123,6 +138,7 @@ def compositor_intel_devices(dev_root=Path("__INSTALLER_PATH_DIR_DEV__"),
 
 def compositor_environment(source, home, policy, *, dev_root=Path("__INSTALLER_PATH_DIR_DEV__"),
                            sys_root=Path("__INSTALLER_PATH_DIR_SYS__")):
+    owners = {system_owner_uid(), os.getuid()}
     environment = {key: value for key, value in source.items() if key not in COMPOSITOR_SELECTORS}
     environment["WLR_RENDERER"] = policy["LABWC_WLR_RENDERER"]
     for key in ("WLR_EGL_NO_MODIFIERS", "WLR_DRM_NO_MODIFIERS", "WLR_DRM_NO_ATOMIC"):
@@ -170,7 +186,7 @@ def compositor_environment(source, home, policy, *, dev_root=Path("__INSTALLER_P
             continue
         try:
             meta = os.fstat(fd)
-            if (not stat.S_ISREG(meta.st_mode) or meta.st_uid not in {0, os.getuid()}
+            if (not stat.S_ISREG(meta.st_mode) or meta.st_uid not in owners
                     or meta.st_mode & 0o022):
                 raise ValueError("unsafe compositor environment file")
             data = os.read(fd, 64 * 1024 + 1)

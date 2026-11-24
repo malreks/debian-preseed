@@ -1723,7 +1723,7 @@ profile labwc-greeter-client __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-gree
   #include <abstractions/wrapper-desktop>
 
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-greeter-client rix,
-  __INSTALLER_PATH_DIR_USR__/bin/gtkgreet pux,
+  __INSTALLER_PATH_DIR_USR__/bin/gtkgreet rPx -> gtkgreet,
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-greeter-output rPx -> labwc-greeter-output,
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-greeter-power rPx -> labwc-greeter-power,
   signal (receive) peer=unconfined,
@@ -1734,12 +1734,66 @@ profile labwc-greeter-client __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-gree
   include if exists <local/usr.local.libexec.labwc-greeter-client>
 }
 
+profile gtkgreet __INSTALLER_PATH_DIR_USR__/bin/gtkgreet flags=(attach_disconnected, mediate_deleted) {
+  # GTK resources, Wayland and client-side Intel/NVIDIA graphics. Authentication
+  # belongs to greetd/PAM; this process needs only greetd's protocol socket.
+  #include <abstractions/wrapper-gui>
+  __INSTALLER_PATH_DIR_USR__/bin/gtkgreet mr,
+  # Glycin inventories root entries to construct its private loader namespace.
+  / r,
+  __INSTALLER_PATH_DIR_RUN__/greetd{,-[0-9]*}.sock rw,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/wayland-[0-9]* rw,
+  __INSTALLER_PATH_DIR_ETC__/localtime r,
+  __INSTALLER_PATH_DIR_ETC__/greetd/{,gtkgreet.css,waypaper-wallpaper-[0-9a-f]*.png,waypaper-wallpaper-[0-9a-f]*.jpg} r,
+  # Any installed background may be selected, including nested collections.
+  # Appearance publishes account-selected images into the root-owned greetd
+  # directory; the login process never needs access to account home files.
+  __INSTALLER_PATH_DIR_USR_SHARE_BACKGROUNDS__/{,**} r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/backgrounds/{,**} r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-greeter.*/{cache,config,data,home,tmp}/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_TMP__/labwc-greeter.*/{cache,config,data,home,tmp}/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_TMP__/gdk-pixbuf-glycin-tmp.* rwk,
+  __INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/{,**} r,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rPx -> gtkgreet-glycin-bwrap,
+  signal (send) set=(kill term) peer=gtkgreet-glycin-bwrap,
+  signal (receive) set=(chld) peer=gtkgreet-glycin-bwrap,
+  signal (send) set=(chld) peer=labwc-greeter-client,
+  signal (receive) set=(hup int term kill) peer={labwc-compositor,labwc-greeter-client,unconfined},
+  # A login UI has no shell, external network or session-bus service role.
+  deny /{,usr/}bin/{bash,dash,sh,env} x,
+  deny network inet,
+  deny network inet6,
+  include if exists <local/usr.bin.gtkgreet>
+}
+
+profile gtkgreet-glycin-bwrap flags=(attach_disconnected, mediate_deleted) {
+  # Forky's GdkPixbuf decodes images in a Bubblewrap child. Loaders must
+  # inherit this domain after Bubblewrap sets no_new_privs; no fallback exec.
+  #include <abstractions/base>
+  #include <abstractions/bwrap-common>
+  include if exists <abstractions/fonts>
+  __INSTALLER_PATH_DIR_USR__/bin/true rix,
+  __INSTALLER_PATH_DIR_USR_LIBEXEC__/glycin-loaders/2+/{glycin-image-rs,glycin-svg} rix,
+  __INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE_MIME__/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE_BACKGROUNDS__/{,**} r,
+  __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/backgrounds/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/greetd/waypaper-wallpaper-[0-9a-f]*.{png,jpg} r,
+  owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-greeter.*/{cache,tmp}/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_TMP__/labwc-greeter.*/{cache,tmp}/{,**} rwkl,
+  owner __INSTALLER_PATH_DIR_TMP__/gdk-pixbuf-glycin-tmp.* rwk,
+  signal (receive) set=(kill term) peer=gtkgreet,
+  signal (send) set=(chld) peer=gtkgreet,
+  deny network inet,
+  deny network inet6,
+}
+
 profile labwc-greeter-session __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-greeter-session flags=(attach_disconnected) {
   #include <abstractions/wrapper-desktop>
 
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-greeter-session rix,
   __INSTALLER_PATH_DIR_USR__/bin/{cat,chmod,id,install,mktemp,rm} rix,
-  __INSTALLER_PATH_DIR_USR__/bin/labwc pux,
+  __INSTALLER_PATH_DIR_USR__/bin/labwc rPx -> labwc-compositor,
   __INSTALLER_PATH_DIR_ETC__/xdg/labwc/ r,
   __INSTALLER_PATH_DIR_ETC__/xdg/labwc/** r,
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/labwc-greeter/ r,

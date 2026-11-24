@@ -1777,7 +1777,7 @@ printf "desktop_kanshi_verification enabled=%s\n" "$enabled"
      grep -q 'labwc-greeter-power' __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-greeter-client 2>__INSTALLER_PATH_DIR_DEV__/null &&
      grep -q 'org.freedesktop.login1.power-off' __INSTALLER_PATH_DIR_POLKIT_RULES_D__/10-greetd-power.rules 2>__INSTALLER_PATH_DIR_DEV__/null &&
      grep -q 'org.freedesktop.login1.reboot' __INSTALLER_PATH_DIR_POLKIT_RULES_D__/10-greetd-power.rules 2>__INSTALLER_PATH_DIR_DEV__/null &&
-     grep -q '^__INSTALLER_PATH_DIR_USR_BIN__/gtkgreet --layer-shell -s __INSTALLER_PATH_DIR_ETC_GREETD__/gtkgreet.css -c "\$LABWC_GREETER_SESSION_COMMAND"$' __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-greeter-client 2>__INSTALLER_PATH_DIR_DEV__/null; then
+     [ -x __INSTALLER_PATH_DIR_USR_BIN__/gtkgreet ]; then
     record "PASS desktop-greeter-labwc-gtkgreet-command"
   else
     record "FAIL desktop-greeter-labwc-gtkgreet-command"

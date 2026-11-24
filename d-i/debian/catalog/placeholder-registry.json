@@ -109356,7 +109356,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "5eaa17ef0fa0b3b0e80bfcc305c13774dff71ad4e81b7241973a0f13cc2a51d0",
+  "source_fingerprint": "a06e0df41f4002aa5977374128903b82274e17e07664a0af7c18842578af59fe",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

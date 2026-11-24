@@ -8,6 +8,14 @@
     <autoEnableOutputs>yes</autoEnableOutputs>
     <primarySelection>no</primarySelection>
   </core>
+  <windowRules>
+    <!-- The private bus-free GTK session advertises the executable app_id.
+         Keep its normal Wayland window alive across output/VT loss and make
+         it fullscreen on first map. This rule is greeter-only. -->
+    <windowRule identifier="gtkgreet" serverDecoration="no">
+      <action name="ToggleFullscreen" />
+    </windowRule>
+  </windowRules>
   <keyboard>
     <keybind key="A-F4" />
     <keybind key="F10">
