@@ -8,7 +8,7 @@ Pin: release o=Debian,n=trixie
 Pin-Priority: 990
 
 Package: libdrm-common libdrm2 libdrm-amdgpu1 libdrm-intel1 libdrm-nouveau2 libdrm-radeon1 libgbm1 libgl1-mesa-dri libegl-mesa0 libglx-mesa0 libglapi-mesa mesa-libgallium mesa-utils mesa-utils-bin mesa-utils-extra
-Pin: origin ppa.pika-os.com
+Pin: release n=pika,c=cockatiel
 Pin-Priority: 990
 
 # Mesa 26 needs newer glibc, DRM and Wayland than native Trixie provides.
@@ -18,8 +18,3 @@ Pin-Priority: 990
 Package: src:glibc:any src:wayland:any src:libdrm:any libllvm21 libxml2-16
 Pin: release o=Debian,n=forky
 Pin-Priority: 990
-
-# All other Pika packages remain opt-in from the first pkgsel transaction.
-Package: *
-Pin: origin ppa.pika-os.com
-Pin-Priority: 100

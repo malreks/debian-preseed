@@ -897,6 +897,7 @@ apparmor_support_local_include_files() {
   cat <<'EOF'
 usr.bin.freshclam
 unix-chkpwd
+nvidia_modprobe
 EOF
 }
 

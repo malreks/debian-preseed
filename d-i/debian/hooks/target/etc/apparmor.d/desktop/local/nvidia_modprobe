@@ -1,0 +1,5 @@
+# Managed by unattended-installer.
+# The packaged nvidia_modprobe profile changes modes on the fixed NVIDIA
+# control and primary device nodes while remaining otherwise confined.
+__INSTALLER_PATH_DIR_DEV__/nvidiactl rw,
+__INSTALLER_PATH_DIR_DEV__/nvidia0 rw,

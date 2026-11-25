@@ -1,12 +1,13 @@
-# Opt-in Pika policy, below native Debian and installed versions (100).
+# Opt-in Pika policy. Cockatiel is installer-only; package access remains
+# closed below except for the explicit graphics/NVIDIA policy records.
 # Select an initial package explicitly with apt install PACKAGE/pika.
 # Later Pika versions can update that package; this never forces downgrades.
 # To keep one package on Pika even if another archive publishes a newer build,
-# add a package-specific origin pin (priority 990); APT does not record origins.
+# add a package-specific release pin (priority 990) for the exact component.
 
 Package: *
 Pin: release n=pika,c=cockatiel
-Pin-Priority: 100
+Pin-Priority: -1
 
 Package: *
 Pin: release n=pika,c=nest
@@ -34,4 +35,4 @@ Pin-Priority: 100
 
 Package: *
 Pin: release n=pika,c=cockatiel-testing
-Pin-Priority: 100
+Pin-Priority: -1

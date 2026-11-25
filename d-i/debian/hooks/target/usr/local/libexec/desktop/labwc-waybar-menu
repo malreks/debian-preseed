@@ -130,34 +130,12 @@ def fixed_action(command: str) -> list[str]:
     return argv
 
 
-def tomat_reverse_enabled(home: Path) -> bool:
-    # Shared marker interface with labwc-tomat. Only its presence is data;
-    # the popup never writes preferences or changes the running timer.
-    try:
-        secure_path(home / ".config/tomat", directory=True)
-        marker = secure_path(home / ".config/tomat/reverse.enabled")
-        if marker.lstat().st_nlink != 1:
-            raise ValueError("unsafe Tomat reverse preference")
-        return True
-    except FileNotFoundError:
-        return False
-
-
-def prepared_menu_xml(path: Path, *, reverse: bool = False) -> tuple[str, list[tuple[str, str, int]]]:
+def prepared_menu_xml(path: Path) -> tuple[str, list[tuple[str, str, int]]]:
     """Remove lazy icon-name properties before GTK can realize the widgets."""
     text = read_regular(path, MAX_MENU_BYTES)
     if len(text) > MAX_MENU_BYTES or re.search(r'<!\s*(?:DOCTYPE|ENTITY)\b', text, re.I):
         raise ValueError("unsupported menu XML declaration or size")
     tree = ET.fromstring(text)
-    if reverse:
-        for label in tree.iter("object"):
-            if (label.get("class") != "GtkLabel"
-                    or re.fullmatch(r"tomat_[0-9]+_label", label.get("id", "")) is None):
-                continue
-            value = label.find("./property[@name='label']")
-            match = re.fullmatch(r"([0-9]+)\s*/\s*([0-9]+)", value.text or "") if value is not None else None
-            if match is not None:
-                value.text = f"{match[2]} / {match[1]}"
     icons = []
     for image in tree.iter("object"):
         if image.get("class") != "GtkImage":
@@ -182,13 +160,12 @@ def prepared_menu_xml(path: Path, *, reverse: bool = False) -> tuple[str, list[t
 
 
 class Popup:
-    def __init__(self, toolkit, module_name: str, menu_path: Path, style_path: Path, actions: dict[str, list[str]], *, reverse: bool = False):
+    def __init__(self, toolkit, module_name: str, menu_path: Path, style_path: Path, actions: dict[str, list[str]]):
         self.Gdk, self.GLib, self.Gtk, self.LayerShell = toolkit
         self.module_name = module_name
         self.menu_path = menu_path
         self.style_path = style_path
         self.actions = actions
-        self.reverse = reverse
         self.menu = None
         self.done = False
         self.status = 0
@@ -400,28 +377,22 @@ class Popup:
         if theme is None:
             raise ValueError("GTK icon theme unavailable")
         flags = self.Gtk.IconLookupFlags.FORCE_SIZE
-        # A broken image-missing loader can otherwise turn a later GTK theme
-        # fallback into a C assertion. This recoverable call fails cleanly.
-        images, loaded = [], []
+        # Load each image independently. One vendor/theme omission must not
+        # hide every otherwise valid menu icon.
         try:
-            theme.load_icon("image-missing", 16, flags)
-            for identity, name, size in specifications:
-                image = builder.get_object(identity)
-                if not isinstance(image, self.Gtk.Image):
-                    raise ValueError("menu icon object is missing")
-                images.append(image)
-                loaded.append((image, theme.load_icon(name, size, flags)))
+            fallback = theme.load_icon("image-missing", 16, flags)
         except self.GLib.Error as error:
-            diagnostic("icons-text-only", error)
-            for identity, _name, _size in specifications:
-                image = builder.get_object(identity)
-                if isinstance(image, self.Gtk.Image):
-                    image.clear()
-                    image.set_no_show_all(True)
-                    image.hide()
-        else:
-            for image, pixbuf in loaded:
-                image.set_from_pixbuf(pixbuf)
+            raise ValueError("GTK fallback icon is unavailable") from error
+        for identity, name, size in specifications:
+            image = builder.get_object(identity)
+            if not isinstance(image, self.Gtk.Image):
+                raise ValueError("menu icon object is missing")
+            try:
+                pixbuf = theme.load_icon(name, size, flags)
+            except self.GLib.Error as error:
+                diagnostic("icon-fallback", error)
+                pixbuf = fallback
+            image.set_from_pixbuf(pixbuf)
         # Reopen against the new theme instead of reviving unchecked GIcons.
         theme.connect("changed", lambda *_args: self.finish(0))
 
@@ -434,8 +405,7 @@ class Popup:
         self.Gtk.StyleContext.add_provider_for_screen(
             screen, provider, self.Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
         builder = self.Gtk.Builder()
-        xml, icons = (prepared_menu_xml(self.menu_path, reverse=True) if self.reverse
-                      else prepared_menu_xml(self.menu_path))
+        xml, icons = prepared_menu_xml(self.menu_path)
         builder.add_from_string(xml)
         self.menu = builder.get_object("menu")
         if not isinstance(self.menu, self.Gtk.Menu):
@@ -484,9 +454,7 @@ def main(arguments: list[str]) -> int:
         initialized, _remaining = Gtk.init_check([])
         if not initialized or Gdk.Display.get_default() is None:
             raise ValueError("GTK display unavailable")
-        reverse = module_name == "tomat" and tomat_reverse_enabled(home)
-        popup = Popup((Gdk, GLib, Gtk, GtkLayerShell), module_name, menu_path, style_path, actions,
-                      reverse=reverse)
+        popup = Popup((Gdk, GLib, Gtk, GtkLayerShell), module_name, menu_path, style_path, actions)
         for signum in (signal.SIGTERM, signal.SIGINT):
             signal_add(GLib.PRIORITY_DEFAULT, signum, lambda: popup.finish(0))
         popup.activate()

@@ -25,6 +25,7 @@ profile nvidia-tuning-policy __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/nvidia-tun
   __INSTALLER_PATH_DIR_DEV__/char/[0-9]*:[0-9]* w,
   __INSTALLER_PATH_DIR_PROC__/devices r,
   __INSTALLER_PATH_DIR_PROC__/driver/nvidia/{,capabilities/,capabilities/mig/,capabilities/mig/config,capabilities/mig/monitor} r,
+  __INSTALLER_PATH_DIR_PROC__/sys/kernel/osrelease r,
   __INSTALLER_PATH_DIR_SYS__/module/nvidia/{,parameters/,parameters/**} r,
   __INSTALLER_PATH_DIR_RUN__/hardware-tuning/nvidia.lock rwk,
   __INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/ rw,

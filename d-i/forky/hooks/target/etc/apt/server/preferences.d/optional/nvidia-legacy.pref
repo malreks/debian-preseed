@@ -22,12 +22,12 @@ Pin-Priority: -1
 # Keep DKMS, firmware, EGL/GLX/GLES/GL core, NVML and utilities in one signed
 # source cohort, whose package dependencies bind their exact ABI versions.
 Package: src:nvidia-graphics-drivers-580:any
-Pin: origin ppa.pika-os.com
+Pin: release n=pika,c=cockatiel
 Pin-Priority: 990
 
 # Platform bridges and the Debian decoder/firmware have independent versions.
 Package: libnvidia-egl-wayland1:any libnvidia-egl-gbm1:any
-Pin: origin ppa.pika-os.com
+Pin: release n=pika,c=cockatiel
 Pin-Priority: 990
 
 Package: nvidia-vaapi-driver:any firmware-nvidia-graphics:any
@@ -48,15 +48,16 @@ Pin: release o=Debian,n=forky
 Pin-Priority: 990
 
 Package: libgbm1 libgl1-mesa-dri libegl-mesa0 libglx-mesa0 libglapi-mesa mesa-libgallium libdrm-common libdrm2
-Pin: origin ppa.pika-os.com
+Pin: release n=pika,c=cockatiel
 Pin-Priority: 990
-
-# Other Pika packages remain opt-in, including on NVIDIA-enabled server roles.
-Package: *
-Pin: origin ppa.pika-os.com
-Pin-Priority: 100
 
 # Keep the disabled Ubuntu-based fallback excluded.
 Package: *
 Pin: origin apt.pop-os.org
+Pin-Priority: -1
+
+# Cockatiel is installer-only. Specific Cockatiel package records above
+# remain eligible; every other Cockatiel package is unavailable to pkgsel.
+Package: *
+Pin: release n=pika,c=cockatiel
 Pin-Priority: -1

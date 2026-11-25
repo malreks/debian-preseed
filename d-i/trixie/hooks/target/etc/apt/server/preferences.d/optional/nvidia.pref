@@ -14,10 +14,16 @@ Pin-Priority: 900
 # Desktop roles enable Pika Cockatiel; no Pika source is enabled for servers.
 # Priority 990 permits a newer native version without forcing a downgrade.
 Package: libnvidia-egl-wayland1
-Pin: origin ppa.pika-os.com
+Pin: release n=pika,c=cockatiel
 Pin-Priority: 990
 
 # Keep the disabled Pop!_OS fallback excluded.
 Package: *
 Pin: origin apt.pop-os.org
+Pin-Priority: -1
+
+# Cockatiel is installer-only. Specific Cockatiel package records above
+# remain eligible; every other Cockatiel package is unavailable to pkgsel.
+Package: *
+Pin: release n=pika,c=cockatiel
 Pin-Priority: -1

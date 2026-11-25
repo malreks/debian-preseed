@@ -532,7 +532,7 @@ class WaybarSeparationFixtures(unittest.TestCase):
 class PopupIdentityFixtures(unittest.TestCase):
     """Actual helper and XML, mocked GTK/processes inside the isolated image."""
 
-    def test_tomat_popup_reverses_preset_labels_without_rewriting_the_asset(self):
+    def test_tomat_popup_keeps_preset_labels_stable_without_rewriting_the_asset(self):
         import xml.etree.ElementTree as ET
         helper = load_helper('labwc-waybar-menu')
         source = TARGET / 'etc/skel-desktop/.config/waybar/gtk/tomat-menu.xml.tmpl'
@@ -547,12 +547,12 @@ class PopupIdentityFixtures(unittest.TestCase):
             path = Path(temporary) / 'tomat-menu.xml'
             path.write_text(ET.tostring(tree, encoding='unicode'))
             before = path.read_bytes()
-            xml, _icons = helper.prepared_menu_xml(path, reverse=True)
-            reversed_menu = ET.fromstring(xml)
-            for identity, expected in (('tomat_25_label', '5 / 25'),
-                                       ('tomat_50_label', '10 / 50'),
-                                       ('tomat_90_label', '15 / 90')):
-                label = reversed_menu.find(f".//object[@id='{identity}']/property[@name='label']")
+            xml, _icons = helper.prepared_menu_xml(path)
+            prepared_menu = ET.fromstring(xml)
+            for identity, expected in (('tomat_25_label', '25 / 5'),
+                                       ('tomat_50_label', '50 / 10'),
+                                       ('tomat_90_label', '90 / 15')):
+                label = prepared_menu.find(f".//object[@id='{identity}']/property[@name='label']")
                 self.assertEqual(label.text, expected)
             self.assertEqual(path.read_bytes(), before)
 

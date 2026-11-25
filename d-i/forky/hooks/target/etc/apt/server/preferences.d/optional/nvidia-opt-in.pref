@@ -14,3 +14,9 @@ Pin-Priority: -1
 Package: src:nvidia-graphics-drivers*:any src:nvidia-cuda-toolkit*:any
 Pin: version *
 Pin-Priority: -1
+
+# Cockatiel is installer-only. Specific Cockatiel package records above
+# remain eligible; every other Cockatiel package is unavailable to pkgsel.
+Package: *
+Pin: release n=pika,c=cockatiel
+Pin-Priority: -1

@@ -568,6 +568,22 @@ BROWSER_PROXY_POLICIES = {
     "vivaldi": "__INSTALLER_PATH_DIR_ETC__/vivaldi/policies/managed/3proxy.json",
     "mullvad-browser": "__INSTALLER_PATH_DIR_USR__/lib/mullvad-browser/distribution/policies.json",
 }
+BROWSER_POLICY_STATIC_FILES = {
+    "chromium": ("telemetry.json", "security.json", "extensions.json", "performance.json"),
+    "microsoft-edge": ("telemetry.json", "security.json", "extensions.json", "performance.json"),
+    "vivaldi": ("telemetry.json", "security.json", "extensions.json", "performance.json"),
+    "mullvad-browser": (),
+}
+
+
+def write_private_snapshot(path: str, contents: str) -> None:
+    descriptor = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        0o600,
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(contents)
 
 
 def proxy_session_argv(command: list[str], argv: list[str], app: str, *, online: bool, temp_root: str) -> list[str]:
@@ -609,14 +625,26 @@ def proxy_session_argv(command: list[str], argv: list[str], app: str, *, online:
             proxy['ProxyServer'] = 'http://' + address
         # Reuse this launch's existing private workspace and cleanup owner.
         # Runtime listener edits never require a global browser-policy writer.
-        generated = os.path.join(temp_root, 'browser-proxy.json')
-        descriptor = os.open(generated, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
-            json.dump(policy, stream, sort_keys=True)
-            stream.write('\n')
         target = BROWSER_PROXY_POLICIES[app]
-        add_dir_chain(command, os.path.dirname(target))
-        command.extend(["--ro-bind", generated, target])
+        target_directory = os.path.dirname(target)
+        policy_overlay = os.path.join(temp_root, app + "-policy")
+        os.mkdir(policy_overlay, 0o700)
+        for leaf in BROWSER_POLICY_STATIC_FILES[app]:
+            static_path = os.path.join(target_directory, leaf)
+            require_root_owned_regular_file("managed browser policy", static_path)
+            write_private_snapshot(
+                os.path.join(policy_overlay, leaf),
+                _read_validated_text(pathlib.Path(static_path), pathlib.Path(static_path).lstat(), 65536),
+            )
+        generated = json.dumps(policy, sort_keys=True) + "\n"
+        write_private_snapshot(
+            os.path.join(policy_overlay, os.path.basename(target)), generated,
+        )
+        # The package profile already mounts some of these directories
+        # read-only. Replace the complete policy directory in one mount so the
+        # generated file never has to be created below a read-only parent.
+        add_dir_chain(command, target_directory)
+        command.extend(["--ro-bind", policy_overlay, target_directory])
     if app == "vivaldi":
         try:
             media_directory = vivaldi_media_directory()

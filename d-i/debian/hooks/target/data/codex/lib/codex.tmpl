@@ -1173,6 +1173,13 @@ def codex_collect_devops_environment(
     global CODEX_DEVOPS_ENV_NAMES
     selected = _managed_environment_names(clean_snapshot)
     if preserve_path is not None:
+        # labwc-build assigns its account-private general scratch directory to
+        # GOTMPDIR for ordinary compiler launches. Go's managed profile owns a
+        # separate go/tmp directory, so canonicalize this one derived value
+        # before comparing the inherited active shell. The replacement is
+        # still taken only from the validated profile snapshot below.
+        if "GOTMPDIR" in clean_snapshot:
+            os.environ["GOTMPDIR"] = clean_snapshot["GOTMPDIR"]
         for name in selected:
             if os.environ.get(name) != clean_snapshot[name]:
                 codex_die(

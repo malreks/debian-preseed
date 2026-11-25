@@ -615,7 +615,8 @@ def apt_branch():
     for leaf in ('etc/preferences.d', 'etc/sources.list.d', 'etc/apt.conf.d',
                  'state/lists/partial', 'cache/archives/partial'):
         (root / leaf).mkdir(parents=True)
-    (root / 'etc/sources.list').write_text('deb [trusted=yes] https://ppa.pika-os.com sid main\n', encoding='ascii')
+    (root / 'etc/sources.list').write_text(
+        'deb [trusted=yes] https://ppa.pika-os.com pika cockatiel\n', encoding='ascii')
     (root / 'state/status').write_text('', encoding='ascii')
     # apt-cache consumes prebuilt public-shaped lists only. No acquire/update,
     # package installation, external hooks or network transport is run.
@@ -630,13 +631,18 @@ def apt_branch():
         ('nvidia-opencl-icd-580', '580.196.07-101pika2', 'nvidia-graphics-drivers-580', 990),
         ('libnvidia-egl-wayland1', '1:1.1.24-101pika1', 'egl-wayland', 990),
         ('libnvidia-egl-gbm1', '1.1.4-101pika1', 'egl-gbm', 990),
+        ('libgbm-git-dev', '1.0-101pika1', 'mesa-git', -1),
+        ('libegl-mesa0-git', '1.0-101pika1', 'mesa-git', -1),
     ]
     packages = ''
     for name, version, source, _priority in records:
         packages += f'Package: {name}\nVersion: {version}\nSource: {source}\nArchitecture: amd64\nDescription: fixture\n\n'
     lists = root / 'state/lists'
-    (lists / 'ppa.pika-os.com_dists_sid_main_binary-amd64_Packages').write_text(packages, encoding='ascii')
-    (lists / 'ppa.pika-os.com_dists_sid_Release').write_text('Origin: Pika\nLabel: Pika\nSuite: sid\nCodename: sid\nArchitectures: amd64\nComponents: main\n', encoding='ascii')
+    (lists / 'ppa.pika-os.com_dists_pika_cockatiel_binary-amd64_Packages').write_text(
+        packages, encoding='ascii')
+    (lists / 'ppa.pika-os.com_dists_pika_Release').write_text(
+        'Origin: Pika\nLabel: Pika\nSuite: pika\nCodename: pika\n'
+        'Architectures: amd64\nComponents: cockatiel\n', encoding='ascii')
     config = root / 'apt.conf'
     config.write_text(f'Dir "{root}";\nDir::Etc "etc";\nDir::State "state";\nDir::State::status "status";\n'
                       'Dir::Cache "cache";\nAPT::Architecture "amd64";\nAPT::Architectures { "amd64"; };\n'
