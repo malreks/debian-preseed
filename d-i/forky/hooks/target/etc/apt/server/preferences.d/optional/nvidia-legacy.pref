@@ -1,7 +1,9 @@
 # Managed by the installer apt-setup preferences generator.
 # Pascal requires the proprietary 580 branch. Specific negative records must
 # precede the source-family allow: APT uses the FIRST specific matching record.
-Package: nvidia-open*:any nvidia-kernel-open*:any nvidia-kernel-dkms-open*:any
+# Keep the OpenCL userspace packages (nvidia-opencl-*) eligible for Pika; only
+# the open-kernel branch and its metapackage are incompatible with Pascal.
+Package: nvidia-open-driver*:any nvidia-open-kernel*:any nvidia-kernel-open*:any nvidia-kernel-dkms-open*:any
 Pin: version *
 Pin-Priority: -1
 

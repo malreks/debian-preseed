@@ -624,7 +624,10 @@ def apt_branch():
         ('libnvidia-gl-580', '1:580.196.07-101pika2', 'nvidia-graphics-drivers-580', 990),
         ('libnvidia-gl-580', '590.1-101pika1', 'nvidia-graphics-drivers-580', -1),
         ('nvidia-driver-590', '590.1-101pika1', 'nvidia-graphics-drivers-590', -1),
-        ('nvidia-open-580', '580.196.07-101pika2', 'nvidia-graphics-drivers-580', -1),
+        ('nvidia-open-driver-580', '580.196.07-101pika2', 'nvidia-graphics-drivers-580', -1),
+        ('nvidia-open-kernel-dkms-580', '580.196.07-101pika2', 'nvidia-graphics-drivers-580', -1),
+        ('nvidia-opencl-common-580', '580.196.07-101pika2', 'nvidia-graphics-drivers-580', 990),
+        ('nvidia-opencl-icd-580', '580.196.07-101pika2', 'nvidia-graphics-drivers-580', 990),
         ('libnvidia-egl-wayland1', '1:1.1.24-101pika1', 'egl-wayland', 990),
         ('libnvidia-egl-gbm1', '1.1.4-101pika1', 'egl-gbm', 990),
     ]
