@@ -1,0 +1,38 @@
+[Unit]
+Description=Prepare verified NVIDIA device alias policy for hardware tuning
+Requires=apparmor.service
+After=apparmor.service apparmor-modes.service systemd-modules-load.service systemd-udev-trigger.service
+Before=hardware-tuning.service
+ConditionPathExists=__INSTALLER_PATH_DIR_ETC__/hardware-tuning/nvidia.json
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/nvidia-tuning-policy
+AppArmorProfile=nvidia-tuning-policy
+TimeoutStartSec=30s
+TimeoutStopSec=10s
+KillMode=control-group
+Restart=on-failure
+RestartSec=2s
+RestartPreventExitStatus=1
+RuntimeDirectory=hardware-tuning hardware-tuning-policy
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0022
+User=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_MAC_ADMIN CAP_MKNOD
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=no
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ReadWritePaths=__INSTALLER_PATH_DIR_RUN__/hardware-tuning __INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy
+ReadWritePaths=__INSTALLER_PATH_DIR_SYS__/kernel/security/apparmor
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes

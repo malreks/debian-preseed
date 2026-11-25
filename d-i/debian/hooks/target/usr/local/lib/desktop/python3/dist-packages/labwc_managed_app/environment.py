@@ -51,6 +51,7 @@ from .runtime import (
     MAX_MANAGED_DEFAULTS_BYTES,
     MANAGED_PATH,
     MANAGED_NO_VULKAN_ENVIRONMENT,
+    MANAGED_NATIVE_OPENGL_ENVIRONMENT,
     MANAGED_WAYLAND_OPENGL_ENVIRONMENT,
     current_user_home,
     current_user_name,
@@ -291,6 +292,8 @@ def load_managed_defaults(path: pathlib.Path, *, owner_uid: int = 0) -> dict[str
         key = key.strip()
         if key not in MANAGED_DEFAULTS_KEYS:
             continue
+        if key in values:
+            fail(f"duplicate {key} assignment on line {line_number}")
         try:
             parsed = shlex.split(raw_value, comments=False, posix=True)
         except ValueError as exc:
@@ -1120,9 +1123,13 @@ def build_environment(app_name: str, mode: str) -> dict[str, str]:
         env.update(NVIDIA_ACCELERATION_ENV)
     env.update(app.get("final_env", {}))
     env.update(MANAGED_NO_VULKAN_ENVIRONMENT)
+    if app_name not in {"discord", "zoom"}:
+        env.update(MANAGED_NATIVE_OPENGL_ENVIRONMENT)
     renderer = app.get("gsk_renderer", "opengl")
     if renderer not in {"opengl", "cairo"}:
         fail("invalid managed GTK renderer policy")
+    if mode in {"intel", "nvidia"}:
+        renderer = "opengl"
     env["GSK_RENDERER"] = renderer
     if renderer == "cairo":
         # Keep GDK from probing EGL/GL behind the explicit Cairo selection.

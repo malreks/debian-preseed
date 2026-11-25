@@ -1276,6 +1276,10 @@ stage_target_desktop_apparmor_profiles() {
     0644
   if security_nvidia_acceleration_enabled; then
     stage_target_asset \
+      "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/local/desktop-native-nvidia)" \
+      "__INSTALLER_PATH_DIR_ETC__/apparmor.d/local/desktop-native-nvidia" \
+      0644
+    stage_target_asset \
       "$(installer_hardware_asset_path gpu nvidia etc/apparmor.d/local/desktop-graphics)" \
       "__INSTALLER_PATH_DIR_ETC__/apparmor.d/local/desktop-graphics" \
       0644
@@ -1286,7 +1290,8 @@ stage_target_desktop_apparmor_profiles() {
   else
     rm -f \
       ${TARGET_ROOT}${DIR_APPARMOR}/local/desktop-graphics \
-      ${TARGET_ROOT}${DIR_APPARMOR}/local/desktop-wrappers-nvidia
+      ${TARGET_ROOT}${DIR_APPARMOR}/local/desktop-wrappers-nvidia \
+      ${TARGET_ROOT}${DIR_APPARMOR}/local/desktop-native-nvidia
   fi
   for apparmor_local_include in $(apparmor_managed_local_include_files); do
     stage_target_asset \

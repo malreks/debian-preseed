@@ -40,8 +40,9 @@ try:
     from labwc_managed_app.integrity import validate_package
     validate_package("wayland", owner=owner)
     from labwc_managed_app.generic import run_configured_network
+    from labwc_managed_app.runtime import executable_status
     for watched in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
         signal.signal(watched, interrupted)
-    raise SystemExit(run_configured_network(sys.argv[1:]))
+    raise SystemExit(executable_status(run_configured_network(sys.argv[1:])))
 except (OSError, ValueError, RuntimeError) as exc:
     fail(str(exc))

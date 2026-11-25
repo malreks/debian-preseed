@@ -49,6 +49,8 @@ desktop_stage_session_repairs() {
 }
 
 desktop_stage_wlsunset() {
+  desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/systemd/user/labwc-wlsunset-apply.path __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-wlsunset-apply.path 0644
+  desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/systemd/user/labwc-wlsunset-apply.service __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-wlsunset-apply.service 0644
   desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/systemd/user/labwc-wlsunset-start.service __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-wlsunset-start.service 0644
   desktop_stage_role_asset hooks/target/usr/local/bin/desktop/labwc-wlsunset __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wlsunset 0755
   desktop_render_role_target_template \
@@ -417,8 +419,7 @@ desktop_stage_target_assets() {
     "${DIR_ETC_SKEL_DESKTOP}/.local/share/applications/tutanota-desktop.desktop" \
     "${DIR_USR_LOCAL_SHARE_APPLICATIONS}/tutanota-desktop.desktop"; do
     desktop_render_role_target_template \
-      hooks/target/etc/skel-desktop/.local/share/applications/tutanota-desktop.desktop.tmpl "$tuta_launcher" 0644 \
-      LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
+      hooks/target/etc/skel-desktop/.local/share/applications/tutanota-desktop.desktop.tmpl "$tuta_launcher" 0644
   done
   desktop_stage_labwc_managed_app_python_modules
   if [ -e "${TARGET_ROOT}${DIR_OPT_VIVALDI}/vivaldi" ]; then
@@ -443,13 +444,16 @@ desktop_stage_target_assets() {
     "$(installer_repo_file_value hooks/target/etc/labwc/3proxy/session.json.tmpl)" \
     __INSTALLER_PATH_DIR_ETC__/labwc/3proxy/session.json 0644 proxy3_placeholder_map
   for proxy3_family in chromium opt/chrome opt/edge vivaldi; do
+    # Proxy policy belongs only to managed namespaces. A vendor Exec outside
+    # that namespace has no local CONNECT listener and must use normal networking.
+    proxy3_policy_name=${proxy3_family##*/}
     render_target_asset_with_placeholder_map \
       "$(installer_repo_asset_path DIR_TARGET "${proxy3_family}/policies/managed/3proxy.json.tmpl")" \
-      "__INSTALLER_PATH_DIR_ETC__/${proxy3_family}/policies/managed/3proxy.json" 0644 proxy3_placeholder_map
+      "__INSTALLER_PATH_DIR_ETC__/labwc/3proxy/${proxy3_policy_name}.json" 0644 proxy3_placeholder_map
   done
   render_target_asset_with_placeholder_map \
     "$(installer_repo_file_value hooks/target/usr/lib/mullvad-browser/distribution/policies.json.tmpl)" \
-    __INSTALLER_PATH_DIR_USR_LIB__/mullvad-browser/distribution/policies.json 0644 proxy3_placeholder_map
+    __INSTALLER_PATH_DIR_ETC__/labwc/3proxy/mullvad-browser.json 0644 proxy3_placeholder_map
   desktop_stage_role_asset hooks/target/usr/local/bin/desktop/labwc-app __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-app 0755
   desktop_stage_role_asset hooks/target/usr/local/bin/desktop/labwc-electron-app __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-electron-app 0755
   desktop_stage_role_asset hooks/target/usr/local/bin/desktop/labwc-wayland-app __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wayland-app 0755
@@ -465,13 +469,11 @@ desktop_stage_target_assets() {
   desktop_render_role_target_template \
     hooks/target/etc/skel-desktop/.local/share/applications/micro.desktop.tmpl \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/applications/micro.desktop \
-    0644 \
-    LABWC_WAYLAND_APP_DEFAULT_EXEC "$LABWC_WAYLAND_APP_DEFAULT_EXEC"
+    0644
   desktop_render_role_target_template \
     hooks/target/etc/skel-desktop/.local/share/applications/waypaper.desktop.tmpl \
     __INSTALLER_PATH_DIR_ETC__/skel-desktop/.local/share/applications/waypaper.desktop \
-    0644 \
-    LABWC_WAYLAND_APP_DEFAULT_EXEC "$LABWC_WAYLAND_APP_DEFAULT_EXEC"
+    0644
   desktop_stage_role_asset hooks/target/etc/dpkg/dpkg.cfg.d/95-labwc-desktop-apps __INSTALLER_PATH_DIR_ETC__/dpkg/dpkg.cfg.d/95-labwc-desktop-apps 0644
   desktop_stage_role_asset hooks/target/usr/local/libexec/desktop/labwc-chatgpt-session __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/labwc-chatgpt-session 0755
   desktop_stage_role_asset hooks/target/usr/local/bin/desktop/labwc-wayland-compat-app __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-wayland-compat-app 0755
@@ -525,8 +527,7 @@ desktop_stage_target_assets() {
   desktop_render_role_target_template \
     hooks/target/usr/local/bin/desktop/labwc-sync-application-launchers.tmpl \
     __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-sync-application-launchers \
-    0755 \
-    LABWC_MANAGED_APP_DEFAULT_EXEC "$LABWC_MANAGED_APP_DEFAULT_EXEC"
+    0755
   desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/systemd/user/labwc-sync-application-launchers.service __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-sync-application-launchers.service 0644
   desktop_stage_role_asset hooks/target/etc/skel-desktop/.config/systemd/user/labwc-sync-application-launchers.path __INSTALLER_PATH_DIR_ETC__/skel-desktop/.config/systemd/user/labwc-sync-application-launchers.path 0644
   desktop_stage_role_asset hooks/target/usr/local/bin/desktop/labwc-greeter-output __INSTALLER_PATH_DIR_USR_LOCAL__/bin/labwc-greeter-output 0755

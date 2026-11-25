@@ -1,0 +1,3 @@
+# Staged only for selected NVIDIA hardware tuning. Device activation, not
+# normal NVML opens/closes, refreshes the exact root-owned worker policy.
+ACTION=="add", KERNEL=="nvidia[0-9]*|nvidiactl|nvidia-modeset|nvidia-uvm|nvidia-uvm-tools", TAG+="systemd", ENV{SYSTEMD_WANTS}+="nvidia-tuning-policy.service"

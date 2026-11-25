@@ -1,38 +1,66 @@
-#!/bin/sh
-set -eu
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Run the configured application launcher without evaluating shell settings."""
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import stat
+import sys
 
-# The Tomat break surface owns the keyboard while its private marker exists.
-# Check before dispatching the configured launcher so compositor hotkeys cannot
-# open Fuzzel through this compatibility entry point during a break.
-case "${XDG_RUNTIME_DIR:-}" in
-  __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*)
-    if [ -f "$XDG_RUNTIME_DIR/labwc-tomat/break-overlay.active" ]; then
-      exit 0
-    fi
-    ;;
-esac
 
-if [ -r __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf ]; then
-  # shellcheck disable=SC1091
-  . __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf
-fi
+CONFIG = Path('__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf')
+DEFAULT_COMMAND = 'labwc-main-menu --search'
+MAX_CONFIG_BYTES = 65536
 
-launcher_command=${LABWC_LAUNCHER_COMMAND:-labwc-main-menu --search}
-case "$launcher_command" in
-  ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@%=:,/\ -]*)
-    printf 'fatal: invalid LABWC_LAUNCHER_COMMAND: %s\n' "$launcher_command" >&2
-    exit 1
-    ;;
-esac
 
-launcher_binary=${launcher_command%% *}
-if ! command -v "$launcher_binary" >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
-  printf 'fatal: launcher command is not installed: %s\n' "$launcher_binary" >&2
-  exit 1
-fi
+def launcher_command(path: Path = CONFIG) -> list[str]:
+    command = os.environ.get('LABWC_LAUNCHER_COMMAND') or DEFAULT_COMMAND
+    arguments = shlex.split(command, comments=True)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        raw = b''
+    else:
+        with os.fdopen(fd, 'rb') as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ValueError('desktop settings must be a regular file')
+            raw = stream.read(MAX_CONFIG_BYTES + 1)
+    if len(raw) > MAX_CONFIG_BYTES:
+        raise ValueError('desktop settings exceed the launcher byte limit')
+    found = False
+    for line in raw.decode('utf-8').splitlines():
+        key, separator, value = line.partition('=')
+        if not separator or key.strip() != 'LABWC_LAUNCHER_COMMAND':
+            continue
+        words = shlex.split(value, comments=True)
+        if found or not words:
+            raise ValueError('invalid or duplicate LABWC_LAUNCHER_COMMAND')
+        arguments, found = words, True
+    if not arguments:
+        raise ValueError('empty launcher command')
+    if any(re.fullmatch(r'[A-Za-z0-9._+@%=:,/ -]+', word) is None for word in arguments):
+        raise ValueError('invalid LABWC_LAUNCHER_COMMAND')
+    return arguments
 
-set -f
-# The validated command string intentionally contains only simple argv tokens.
-set -- $launcher_command
-set +f
-exec "$@"
+
+def main() -> int:
+    # This is the existing Tomat runtime break guard, before launcher dispatch.
+    runtime = os.environ.get('XDG_RUNTIME_DIR', '')
+    if (re.fullmatch(r'__INSTALLER_PATH_DIR_RUN_USER__/[0-9]+', runtime)
+            and (Path(runtime) / 'labwc-tomat/break-overlay.active').is_file()):
+        return 0
+    arguments = launcher_command()
+    executable = shutil.which(arguments[0])
+    if executable is None:
+        raise ValueError('configured launcher is not installed')
+    os.execv(executable, arguments)
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError) as error:
+        print('labwc-run: ' + str(error), file=sys.stderr)
+        raise SystemExit(1)

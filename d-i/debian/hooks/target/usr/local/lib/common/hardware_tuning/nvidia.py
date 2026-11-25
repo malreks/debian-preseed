@@ -6,13 +6,14 @@ raw register writes, shell subprocesses, or driver/firmware modifications.
 from __future__ import annotations
 
 import ctypes as C
+import hashlib
 import os
 import re
 import stat
 import subprocess
 import time
 from pathlib import Path
-from common import Knob, TuningError, UnsupportedControl
+from common import Knob, TuningError, UnsupportedControl, trusted_json, read_text
 
 SETTINGS = {
     "POWER_LIMIT_MW": ("default", "default", "keep", "min"),
@@ -164,6 +165,22 @@ class ClockOffset(C.Structure):
 
 class NVML:
     def __init__(self, library: object | None = None) -> None:
+        if library is None:
+            # execute() holds nvidia.lock before constructing this backend.
+            # A replacement/late node requires root policy refresh before NVML
+            # may perform even its initialization-time alias maintenance.
+            from nvidia_devices import snapshot
+            directory = Path("__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy")
+            if any((directory / name).exists() or (directory / name).is_symlink()
+                   for name in ('nvidia-char.before', 'nvidia.json.before')):
+                raise TuningError("NVIDIA policy restoration is unproven; retained recovery requires review")
+            prepared = trusted_json(Path("__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/nvidia.json"), 65536)
+            if (not isinstance(prepared, dict) or prepared.get('version') != 1
+                    or prepared.get('nodes') != snapshot()
+                    or prepared.get('rules_sha256') != hashlib.sha256(read_text(
+                        Path("__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/nvidia-char"), 65536
+                    ).encode('utf-8')).hexdigest()):
+                raise TuningError("NVIDIA device policy is unavailable or stale; preparation is required")
         try:
             self.lib = library if library is not None else C.CDLL("libnvidia-ml.so.1")
         except OSError as exc:

@@ -2,9 +2,9 @@
 """Idempotent local overrides of package-owned desktop entries; never write vendor files.
 
 No shell evaluation, user-profile sourcing, dpkg writes, or user-home writes.
-Desktop Entry Exec text is rewritten through the managed wrapper: quoting and
-% field codes are preserved, raw vendor Desktop Action sections are removed,
-and canonical project-managed action sections remain launchable.
+The vendor main Exec is preserved, including quoting and field codes. GPU
+actions and the dock's managed command share one fixed application policy.
+Package-owned files are never modified.
 """
 from __future__ import annotations
 from contextlib import contextmanager
@@ -39,6 +39,7 @@ SAFE_ENV = {'PATH': '__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/
 MAX_BYTES = 1024 * 1024
 DPKG_INFO = Path('__INSTALLER_PATH_DIR_VAR_LIB__/dpkg/info')
 WRAPPERS = {'electron': '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-electron-app', 'wayland': '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app'}
+MANAGED_WRAPPER = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app'
 # These have existing dedicated sandbox/compatibility/logging entrypoints.
 MANAGED = {
     '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal',
@@ -52,6 +53,218 @@ MANAGED = {
     '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-agenda',
     *WRAPPERS.values(),
 }
+
+
+WAYLAND_COMPAT_MANAGED_APP = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-compat-app'
+WAYLAND_COMPAT_APPS = {'discord', 'zoom'}
+QBITTORRENT_LAUNCHER = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-qbittorrent'
+DEDICATED_MANAGED_APPS = {'chatgpt': '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/chatgpt'}
+
+APP_CONFIG = (
+    {
+        "desktop_names": ("com.ianswope.Calix.desktop",),
+        "action_app": "calix",
+        "field_code": "",
+    },
+    {
+        "desktop_names": ("com.github.dahenson.agenda.desktop",),
+        "action_app": "agenda",
+        "field_code": "",
+    },
+    {
+        "desktop_names": ("sdl-freerdp.desktop", "sdl-freerdp3.desktop", "org.freerdp.FreeRDP.desktop"),
+        "action_app": "freerdp",
+        "field_code": "%f",
+    },
+    {
+        "desktop_names": ("mpv.desktop",),
+        "action_app": "mpv",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("net.sourceforge.liferea.desktop", "liferea.desktop"),
+        "action_app": "liferea",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("chromium.desktop",),
+        "action_app": "chromium",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": (
+            "microsoft-edge.desktop",
+            "microsoft-edge-stable.desktop",
+            "com.microsoft.Edge.desktop",
+        ),
+        "action_app": "microsoft-edge",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": (
+            "vivaldi-stable.desktop",
+            "vivaldi.desktop",
+            "com.vivaldi.Vivaldi.desktop",
+        ),
+        "action_app": "vivaldi",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("code.desktop", "com.microsoft.VSCode.desktop"),
+        "action_app": "code",
+        "field_code": "%F",
+    },
+    {
+        # VS Code 1.139 renamed the packaged URL-handler desktop ID. Keep the
+        # old managed ID and publish the current vendor name as its alias.
+        "desktop_names": ("code-url-handler.desktop", "com.microsoft.VSCode.UrlHandler.desktop"),
+        "action_app": "code",
+        "field_code": "--open-url %U",
+        "no_display": True,
+    },
+    {
+        "desktop_names": ("tor-browser.desktop",),
+        "action_app": "tor-browser",
+        "field_code": "%u",
+        "policy_actions": (
+            ("ANOM", "ANOM (temporary state, Safest security)",
+             "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app pure-privacy tor-browser"),
+        ),
+    },
+    {
+        "desktop_names": (
+            "bitwarden.desktop",
+            "com.bitwarden.Bitwarden.desktop",
+        ),
+        "action_app": "bitwarden",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("chatgpt.desktop",),
+        "action_app": "chatgpt",
+        "field_code": "%U",
+        "default_mode": "auto",
+    },
+    {
+        # Match the current package's native Wayland ID; keep older vendor
+        # installations discoverable through their original desktop basename.
+        "desktop_names": ("md.obsidian.Obsidian.desktop", "obsidian.desktop"),
+        "action_app": "obsidian",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("QoreDB.desktop",),
+        "action_app": "qoredb",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("postman.desktop",),
+        "action_app": "postman",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("sleek.desktop",),
+        "action_app": "sleek",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("spotify.desktop",),
+        "action_app": "spotify",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": (
+            "tutanota-desktop.desktop",
+            "tuta-mail.desktop",
+            "appimagekit-tutanota-desktop.desktop",
+            "com.tutanota.Tutanota.desktop",
+        ),
+        "action_app": "tutanota",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": (
+            "org.keepassxc.KeePassXC.desktop",
+            "keepassxc.desktop",
+        ),
+        "action_app": "keepassxc",
+        "field_code": "%f",
+    },
+    {
+        "desktop_names": (
+            "Zoom.desktop",
+            "zoom.desktop",
+        ),
+        "action_app": "zoom",
+        # Pass one URI as its own desktop argument. The compatibility entrypoint
+        # validates it and adds Zoom's --url= prefix after field-code expansion.
+        "field_code": "%u",
+    },
+    {
+        "desktop_names": (
+            "Filen.desktop",
+            "filen.desktop",
+        ),
+        "action_app": "filen",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("discord.desktop",),
+        "action_app": "discord",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": ("ledger-live.desktop",),
+        "action_app": "ledger-live",
+        "field_code": "%U",
+    },
+    {
+        "desktop_names": (
+            "org.telegram.desktop.desktop",
+            "telegramdesktop.desktop",
+        ),
+        "action_app": "telegram-desktop",
+        "field_code": "-- %u",
+    },
+    {
+        "desktop_names": ("mullvad-browser.desktop",),
+        "action_app": "mullvad-browser",
+        "field_code": "%u",
+    },
+    {
+        "desktop_names": ("org.qbittorrent.qBittorrent.desktop",),
+        "action_app": "qbittorrent",
+        "field_code": "%U",
+        "default_mode": "launch",
+    },
+    {
+        "desktop_names": ("com.libretro.RetroArch.desktop", "retroarch.desktop"),
+        "action_app": "retroarch",
+        "field_code": "%U",
+    },
+)
+
+ACTION_SPECS = {
+    "IntelAccelerated": ("intel", "IntelAccelerated"),
+    "NvidiaAccelerated": ("nvidia", "NvidiaAccelerated"),
+    "PurePrivacy": ("pure-privacy", "PurePrivacy"),
+}
+
+
+def managed_exec(mode: str, app_name: str, field_code: str) -> str:
+    if app_name == "qbittorrent" and mode != "pure-privacy":
+        # The dedicated wrapper owns storage, peer policy and its user service.
+        selector = f" --acceleration={mode}" if mode in {"intel", "nvidia"} else ""
+        return f"{QBITTORRENT_LAUNCHER}{selector} {field_code}"
+    dedicated_executable = DEDICATED_MANAGED_APPS.get(app_name)
+    if dedicated_executable is not None:
+        return f"{dedicated_executable} {mode} {field_code}"
+    executable = (
+        WAYLAND_COMPAT_MANAGED_APP
+        if app_name in WAYLAND_COMPAT_APPS
+        else "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app"
+    )
+    return f"{executable} {mode} {app_name} {field_code}"
 
 
 class InvalidDesktop(ValueError):
@@ -121,11 +334,25 @@ def ensure_output_directory(path: Path) -> None:
     trusted_directory(path)
 
 
-def load_defaults(*, owner_uid: int = 0) -> dict[str, str]:
-    trusted_file(DEFAULTS, owner_uid=owner_uid)
-    keys = {f'LABWC_{kind.upper()}_APP_DEFAULT_EXEC': kind for kind in WRAPPERS}
+def defaults_text(*, owner_uid: int = 0) -> str:
+    metadata = trusted_file(DEFAULTS, owner_uid=owner_uid, size_limit=65536)
+    fd = os.open(DEFAULTS, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, 'rb') as stream:
+        opened = os.fstat(stream.fileno())
+        identity = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        if identity(opened) != identity(metadata):
+            raise ValueError('desktop defaults changed while opening')
+        raw = stream.read(65537)
+        if len(raw) != opened.st_size or len(raw) > 65536 or identity(os.fstat(stream.fileno())) != identity(opened):
+            raise ValueError('desktop defaults changed while reading')
+    return raw.decode('utf-8')
+
+
+def load_defaults(*, owner_uid: int = 0, text: str | None = None) -> dict[str, str]:
+    wrappers = dict(WRAPPERS, managed=MANAGED_WRAPPER)
+    keys = {f'LABWC_{kind.upper()}_APP_DEFAULT_EXEC': kind for kind in wrappers}
     result = {}
-    for line in DEFAULTS.read_text(encoding='utf-8').splitlines():
+    for line in (defaults_text(owner_uid=owner_uid) if text is None else text).splitlines():
         key, separator, value = line.partition('=')
         key = key.strip()
         if not separator or key not in keys:
@@ -136,15 +363,31 @@ def load_defaults(*, owner_uid: int = 0) -> dict[str, str]:
         if len(words) != 1:
             raise ValueError(f'invalid launcher default: {key}')
         command = shlex.split(words[0])
-        if len(command) != 2 or command[0] != WRAPPERS[keys[key]] or command[1] not in {'intel', 'nvidia', 'launch'}:
+        if len(command) != 2 or command[0] != wrappers[keys[key]] or command[1] not in {'intel', 'nvidia', 'launch'}:
             raise ValueError(f'unsafe launcher default: {key}')
         result[keys[key]] = ' '.join(command)
-    if set(result) != set(WRAPPERS):
-        raise ValueError('both generic launcher defaults must be configured')
+    if set(result) != set(wrappers):
+        raise ValueError('all three managed launcher defaults must be configured')
     return result
 
 
-def managed_exec(value: str) -> bool:
+def acceleration_actions(*, owner_uid: int = 0, text: str | None = None) -> tuple[str, ...]:
+    values = {}
+    for line in (defaults_text(owner_uid=owner_uid) if text is None else text).splitlines():
+        key, separator, raw = line.partition('=')
+        key = key.strip()
+        if separator and key in {'LABWC_INTEL_ACCELERATION_AVAILABLE', 'LABWC_NVIDIA_ACCELERATION_AVAILABLE'}:
+            words = shlex.split(raw, comments=True)
+            if key in values or len(words) != 1 or words[0] not in {'true', 'false'}:
+                raise ValueError('invalid acceleration availability')
+            values[key] = words[0] == 'true'
+    if len(values) != 2:
+        raise ValueError('acceleration availability must be configured')
+    return tuple(action for mode, action in (('intel', 'IntelAccelerated'), ('nvidia', 'NvidiaAccelerated'))
+                 if values[f'LABWC_{mode.upper()}_ACCELERATION_AVAILABLE'])
+
+
+def managed_exec_recognized(value: str) -> bool:
     # This is only recognition; Exec is never reconstructed from shlex tokens.
     # Double-quoted executable paths and env prefixes are commonly used.
     try:
@@ -251,7 +494,7 @@ def managed_action_sections(lines: list[str]) -> tuple[str, ...]:
     for action_id in declared_actions:
         value = action_exec.get(action_id, '')
         try:
-            if value and managed_exec(value):
+            if value and managed_exec_recognized(value):
                 managed.append(action_id)
         except InvalidDesktop:
             # A malformed vendor action is removed with the other raw action
@@ -293,10 +536,29 @@ def repair_known_vendor_entry(name: str, text: str) -> str:
     return ''.join(result)
 
 
-def rewrite_desktop(text: str, prefix: str) -> str:
+def application_config(name: str) -> dict | None:
+    return next((config for config in APP_CONFIG if name in config['desktop_names']), None)
+
+
+def managed_default_command(config: dict, default: str) -> str:
+    words = shlex.split(default)
+    if len(words) != 2 or words[0] != MANAGED_WRAPPER or words[1] not in {'launch', 'intel', 'nvidia'}:
+        raise ValueError('invalid managed application default')
+    # Compatibility wrappers retain their own existing automatic selection.
+    mode = 'auto' if config['action_app'] in WAYLAND_COMPAT_APPS else words[1]
+    return managed_exec(mode, config['action_app'], config['field_code']).strip()
+
+
+def rewrite_desktop(text: str, prefix: str, *, name: str = '',
+                    actions: tuple[str, ...] = ('IntelAccelerated', 'NvidiaAccelerated'),
+                    managed_default: str | None = None) -> str:
+    """Preserve the normal Exec; generate GPU actions from one explicit map.
+
+    Exec is desktop-entry syntax, not shell syntax. Prefix the original text
+    verbatim for generic GUI programs; GIO/Fuzzel owns field-code expansion.
+    Terminal=true entries are interactive CLI launchers, not GUI applications.
+    """
     lines = text.splitlines(keepends=True)
-    managed_actions = managed_action_sections(lines)
-    managed_action_groups = {f'[Desktop Action {action}]' for action in managed_actions}
     section = ''
     main = {}
     for line in lines:
@@ -309,63 +571,83 @@ def rewrite_desktop(text: str, prefix: str) -> str:
             if key in main:
                 raise InvalidDesktop(f'duplicate Desktop Entry key: {key}')
             main[key] = value.strip()
-    # Booleans are case-sensitive true/false, not shell truth values. NoDisplay
-    # is deliberately retained: MIME-only applications still need isolation.
-    # OnlyShowIn/NotShowIn/TryExec are also retained, never evaluated as root's
-    # desktop or PATH. Discovery, not system reconciliation, applies visibility.
     for key in ('Hidden', 'NoDisplay', 'Terminal', 'DBusActivatable'):
         if key in main and main[key] not in {'true', 'false'}:
             raise InvalidDesktop(f'invalid Desktop Entry boolean: {key}')
-    if main.get('Type') != 'Application' or main.get('Hidden') == 'true':
+    if (main.get('Type') != 'Application' or main.get('Hidden') == 'true'
+            or not main.get('Exec') or main.get('Terminal') == 'true'):
         return text
-    if not main.get('Exec'):
-        return text
-    terminal = main.get('Terminal') == 'true'
-    section = ''
-    keep_action_section = True
+    # Recognize quoting without reconstructing, expanding, or running Exec.
+    managed_exec_value = main['Exec']
+    managed_exec_recognized(managed_exec_value)
+    config = application_config(name)
+    commands = {}
+    if config is not None:
+        if managed_default is None:
+            managed_default = MANAGED_WRAPPER + ' launch'
+        default_command = managed_default_command(config, managed_default)
+        for action, display_name, command in config.get('policy_actions', ()):
+            commands[action] = (display_name, command)
+        for action in actions:
+            if action not in {'IntelAccelerated', 'NvidiaAccelerated'}:
+                raise ValueError('unsupported acceleration action')
+            commands[action] = (ACTION_SPECS[action][1],
+                                managed_exec(ACTION_SPECS[action][0], config['action_app'], config['field_code']).strip())
+    else:
+        words = shlex.split(prefix)
+        if len(words) != 2 or words[0] not in WRAPPERS.values() or words[1] not in {'launch', 'intel', 'nvidia'}:
+            raise ValueError('invalid generic managed prefix')
+        original = original_generic_exec(main['Exec']) or main['Exec']
+        default_command = original if managed_exec_recognized(original) else prefix + ' -- ' + original
+        for action in actions:
+            if action not in {'IntelAccelerated', 'NvidiaAccelerated'}:
+                raise ValueError('unsupported acceleration action')
+            commands[action] = (ACTION_SPECS[action][1],
+                                words[0] + ' ' + ACTION_SPECS[action][0] + ' -- ' + original)
+    replacements = {
+        'Actions': ';'.join(commands) + ';' if commands else None,
+        'X-Labwc-ManagedExec': default_command,
+        # GIO otherwise dispatches Desktop Actions over D-Bus and bypasses the
+        # action Exec. The normal command is still the original vendor Exec.
+        'DBusActivatable': 'false',
+        'StartupNotify': 'false',
+    }
+    # These are the existing two private-XWayland applications. Keep their
+    # established compatibility entrypoint; do not expose a second launch path.
+    compatibility = compatibility_exec(main['Exec'])
+    if compatibility is not None:
+        replacements['Exec'] = compatibility
     result = []
+    section = ''
+    seen = set()
+    def finish_main() -> None:
+        for key, value in replacements.items():
+            if key not in seen and value is not None:
+                if result and not result[-1].endswith('\n'):
+                    result[-1] += '\n'
+                result.append(key + '=' + value + '\n')
     for line in lines:
         stripped = line.strip()
         if stripped.startswith('[') and stripped.endswith(']'):
+            if section == '[Desktop Entry]':
+                finish_main()
             section = stripped
-            keep_action_section = (not section.startswith('[Desktop Action ')
-                                   or section in managed_action_groups)
-            if not keep_action_section:
-                continue
-        if not keep_action_section:
+        if section.startswith('[Desktop Action '):
             continue
-        key, separator, value = line.partition('=')
-        application_section = section == '[Desktop Entry]'
-        if separator and section == '[Desktop Entry]' and key.strip() == 'Actions':
-            actions = list(managed_actions)
-            if not actions:
-                continue
-            ending = '\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else ''
-            line = key + '=' + ';'.join(actions) + ';' + ending
-        if separator and application_section and key.strip() == 'Exec' and value.strip():
-            original = original_generic_exec(value.strip())
-            managed = compatibility_exec(original if original is not None else value.strip())
-            if managed is not None:
-                ending = '\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else ''
-                line = key + '=' + managed + ending
-            elif terminal:
-                # Wrap the terminal, not its interactive child: the latter
-                # needs the terminal's PTY and belongs to that service cgroup.
-                original = original if original is not None else value.strip()
-                ending = '\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else ''
-                line = key + '=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal -e ' + original + ending
-            elif original is not None:
-                ending = '\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else ''
-                line = key + '=' + prefix + ' -- ' + original + ending
-            elif not managed_exec(value.strip()):
-                line = key + '=' + prefix + ' -- ' + value.lstrip()
-        elif separator and section == '[Desktop Entry]' and terminal and key.strip() == 'Terminal':
-            line = key + '=false' + ('\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else '')
-        elif separator and section == '[Desktop Entry]' and key.strip() == 'DBusActivatable':
-            # Otherwise compliant launchers bypass Exec and its service wrapper.
-            line = key + '=false' + ('\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else '')
+        key, separator, _value = line.partition('=')
+        if section == '[Desktop Entry]' and separator and key.strip() in replacements:
+            key = key.strip()
+            seen.add(key)
+            if replacements[key] is not None:
+                result.append(key + '=' + replacements[key] + '\n')
+            continue
         result.append(line)
-    return ''.join(result)
+    if section == '[Desktop Entry]':
+        finish_main()
+    content = ''.join(result).rstrip('\r\n') + '\n'
+    for action, (display_name, command) in commands.items():
+        content += f'\n[Desktop Action {action}]\nName={display_name}\nExec={command}\n'
+    return content
 
 
 def query(arguments: list[str]) -> str:
@@ -410,7 +692,7 @@ def launch_prefix(path: Path, executable: str, value: str, defaults: dict[str, s
     # Respect execution classes already chosen by the package hook/profile.
     if value.startswith(WRAPPERS['electron'] + ' '):
         return defaults['electron']
-    if managed_exec(value):
+    if managed_exec_recognized(value):
         return defaults['wayland']
     package = package_for(path)
     if package is None and executable.startswith('/'):
@@ -485,6 +767,18 @@ def owned_override(path: Path, expected: str | None) -> bool:
     return hashlib.sha256(text.encode('utf-8')).hexdigest() == expected
 
 
+def project_fallback(path: Path) -> bool:
+    """A staged project fallback yields to an installed vendor desktop file."""
+    text, _, _ = read_desktop(path)
+    section = ''
+    for line in text.splitlines():
+        if line.startswith('['):
+            section = line
+        elif section == '[Desktop Entry]' and line == 'X-Labwc-ProjectFallback=true':
+            return True
+    return False
+
+
 def generate_overrides(defaults: dict[str, str], names: set[str] | None = None) -> bool:
     ensure_output_directory(OUTPUT_DIR)
     STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -501,6 +795,7 @@ def generate_overrides(defaults: dict[str, str], names: set[str] | None = None) 
             previous[name] = digest
     current: dict[str, str] = {} if names is None else {name: value for name, value in previous.items() if name not in names}
     cache: dict[str, bool] = {}
+    enabled_actions = acceleration_actions()
     changed = False
     for directory in APPLICATION_DIRS:
         if not directory.exists():
@@ -522,7 +817,7 @@ def generate_overrides(defaults: dict[str, str], names: set[str] | None = None) 
                     current[name] = previous[name]
                 continue
             try:
-                if rewrite_desktop(text, defaults['wayland']) == text:
+                if rewrite_desktop(text, defaults['wayland'], name=path.name, actions=enabled_actions, managed_default=defaults['managed']) == text:
                     continue
             except InvalidDesktop as exc:
                 print(f'labwc desktop hook: skipped malformed {path}: {exc}', file=sys.stderr)
@@ -534,12 +829,12 @@ def generate_overrides(defaults: dict[str, str], names: set[str] | None = None) 
                 continue
             if package not in cache:
                 cache[package] = is_electron(package)
-            output = rewrite_desktop(text, defaults['electron' if cache[package] else 'wayland'])
+            output = rewrite_desktop(text, defaults['electron' if cache[package] else 'wayland'], name=path.name, actions=enabled_actions, managed_default=defaults['managed'])
             destination = OUTPUT_DIR / name
             ensure_output_directory(destination.parent)
             before = None
             if destination.exists() or destination.is_symlink():
-                if not owned_override(destination, previous.get(name)):
+                if not owned_override(destination, previous.get(name)) and not project_fallback(destination):
                     print(f'labwc desktop hook: preserving administrator override: {destination}', file=sys.stderr)
                     continue
                 before = destination.lstat()
@@ -616,9 +911,12 @@ def fingerprint(*, output: bool = False, names: set[str] | None = None) -> str:
             digest.update(field)
 
     if not output:
-        for path in (DEFAULTS, Path(__file__).resolve()):
-            trusted_file(path)
-            add(str(path), path.read_bytes())
+        text = defaults_text()
+        policy = {'defaults': load_defaults(text=text), 'actions': acceleration_actions(text=text)}
+        add(str(DEFAULTS), json.dumps(policy, sort_keys=True).encode('utf-8'))
+        path = Path(__file__).resolve()
+        trusted_file(path)
+        add(str(path), path.read_bytes())
     for directory in ((OUTPUT_DIR,) if output else APPLICATION_DIRS):
         add(str(directory), b'present' if directory.exists() else b'absent')
         if not directory.exists():

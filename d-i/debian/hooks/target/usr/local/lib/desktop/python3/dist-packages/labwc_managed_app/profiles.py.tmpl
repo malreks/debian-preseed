@@ -5,16 +5,7 @@ from __future__ import annotations
 from .browsers import browser_args
 from .electron import electron_args, electron_js_flags, electron_privacy_args, discord_x11_args
 
-INTEL_ACCELERATION_ENV = {
-    "LIBVA_DRIVER_NAME": "iHD",
-}
-NVIDIA_ACCELERATION_ENV = {
-    "GBM_BACKEND": "nvidia-drm",
-    "LIBVA_DRIVER_NAME": "nvidia",
-    "NVD_BACKEND": "direct",
-    "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
-    "__NV_PRIME_RENDER_OFFLOAD": "1",
-}
+from .runtime import INTEL_ACCELERATION_ENV, NVIDIA_ACCELERATION_ENV
 TUTA_DBUS_NAMES = (
     "org.freedesktop.secrets",
     # Electron tray registration and callbacks, without owning the watcher.

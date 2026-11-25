@@ -89,6 +89,8 @@ profile labwc-compositor __INSTALLER_PATH_DIR_USR__/bin/labwc flags=(attach_disc
   # This controller must inherit confinement and the session environment.
   # The exact rule takes precedence over the generic application transition.
   __INSTALLER_PATH_DIR_USR__/bin/systemd-run rix,
+  # The packaged helper is a named, non-attaching profile.
+  __INSTALLER_PATH_DIR_USR__/bin/nvidia-modprobe rPx -> nvidia_modprobe,
   __INSTALLER_PATH_DIR_USR_LOCAL__/{bin,sbin,libexec}/** rPx,
   __INSTALLER_PATH_DIR_USR__/bin/* rPx,
   # Lifecycle signals are delivered by the user manager/session controller.
@@ -174,6 +176,14 @@ profile labwc-waybar-menu __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-
   # actions back through labwc-waybar-run. It has no arbitrary command path.
   #include <abstractions/wrapper-python>
   #include <abstractions/wrapper-gui>
+  # GdkPixbuf creates its transfer file before entering the decoder domain.
+  / r,
+  owner __INSTALLER_PATH_DIR_TMP__/gdk-pixbuf-glycin-tmp.* rwk,
+  __INSTALLER_PATH_DIR_USR_SHARE__/glycin-loaders/2+/conf.d/{,**} r,
+  owner @{HOME}/.cache/glycin/{,**} rwkl,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rPx -> session-glycin-bwrap,
+  signal (send) set=(kill term) peer=session-glycin-bwrap,
+  signal (receive) set=(chld) peer=session-glycin-bwrap,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-menu rix,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-run rPx -> labwc-waybar-run,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-waybar-state rPx -> labwc-waybar-state,
@@ -377,6 +387,9 @@ profile session-glycin-bwrap flags=(attach_disconnected, mediate_deleted) {
   #include <abstractions/bwrap-common>
   include if exists <abstractions/fonts>
 
+  signal (receive) set=(kill term) peer=labwc-waybar-menu,
+  signal (send) set=(chld) peer=labwc-waybar-menu,
+
   signal (receive) set=(kill, term) peer=waybar,
   signal (receive) set=(kill, term) peer=labwc-calendar-actions,
   signal (receive) set=(kill, term) peer=session-controls,
@@ -403,6 +416,7 @@ profile session-glycin-bwrap flags=(attach_disconnected, mediate_deleted) {
   owner @{HOME}/.cache/fontconfig/** r,
   owner @{HOME}/.cache/glycin/ rw,
   owner @{HOME}/.cache/glycin/** rwkl,
+  __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf r,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-swaylock.lock a,
 }
 

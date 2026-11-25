@@ -52,6 +52,10 @@ install_profile_hardware_tuning() (
   done
   for hardware_vendor in $hardware_vendors; do
     profile_hardware_stage_asset "etc/apparmor.d/abstractions/hardware-tuning-${hardware_vendor}" "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/hardware-tuning-${hardware_vendor}" 0644 || exit 1
+    if [ "$hardware_vendor" = nvidia ]; then
+      profile_hardware_stage_asset hooks/target/usr/local/lib/common/hardware_tuning/nvidia_devices.py "${DIR_HARDWARE_TUNING}/nvidia_devices.py" 0644 || exit 1
+      profile_hardware_stage_asset hooks/target/usr/local/libexec/common/nvidia-tuning-policy "${DIR_USR_LOCAL_LIBEXEC}/nvidia-tuning-policy" 0755 || exit 1
+    fi
   done
   run_in_target "apply selected AppArmor mode to staged hardware tuning policy" \
     __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/apparmor-modes-run --no-reload || exit 1
@@ -78,7 +82,7 @@ install_profile_hardware_tuning() (
   chmod 0700 "${hardware_stage_host}/config.py" || exit 1
   fetch_hook "$(installer_repo_file_value scripts/common/hardware-tuning-assets.list)" "${hardware_stage_host}/assets.list" || exit 1
   while IFS= read -r hardware_asset; do
-    case "$hardware_asset" in etc/systemd/*|etc/hardware-tuning/*|etc/dbus-1/system.d/*) ;; *) exit 1 ;; esac
+    case "$hardware_asset" in etc/systemd/*|etc/hardware-tuning/*|etc/dbus-1/system.d/*|etc/udev/rules.d/72-nvidia-tuning-policy.rules) ;; *) exit 1 ;; esac
     if [ "$INSTALLER_HOST_VARIANT" = server ]; then case "$hardware_asset" in etc/systemd/user/*) continue ;; esac; fi
     case "$hardware_asset" in *..*|*//*|*[!A-Za-z0-9_./-]*) exit 1 ;; esac
     install -d -m 0700 "${hardware_stage_host}/templates/${hardware_asset%/*}" || exit 1

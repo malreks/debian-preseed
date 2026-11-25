@@ -341,8 +341,7 @@ desktop_install_waypaper() {
   # publisher copies only this launcher, with UID/GID and private mode checks.
   desktop_render_role_target_template \
     hooks/target/etc/skel-desktop/.local/share/applications/waypaper.desktop.tmpl \
-    "${DIR_ETC_SKEL_DESKTOP}/.local/share/applications/waypaper.desktop" 0644 \
-    LABWC_WAYLAND_APP_DEFAULT_EXEC "$LABWC_WAYLAND_APP_DEFAULT_EXEC"
+    "${DIR_ETC_SKEL_DESKTOP}/.local/share/applications/waypaper.desktop" 0644
   installer_asset_batch_flush || return $?
   installer_publish_primary_defaults desktop "$ACCOUNT_USERNAME" "$ACCOUNT_HOME" \
     .local/share/applications/waypaper.desktop

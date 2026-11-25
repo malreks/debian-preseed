@@ -32,9 +32,16 @@ def reconcile(dev: Path = Path("__INSTALLER_PATH_DIR_DEV__"), *, check: bool = F
     errors = 0
     dev_fd = directory(dev)
     char_fd = None
+    caps_fd = None
     try:
         devices = []
-        for name in sorted(os.listdir(dev_fd)):
+        names = []
+        with os.scandir(dev_fd) as entries:
+            for entry in entries:
+                if len(names) >= 4096:
+                    raise ValueError("device inventory exceeds its limit")
+                names.append(entry.name)
+        for name in sorted(names):
             if not DEVICE.fullmatch(name):
                 continue
             try:
@@ -45,7 +52,25 @@ def reconcile(dev: Path = Path("__INSTALLER_PATH_DIR_DEV__"), *, check: bool = F
                 print(f"unsafe NVIDIA device entry: {name}", file=sys.stderr)
                 errors += 1
                 continue
-            devices.append((name, metadata.st_rdev))
+            devices.append((name, metadata.st_rdev, metadata.st_dev, metadata.st_ino))
+        try:
+            caps_fd = directory("nvidia-caps", dir_fd=dev_fd)
+        except FileNotFoundError:
+            pass
+        if caps_fd is not None:
+            with os.scandir(caps_fd) as entries:
+                for count, entry in enumerate(entries, 1):
+                    if count > 256:
+                        raise ValueError("NVIDIA capability inventory exceeds its limit")
+                    if not re.fullmatch(r"nvidia-cap[0-9]+", entry.name):
+                        continue
+                    metadata = entry.stat(follow_symlinks=False)
+                    if not stat.S_ISCHR(metadata.st_mode) or metadata.st_uid != 0:
+                        raise ValueError("unsafe NVIDIA capability device")
+                    devices.append(("nvidia-caps/" + entry.name, metadata.st_rdev,
+                                    metadata.st_dev, metadata.st_ino))
+        if len(devices) > 256:
+            raise ValueError("NVIDIA device inventory exceeds its limit")
         if not devices:
             print("nvidia-char-links: no NVIDIA character devices present")
             return errors
@@ -57,10 +82,23 @@ def reconcile(dev: Path = Path("__INSTALLER_PATH_DIR_DEV__"), *, check: bool = F
         try:
             char_fd = directory("char", dir_fd=dev_fd)
         except FileNotFoundError:
-            for name, rdev in devices:
+            for name, rdev, _device, _inode in devices:
                 print(f"missing __INSTALLER_PATH_DIR_DEV__/char/{os.major(rdev)}:{os.minor(rdev)} -> {name}", file=sys.stderr)
             return errors + len(devices)
-        for name, rdev in devices:
+        for name, rdev, device, inode in devices:
+            def unchanged_device() -> None:
+                if name.startswith('nvidia-caps/'):
+                    current_directory = os.stat('nvidia-caps', dir_fd=dev_fd, follow_symlinks=False)
+                    pinned_directory = os.fstat(caps_fd)
+                    if (current_directory.st_dev, current_directory.st_ino) != (pinned_directory.st_dev, pinned_directory.st_ino):
+                        raise ValueError("NVIDIA capability directory changed during reconciliation")
+                    current = os.stat(name.split('/', 1)[1], dir_fd=caps_fd, follow_symlinks=False)
+                else:
+                    current = os.stat(name, dir_fd=dev_fd, follow_symlinks=False)
+                if (not stat.S_ISCHR(current.st_mode) or current.st_uid != 0
+                        or (current.st_dev, current.st_ino, current.st_rdev) != (device, inode, rdev)):
+                    raise ValueError("NVIDIA device changed during reconciliation")
+            unchanged_device()
             key = f"{os.major(rdev)}:{os.minor(rdev)}"
             try:
                 link = os.stat(key, dir_fd=char_fd, follow_symlinks=False)
@@ -76,7 +114,7 @@ def reconcile(dev: Path = Path("__INSTALLER_PATH_DIR_DEV__"), *, check: bool = F
                 except FileNotFoundError:
                     resolved = None
                 if (resolved is not None and stat.S_ISCHR(resolved.st_mode)
-                        and resolved.st_rdev == rdev):
+                        and (resolved.st_dev, resolved.st_ino, resolved.st_rdev) == (device, inode, rdev)):
                     continue
             if check:
                 print(f"missing/incorrect __INSTALLER_PATH_DIR_DEV__/char/{key} -> {name}", file=sys.stderr)
@@ -85,6 +123,7 @@ def reconcile(dev: Path = Path("__INSTALLER_PATH_DIR_DEV__"), *, check: bool = F
             temporary = ".nvidia-" + uuid.uuid4().hex
             try:
                 os.symlink("../" + name, temporary, dir_fd=char_fd)
+                unchanged_device()
                 os.replace(temporary, key, src_dir_fd=char_fd, dst_dir_fd=char_fd)
                 print(f"nvidia-char-links: __INSTALLER_PATH_DIR_DEV__/char/{key} -> ../{name}")
             finally:
@@ -94,6 +133,8 @@ def reconcile(dev: Path = Path("__INSTALLER_PATH_DIR_DEV__"), *, check: bool = F
                     pass
         return errors
     finally:
+        if caps_fd is not None:
+            os.close(caps_fd)
         if char_fd is not None:
             os.close(char_fd)
         os.close(dev_fd)

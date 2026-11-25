@@ -1,0 +1,15 @@
+[Unit]
+Description=Apply changed wlsunset policy
+Requisite=labwc-session.target
+After=labwc-session.target labwc-compositor.service
+PartOf=labwc-session.target
+ConditionEnvironment=LABWC_SESSION_OWNER=desktop
+
+[Service]
+Type=oneshot
+PrivateUsers=no
+ExecStart=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wlsunset apply
+TimeoutStartSec=60s
+TimeoutStopSec=5s
+KillMode=control-group
+UMask=0077

@@ -14,6 +14,14 @@ PartOf=labwc-session.target
 [Service]
 TimeoutStartSec=30s
 Type=exec
+# Crystal Dock reads the main Exec and has no Desktop Action selector. Keep
+# identical desktop IDs in its private, read-only view; Fuzzel and MIME callers
+# continue to see the original vendor Exec. Managed services start outside
+# this namespace through the existing user manager.
+PrivateUsers=yes
+BindReadOnlyPaths=%h/.local/share/labwc-dock/applications:%h/.local/share/applications
+BindReadOnlyPaths=%h/.local/share/labwc-dock/applications:__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications
+BindReadOnlyPaths=%h/.local/share/labwc-dock/applications:__INSTALLER_PATH_DIR_USR_SHARE__/applications
 Environment=PATH=__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/bin:/bin
 Environment=ELECTRON_OZONE_PLATFORM_HINT=wayland
 Environment=GDK_BACKEND=wayland

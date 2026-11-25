@@ -272,6 +272,8 @@ profile swap-fallback-setup __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/swap-fallba
   __INSTALLER_PATH_DIR_ETC__/modprobe.d/ r,
   __INSTALLER_PATH_DIR_ETC__/modprobe.d/** r,
   __INSTALLER_PATH_DIR_ETC__/swap-fallback.conf r,
+  # modprobe follows the packaged NVIDIA alternatives into this exact tree.
+  __INSTALLER_PATH_DIR_ETC__/nvidia/current/{nvidia-blacklists-nouveau.conf,nvidia-options.conf,nvidia-modprobe.conf} r,
   __INSTALLER_PATH_DIR_ETC__/system-runtime.conf r,
   __INSTALLER_PATH_DIR_PROC__/cmdline r,
   __INSTALLER_PATH_DIR_PROC__/devices r,
@@ -346,6 +348,7 @@ profile zram-device-setup __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/zram-device-s
   __INSTALLER_PATH_DIR_ETC__/modprobe.d/ r,
   __INSTALLER_PATH_DIR_ETC__/modprobe.d/** r,
   __INSTALLER_PATH_DIR_ETC__/zram-writeback/setup.conf r,
+  __INSTALLER_PATH_DIR_ETC__/nvidia/current/{nvidia-blacklists-nouveau.conf,nvidia-options.conf,nvidia-modprobe.conf} r,
   __INSTALLER_PATH_DIR_ETC__/zram-writeback/policy.conf r,
   __INSTALLER_PATH_DIR_PROC__/cmdline r,
   __INSTALLER_PATH_DIR_PROC__/devices r,

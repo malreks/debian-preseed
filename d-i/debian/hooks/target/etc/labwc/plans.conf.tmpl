@@ -2,8 +2,9 @@
 # Telegram credentials are supplied through the protected installer channel and
 # this file is installed as root:<primary-user-group> mode 0640.
 # Keep managed single-line quoted values. The daemon checks channel policy
-# immediately before dispatch; edits to a destination or credential stop that
-# channel until restart. Missed reminder slots are never replayed as a backlog.
+# at every worker cycle and immediately before dispatch. Valid changes apply at
+# the next cycle; an edit during dispatch rejects that slot. Missed reminder
+# slots are never replayed as a backlog. No directory watcher is needed.
 LABWC_PLANS_ENABLED=__INSTALLER_LABWC_PLANS_ENABLED__
 # Delivery is authorized only by a local calendar UID opt-in from the clock
 # event/task form. Sleek files and the former plan queue are never read.

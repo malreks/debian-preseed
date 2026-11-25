@@ -6,6 +6,7 @@ import json
 from contextlib import ExitStack
 from pathlib import Path
 import select
+import re
 import signal
 import socket
 import stat
@@ -36,11 +37,50 @@ def read_policy(path, maximum_bytes=65536):
     return payload
 
 
-def copy_privacy_config():
-    # Copy exact install-rendered bytes into the fresh Bubblewrap HOME.
-    # No native-key parsing, runtime rendering or host profile persistence.
+def validate_proxy_config(raw: bytes, port: int) -> None:
+    """The supported foreground CONNECT policy has no includes or side effects."""
+    lines = [line.split() for line in raw.decode('ascii').splitlines()
+             if line.strip() and not line.lstrip().startswith('#')]
+    if len(lines) != 6 or [line[0] for line in lines] != ['maxconn','timeouts','auth','allow','deny','proxy']:
+        raise ValueError('unsupported foreground CONNECT proxy configuration')
+    maximum, timeouts, auth, allow, deny, listener = lines
+    if (len(maximum) != 2 or not maximum[1].isdecimal() or not 1 <= int(maximum[1]) <= 65535
+            or len(timeouts) != 9 or any(not value.isdecimal() or not 1 <= int(value) <= 86400 for value in timeouts[1:])
+            or auth != ['auth','iponly'] or deny != ['deny','*']
+            or len(allow) != 6 or allow[:4] != ['allow','*','127.0.0.1','*'] or allow[-1] != 'HTTP_CONNECT'
+            or listener != ['proxy','-4','-a','-i127.0.0.1','-p'+str(port)]):
+        raise ValueError('invalid CONNECT proxy policy or listener mismatch with session.json')
+    ranges = allow[4].split(',')
+    if not 1 <= len(ranges) <= 64:
+        raise ValueError('invalid CONNECT destination port list')
+    for item in ranges:
+        if re.fullmatch(r'[0-9]{1,5}(?:-[0-9]{1,5})?', item) is None:
+            raise ValueError('invalid CONNECT destination port range')
+        values = [int(value) for value in item.split('-')]
+        if not 1 <= values[0] <= values[-1] <= 65535:
+            raise ValueError('invalid CONNECT destination port range')
+
+
+def qbittorrent_proxy_config(data: bytes, port: int) -> bytes:
+    """Pin the one native listener field to this launch's validated snapshot."""
+    section, found, result = '', 0, []
+    for line in data.decode('utf-8').splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            section = stripped
+        if section == '[Network]' and line.partition('=')[0].strip() == 'Proxy\\Port':
+            line = 'Proxy\\Port=' + str(port) + '\n'
+            found += 1
+        result.append(line)
+    if found != 1 or type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError('invalid qBittorrent native proxy listener field')
+    return ''.join(result).encode('utf-8')
+
+
+def copy_privacy_config(port):
+    # The fresh private HOME keeps the native policy and this session's port.
     source = "__INSTALLER_PATH_DIR_ETC__/qbittorrent/qBittorrent.conf.d/20-managed-privacy.conf"
-    payload = read_policy(source, maximum_bytes=1024 * 1024)
+    payload = qbittorrent_proxy_config(read_policy(source, maximum_bytes=1024 * 1024), port)
     target = Path("__INSTALLER_PATH_DIR_HOME__/user/.config/qBittorrent/qBittorrent.conf")
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -147,9 +187,8 @@ def receive_peer_port(channel, allowed, *, current=None):
     return selected
 
 
-def restore_native_config():
-    # Copy exact installed bytes; never parse, merge or render native settings.
-    data = read_policy("__INSTALLER_PATH_DIR_ETC__/qbittorrent/qBittorrent.conf.d/10-security.conf", 1024 * 1024)
+def restore_native_config(port):
+    data = qbittorrent_proxy_config(read_policy("__INSTALLER_PATH_DIR_ETC__/qbittorrent/qBittorrent.conf.d/10-security.conf", 1024 * 1024), port)
     target = Path("__INSTALLER_PATH_DIR_HOME__/user/.config/qBittorrent/qBittorrent.conf")
     if target.parent.resolve() != target.parent:
         raise ValueError("qBittorrent configuration has symlink parents")
@@ -174,7 +213,7 @@ def restore_native_config():
             os.unlink(temporary)
 
 
-def run_peer_payload(proxy, arguments, channel):
+def run_peer_payload(proxy, arguments, channel, proxy_port):
     allowed = peer_port_policy()
     if not select.select([channel], [], [], 2)[0]:
         raise RuntimeError("qBittorrent initial peer-port selection timed out")
@@ -215,7 +254,7 @@ def run_peer_payload(proxy, arguments, channel):
                     if proxy.poll() is not None:
                         raise RuntimeError("CONNECT proxy exited during the peer-port change")
                     active_port = receive_peer_port(channel, allowed, current=selected)
-                    restore_native_config()
+                    restore_native_config(proxy_port)
                     break
     finally:
         stop(payload, signal.SIGINT)
@@ -257,7 +296,6 @@ def main():
     if privacy:
         if app != "qbittorrent":
             raise ValueError("privacy configuration copy is specific to qBittorrent")
-        copy_privacy_config()
     if app == "vivaldi":
         seed_vivaldi_search_caches()
     settings = json.loads(read_policy("__INSTALLER_PATH_DIR_ETC__/labwc/3proxy/session.json"))
@@ -266,7 +304,12 @@ def main():
         raise ValueError("invalid proxy listener configuration")
     port = settings["qbittorrent_port" if app == "qbittorrent" else "web_browser_port"]
     proxy_config = "__INSTALLER_PATH_DIR_ETC__/labwc/3proxy/" + app + ".conf"
-    read_policy(proxy_config)
+    validate_proxy_config(read_policy(proxy_config), port)
+    if app == 'qbittorrent':
+        if privacy:
+            copy_privacy_config(port)
+        else:
+            restore_native_config(port)
     proxy = payload = None
 
     def interrupted(signum, frame):
@@ -312,7 +355,7 @@ def main():
                     raise ValueError("qBittorrent peer controller requires a private Unix seqpacket socket")
                 os.set_inheritable(peer_descriptor, False)
                 channel.setblocking(False)
-                return run_peer_payload(proxy, arguments, channel)
+                return run_peer_payload(proxy, arguments, channel, port)
         payload = subprocess.Popen(arguments, stdin=subprocess.DEVNULL)
         return wait_for_session(proxy, payload)
     finally:
@@ -328,7 +371,13 @@ def main():
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        # main's finally blocks finish payload/proxy cleanup first. Preserve
+        # raw Popen statuses internally; never wrap -SIGKILL into exit 247.
+        status = main()
+        if status < 0:
+            print(f"managed proxy exit_kind=signal signal={-status}", file=sys.stderr)
+            status = 128 - status
+        raise SystemExit(status)
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"managed proxy session failed: {exc}", file=sys.stderr)
         raise SystemExit(1)

@@ -55,12 +55,14 @@ def run(scope: PackageScope | str) -> int:
         validate_package(selected_scope)
         if selected_scope in {PackageScope.ELECTRON, PackageScope.WAYLAND}:
             from .generic import main
+            from .runtime import executable_status
 
-            return main(selected_scope.value)
+            return executable_status(main(selected_scope.value))
         if selected_scope is PackageScope.NATIVE:
             from .cli import main
+            from .runtime import executable_status
 
-            return main()
+            return executable_status(main())
         if selected_scope is PackageScope.WAYLAND_COMPAT:
             from .cli import main
 

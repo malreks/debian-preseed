@@ -317,7 +317,11 @@ def launch_desktop(desktop_id: str, action_id: str | None = None,
             prefix = policy['launch_prefix'](source, app.get_executable() or '',
                                               app.get_string('Exec') or '', defaults)
             text = read_desktop_text(source, policy['MAX_BYTES'])
-            text = policy['rewrite_desktop'](text, prefix)
+            text = policy['rewrite_desktop'](
+                text, prefix, name=source.name,
+                actions=policy['acceleration_actions'](owner_uid=owner),
+                managed_default=defaults['managed'],
+            )
             keyfile = desktop_keyfile(text)
             # An in-memory DesktopAppInfo has no filename for %k. Preserve its
             # original identity; leave %% and every other field code to GIO.

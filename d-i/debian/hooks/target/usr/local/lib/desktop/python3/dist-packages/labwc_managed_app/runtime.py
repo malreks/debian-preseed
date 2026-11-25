@@ -16,6 +16,24 @@ from .events import emit
 from .integrity import system_owner
 
 MANAGED_PATH = "__INSTALLER_PATH_DIR_USR_LOCAL_SBIN__:__INSTALLER_PATH_DIR_USR_LOCAL_BIN__:__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin"
+# Canonical selectors; native Selection applies them last. The existing
+# private compatibility path imports these same unchanged hint values.
+INTEL_ACCELERATION_ENV = {"LIBVA_DRIVER_NAME": "iHD"}
+NVIDIA_ACCELERATION_ENV = {
+    "GBM_BACKEND": "nvidia-drm", "LIBVA_DRIVER_NAME": "nvidia",
+    "NVD_BACKEND": "direct", "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
+    "__NV_PRIME_RENDER_OFFLOAD": "1",
+}
+
+
+def executable_status(status: int) -> int:
+    """Translate a raw Popen status once, after the supervisor has cleaned up."""
+    if status < 0:
+        print(f"managed application exit_kind=signal signal={-status}", file=sys.stderr)
+        return 128 - status
+    return status
+
+
 MANAGED_DEFAULTS_PATH = pathlib.Path("__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf")
 MAX_MANAGED_DEFAULTS_BYTES = 65536
 MANAGED_DEFAULTS_KEYS = {
@@ -65,6 +83,16 @@ MANAGED_WAYLAND_OPENGL_ENVIRONMENT = {
     "MOZ_ENABLE_WAYLAND": "1",
     "QT_QPA_PLATFORM": "wayland",
     **MANAGED_NO_VULKAN_ENVIRONMENT,
+}
+# Native clients must not receive a software-only QtWebEngine policy under an
+# accelerated label. Keep the existing private compatibility dictionary above.
+MANAGED_NATIVE_OPENGL_ENVIRONMENT = {
+    **MANAGED_WAYLAND_OPENGL_ENVIRONMENT,
+    "QTWEBENGINE_CHROMIUM_FLAGS": " ".join((
+        *ANGLE_GL_ARGS,
+        "--ozone-platform=wayland --disable-vulkan",
+        "--disable-features=Vulkan,DefaultANGLEVulkan,VulkanFromANGLE,ForceEnableWebGpuInterop",
+    )),
 }
 MANAGED_CAGE_COMPOSITOR_ENVIRONMENT = {
     # Cage is nested on labwc. Never let it select a DRM/KMS backend.

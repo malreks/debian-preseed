@@ -32,7 +32,7 @@ from .session import menu_action_wait_arguments, native_session_wayland_display
 from .profiles import APPS, INTEL_ACCELERATION_ENV, NVIDIA_ACCELERATION_ENV, WAYLAND_COMPAT_APPS
 from .runtime import (
     ANGLE_GL_ARGS, MANAGED_DEFAULTS_PATH, MANAGED_PATH,
-    MANAGED_WAYLAND_OPENGL_ENVIRONMENT, current_user_home, current_user_name,
+    MANAGED_NATIVE_OPENGL_ENVIRONMENT, current_user_home, current_user_name,
     current_user_runtime_dir, current_user_runtime_socket, fail,
     require_root_owned_executable,
     require_primary_gpg,
@@ -202,7 +202,7 @@ def session_environment() -> dict[str, str]:
         "XDG_SESSION_DESKTOP": "labwc", "LABWC_SESSION_OWNER": "desktop",
         "SDL_VIDEODRIVER": "wayland", "SDL_VIDEO_DRIVER": "wayland",
         "CLUTTER_BACKEND": "wayland", "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
-        **MANAGED_WAYLAND_OPENGL_ENVIRONMENT,
+        **MANAGED_NATIVE_OPENGL_ENVIRONMENT,
     })
     state_button = os.environ.get("LABWC_WAYBAR_STATE_BUTTON", "")
     state_id = os.environ.get("LABWC_WAYBAR_ACTION_ID", "")
@@ -382,7 +382,8 @@ def foot_window_close_is_expected(arguments: list[str], environment: dict[str, s
     Failed exec and compositor disconnect retain Foot's distinct status 230.
     """
     foot = "__INSTALLER_PATH_DIR_USR__/bin/foot"
-    if arguments in ([foot], [foot, "-e", "btop"]):
+    if arguments in ([foot], [foot, "-e", "btop"],
+                     [foot, "-e", "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/nmtui"]):
         return True
     button = environment.get("LABWC_WAYBAR_STATE_BUTTON", "")
     identity = environment.get("LABWC_WAYBAR_ACTION_ID", "")
@@ -623,7 +624,7 @@ def main(kind: str, argv: list[str] | None = None) -> int:
     if os.path.realpath(executable) in WRAPPERS.values():
         fail("recursive desktop wrapper command")
     arguments[0] = executable
-    environment.update(MANAGED_WAYLAND_OPENGL_ENVIRONMENT)
+    environment.update(MANAGED_NATIVE_OPENGL_ENVIRONMENT)
     # A vendor env prefix cannot replace the requested closed debug profile.
     diagnostics.apply(environment)
     environment.update(INTEL_ACCELERATION_ENV if mode == "intel" else NVIDIA_ACCELERATION_ENV if mode == "nvidia" else {})

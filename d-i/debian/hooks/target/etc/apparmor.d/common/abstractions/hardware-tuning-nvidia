@@ -17,10 +17,15 @@ __INSTALLER_PATH_DIR_DEV__/nvidia[0-9]* rw,
 __INSTALLER_PATH_DIR_DEV__/nvidia-uvm rw,
 __INSTALLER_PATH_DIR_DEV__/nvidia-caps/ rw,
 __INSTALLER_PATH_DIR_DEV__/nvidia-caps/nvidia-cap[0-9]* rw,
-# NVML maintains these exact device aliases in the supplied driver capture.
-# 234 is the captured auxiliary-device major, not a portable NVIDIA constant.
-# Do not permit writes to arbitrary character-device aliases or device trees.
-__INSTALLER_PATH_DIR_DEV__/char/{195:0,195:255,234:0,234:1} w,
+# Dynamic majors are validated by a separate root preparation service. Only
+# the hardware worker consumes its exact numeric grants, never the broker.
+include if exists "__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/nvidia-char"
+__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/nvidia.json r,
+__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/nvidia-char r,
+__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/{nvidia-char.before,nvidia.json.before} r,
+__INSTALLER_PATH_DIR_HARDWARE_TUNING__/nvidia_devices.py r,
+__INSTALLER_PATH_DIR_DEV__/ r,
+__INSTALLER_PATH_DIR_DEV__/char/ r,
 __INSTALLER_PATH_DIR_PROC__/driver/nvidia/ r,
 __INSTALLER_PATH_DIR_PROC__/driver/nvidia/** r,
 __INSTALLER_PATH_DIR_PROC__/{devices,modules,meminfo} r,

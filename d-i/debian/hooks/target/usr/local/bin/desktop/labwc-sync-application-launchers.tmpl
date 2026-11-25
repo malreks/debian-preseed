@@ -1,12 +1,16 @@
 #!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
 import configparser
 import fcntl
+from functools import lru_cache
+import hashlib
+import json
 import signal
 import time
 import os
 import pathlib
 import pwd
 import re
+import runpy
 import shlex
 import shutil
 import stat
@@ -36,7 +40,6 @@ DEFAULTS_PATH = "__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf"
 MANAGED_DIRECTORY_MODE = 0o700
 MANAGED_FILE_MODE = 0o600
 MAX_DESKTOP_FILE_BYTES = 65536
-MANAGED_APP_DEFAULT_EXEC = "__INSTALLER_LABWC_MANAGED_APP_DEFAULT_EXEC__"
 CHATGPT_MANAGED_APP = "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/chatgpt"
 WAYLAND_COMPAT_MANAGED_APP = "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-compat-app"
 WAYLAND_COMPAT_APPS = {"discord", "zoom"}
@@ -50,219 +53,30 @@ ACCELERATION_DEFAULT_KEYS = {
 }
 
 
-APP_CONFIG = (
-    {
-        "desktop_names": ("com.ianswope.Calix.desktop",),
-        "action_app": "calix",
-        "field_code": "",
-        "actions": (),
-    },
-    {
-        "desktop_names": ("com.github.dahenson.agenda.desktop",),
-        "action_app": "agenda",
-        "field_code": "",
-        "actions": (),
-    },
-    {
-        "desktop_names": ("sdl-freerdp.desktop", "sdl-freerdp3.desktop", "org.freerdp.FreeRDP.desktop"),
-        "action_app": "freerdp",
-        "field_code": "%f",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": ("mpv.desktop",),
-        "action_app": "mpv",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": ("net.sourceforge.liferea.desktop", "liferea.desktop"),
-        "action_app": "liferea",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": ("chromium.desktop",),
-        "action_app": "chromium",
-        "field_code": "%U",
-    },
-    {
-        "desktop_names": (
-            "microsoft-edge.desktop",
-            "microsoft-edge-stable.desktop",
-            "com.microsoft.Edge.desktop",
-        ),
-        "action_app": "microsoft-edge",
-        "field_code": "%U",
-    },
-    {
-        "desktop_names": (
-            "vivaldi-stable.desktop",
-            "vivaldi.desktop",
-            "com.vivaldi.Vivaldi.desktop",
-        ),
-        "action_app": "vivaldi",
-        "field_code": "%U",
-        # Vivaldi's vendor file contains its own action sections. The account
-        # launcher owns one canonical profile-selected Exec and must not copy
-        # those actions into a second wrapper lifecycle.
-        "actions": (),
-    },
-    {
-        "desktop_names": ("code.desktop", "com.microsoft.VSCode.desktop"),
-        "action_app": "code",
-        "field_code": "%F",
-    },
-    {
-        # VS Code 1.139 renamed the packaged URL-handler desktop ID. Keep the
-        # old managed ID and publish the current vendor name as its alias.
-        "desktop_names": ("code-url-handler.desktop", "com.microsoft.VSCode.UrlHandler.desktop"),
-        "action_app": "code",
-        "field_code": "--open-url %U",
-        "no_display": True,
-    },
-    {
-        # The system entry is accelerator-neutral. Add only the GPU actions
-        # enabled by the installed class/hardware policy and recreate the
-        # project-owned ANOM action below. Vendor action sections are never
-        # copied into the account launcher.
-        "desktop_names": ("tor-browser.desktop",),
-        "action_app": "tor-browser",
-        "field_code": "%u",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-        "policy_actions": (
-            ("ANOM", "ANOM (temporary state, Safest security)",
-             "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app pure-privacy tor-browser"),
-        ),
-    },
-    {
-        "desktop_names": (
-            "bitwarden.desktop",
-            "com.bitwarden.Bitwarden.desktop",
-        ),
-        "action_app": "bitwarden",
-        "field_code": "%U",
-    },
-    {
-        "desktop_names": ("chatgpt.desktop",),
-        "action_app": "chatgpt",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-        "default_mode": "auto",
-    },
-    {
-        # Match the current package's native Wayland ID; keep older vendor
-        # installations discoverable through their original desktop basename.
-        "desktop_names": ("md.obsidian.Obsidian.desktop", "obsidian.desktop"),
-        "action_app": "obsidian",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": ("QoreDB.desktop",),
-        "action_app": "qoredb",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": ("postman.desktop",),
-        "action_app": "postman",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": ("sleek.desktop",),
-        "action_app": "sleek",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": ("spotify.desktop",),
-        "action_app": "spotify",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": (
-            "tutanota-desktop.desktop",
-            "tuta-mail.desktop",
-            "appimagekit-tutanota-desktop.desktop",
-            "com.tutanota.Tutanota.desktop",
-        ),
-        "action_app": "tutanota",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": (
-            "org.keepassxc.KeePassXC.desktop",
-            "keepassxc.desktop",
-        ),
-        "action_app": "keepassxc",
-        "field_code": "%f",
-    },
-    {
-        "desktop_names": (
-            "Zoom.desktop",
-            "zoom.desktop",
-        ),
-        "action_app": "zoom",
-        # Pass one URI as its own desktop argument. The compatibility entrypoint
-        # validates it and adds Zoom's --url= prefix after field-code expansion.
-        "field_code": "%u",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": (
-            "Filen.desktop",
-            "filen.desktop",
-        ),
-        "action_app": "filen",
-        "field_code": "%U",
-    },
-    {
-        "desktop_names": ("discord.desktop",),
-        "action_app": "discord",
-        "field_code": "%U",
-        "actions": ("IntelAccelerated", "NvidiaAccelerated"),
-    },
-    {
-        "desktop_names": ("ledger-live.desktop",),
-        "action_app": "ledger-live",
-        "field_code": "%U",
-        "actions": (),
-    },
-    {
-        "desktop_names": (
-            "org.telegram.desktop.desktop",
-            "telegramdesktop.desktop",
-        ),
-        "action_app": "telegram-desktop",
-        "field_code": "-- %u",
-    },
-    {
-        "desktop_names": ("mullvad-browser.desktop",),
-        "action_app": "mullvad-browser",
-        "field_code": "%u",
-    },
-    {
-        "desktop_names": ("org.qbittorrent.qBittorrent.desktop",),
-        "action_app": "qbittorrent",
-        "field_code": "%U",
-        "default_mode": "launch",
-    },
-    {
-        "desktop_names": ("com.libretro.RetroArch.desktop", "retroarch.desktop"),
-        "action_app": "retroarch",
-        "field_code": "%U",
-    },
-)
 
-ACTION_SPECS = {
-    "IntelAccelerated": ("intel", "IntelAccelerated"),
-    "NvidiaAccelerated": ("nvidia", "NvidiaAccelerated"),
-    "PurePrivacy": ("pure-privacy", "PurePrivacy"),
-}
+
+_DESKTOP_POLICY: dict | None = None
+
+
+def desktop_policy() -> dict:
+    """Share the root-owned action map with package and menu reconciliation."""
+    global _DESKTOP_POLICY
+    if _DESKTOP_POLICY is None:
+        hook = pathlib.Path('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files')
+        for path in (hook, *hook.parents):
+            metadata = path.lstat()
+            expected = stat.S_ISREG if path == hook else stat.S_ISDIR
+            if not expected(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_mode & 0o022:
+                raise RuntimeError('unsafe shared desktop action policy')
+        _DESKTOP_POLICY = runpy.run_path(str(hook))
+    return _DESKTOP_POLICY
+
+
+@lru_cache(maxsize=1)
+def configured_defaults() -> dict[str, str]:
+    # Each oneshot invocation reads the current root-owned configuration once.
+    # Keep its launcher/autostart/dock publication on the same default snapshot.
+    return desktop_policy()['load_defaults']()
 
 
 def read_regular_text(
@@ -270,6 +84,7 @@ def read_regular_text(
     owners: set[int],
     *,
     allow_root_group_write: bool = False,
+    size_limit: int = MAX_DESKTOP_FILE_BYTES,
 ) -> str:
     """Open the checked inode, not a symlink swapped in after lstat."""
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
@@ -296,12 +111,12 @@ def read_regular_text(
                 "managed input is writable by an untrusted principal: "
                 f"{path}: uid={metadata.st_uid} gid={metadata.st_gid} mode={mode:04o}"
             )
-        if metadata.st_size > MAX_DESKTOP_FILE_BYTES:
+        if metadata.st_size > size_limit:
             raise RuntimeError(
-                f"managed input exceeds {MAX_DESKTOP_FILE_BYTES} bytes: {path}"
+                f"managed input exceeds {size_limit} bytes: {path}"
             )
-        data = handle.read(MAX_DESKTOP_FILE_BYTES + 1)
-        if len(data) > MAX_DESKTOP_FILE_BYTES:
+        data = handle.read(size_limit + 1)
+        if len(data) > size_limit:
             raise RuntimeError(f"managed input grew beyond its size limit: {path}")
         return data.decode("utf-8")
 
@@ -369,6 +184,8 @@ def load_acceleration_availability(path: str) -> dict[str, bool]:
         key = key.strip()
         if key not in ACCELERATION_DEFAULT_KEYS:
             continue
+        if key in values:
+            raise RuntimeError(f"duplicate {key} assignment on line {line_number}")
         try:
             parsed = shlex.split(raw_value, comments=False, posix=True)
         except ValueError as exc:
@@ -397,9 +214,9 @@ def available_actions(
 ) -> tuple[str, ...]:
     filtered: list[str] = []
     for action in requested_actions:
-        if action not in ACTION_SPECS:
+        if action not in desktop_policy()["ACTION_SPECS"]:
             raise RuntimeError(f"unknown managed desktop action: {action}")
-        mode, _display_name = ACTION_SPECS[action]
+        mode, _display_name = desktop_policy()["ACTION_SPECS"][action]
         if mode in {"intel", "nvidia"} and not availability[mode]:
             continue
         filtered.append(action)
@@ -487,6 +304,13 @@ def validate_account_context(account_user: str, account_home: str) -> tuple[int,
     return account.pw_uid, account.pw_gid
 
 
+def desktop_content(parser: configparser.ConfigParser) -> str:
+    return "".join(
+        f"[{section}]\n" + "".join(f"{key}={value}\n" for key, value in parser[section].items()) + "\n"
+        for section in parser.sections()
+    )
+
+
 def write_desktop_file(
     path: str,
     parser: configparser.ConfigParser,
@@ -496,10 +320,7 @@ def write_desktop_file(
 ) -> bool:
     destination_dir = os.path.dirname(path)
     destination_name = os.path.basename(path)
-    content = "".join(
-        f"[{section}]\n" + "".join(f"{key}={value}\n" for key, value in parser[section].items()) + "\n"
-        for section in parser.sections()
-    )
+    content = desktop_content(parser)
     try:
         old_content = read_regular_text(path, {uid, 0})
         metadata = os.lstat(path)
@@ -678,19 +499,7 @@ def synchronize_bitwarden_autostart(
 
 
 def managed_exec(mode: str, app_name: str, field_code: str) -> str:
-    if app_name == "qbittorrent" and mode != "pure-privacy":
-        # The dedicated wrapper owns storage, peer policy and its user service.
-        selector = f" --acceleration={mode}" if mode in {"intel", "nvidia"} else ""
-        return f"{QBITTORRENT_LAUNCHER}{selector} {field_code}"
-    dedicated_executable = DEDICATED_MANAGED_APPS.get(app_name)
-    if dedicated_executable is not None:
-        return f"{dedicated_executable} {mode} {field_code}"
-    executable = (
-        WAYLAND_COMPAT_MANAGED_APP
-        if app_name in WAYLAND_COMPAT_APPS
-        else "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app"
-    )
-    return f"{executable} {mode} {app_name} {field_code}"
+    return desktop_policy()["managed_exec"](mode, app_name, field_code)
 
 
 def managed_default_exec(
@@ -698,11 +507,11 @@ def managed_default_exec(
     field_code: str,
     default_mode: str | None = None,
 ) -> str:
-    if default_mode is not None:
-        return managed_exec(default_mode, app_name, field_code)
-    if app_name in WAYLAND_COMPAT_APPS:
-        return managed_exec("auto", app_name, field_code)
-    return f"{MANAGED_APP_DEFAULT_EXEC} {app_name} {field_code}"
+    # All fixed application entrypoints, including qBittorrent and ChatGPT,
+    # receive the configured managed default through the shared constructor.
+    return desktop_policy()['managed_default_command'](
+        {'action_app': app_name, 'field_code': field_code}, configured_defaults()['managed'],
+    )
 
 
 def normalize_managed_launch_metadata(entry: configparser.SectionProxy) -> bool:
@@ -740,12 +549,12 @@ def add_actions(
         if (re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", action) is None
                 or not display_name or not command):
             raise RuntimeError(f"invalid project desktop action: {action!r}")
-        if action in policy_by_id or action in ACTION_SPECS:
+        if action in policy_by_id or action in desktop_policy()["ACTION_SPECS"]:
             raise RuntimeError(f"duplicate project desktop action: {action}")
         policy_by_id[action] = (display_name, command)
         actions.append(action)
     for action in enabled_actions:
-        if action not in ACTION_SPECS:
+        if action not in desktop_policy()["ACTION_SPECS"]:
             raise RuntimeError(f"unknown managed desktop action: {action}")
         if action not in actions:
             actions.append(action)
@@ -761,7 +570,7 @@ def add_actions(
         parser[section]["Exec"] = command
 
     for action in enabled_actions:
-        mode, display_name = ACTION_SPECS[action]
+        mode, display_name = desktop_policy()["ACTION_SPECS"][action]
         section = f"Desktop Action {action}"
         parser.add_section(section)
         parser[section]["Name"] = display_name
@@ -781,7 +590,8 @@ def strip_desktop_actions(parser: configparser.ConfigParser) -> None:
 def find_desktop_file(desktop_names: tuple[str, ...]) -> tuple[str, str] | None:
     # Directory precedence wins over alternative vendor desktop IDs. Never
     # feed our generated account-local files back into the synchronizer.
-    for directory in (LOCAL_APPLICATION_DIR, SYSTEM_APPLICATION_DIR):
+    # Prefer the original vendor entry over a project fallback template.
+    for directory in (SYSTEM_APPLICATION_DIR, LOCAL_APPLICATION_DIR):
         for desktop_name in desktop_names:
             source_path = os.path.join(directory, desktop_name)
             try:
@@ -888,7 +698,178 @@ def synchronize_tuta_mime_defaults(account_home: str, uid: int, gid: int) -> boo
     return True
 
 
+def parse_desktop(text: str) -> configparser.ConfigParser:
+    parser = configparser.ConfigParser(interpolation=None, strict=True)
+    parser.optionxform = str
+    parser.read_string(text)
+    return parser
+
+
+def synchronize_catalog(account_home: str, desktop_dir: str, uid: int, gid: int,
+                        validate: str | None, availability: dict[str, bool]) -> None:
+    """Add actions for the complete GUI catalog and prepare the dock view.
+
+    The dock view uses the same IDs, names, icons and action map. Its main Exec
+    alone is the managed default; systemd exposes that view only to the dock.
+    Account overrides keep their normal command and receive the same actions.
+    """
+    policy = desktop_policy()
+    defaults = configured_defaults()
+    enabled = available_actions(('IntelAccelerated', 'NvidiaAccelerated'), availability)
+    known_names = {name for config in policy['APP_CONFIG'] for name in config['desktop_names']}
+    effective: dict[str, pathlib.Path] = {}
+    # Account entries include the fixed app aliases published just above.
+    for directory in (desktop_dir, LOCAL_APPLICATION_DIR, SYSTEM_APPLICATION_DIR):
+        root = pathlib.Path(directory)
+        if not root.is_dir():
+            continue
+        for source in sorted(root.rglob('*.desktop')):
+            name = source.relative_to(root).as_posix().replace('/', '-')
+            if len(effective) >= 2048 and name not in effective:
+                raise RuntimeError('desktop catalog exceeds 2048 entries')
+            effective.setdefault(name, source)
+    dock = pathlib.Path(account_home) / '.local/share/labwc-dock'
+    for directory in (pathlib.Path(account_home) / '.local',
+                      pathlib.Path(account_home) / '.local/share', dock, dock / 'applications'):
+        ensure_user_directory(str(directory), uid, gid)
+    dock_apps = dock / 'applications'
+    state = dock / 'catalog.json'
+    previous = {}
+    if state.exists():
+        previous = json.loads(read_regular_text(str(state), {uid}, size_limit=1024 * 1024))
+        if not isinstance(previous, dict) or len(previous) > 2048:
+            raise RuntimeError('invalid managed desktop catalog state')
+    # An interruption can publish a launcher before publishing catalog.json.
+    # Its self-contained receipt recovers ownership only while every managed
+    # field still matches; an account edit invalidates it. No privilege derives
+    # from this account-owned metadata, and source roots are checked below.
+    for name, source in effective.items():
+        if (source.parent != pathlib.Path(desktop_dir) or name in known_names
+                or source.lstat().st_uid != uid):
+            continue
+        text = read_regular_text(str(source), {uid})
+        try:
+            candidate = parse_desktop(text)
+            entry = candidate['Desktop Entry']
+            original = entry.get('X-Labwc-CatalogSource')
+            digest = entry.pop('X-Labwc-CatalogDigest', None)
+            if (original and digest and re.fullmatch('[0-9a-f]{64}', digest)
+                    and hashlib.sha256(desktop_content(candidate).encode('utf-8')).hexdigest() == digest):
+                previous[name] = {'source': original, 'sha256': hashlib.sha256(text.encode('utf-8')).hexdigest()}
+        except (configparser.Error, KeyError):
+            continue
+    current = {}
+    for name, receipt in previous.items():
+        if (not isinstance(name, str) or pathlib.Path(name).name != name or not name.endswith('.desktop')
+                or not isinstance(receipt, dict) or set(receipt) != {'source', 'sha256'}
+                or not isinstance(receipt['source'], str)
+                or re.fullmatch('[0-9a-f]{64}', receipt['sha256']) is None):
+            raise RuntimeError('unsafe managed desktop catalog receipt')
+        original = pathlib.Path(receipt['source'])
+        if (not original.is_absolute() or '..' in original.parts or not original.name.endswith('.desktop')
+                or not any(original.is_relative_to(root) for root in
+                           (pathlib.Path(LOCAL_APPLICATION_DIR), pathlib.Path(SYSTEM_APPLICATION_DIR)))):
+            raise RuntimeError('managed desktop source escapes application roots')
+        destination = pathlib.Path(desktop_dir) / name
+        if effective.get(name) == destination:
+            content = read_regular_text(str(destination), {uid})
+            if hashlib.sha256(content.encode('utf-8')).hexdigest() == receipt['sha256']:
+                if original.exists():
+                    effective[name] = original
+                else:
+                    destination.unlink()
+                    effective.pop(name)
+    published = set()
+    for name, source in sorted(effective.items()):
+        text = read_regular_text(str(source), {0, uid}, allow_root_group_write=source.parent != pathlib.Path(desktop_dir))
+        try:
+            parser = parse_desktop(text)
+            if not parser.has_section('Desktop Entry'):
+                continue
+            entry = parser['Desktop Entry']
+            if entry.get('Type') != 'Application' or entry.get('Hidden') == 'true' or not entry.get('Exec', '').strip():
+                continue
+            # Reuse the classified prefix on package-generated metadata. Only
+            # previously unclassified entries require a read-only package query.
+            prefix = defaults['wayland']
+            words = shlex.split(entry.get('X-Labwc-ManagedExec', ''))
+            if words and words[0] in policy['WRAPPERS'].values():
+                kind = next(kind for kind, wrapper in policy['WRAPPERS'].items() if wrapper == words[0])
+                prefix = defaults[kind]
+            elif source.parent != pathlib.Path(desktop_dir):
+                executable = shlex.split(entry['Exec'])[0]
+                prefix = policy['launch_prefix'](source, executable, entry['Exec'], defaults)
+            updated = policy['rewrite_desktop'](text, prefix, name=name, actions=enabled,
+                                                managed_default=defaults['managed'])
+            parser = parse_desktop(updated)
+            entry = parser['Desktop Entry']
+            if (name not in known_names and source.parent == pathlib.Path(desktop_dir)
+                    and source.lstat().st_uid == uid):
+                write_desktop_file(str(source), parser, uid, gid, validate)
+            if name not in known_names and source.parent != pathlib.Path(desktop_dir):
+                destination = pathlib.Path(desktop_dir) / name
+                old = read_regular_text(str(destination), {uid}) if destination.exists() else None
+                owned = (old is not None and name in previous
+                         and hashlib.sha256(old.encode('utf-8')).hexdigest() == previous[name]['sha256'])
+                if old is None or owned:
+                    entry['X-Labwc-CatalogSource'] = str(source)
+                    entry.pop('X-Labwc-CatalogDigest', None)
+                    entry['X-Labwc-CatalogDigest'] = hashlib.sha256(desktop_content(parser).encode('utf-8')).hexdigest()
+                    write_desktop_file(str(destination), parser, uid, gid, validate)
+                    content = read_regular_text(str(destination), {uid})
+                    current[name] = {'source': str(source), 'sha256': hashlib.sha256(content.encode('utf-8')).hexdigest()}
+            clone = parse_desktop(updated)
+            target = clone['Desktop Entry']
+            if target.get('Terminal') == 'true':
+                target['Exec'] = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal -e ' + target['Exec']
+                target['Terminal'] = 'false'
+            else:
+                target['Exec'] = target.get('X-Labwc-ManagedExec') or prefix + ' -- ' + target['Exec']
+            target['DBusActivatable'] = 'false'
+            target['StartupNotify'] = 'false'
+            write_desktop_file(str(dock_apps / name), clone, uid, gid, validate)
+            published.add(name)
+        except (configparser.Error, ValueError) as exc:
+            # One malformed vendor entry must not remove the rest of the menu.
+            print(f'warning: skipped desktop catalog entry {name}: {exc}', file=sys.stderr)
+    # This directory is exclusively owned by the private dock view. Never
+    # prune the user's real applications directory or follow symlink entries.
+    for old in dock_apps.glob('*.desktop'):
+        if old.name not in published:
+            read_regular_text(str(old), {uid})
+            old.unlink()
+    descriptor = os.open(dock_apps, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    payload = json.dumps(current, sort_keys=True) + '\n'
+    if len(payload.encode('utf-8')) > 1024 * 1024:
+        raise RuntimeError('managed desktop catalog state exceeds its bound')
+    old = read_regular_text(str(state), {uid}, size_limit=1024 * 1024) if state.exists() else None
+    if payload != old:
+        descriptor, temporary = tempfile.mkstemp(prefix='.catalog-', dir=dock)
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+                os.fchmod(stream.fileno(), MANAGED_FILE_MODE)
+                if os.geteuid() == 0:
+                    os.fchown(stream.fileno(), uid, gid)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, state)
+        finally:
+            if os.path.lexists(temporary):
+                os.unlink(temporary)
+        descriptor = os.open(dock, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
 def main() -> int:
+    configured_defaults.cache_clear()
     if len(sys.argv) not in {3, 5}:
         print("usage: labwc-sync-application-launchers <user> <home> [--coalesce-seconds 0..60]", file=sys.stderr)
         return 2
@@ -905,7 +886,6 @@ def main() -> int:
     account_home = sys.argv[2]
     try:
         uid, gid = validate_account_context(account_user, account_home)
-        acceleration_availability = load_acceleration_availability(DEFAULTS_PATH)
     except (OSError, RuntimeError) as exc:
         print(f"fatal: {exc}", file=sys.stderr)
         return 1
@@ -920,6 +900,8 @@ def main() -> int:
     synchronization_lock = acquire_lock(desktop_dir, uid, gid)
     if delay:
         time.sleep(delay)
+    configured_defaults.cache_clear()
+    acceleration_availability = load_acceleration_availability(DEFAULTS_PATH)
     validate = shutil.which("desktop-file-validate")
     processed = 0
     skipped_missing = 0
@@ -928,7 +910,7 @@ def main() -> int:
     removed_unmanaged_tuta = 0
     synchronized_bitwarden_autostart = 0
 
-    for config in APP_CONFIG:
+    for config in desktop_policy()["APP_CONFIG"]:
         resolved_desktop = desktop_source(config)
         if resolved_desktop is None:
             skipped_missing += 1
@@ -948,12 +930,18 @@ def main() -> int:
             invalid_apps.append(config["action_app"])
             continue
         entry = parser["Desktop Entry"]
-        entry["Exec"] = managed_default_exec(
-            config["action_app"],
-            config["field_code"],
-            config.get("default_mode"),
-        )
+        # Preserve the effective system/vendor command. Managed entrypoints
+        # belong to actions and the dock's private view, never the main Exec.
+        if not entry.get("Exec", "").strip():
+            invalid_apps.append(config["action_app"])
+            continue
+        compatibility = desktop_policy()['compatibility_exec'](entry['Exec'])
+        if compatibility is not None:
+            entry['Exec'] = compatibility
         normalize_managed_launch_metadata(entry)
+        entry["X-Labwc-ManagedExec"] = managed_default_exec(
+            config["action_app"], config["field_code"], config.get("default_mode"),
+        ).strip()
         if config["action_app"] == "code" and not config.get("no_display"):
             entry["NoDisplay"] = "false"
         if config.get("no_display"):
@@ -967,7 +955,7 @@ def main() -> int:
             config["action_app"],
             config["field_code"],
             available_actions(
-                config.get("actions", ()),
+                ("IntelAccelerated", "NvidiaAccelerated"),
                 acceleration_availability,
             ),
             tuple(config.get("policy_actions", ())),
@@ -984,6 +972,7 @@ def main() -> int:
             return 1
 
     try:
+        synchronize_catalog(account_home, desktop_dir, uid, gid, validate, acceleration_availability)
         removed_unmanaged_tuta = remove_unmanaged_tuta_launchers(account_home, uid, desktop_dir)
         synchronized_bitwarden_autostart = int(
             synchronize_bitwarden_autostart(

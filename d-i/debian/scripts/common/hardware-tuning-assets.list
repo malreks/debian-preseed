@@ -4,6 +4,9 @@ etc/hardware-tuning/nvidia.json.tmpl
 etc/systemd/system/hardware-tuning-autostart.service
 etc/systemd/system/hardware-tuning-sleep.service
 etc/systemd/system/hardware-tuning.service.tmpl
+etc/systemd/system/nvidia-tuning-policy.service
+etc/udev/rules.d/72-nvidia-tuning-policy.rules
+etc/systemd/system/hardware-tuning.service.d/30-nvidia-policy.conf
 etc/systemd/system/hardware-tuning.socket.tmpl
 etc/systemd/system/power-profiles-daemon.service.d/50-hardware-tuning.conf.tmpl
 etc/dbus-1/system.d/90-hardware-tuning-power-profiles.conf.tmpl

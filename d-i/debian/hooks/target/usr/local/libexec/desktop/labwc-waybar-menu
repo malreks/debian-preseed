@@ -402,9 +402,9 @@ class Popup:
         flags = self.Gtk.IconLookupFlags.FORCE_SIZE
         # A broken image-missing loader can otherwise turn a later GTK theme
         # fallback into a C assertion. This recoverable call fails cleanly.
-        theme.load_icon("image-missing", 16, flags)
         images, loaded = [], []
         try:
+            theme.load_icon("image-missing", 16, flags)
             for identity, name, size in specifications:
                 image = builder.get_object(identity)
                 if not isinstance(image, self.Gtk.Image):

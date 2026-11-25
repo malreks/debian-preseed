@@ -1,0 +1,17 @@
+[Unit]
+Description=Watch the wlsunset policy file
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target
+Requisite=labwc-session.target
+After=labwc-session.target
+PartOf=labwc-session.target
+ConditionEnvironment=LABWC_SESSION_OWNER=desktop
+
+[Path]
+# Watch the file, never its directory or editor lock/backup names.
+PathChanged=__INSTALLER_PATH_DIR_ETC__/labwc/wlsunset.conf
+Unit=labwc-wlsunset-apply.service
+
+[Install]
+WantedBy=labwc-session.target

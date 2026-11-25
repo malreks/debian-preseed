@@ -418,6 +418,11 @@ def install(root: Path, uid: int, gid: int, environment: dict, vendors: list[str
             for key, item in value.items()}, 0o600)
     put_template("etc/systemd/system/hardware-tuning.socket", {"HARDWARE_GID": str(gid)})
     nv = "nvidia" in vendors
+    if nv:
+        for unit in ("nvidia-tuning-policy.service",
+                     "hardware-tuning.service.d/30-nvidia-policy.conf"):
+            put_template("etc/systemd/system/" + unit)
+        put_template("etc/udev/rules.d/72-nvidia-tuning-policy.rules")
     put_template("etc/systemd/system/hardware-tuning.service", {
         "HARDWARE_CAPABILITIES": "CAP_SYS_ADMIN" if nv else "",
         "HARDWARE_PRIVATE_DEVICES": "no" if nv else "yes",

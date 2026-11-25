@@ -2,6 +2,41 @@
 abi "__INSTALLER_PATH_DIR_USR_SHARE__/apparmor-features/features",
 #include <tunables/global>
 
+profile nvidia-tuning-policy __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/nvidia-tuning-policy flags=(attach_disconnected, mediate_deleted) {
+  # Root-only bootstrap authority is separate from NVML and desktop callers.
+  #include <abstractions/base>
+  #include <abstractions/python>
+  capability mac_admin,
+  capability mknod,
+  __INSTALLER_PATH_DIR_USR__/bin/python3{,.[0-9]*} rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/nvidia-tuning-policy r,
+  __INSTALLER_PATH_DIR_HARDWARE_TUNING__/{,common.py,nvidia_devices.py} r,
+  __INSTALLER_PATH_DIR_ETC__/apparmor/{,**} r,
+  __INSTALLER_PATH_DIR_ETC__/apparmor.d/{,**} r,
+  __INSTALLER_PATH_DIR_USR_SHARE__/apparmor{,-features}/{,**} r,
+  __INSTALLER_PATH_DIR_USR__/sbin/apparmor_parser rix,
+  __INSTALLER_PATH_DIR_USR_BIN__/nvidia-modprobe rix,
+  __INSTALLER_PATH_DIR_DEV__/{,nvidia*,nvidia-caps/,nvidia-caps/nvidia-cap[0-9]*} r,
+  __INSTALLER_PATH_DIR_DEV__/nvidia-caps/ w,
+  __INSTALLER_PATH_DIR_DEV__/nvidia-caps/nvidia-cap[0-9]* w,
+  # Only the no-argument root bootstrap can create the vendor's numeric aliases.
+  # The desktop worker gets the exact generated subset below, never this glob.
+  __INSTALLER_PATH_DIR_DEV__/char/ rw,
+  __INSTALLER_PATH_DIR_DEV__/char/[0-9]*:[0-9]* w,
+  __INSTALLER_PATH_DIR_PROC__/devices r,
+  __INSTALLER_PATH_DIR_PROC__/driver/nvidia/{,capabilities/,capabilities/mig/,capabilities/mig/config,capabilities/mig/monitor} r,
+  __INSTALLER_PATH_DIR_SYS__/module/nvidia/{,parameters/,parameters/**} r,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning/nvidia.lock rwk,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/ rw,
+  __INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/{nvidia-char,nvidia-char.before,nvidia.json,nvidia.json.before,.nvidia-char.candidate,.nvidia-char.before.candidate,.nvidia.json.before.candidate,.nvidia.json.candidate,.nvidia.json.tuning-*} rw,
+  __INSTALLER_PATH_DIR_SYS__/kernel/security/apparmor/{,features/,features/**,profiles} r,
+  __INSTALLER_PATH_DIR_SYS__/kernel/security/apparmor/.{load,replace} w,
+  __INSTALLER_PATH_DIR_PROC__/{mounts,filesystems} r,
+  owner __INSTALLER_PATH_DIR_PROC__/[0-9]*/mounts r,
+  signal (receive) peer=unconfined,
+  signal (send, receive) peer=nvidia-tuning-policy,
+}
+
 profile hardware-tuning-broker __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuningd flags=(attach_disconnected, mediate_deleted) {
   # Deliberately NOT wrapper-python: that abstraction permits shells.
   #include <abstractions/base>

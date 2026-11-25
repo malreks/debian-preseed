@@ -11,6 +11,8 @@ import argparse
 from contextlib import contextmanager
 from decimal import Decimal
 import fcntl
+import hashlib
+import json
 import os
 from pathlib import Path
 import pwd
@@ -195,7 +197,7 @@ def systemctl(args: list[str], env: dict[str, str]) -> subprocess.CompletedProce
 
 
 def properties(unit: str, env: dict[str, str]) -> dict[str, str]:
-    result = systemctl(['show', '--property=LoadState,ActiveState,SubState,MainPID,Transient,Description', unit], env)
+    result = systemctl(['show', '--property=LoadState,ActiveState,SubState,MainPID,Transient,Description,Environment', unit], env)
     fields = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
     if fields.get('LoadState') == 'not-found':
         return fields
@@ -272,7 +274,14 @@ def start_argv(cfg: dict[str, str], session: dict[str, str]) -> list[str]:
             '--expand-environment=no', '--slice=app.slice']
     args += ['--property=' + value for value in PROPERTIES]
     args += ['--setenv=' + key + '=' + value for key, value in sorted(session.items())]
+    args += ['--setenv=LABWC_WLSUNSET_POLICY_DIGEST=' + policy_digest(cfg)]
     return args + ['--', *daemon_argv(cfg)]
+
+
+def policy_digest(cfg: dict[str, str]) -> str:
+    # Comments, whitespace and duplicate file-close events do not restart the
+    # daemon. The marker belongs to the transient being compared, not a cache.
+    return hashlib.sha256(json.dumps(cfg, sort_keys=True).encode('utf-8')).hexdigest()
 
 
 @contextmanager
@@ -362,6 +371,10 @@ def operate(action: str, cfg: dict[str, str] | None, env: dict[str, str], uid: i
         return 0
     if cfg is None:
         raise PolicyError('configuration is required to start the daemon')
+    if action == 'apply' and state.get('ActiveState') in ('active', 'activating'):
+        settings = dict(item.split('=', 1) for item in shlex.split(state.get('Environment', '')) if '=' in item)
+        if settings.get('LABWC_WLSUNSET_POLICY_DIGEST') == policy_digest(cfg):
+            return 0
     # Validate *before* stopping an existing instance, including on restart.
     session = active_session(env, uid)
     argv = start_argv(cfg, session)
@@ -378,10 +391,10 @@ def operate(action: str, cfg: dict[str, str] | None, env: dict[str, str], uid: i
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('start', 'stop', 'restart', 'status', 'check'),
+    parser.add_argument('action', choices=('start', 'stop', 'restart', 'apply', 'status', 'check'),
                         nargs='?', default='status')
     action = parser.parse_args().action
-    cfg = read_config() if action in ('start', 'restart', 'check') else None
+    cfg = read_config() if action in ('start', 'restart', 'apply', 'check') else None
     if action == 'check':
         assert cfg is not None
         print(shlex.join(daemon_argv(cfg)))

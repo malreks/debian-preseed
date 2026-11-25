@@ -94,6 +94,8 @@ def load_defaults(path: pathlib.Path) -> dict[str, str]:
         key = key.strip()
         if key not in DEFAULT_KEYS:
             continue
+        if key in values:
+            fail(f"duplicate {key} assignment on line {line_number}")
         try:
             parsed = shlex.split(raw_value, comments=False, posix=True)
         except ValueError as exc:

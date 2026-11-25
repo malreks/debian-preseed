@@ -42,7 +42,7 @@ from .profiles import (
 from .runtime import (
     ANGLE_GL_ARGS,
     MANAGED_CAGE_ENVIRONMENT,
-    MANAGED_WAYLAND_OPENGL_ENVIRONMENT,
+    MANAGED_NATIVE_OPENGL_ENVIRONMENT,
     current_user_home,
     current_user_name,
     current_user_runtime_socket,
@@ -502,7 +502,7 @@ def pure_privacy_environment(app_name: str, mode: str = "launch") -> dict[str, s
             "TMPDIR": f"{sandbox_home}/.tmp",
         }
     )
-    env.update(MANAGED_WAYLAND_OPENGL_ENVIRONMENT)
+    env.update(MANAGED_NATIVE_OPENGL_ENVIRONMENT)
     for name in tuple(env):
         if name.startswith(("VK_", "__VK_", "MESA_VK_")):
             env.pop(name)
@@ -570,17 +570,53 @@ BROWSER_PROXY_POLICIES = {
 }
 
 
-def proxy_session_argv(command: list[str], argv: list[str], app: str, *, online: bool) -> list[str]:
+def proxy_session_argv(command: list[str], argv: list[str], app: str, *, online: bool, temp_root: str) -> list[str]:
     """Bind immutable install-rendered policy; run the proxy inside the payload netns."""
     add_dir_chain(command, "__INSTALLER_PATH_DIR_ETC__/labwc/3proxy")
+    from .environment import _read_validated_text
+    snapshots = {}
     for path in ("__INSTALLER_PATH_DIR_ETC__/labwc/3proxy/session.json", "__INSTALLER_PATH_DIR_ETC__/labwc/3proxy/" + app + ".conf"):
         require_root_owned_regular_file("managed CONNECT proxy policy", path)
-        command.extend(["--ro-bind", path, path])
+        source = pathlib.Path(path)
+        raw = _read_validated_text(source, source.lstat(), 65536)
+        snapshots[source.name] = raw
+        snapshot = os.path.join(temp_root, 'proxy-' + source.name)
+        descriptor = os.open(snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+            stream.write(raw)
+        command.extend(["--ro-bind", snapshot, path])
     require_root_owned_executable("3proxy", "__INSTALLER_PATH_DIR_USR__/bin/3proxy")
     if app in BROWSER_PROXY_POLICIES:
-        path = BROWSER_PROXY_POLICIES[app]
-        require_root_owned_regular_file("managed browser proxy policy", path)
-        command.extend(["--ro-bind", path, path])
+        root = pathlib.Path('__INSTALLER_PATH_DIR_ETC__/labwc/3proxy')
+        source_name = {'microsoft-edge': 'edge'}.get(app, app) + '.json'
+        source = root / source_name
+        require_root_owned_regular_file('managed browser proxy policy', str(source))
+        policy = json.loads(_read_validated_text(source, source.lstat(), 65536))
+        settings = json.loads(snapshots['session.json'])
+        if (not isinstance(settings, dict) or set(settings) != {'web_browser_port','qbittorrent_port'}
+                or any(type(port) is not int or not 1024 <= port <= 65535 for port in settings.values())):
+            fail('invalid managed proxy listener settings')
+        address = '127.0.0.1:' + str(settings['web_browser_port'])
+        if app == 'mullvad-browser':
+            proxy = policy.get('policies', {}).get('Proxy')
+            if not isinstance(proxy, dict) or proxy.get('Mode') != 'manual' or proxy.get('Locked') is not True:
+                fail('invalid managed Mozilla proxy policy')
+            proxy.update(HTTPProxy=address, SSLProxy=address)
+        else:
+            proxy = policy.get('ProxySettings')
+            if not isinstance(proxy, dict) or proxy.get('ProxyMode') != 'fixed_servers':
+                fail('invalid managed Chromium proxy policy')
+            proxy['ProxyServer'] = 'http://' + address
+        # Reuse this launch's existing private workspace and cleanup owner.
+        # Runtime listener edits never require a global browser-policy writer.
+        generated = os.path.join(temp_root, 'browser-proxy.json')
+        descriptor = os.open(generated, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+            json.dump(policy, stream, sort_keys=True)
+            stream.write('\n')
+        target = BROWSER_PROXY_POLICIES[app]
+        add_dir_chain(command, os.path.dirname(target))
+        command.extend(["--ro-bind", generated, target])
     if app == "vivaldi":
         try:
             media_directory = vivaldi_media_directory()
@@ -867,7 +903,7 @@ def _run_pure_privacy(app_name: str, extra_args: list[str], resources: ExitStack
         argv = [session, "qbittorrent", "--privacy", *([] if online else ["--offline"]), *argv]
 
     if app_name in BROWSER_PROXY_POLICIES:
-        argv = proxy_session_argv(command, argv, app_name, online=online)
+        argv = proxy_session_argv(command, argv, app_name, online=online, temp_root=temp_root)
 
     if accelerator_mode is not None:
         add_optional_bind(command, "--ro-bind", "__INSTALLER_PATH_DIR_SYS__", "__INSTALLER_PATH_DIR_SYS__")
@@ -1982,7 +2018,7 @@ def _run_persistent_sandbox_with_resources(
             command.extend(podman_socket_arguments())
             command.extend(codex_socket_arguments())
         if app_name in BROWSER_PROXY_POLICIES:
-            argv = proxy_session_argv(command, argv, app_name, online=veth_enabled)
+            argv = proxy_session_argv(command, argv, app_name, online=veth_enabled, temp_root=temp_root)
         payload_argv = [*payload_argv_prefix, *argv]
         return run_veth_sandbox(
                 command,

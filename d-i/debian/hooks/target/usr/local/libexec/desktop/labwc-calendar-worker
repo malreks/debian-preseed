@@ -872,12 +872,13 @@ def run_reminders():
         # socket's inactivity timeout. This mode has no subprocess delegates.
         signal.setitimer(signal.ITIMER_REAL, 45)
         try:
-            if initial_policy is None:
-                # Policy validation is part of the retry loop. A malformed or
-                # temporarily unavailable policy must leave this long-lived
-                # worker available for repair instead of exhausting systemd's
-                # start limit before the desktop can correct it.
-                initial_policy = reminders.read_policy()
+            # Capture the current policy once per existing bounded cycle.
+            # Dispatch still checks the same destination immediately before
+            # sending. No service restart, additional watcher or backlog replay
+            # is needed when a valid destination/credential changes.
+            initial_policy = reminders.read_policy()
+            for channel in ('telegram', 'ntfy'):
+                reminders.destination(initial_policy, channel)
             cursor = reminder_cycle(initial_policy, cursor)
         except (Error, reminders.ReminderError) as error:
             if isinstance(error, reminders.ReminderError) and error.code == 'reminder-policy':

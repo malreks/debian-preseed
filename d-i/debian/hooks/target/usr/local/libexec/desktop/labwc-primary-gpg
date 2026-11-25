@@ -24,6 +24,13 @@ POLICY = Path('__INSTALLER_PATH_DIR_ETC__/labwc/primary-gpg.json')
 MAX_BYTES = 16384
 
 
+def unique_object(pairs):
+    value = dict(pairs)
+    if len(value) != len(pairs):
+        raise ValueError('duplicate primary GPG policy field')
+    return value
+
+
 class UnlockCancelled(ValueError):
     """GnuPG explicitly reported a cancelled pinentry operation."""
 
@@ -46,9 +53,12 @@ def read_policy():
             raise ValueError('unsafe primary GPG policy')
         with os.fdopen(fd, 'rb', closefd=False) as source:
             data = source.read(MAX_BYTES + 1)
-        if len(data) > MAX_BYTES:
+        after = os.fstat(fd)
+        if (len(data) > MAX_BYTES or len(data) != metadata.st_size or
+                (metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns) !=
+                (after.st_size, after.st_mtime_ns, after.st_ctime_ns)):
             raise ValueError('oversized primary GPG policy')
-        policy = json.loads(data)
+        policy = json.loads(data, object_pairs_hook=unique_object)
     finally:
         os.close(fd)
     if (not isinstance(policy, dict) or set(policy) != {

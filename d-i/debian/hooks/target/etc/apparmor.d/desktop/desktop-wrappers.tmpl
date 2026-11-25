@@ -2478,7 +2478,7 @@ profile labwc-app __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{labwc-app,labwc-agenda,l
   #include <abstractions/app-veth-client>
   __INSTALLER_PATH_DIR_ETC__/qbittorrent/{,qBittorrent.conf.d/,qBittorrent.conf.d/20-managed-privacy.conf} r,
   __INSTALLER_PATH_DIR_ETC__/labwc/ r,
-  __INSTALLER_PATH_DIR_ETC__/labwc/3proxy/{,session.json,chromium.conf,microsoft-edge.conf,vivaldi.conf,mullvad-browser.conf,qbittorrent.conf} r,
+  __INSTALLER_PATH_DIR_ETC__/labwc/3proxy/{,session.json,chromium.conf,microsoft-edge.conf,vivaldi.conf,mullvad-browser.conf,qbittorrent.conf,chromium.json,edge.json,vivaldi.json,mullvad-browser.json} r,
   # Explicit launches can inherit their caller's terminal before systemd owns
   # the app cgroup; do not reject these inherited descriptors.
   owner __INSTALLER_PATH_DIR_DEV__/pts/[0-9]* rw,
@@ -2693,6 +2693,8 @@ profile labwc-app __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{labwc-app,labwc-agenda,l
   # abstraction and explicitly inherit execution for the fixed managed
   # application allowlist.
   profile app-bwrap flags=(attach_disconnected, mediate_deleted) {
+    # Native NVIDIA library readiness checks retain NNP and this confinement.
+    include if exists <local/desktop-native-nvidia>
     __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-proxy-session rix,
     __INSTALLER_PATH_DIR_USR__/bin/3proxy rix,
     __INSTALLER_PATH_DIR_ETC__/qbittorrent/qBittorrent.conf.d/20-managed-privacy.conf r,
@@ -2700,7 +2702,7 @@ profile labwc-app __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/{labwc-app,labwc-agenda,l
     # Host policy directories are root-owned; bound policy files stay read-only.
     __INSTALLER_PATH_DIR_ETC__/labwc/ r,
     owner __INSTALLER_PATH_DIR_ETC__/labwc/{,3proxy/} rw,
-    __INSTALLER_PATH_DIR_ETC__/labwc/3proxy/{,session.json,chromium.conf,microsoft-edge.conf,vivaldi.conf,mullvad-browser.conf,qbittorrent.conf} r,
+    __INSTALLER_PATH_DIR_ETC__/labwc/3proxy/{,session.json,chromium.conf,microsoft-edge.conf,vivaldi.conf,mullvad-browser.conf,qbittorrent.conf,chromium.json,edge.json,vivaldi.json,mullvad-browser.json} r,
     ptrace (readby) peer=labwc-app,
     owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/labwc-*-tmp/{,**} rwkl,
     #include <abstractions/bwrap-common>
@@ -3480,6 +3482,7 @@ profile labwc-remote-desktop __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-remote-d
 }
 
 profile labwc-run __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-run flags=(attach_disconnected) {
+  #include <abstractions/wrapper-python>
   #include <abstractions/wrapper-desktop>
 
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-run rix,
@@ -3615,6 +3618,11 @@ profile labwc-sync-application-launchers __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/la
   #include <abstractions/wrapper-python>
 
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-sync-application-launchers rix,
+  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files r,
+  __INSTALLER_PATH_DIR_USR__/bin/{dpkg,dpkg-query} rix,
+  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/{,status,info/,info/*.list} r,
+  __INSTALLER_PATH_DIR_OPT__/*/resources/app.asar r,
+  __INSTALLER_PATH_DIR_USR__/{lib,share}/*/resources/app.asar r,
   __INSTALLER_PATH_DIR_USR__/bin/desktop-file-validate pux,
   owner @{HOME}/.config/ rw,
   owner @{HOME}/.config/mimeapps.list rw,
@@ -3630,6 +3638,9 @@ profile labwc-sync-application-launchers __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/la
   owner @{HOME}/.local/share/ rw,
   owner @{HOME}/.local/share/applications/ rw,
   owner @{HOME}/.local/share/applications/** rwkl,
+  owner @{HOME}/.local/share/labwc-dock/{,applications/} rw,
+  owner @{HOME}/.local/share/labwc-dock/{catalog.json,.catalog-*} rw,
+  owner @{HOME}/.local/share/labwc-dock/applications/{*.desktop,.*.desktop.*.desktop} rwkl,
 
   include if exists <local/usr.local.bin.labwc-sync-application-launchers>
 }
@@ -4863,7 +4874,6 @@ profile labwc-main-menu __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu fla
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-help rPx -> labwc-help,
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app rPx -> labwc-app,
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-fuzzel rPx -> labwc-fuzzel,
-  __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-run rPx -> labwc-run,
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app rPx -> labwc-generic-app,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-debug-session rPx -> labwc-debug-session,
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-terminal rPx -> labwc-terminal,

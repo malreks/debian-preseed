@@ -1,19 +1,41 @@
 # Managed by the installer apt-setup preferences generator.
-# Keep the proprietary 580 DKMS, firmware and userspace ABI in one Pika family.
-# Source matching includes the branch's exact-version dependencies and virtual
-# providers without selecting open modules, driver metapackages or X.Org.
+# Pascal requires the proprietary 580 branch. Specific negative records must
+# precede the source-family allow: APT uses the FIRST specific matching record.
+Package: nvidia-open*:any nvidia-kernel-open*:any nvidia-kernel-dkms-open*:any
+Pin: version *
+Pin-Priority: -1
+
+# Source names alone do not constrain their package versions. Reject every
+# non-580.* version, including epoch-qualified versions, before the Pika allow.
+# Each alternative excludes ':' so an epoch cannot match as a driver version.
+Package: src:nvidia-graphics-drivers-580:any
+Pin: version /^([0-9]+:)?([^:5][^:]*|5[^:8][^:]*|58[^:0][^:]*|580[^:.][^:]*|5|58|580)$/
+Pin-Priority: -1
+
+# XanMod supplies the kernel, never competing NVIDIA packages.
+Package: nvidia*:any libnvidia*:any libcuda*:any libcudadebugger*:any libegl-nvidia*:any libgles-nvidia*:any libglx-nvidia*:any libnvcuvid*:any libnvoptix*:any firmware-nvidia*:any
+Pin: origin deb.xanmod.org
+Pin-Priority: -1
+
+# Keep DKMS, firmware, EGL/GLX/GLES/GL core, NVML and utilities in one signed
+# source cohort, whose package dependencies bind their exact ABI versions.
 Package: src:nvidia-graphics-drivers-580:any
 Pin: origin ppa.pika-os.com
 Pin-Priority: 990
 
-# EGL/GBM platform libraries retain their fixes independently of driver updates.
-Package: libnvidia-egl-wayland1 libnvidia-egl-gbm1
+# Platform bridges and the Debian decoder/firmware have independent versions.
+Package: libnvidia-egl-wayland1:any libnvidia-egl-gbm1:any
 Pin: origin ppa.pika-os.com
 Pin-Priority: 990
 
-# XanMod supplies the kernel (15-kernel.pref), never competing NVIDIA packages.
+Package: nvidia-vaapi-driver:any firmware-nvidia-graphics:any
+Pin: release o=Debian
+Pin-Priority: 990
+
+# Fail closed on unsuffixed meta-packages and every other driver branch/origin.
+# The independently versioned exceptions above must precede this family guard.
 Package: nvidia*:any libnvidia*:any libcuda*:any libcudadebugger*:any libegl-nvidia*:any libgles-nvidia*:any libglx-nvidia*:any libnvcuvid*:any libnvoptix*:any firmware-nvidia*:any
-Pin: origin deb.xanmod.org
+Pin: version *
 Pin-Priority: -1
 
 # Pika's EGL implementation requires coherent GBM/Mesa runtime dependencies.

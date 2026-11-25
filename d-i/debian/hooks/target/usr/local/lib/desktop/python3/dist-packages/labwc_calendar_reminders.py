@@ -470,6 +470,12 @@ def read_policy(path=Path('__INSTALLER_PATH_DIR_ETC__/labwc/plans.conf')):
         match = re.fullmatch(r"(LABWC_PLANS_[A-Z_]+)='([^'\x00-\x1f\x7f]*)'", line)
         require(match is not None and match[1] not in result, 'reminder-policy')
         result[match[1]] = match[2]
+    expected = {'LABWC_PLANS_' + name for name in ('ENABLED', 'TELEGRAM_ENABLED', 'TELEGRAM_API_BASE',
+                'TELEGRAM_API_KEY', 'TELEGRAM_CHAT_ID', 'NTFY_ENABLED', 'NTFY_BASE_URL', 'NTFY_TOPIC',
+                'NTFY_ACCESS_TOKEN', 'NTFY_READER_ACCESS_CONFIRMED')}
+    require(set(result) == expected, 'reminder-policy')
+    for name in ('ENABLED','TELEGRAM_ENABLED','NTFY_ENABLED','NTFY_READER_ACCESS_CONFIRMED'):
+        boolean(result, name)
     return result
 
 

@@ -191,10 +191,38 @@ STRICT = {'apparmor.service', 'auditd.service', 'journal-sealing.service',
           'nftables.service', 'rsyslog.service',
           'rsyslog-journal-forwarding.service', 'syslog.socket'}
 PROPERTIES = ('Id', 'Names', 'Requires', 'LoadState', 'ActiveState', 'SubState', 'Result', 'Type',
-              'ExecMainStartTimestampMonotonic', 'ConditionResult', 'AssertResult',
+              'Conflicts', 'PartOf', 'TTYPath', 'InvocationID', 'ExecMainCode', 'ExecMainStatus',
+              'ExecMainStartTimestampMonotonic', 'ExecMainExitTimestampMonotonic', 'ConditionResult', 'AssertResult',
               'ConditionTimestampMonotonic', 'AssertTimestampMonotonic',
               'TriggeredBy', 'WantedBy', 'RequiredBy')
-VECTORS = ('Names', 'Requires', 'TriggeredBy', 'WantedBy', 'RequiredBy')
+VECTORS = ('Names', 'Requires', 'Conflicts', 'PartOf', 'TriggeredBy', 'WantedBy', 'RequiredBy')
+# Explicit finite task; other Type=exec/simple units remain persistent daemons.
+FINITE_TASKS = {'tailscale-bootstrap.service'}
+
+
+def task_receipt():
+    path = Path('__INSTALLER_PATH_FILE_TAILSCALE_STATUS__')
+    # Fixed administrator-owned ancestry; never source the receipt as code.
+    for parent in (path.parent, *path.parent.parents):
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError('unsafe-task-receipt-directory')
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+                info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600):
+            raise ValueError('unsafe-task-receipt')
+        data = stream.read(16385)
+    if len(data) > 16384:
+        raise ValueError('task-receipt-limit')
+    fields = {}
+    for line in data.decode('ascii').splitlines():
+        key, separator, value = line.partition('=')
+        if not separator or not re.fullmatch(r'TAILSCALE_[A-Z_]+', key) or key in fields:
+            raise ValueError('invalid-task-receipt')
+        fields[key] = value
+    return fields
 
 
 def transport_atoms(value, *, canonical=True):
@@ -434,6 +462,16 @@ def classify(name, record, related):
     active = record['ActiveState']
     if record['LoadState'] != 'loaded' or active == 'failed':
         return 'failed', 'load-or-execution-failed'
+    if (name in FINITE_TASKS and active == 'activating' and record.get('SubState') == 'auto-restart'
+            and record.get('ExecMainCode') == '1' and record.get('ExecMainStatus') == '75'
+            and record.get('Result') == 'success'):
+        try:
+            receipt = task_receipt()
+        except FileNotFoundError:
+            return 'failed', 'finite-task-receipt-missing'
+        if (receipt.get('TAILSCALE_BOOTSTRAPPED') == 'false' and
+                receipt.get('TAILSCALE_STATUS') == 'pending-machine-approval'):
+            return 'expected', 'enrollment-approval-pending-with-retry'
     if active in ('activating', 'deactivating', 'refreshing', 'maintenance'):
         return 'pending', active
     if (record.get('AssertResult') == 'no' and
@@ -450,12 +488,49 @@ def classify(name, record, related):
         return 'expected', 'completion-gated-cleanup'
     if active != 'inactive':
         return 'failed', 'unknown-active-state'
+    # Only the explicit VT1 owner can explain this conflict. Never start tty1
+    # behind greetd, or excuse an unrelated stopped service through Conflicts.
+    if name == 'getty@tty1.service':
+        greeter = related.get('greetd.service', {})
+        if (greeter.get('LoadState') == 'loaded' and greeter.get('ActiveState') == 'active'
+                and name in greeter.get('Conflicts', ())
+                and greeter.get('TTYPath') == '__INSTALLER_PATH_DIR_DEV__/tty1'):
+            return 'expected', 'tty1-owned-by-greetd'
+    # The packaged listener is wanted by/part of firewalld, not multi-user.
+    # A selected nftables desktop does not need a second firewall manager.
+    if name == 'netavark-firewalld-reload.service':
+        firewall = related.get('firewalld.service', {})
+        native = related.get('nftables.service', {})
+        if ('firewalld.service' in record.get('PartOf', ())
+                and 'firewalld.service' in record.get('WantedBy', ())
+                and firewall.get('LoadState') in {'loaded', 'not-found', 'masked'}
+                and firewall.get('ActiveState') == 'inactive'
+                and firewall.get('Result', 'success') == 'success'
+                and native.get('LoadState') == 'loaded' and native.get('ActiveState') == 'active'):
+            return 'expected', 'firewalld-integration-not-applicable'
     if (record.get('ConditionResult') == 'no' and
             record.get('ConditionTimestampMonotonic', '0').isdecimal() and
             int(record.get('ConditionTimestampMonotonic', '0')) > 0):
         return ('failed', 'required-condition-failed') if strict else (
             'expected', 'condition-not-applicable')
     stamp = record.get('ExecMainStartTimestampMonotonic', '0')
+    if name in FINITE_TASKS:
+        end = record.get('ExecMainExitTimestampMonotonic', '0')
+        invoked = (stamp.isdecimal() and int(stamp) > 0 and end.isdecimal()
+                   and int(end) >= int(stamp) and record.get('ExecMainCode') == '1'
+                   and record.get('ExecMainStatus') == '0')
+        if invoked:
+            try:
+                receipt = task_receipt()
+            except FileNotFoundError:
+                return 'failed', 'finite-task-receipt-missing'
+            if (receipt.get('TAILSCALE_BOOTSTRAPPED') == 'true' and
+                    receipt.get('TAILSCALE_STATUS') in {'already-joined', 'bootstrap-succeeded'}):
+                return 'verified', 'finite-task-completed'
+            if (receipt.get('TAILSCALE_BOOTSTRAPPED') == 'false' and
+                    receipt.get('TAILSCALE_STATUS') == 'manual-auth-required'):
+                return 'expected', 'manual-enrollment-pending'
+        return 'failed', 'finite-task-completion-unproven'
     if (record.get('Type') == 'oneshot' and stamp.isdecimal() and int(stamp) > 0
             and record.get('Result') == 'success'):
         return 'verified', 'oneshot-completed'
@@ -495,7 +570,7 @@ def main():
         raise ValueError('required-dependency-depth-exceeded')
     # Reverse parents and triggers explain inactivity; they do not recursively
     # promote rescue/initrd/shutdown branches into this boot's obligations.
-    extra = set().union(*(dependencies(record, ('TriggeredBy', 'WantedBy', 'RequiredBy'))
+    extra = set().union(*(dependencies(record, ('TriggeredBy', 'WantedBy', 'RequiredBy', 'Conflicts', 'PartOf'))
                           for record in records.values())) - required
     if len(extra) > 8192:
         raise ValueError('too-many-related-units')
@@ -1088,7 +1163,7 @@ printf "desktop_kanshi_verification enabled=%s\n" "$enabled"
         [ -d "$path" ] && [ ! -L "$path" ]
         [ "$(find -P "$path" -maxdepth 0 -printf "%U:%G:%m")" = "0:0:755" ]
       done
-      for asset in session.json chromium.conf microsoft-edge.conf vivaldi.conf mullvad-browser.conf qbittorrent.conf; do
+      for asset in session.json chromium.conf microsoft-edge.conf vivaldi.conf mullvad-browser.conf qbittorrent.conf chromium.json chrome.json edge.json vivaldi.json mullvad-browser.json; do
         if [ "$asset" = qbittorrent.conf ] && [ ! -f __INSTALLER_PATH_DIR_ETC_QBITTORRENT__/qBittorrent.conf.d/10-security.conf ]; then
           continue
         fi

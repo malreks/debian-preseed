@@ -184,6 +184,7 @@ desktop_enable_target_services() {
     filter-chain.service \
     labwc-sync-application-launchers.service \
     labwc-sync-application-launchers.path \
+    labwc-wlsunset-apply.path \
     wayscriber.service \
     hyprpolkitagent.service \
     xdg-desktop-portal.service \

@@ -41,6 +41,7 @@ __INSTALLER_PATH_DIR_USR_SHARE__/xkeyboard-config-*/** r,
 __INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/ r,
 __INSTALLER_PATH_DIR_VAR_CACHE__/fontconfig/** mr,
 
+owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/dconf/ rw,
 owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/dconf/user rw,
 owner @{HOME}/.cache/fontconfig/ rw,
 owner @{HOME}/.cache/fontconfig/** rwkl,

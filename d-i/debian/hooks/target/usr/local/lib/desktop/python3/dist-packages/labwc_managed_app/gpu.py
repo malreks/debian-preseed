@@ -13,10 +13,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import stat
 
 from .integrity import system_owner
-from .runtime import fail
+from .runtime import fail, NVIDIA_ACCELERATION_ENV
 from . import diagnostics
 
 PCI = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]")
@@ -107,10 +108,8 @@ class Selection:
         environment["MOZ_DRM_DEVICE"] = str(self.node)
         if self.vendor == "nvidia":
             environment.update({
-                "GBM_BACKEND": "nvidia-drm", "LIBVA_DRIVER_NAME": "nvidia",
-                "NVD_BACKEND": "direct", "NVD_DRM_DEVICE": str(self.node),
+                **NVIDIA_ACCELERATION_ENV,
                 "__EGL_VENDOR_LIBRARY_FILENAMES": "__INSTALLER_PATH_DIR_USR_SHARE__/glvnd/egl_vendor.d/10_nvidia.json",
-                "__GLX_VENDOR_LIBRARY_NAME": "nvidia", "__NV_PRIME_RENDER_OFFLOAD": "1",
             })
         else:
             environment.update({
@@ -120,10 +119,17 @@ class Selection:
             if self.vendor == "intel":
                 environment["LIBVA_DRIVER_NAME"] = "iHD"
         diagnostics.record_gpu(self.vendor, self.pci, str(self.node), self.bindings, self.discovery)
+        # QtWebEngine creates a separate Chromium command line. Bind its
+        # allocator/GL and optional decoder to the same selected device too.
+        if "QTWEBENGINE_CHROMIUM_FLAGS" in environment:
+            arguments = self.chromium_arguments([
+                "QtWebEngineProcess", *shlex.split(environment["QTWEBENGINE_CHROMIUM_FLAGS"]),
+            ])
+            environment["QTWEBENGINE_CHROMIUM_FLAGS"] = shlex.join(arguments[1:])
         diagnostics.record_environment(environment)
 
     def chromium_arguments(self, arguments: list[str]) -> list[str]:
-        """Replace the Ozone device hint, preserving operands after '--'."""
+        """Bind GL and video selection to one GPU; preserve '--' operands."""
         result = []
         index = 0
         while index < len(arguments):
@@ -132,17 +138,21 @@ class Selection:
                 result.extend(arguments[index:])
                 break
             key, separator, _ = argument.partition("=")
-            if key in {"--render-node-override", "-render-node-override"}:
+            if key in {"--render-node-override", "-render-node-override",
+                       "--hardware-video-device-path", "-hardware-video-device-path"}:
                 if not separator:
                     if index + 1 >= len(arguments):
-                        fail("render-node override is missing its value")
+                        fail("GPU device override is missing its value")
+                    if arguments[index + 1].startswith("-"):
+                        fail("GPU device override has an invalid value")
                     index += 1
             else:
                 result.append(argument)
             index += 1
         # All callers pass executable argv, including the Chromium shell
         # wrappers; the switch must precede any URL or '--' operands.
-        return [result[0], "--render-node-override=" + str(self.node), *result[1:]]
+        return [result[0], "--render-node-override=" + str(self.node),
+                "--hardware-video-device-path=" + str(self.node), *result[1:]]
 
 
 def select(mode: str, *, dev_root: Path = Path("__INSTALLER_PATH_DIR_DEV__"), sys_root: Path = Path("__INSTALLER_PATH_DIR_SYS__"),

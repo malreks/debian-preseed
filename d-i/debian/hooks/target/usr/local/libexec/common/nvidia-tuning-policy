@@ -1,0 +1,193 @@
+#!__INSTALLER_PATH_DIR_USR__/bin/python3 -IB
+"""Prepare exact worker alias rights; never accept desktop paths or numbers.
+
+Only this root service can publish/reload policy. Alias reconciliation remains
+owned by nvidia-char-links/udev. Preparation shares the worker's NVIDIA lock.
+"""
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import os
+from pathlib import Path
+import signal
+import stat
+import subprocess
+import sys
+import time
+
+LIBRARY = Path("__INSTALLER_PATH_DIR_HARDWARE_TUNING__")
+POLICY = Path("__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy")
+STATE = Path("__INSTALLER_PATH_DIR_RUN__/hardware-tuning")
+PARENT = "__INSTALLER_PATH_DIR_ETC__/apparmor.d/hardware-tuning"
+PARSER = "__INSTALLER_PATH_DIR_USR__/sbin/apparmor_parser"
+
+
+def protected(path: Path) -> None:
+    for parent in (path, *path.parents):
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or info.st_mode & 0o022:
+            raise ValueError("untrusted policy preparation directory")
+
+
+def previous(path: Path) -> bytes | None:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o644:
+            raise ValueError("untrusted policy preparation file")
+        data = stream.read(65537)
+        if len(data) > 65536:
+            raise ValueError("policy preparation file exceeds limit")
+        return data
+
+
+def publish(path: Path, data: bytes) -> None:
+    temporary = path.with_name('.' + path.name + '.candidate')
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            os.fchmod(stream.fileno(), 0o644)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def sync_policy_directory() -> None:
+    directory = os.open(POLICY, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def reload_policy() -> None:
+    # Target activation only, never called in d-i or by source validation.
+    subprocess.run([PARSER, '-r', '-K', '-j', '1', PARENT], check=True, timeout=8,
+                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                   env={'PATH': '__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_USR_SBIN__', 'LC_ALL': 'C'})
+    with open('__INSTALLER_PATH_DIR_SYS__/kernel/security/apparmor/profiles', 'rb') as stream:
+        loaded = stream.read(1048577)
+    if len(loaded) > 1048576 or b'hardware-tuning-worker (enforce)' not in loaded.splitlines():
+        raise RuntimeError('enforced hardware worker policy not observed after reload')
+
+
+def prepare_capabilities() -> None:
+    # NVML invokes these same fixed capability requests lazily. Prepare them
+    # before taking the worker snapshot, while only this root service has
+    # device-node and policy-publication authority. The driver owns the mode
+    # and minor numbers; no desktop caller supplies either.
+    arguments = ['__INSTALLER_PATH_DIR_USR_BIN__/nvidia-modprobe']
+    for leaf in ('config', 'monitor'):
+        path = Path('__INSTALLER_PATH_DIR_PROC__/driver/nvidia/capabilities/mig') / leaf
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError('untrusted NVIDIA capability metadata')
+        arguments.extend(('-f', str(path)))
+    if len(arguments) > 1:
+        subprocess.run(arguments, check=True, timeout=5, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL,
+                       env={'PATH': '__INSTALLER_PATH_DIR_USR_BIN__:__INSTALLER_PATH_DIR_USR_SBIN__', 'LC_ALL': 'C'})
+
+
+def main() -> int:
+    if sys.argv[1:] or os.geteuid() != 0:
+        raise ValueError("root service with no arguments required")
+    protected(LIBRARY)
+    for name in ('common.py', 'nvidia_devices.py'):
+        info = (LIBRARY / name).lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or info.st_nlink != 1 or info.st_mode & 0o022:
+            raise ValueError("untrusted policy preparation module")
+    sys.path.insert(0, str(LIBRARY))
+    from common import atomic_json
+    from nvidia_devices import snapshot
+    protected(POLICY)
+    protected(STATE)
+    lock = os.open(STATE / 'nvidia.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        info = os.fstat(lock)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600:
+            raise ValueError("untrusted NVIDIA transaction lock")
+        deadline = time.monotonic() + 8
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    return 75
+                time.sleep(0.05)
+        prepare_capabilities()
+        nodes = snapshot()
+        if not nodes:
+            return 75  # module/device activation is not ready yet
+        include = POLICY / 'nvidia-char'
+        old = previous(include)
+        record = POLICY / 'nvidia.json'
+        old_record = previous(record)
+        # A retained recovery file blocks another uncertain publication.
+        recovery = POLICY / 'nvidia-char.before'
+        record_recovery = POLICY / 'nvidia.json.before'
+        if any(path.exists() or path.is_symlink() for path in (recovery, record_recovery)):
+            raise ValueError("retained policy recovery requires administrator review")
+        rules = ''.join(f'__INSTALLER_PATH_DIR_DEV__/char/{os.major(row[3])}:{os.minor(row[3])} w,\n'
+                        for row in nodes).encode('ascii')
+        publish(recovery, old if old is not None else b'# previous include absent\n')
+        publish(record_recovery, old_record if old_record is not None else b'# previous record absent\n')
+        try:
+            publish(include, rules)
+            reload_policy()
+            if snapshot() != nodes:
+                raise ValueError("NVIDIA nodes changed during policy preparation")
+            atomic_json(record, {'version': 1, 'nodes': nodes,
+                                'rules_sha256': hashlib.sha256(rules).hexdigest()}, mode=0o644)
+        except BaseException:
+            try:
+                if old is None:
+                    include.unlink(missing_ok=True)
+                else:
+                    publish(include, old)
+                if old_record is None:
+                    record.unlink(missing_ok=True)
+                else:
+                    publish(record, old_record)
+                sync_policy_directory()
+                reload_policy()
+            except BaseException as error:
+                print('nvidia-tuning-policy: outcome-unknown recovery=' + str(recovery), file=sys.stderr)
+                raise RuntimeError('policy restoration unproven') from error
+            recovery.unlink()
+            record_recovery.unlink()
+            sync_policy_directory()
+            raise
+        recovery.unlink()
+        record_recovery.unlink()
+        sync_policy_directory()
+        return 0
+    finally:
+        os.close(lock)
+
+
+if __name__ == '__main__':
+    def interrupted(number, _frame):
+        raise RuntimeError('policy preparation interrupted by signal ' + str(number))
+    signal.signal(signal.SIGTERM, interrupted)
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print('nvidia-tuning-policy: ' + str(error), file=sys.stderr)
+        raise SystemExit(1)
