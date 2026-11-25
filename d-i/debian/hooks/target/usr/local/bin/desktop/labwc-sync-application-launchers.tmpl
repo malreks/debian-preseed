@@ -782,6 +782,8 @@ def synchronize_catalog(account_home: str, desktop_dir: str, uid: int, gid: int,
     published = set()
     for name, source in sorted(effective.items()):
         text = read_regular_text(str(source), {0, uid}, allow_root_group_write=source.parent != pathlib.Path(desktop_dir))
+        if source.parent != pathlib.Path(desktop_dir):
+            text = policy['repair_known_vendor_entry'](name, text)
         try:
             parser = parse_desktop(text)
             if not parser.has_section('Desktop Entry'):
