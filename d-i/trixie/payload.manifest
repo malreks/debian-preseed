@@ -87,7 +87,7 @@ format=3
 121096	397cc0c96b6fa85c2070103b350ab47b60d1425b3f6f0c6e0026e72678a72238	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.env
 154545	fad8e3e9973eed9d204992b58184b67d6e226ac9685fbd068801abd30942488a	catalog/compiled/forky/profiles/server/f2fs-srv-hp14.provenance.json
 12373	1bd51f3961778854a8361a9564507b70e450a38218719dcd2f467f78923f90b2	catalog/compiled/profile-assets.tsv
-154	60499f269a0fbfcc71e10e2bcd15453c834ad0d21c8a623ace755a7d2383853a	catalog/compiled/release.tsv
+154	6a208ebf60444e929cdff1f009a911dc147c732e73c3372dd739f65f81c1c556	catalog/compiled/release.tsv
 22105	3d0bd73d48a0577301724b209c9afb0b42ad006a7de9ee1cf156a8460e84982a	catalog/compiled/shared-perl-assets.tsv
 178171	f5a84a37670007b8aea729e4919c4b0d86f065354bbb8e07b1c0fd14ccc1c798	catalog/compiled/source-members.tsv
 513	7e8a843e51a8d28472e5eb07fa9fdedc7f69760491de02682a6e018be5b6056b	catalog/compiled/suite-qualification.tsv
@@ -266,7 +266,7 @@ format=3
 241	c6e85a92952c9fcf43f1c611ee3f54d38628cfeb2318dccfbbb5c0b636c66f3a	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/dbus.pref
 1557	df538f838f81410faa7f057660f587381b1f7f590dd2a0cdcdff4c483761f4ed	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/cuda-legacy.pref
 359	aa30c317c11f07654d518291166945e7874ca72e1ae6bb4aaf55768f22484902	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/cuda.pref
-4055	abf041ebdce8d843696732aa8c1958a4e8ac008b7e874d536c218af2904dfef9	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-legacy.pref
+4074	2a7c2c83461346b133de31326afea97fb1be0bc4d3428c8eb174b5992b1935d4	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-legacy.pref
 1252	87e0b1521eda9dad860361f012e0d780414683686e8740f7f0ad6634cfc26551	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-opt-in.pref
 1262	cbfab4378813ab5b00cc2ff41274d5f5af11d36d402314ee599af40b4dac7874	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia.pref
 778	f1bf7d0bf738e3c897ca67827fdb54bd174c130c5ab94603e5e1d9e8044cbc7d	frontends/forky/hooks/target/etc/apt/desktop/preferences.d/x11.pref
@@ -283,7 +283,7 @@ format=3
 241	c6e85a92952c9fcf43f1c611ee3f54d38628cfeb2318dccfbbb5c0b636c66f3a	frontends/forky/hooks/target/etc/apt/server/preferences.d/dbus.pref
 1557	df538f838f81410faa7f057660f587381b1f7f590dd2a0cdcdff4c483761f4ed	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/cuda-legacy.pref
 359	aa30c317c11f07654d518291166945e7874ca72e1ae6bb4aaf55768f22484902	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/cuda.pref
-4055	db660138238d02ab8476a7354e1211191f7611b40f4c743d8265b0d731581ff9	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia-legacy.pref
+4074	308c9f4b2497b3f1592cd047fe0e175e1e0a121ba352058017e546a8ba506be3	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia-legacy.pref
 1252	87e0b1521eda9dad860361f012e0d780414683686e8740f7f0ad6634cfc26551	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia-opt-in.pref
 1262	cbfab4378813ab5b00cc2ff41274d5f5af11d36d402314ee599af40b4dac7874	frontends/forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref
 778	f1bf7d0bf738e3c897ca67827fdb54bd174c130c5ab94603e5e1d9e8044cbc7d	frontends/forky/hooks/target/etc/apt/server/preferences.d/x11.pref
@@ -375,7 +375,7 @@ format=3
 241	c6e85a92952c9fcf43f1c611ee3f54d38628cfeb2318dccfbbb5c0b636c66f3a	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/dbus.pref
 1557	df538f838f81410faa7f057660f587381b1f7f590dd2a0cdcdff4c483761f4ed	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/cuda-legacy.pref
 359	aa30c317c11f07654d518291166945e7874ca72e1ae6bb4aaf55768f22484902	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/cuda.pref
-4279	39d1063591c6cbbfd3b20d0fe1fee6e7cd0f6cef644353b89b03b94dd0199776	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-legacy.pref
+4298	b395dce87b3336e8a33ed812e066009f4d774db008a5187c89d7505dbba5cbb9	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-legacy.pref
 1252	87e0b1521eda9dad860361f012e0d780414683686e8740f7f0ad6634cfc26551	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia-opt-in.pref
 1262	cbfab4378813ab5b00cc2ff41274d5f5af11d36d402314ee599af40b4dac7874	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/optional/nvidia.pref
 759	aa9c7c8f1b8d7b05eb84b8b3738bcecbc7fcc6fbc3bdd4668d8832546a6dc74d	frontends/trixie/hooks/target/etc/apt/desktop/preferences.d/x11.pref
@@ -392,7 +392,7 @@ format=3
 241	c6e85a92952c9fcf43f1c611ee3f54d38628cfeb2318dccfbbb5c0b636c66f3a	frontends/trixie/hooks/target/etc/apt/server/preferences.d/dbus.pref
 1557	df538f838f81410faa7f057660f587381b1f7f590dd2a0cdcdff4c483761f4ed	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/cuda-legacy.pref
 359	aa30c317c11f07654d518291166945e7874ca72e1ae6bb4aaf55768f22484902	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/cuda.pref
-4279	b90a6ae3bf88d796056268ca8711d16e4cd8948deeea2f2232478a53eed0b7ef	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia-legacy.pref
+4298	7fd2928ec384eefe72cd3de858e0ac153f80805f2637031b65276e0b130da6cb	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia-legacy.pref
 1252	87e0b1521eda9dad860361f012e0d780414683686e8740f7f0ad6634cfc26551	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia-opt-in.pref
 1262	cbfab4378813ab5b00cc2ff41274d5f5af11d36d402314ee599af40b4dac7874	frontends/trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref
 772	94baeed7859a83e8e469cac8b91b58e1992e803584a8576215c5a1d89d0e42f5	frontends/trixie/hooks/target/etc/apt/server/preferences.d/x11.pref

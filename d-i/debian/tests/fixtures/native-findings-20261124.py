@@ -634,6 +634,7 @@ def apt_branch():
         ('nvidia-opencl-icd-580', '580.196.07-101pika2', 'nvidia-graphics-drivers-580', 990),
         ('libnvidia-egl-wayland1', '1:1.1.24-101pika1', 'egl-wayland', 990),
         ('libnvidia-egl-gbm1', '1.1.4-101pika1', 'egl-gbm', 990),
+        ('libmesa-stable', '26.3.1-101pika1', 'mesa', 990),
     ]
     packages = ''
     for name, version, source, _priority in records:

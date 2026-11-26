@@ -51,7 +51,7 @@ Pin-Priority: 990
 
 # Pika Mesa/DRM runtime packages are required only by this exact
 # legacy graphics class. They are not a repository-wide allow.
-Package: libgbm1:any libgl1-mesa-dri:any libegl-mesa0:any libglx-mesa0:any libglapi-mesa:any mesa-libgallium:any libdrm-common:any libdrm2:any
+Package: libgbm1:any libgl1-mesa-dri:any libegl-mesa0:any libglx-mesa0:any libglapi-mesa:any mesa-libgallium:any libmesa-stable:any libdrm-common:any libdrm2:any
 Pin: release n=pika,c=cockatiel
 Pin-Priority: 990
 
