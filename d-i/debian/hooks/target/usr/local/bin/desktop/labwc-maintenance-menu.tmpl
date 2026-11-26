@@ -239,12 +239,11 @@ def malware_menu() -> None:
 
 
 def integrity_menu() -> None:
-    labels = ["Check Known Vulnerabilities", "Check Package Integrity", "Retrieve File Hashsums (SHA-256/SHA-512)", "Create Folder Tree SHA-256 Manifest", "Verify File Against SHA-256"]
+    labels = ["Check Known Vulnerabilities", "Retrieve File Hashsums (SHA-256/SHA-512)", "Create Folder Tree SHA-256 Manifest", "Verify File Against SHA-256"]
     while True:
         action = choose(labels, "Endpoint Security — Vulnerability & Integrity")
         if action in (None, "← Back"): return
         if action == "Check Known Vulnerabilities": security_action("check-known-vulnerabilities")
-        elif action == "Check Package Integrity": security_action("check-package-integrity")
         elif action == "Retrieve File Hashsums (SHA-256/SHA-512)":
             path = find_paths("File path for SHA-256 and SHA-512", files=True)
             if path: security_action("retrieve-file-hashes", path)

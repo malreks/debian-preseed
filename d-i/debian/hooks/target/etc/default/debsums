@@ -1,0 +1,3 @@
+# Managed target policy. The package's cron jobs remain installed but disabled.
+# The dedicated monthly timer owns the narrow integrity check instead.
+CRON_CHECK=never

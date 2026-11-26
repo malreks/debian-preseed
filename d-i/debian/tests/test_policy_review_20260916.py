@@ -138,10 +138,25 @@ class AppArmorReviewTests(unittest.TestCase):
     def test_editor_queries_and_extensionless_documents_are_owner_scoped(self):
         text = block('desktop-utilities', 'desktop-editors')
         self.assertIn('owner @{PROC}/[0-9]*/{stat,cmdline} r,', text)
+        self.assertIn('owner @{PROC}/[0-9]*/{mountinfo,mounts} r,', text)
         self.assertIn('owner @{HOME}/[^.]* rwk,', text)
+        self.assertIn('owner @{HOME}/.wget-hsts r,', text)
+        self.assertIn('__INSTALLER_PATH_DIR_USR__/bin/l3afpad ix,', text)
         self.assertNotIn('owner @{HOME}/**', text)
         self.assertNotIn('/WOW', text)
         self.assertNotIn('owner @{PROC}/[0-9]*/mem', text)
+
+    def test_supplied_old_denial_paths_are_explicitly_covered(self):
+        app = block('desktop-wrappers', 'labwc-app')
+        child = app.split('  profile app-bwrap ', 1)[1]
+        for rule in (
+                '__INSTALLER_PATH_DIR_ETC__/chromium/master_preferences r,',
+                '__INSTALLER_PATH_DIR_ETC__/chromium/policies/{,managed/,recommended/} r,',
+                '__INSTALLER_PATH_DIR_USR__/lib/@{multiarch}/glib-2.0/gio-launch-desktop rix,'):
+            self.assertIn(rule, child)
+        repo = block('desktop-wrappers', 'apt-repo-local')
+        self.assertIn('__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apt-repo-local rix,', repo)
+        self.assertIn('__INSTALLER_PATH_DIR_PERL5_SITE_PERL__/runtime/{,Managed/,Managed/Process.pm,Managed/PolicyLock.pm} r,', repo)
 
     def test_inherited_panel_status_is_read_only_and_profile_local(self):
         for name in ('labwc-brightness-control', 'labwc-capture'):

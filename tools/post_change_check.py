@@ -4004,7 +4004,7 @@ def check_release_equality(paths: list[Path], errors: list[str], counts: dict[st
             raise ValueError('tuple fixes a native Python minor version, suite override or package version')
         if not {'auditd', 'audispd-plugins', 'apparmor', 'apparmor-profiles',
                 'apparmor-profiles-extra', 'apparmor-utils', 'nftables', 'fail2ban',
-                'python3-pyinotify', 'rsyslog', 'logrotate'} <= names:
+                'python3-pyinotify', 'rsyslog', 'debsums', 'logrotate'} <= names:
             raise ValueError('tuple omits the universal APT security baseline')
         if any(reference.startswith('security/') for reference in plan['classes']):
             raise ValueError('tuple selects a removed security class')

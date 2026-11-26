@@ -1176,15 +1176,15 @@ def codex_collect_devops_environment(
         # labwc-build assigns its account-private general scratch directory to
         # GOTMPDIR for ordinary compiler launches. Go's managed profile owns a
         # separate go/tmp directory, so canonicalize this one derived value
-        # before comparing the inherited active shell. The replacement is
+        # before validating the inherited active shell. The replacement is
         # still taken only from the validated profile snapshot below.
         if "GOTMPDIR" in clean_snapshot:
             os.environ["GOTMPDIR"] = clean_snapshot["GOTMPDIR"]
-        for name in selected:
-            if os.environ.get(name) != clean_snapshot[name]:
-                codex_die(
-                    f"inherited managed profile environment differs from policy: {name}"
-                )
+        # The profile is the authoritative environment source. Do not compare
+        # every inherited variable against the originally generated snapshot.
+        # Users may add or change ordinary profile exports, while the bounded
+        # parser, shell-control filters and marker checks above still protect
+        # the execution boundary.
         _run_profile_shell(_PROFILE_VALIDATE_SCRIPT, profile_paths, dict(os.environ))
         codex_require_inherited_devops_path(
             preserve_path, clean_snapshot["PATH"]

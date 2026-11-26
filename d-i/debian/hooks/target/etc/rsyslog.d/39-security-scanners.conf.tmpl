@@ -65,12 +65,12 @@ if ($programname == "chkrootkit-scan") then {
   )
 }
 
-if ($programname == "debsecan-scan") then {
+if ($programname == "debsums-scan") then {
   set $.security_routed = "on";
   action(
-    name="debsecan_scan_log"
+    name="debsums_scan_log"
     type="omfile"
-    file="__INSTALLER_LOG_DEBSECAN_FILE__"
+    file="__INSTALLER_LOG_DEBSUMS_FILE__"
     fileOwner="__INSTALLER_LOG_OWNER__"
     fileGroup="__INSTALLER_LOG_GROUP__"
     fileCreateMode="__INSTALLER_LOG_FILE_MODE__"
@@ -85,12 +85,12 @@ if ($programname == "debsecan-scan") then {
   )
 }
 
-if ($programname == "debsums-scan") then {
+if ($programname == "debsecan-scan") then {
   set $.security_routed = "on";
   action(
-    name="debsums_scan_log"
+    name="debsecan_scan_log"
     type="omfile"
-    file="__INSTALLER_LOG_DEBSUMS_FILE__"
+    file="__INSTALLER_LOG_DEBSECAN_FILE__"
     fileOwner="__INSTALLER_LOG_OWNER__"
     fileGroup="__INSTALLER_LOG_GROUP__"
     fileCreateMode="__INSTALLER_LOG_FILE_MODE__"

@@ -70,9 +70,14 @@ profile desktop-editors __INSTALLER_PATH_DIR_USR__/bin/{l3afpad,qimgv,kdiff3,gnu
   @{sys}/devices/virtual/dmi/id/{bios_vendor,board_vendor} r,
   @{PROC}__INSTALLER_PATH_DIR_SYS__/kernel/core_pattern r,
   @{PROC}__INSTALLER_PATH_DIR_SYS__/vm/nr_hugepages r,
+  # GTK/Qt worker pools inspect the same-user mount topology while resolving
+  # document and image handlers. Keep both proc views read-only and owner-scoped.
+  owner @{PROC}/[0-9]*/{mountinfo,mounts} r,
   owner @{PROC}/[0-9]*/task/[0-9]*/comm rw,
   #include <abstractions/document-runtime>
   __INSTALLER_PATH_DIR_USR__/bin/{l3afpad,qimgv,kdiff3,gnumeric,xournalpp,gnote,qalculate-qt} mr,
+  # l3afpad re-execs its fixed entrypoint while retaining this profile.
+  __INSTALLER_PATH_DIR_USR__/bin/l3afpad ix,
   __INSTALLER_PATH_DIR_USR__/lib/** mr,
   __INSTALLER_PATH_DIR_USR_SHARE__/** r,
   owner @{HOME}/.config/{l3afpad,kdiff3*,gnumeric,xournalpp,gnote,qalculate,qimgv}/ rw,

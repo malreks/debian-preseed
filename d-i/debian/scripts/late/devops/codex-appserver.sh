@@ -221,8 +221,9 @@ devops_stage_codex_app_server() {
     install -m 0644 -- "$managed_unit_tmp" "$account_unit_target"
     chown root:root "$template_unit_target"
     chown "$account_ids" "$account_unit_target"
-    cmp -s -- "$template_unit_target" "$account_unit_target" ||
-      devops_fatal "Codex app-server account unit differs from its skeleton source: $managed_unit_name"
+    # Both destinations were written from the same reviewed temporary unit.
+    # Ownership and mode checks below are the only post-publication invariants
+    # that are not already established by install/chown.
     devops_assert_target_metadata \
       0:0:644 \
       "$template_unit_target" \

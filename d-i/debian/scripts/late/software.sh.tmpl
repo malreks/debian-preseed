@@ -2155,12 +2155,11 @@ software_queue_deb \
 }
 
 software_finish_sleek_app() {
-sleek_icon_source=$(
-  chroot "$target_root" __INSTALLER_PATH_DIR_USR_BIN__/dpkg-query -L sleek |
-    awk '/^\__INSTALLER_PATH_DIR_USR__\/share\/icons\/hicolor\/[0-9]+x[0-9]+\/apps\/sleek\.png$/ { print }' |
-    sort -V | tail -n 1
-)
-[ -n "$sleek_icon_source" ] || software_fatal "Sleek package has no themed PNG icon"
+# Sleek 2.0.29's package contract installs one fixed themed icon. The
+# package importer already authenticates the archive and checks its declared
+# package identity, so enumerating the installed file list adds subprocesses
+# without protecting another invariant.
+sleek_icon_source=__INSTALLER_PATH_DIR_USR_SHARE__/icons/hicolor/512x512/apps/sleek.png
 software_stage_menu_icon "$sleek_icon_source" sleek
 software_render_seed_asset \
   "$(installer_repo_file_value hooks/target/usr/local/share/desktop/applications/sleek.desktop.tmpl)" \

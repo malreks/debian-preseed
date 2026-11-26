@@ -48,7 +48,7 @@ sub _validate_run {
     my $tag = $args{tag};
     # These are the exact program names routed by 39-security-scanners.conf.
     # A syntactically valid but unrouted tag would silently lose the scan log.
-    defined($tag) && $tag =~ /\A(?:lynis|rkhunter|chkrootkit|fwupd-security|spectre-meltdown|debsecan|debsums|clamav)-scan\z/
+    defined($tag) && $tag =~ /\A(?:lynis|rkhunter|chkrootkit|fwupd-security|spectre-meltdown|debsecan|clamav)-scan\z/
         or die "invalid managed scanner log tag\n";
     my $label = $args{label};
     defined($label) && $label =~ /\A[a-z0-9]+(?:[a-z0-9._-]*[a-z0-9])?\z/

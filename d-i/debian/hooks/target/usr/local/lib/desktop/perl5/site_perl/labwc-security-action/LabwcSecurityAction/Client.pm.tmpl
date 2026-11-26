@@ -155,7 +155,7 @@ sub _validate_request_shape {
     my %no_arguments = map { $_ => 1 } qw(
       audit-security-posture scan-rootkits-rkhunter scan-rootkits-chkrootkit analyze-services
       check-firmware-security check-cpu-mitigations check-known-vulnerabilities
-      check-package-integrity list-users list-non-sudo-users list-groups
+      list-users list-non-sudo-users list-groups
       list-sudo-administrators list-passwordless-accounts audit-sudo-access
       show-clamav-signature-status update-clamav-signatures apparmor-status apparmor-enabled
       apparmor-unconfined apparmor-features-abi apparmor-application-modes

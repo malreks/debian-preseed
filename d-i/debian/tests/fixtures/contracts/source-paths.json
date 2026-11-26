@@ -701,7 +701,7 @@
     "hooks/target/usr/local/libexec/rsyslog-app-run.tmpl": "hooks/target/usr/local/libexec/desktop/rsyslog-app-run.tmpl",
     "hooks/target/usr/local/libexec/rsyslog-app-socket.tmpl": "hooks/target/usr/local/libexec/desktop/rsyslog-app-socket.tmpl",
     "hooks/target/usr/local/libexec/rsyslog-openai-socket.tmpl": "hooks/target/usr/local/libexec/desktop/rsyslog-openai-socket.tmpl",
-    "hooks/target/usr/local/libexec/rsyslog-security-socket.tmpl": "hooks/target/usr/local/libexec/desktop/rsyslog-security-socket.tmpl",
+    "hooks/target/usr/local/libexec/rsyslog-security-socket.tmpl": "hooks/target/usr/local/libexec/common/rsyslog-security-socket.tmpl",
     "hooks/target/usr/local/libexec/rsyslog-size-rotate.tmpl": "hooks/target/usr/local/libexec/common/rsyslog-size-rotate.tmpl",
     "hooks/target/usr/local/libexec/secondboot-cleanup": "scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup",
     "hooks/target/usr/local/libexec/ssh-checks": "hooks/target/usr/local/libexec/common/ssh-checks",

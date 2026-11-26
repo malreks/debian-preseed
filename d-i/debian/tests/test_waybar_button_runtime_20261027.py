@@ -722,18 +722,20 @@ class PopupIdentityFixtures(unittest.TestCase):
 
 class WaybarMenuSourceFixtures(unittest.TestCase):
 
-    def test_cursor_retry_is_disabled_for_every_native_and_custom_module(self):
+    def test_interactive_modules_enable_waybar_cursor(self):
         root = TARGET / 'etc/skel-desktop/.config/waybar/modules'
-        # Both supplied crashes match the 0.15.0 setCursor timeout lambda at
-        # ELF offset 0xb11fd. Removing the key is insufficient: mouse enter
-        # and leave then invoke the same retry through the default path.
+        expected = {
+            'backlight', 'battery', 'clock', 'cpu', 'disk', 'lock', 'memory',
+            'notifications', 'power', 'pulseaudio', 'tomat', 'wayscriber',
+        }
         for path in sorted(root.glob('*.tmpl')):
             text = path.read_text(encoding='utf-8')
             rendered = re.sub(r'__[A-Z0-9_]+__', '0', text)
             value = json.loads(rendered)
             for module_name, configuration in value.items():
                 with self.subTest(file=path.name, module=module_name):
-                    self.assertIs(configuration.get('cursor'), False)
+                    if path.stem in expected:
+                        self.assertIs(configuration.get('cursor'), True)
 
     @staticmethod
     def dispatcher():

@@ -19,10 +19,12 @@ for command_name in getent groupadd usermod; do
 done
 
 getent passwd "$account_user" >__INSTALLER_PATH_DIR_DEV__/null
-for access_group in "$signal_reader_group" "$scanner_writer_group"; do
-  getent group "$access_group" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
-    groupadd --system "$access_group"
-done
+getent group "$signal_reader_group" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 ||
+  groupadd --system "$signal_reader_group"
+getent group "$scanner_writer_group" >__INSTALLER_PATH_DIR_DEV__/null 2>&1 || {
+  printf "fatal: managed scanner logging group is unavailable: %s\n" "$scanner_writer_group" >&2
+  exit 1
+}
 usermod -a -G "$signal_reader_group,$scanner_writer_group" "$account_user"
 ' sh "$ACCOUNT_USERNAME"
 
@@ -168,7 +170,7 @@ usermod -a -G "$signal_reader_group,$scanner_writer_group" "$account_user"
     __INSTALLER_PATH_DIR_ETC__/tmpfiles.d/65-audit-syslog.conf \
     0644
   stage_target_asset \
-    "$(installer_repo_file_value hooks/target/usr/local/libexec/desktop/rsyslog-security-socket.tmpl)" \
+    "$(installer_repo_file_value hooks/target/usr/local/libexec/common/rsyslog-security-socket.tmpl)" \
     __INSTALLER_PATH_DIR_USR_LOCAL__/libexec/rsyslog-security-socket \
     0755
   stage_target_asset \

@@ -1,0 +1,14 @@
+[Unit]
+Description=Schedule the narrow managed package integrity check
+Documentation=man:systemd.timer(5)
+
+[Timer]
+OnCalendar=*-*-01 04:30:00
+RandomizedDelaySec=12h
+FixedRandomDelay=true
+AccuracySec=1h
+Persistent=false
+Unit=debsums-check.service
+
+[Install]
+WantedBy=timers.target

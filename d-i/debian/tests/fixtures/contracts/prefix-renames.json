@@ -127,7 +127,7 @@
   "d-i/debian/hooks/target/usr/local/lib/perl5/site_perl/x-timeshift/TimeshiftManaged/Logger.pm": "d-i/debian/hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/Logger.pm",
   "d-i/debian/hooks/target/usr/local/lib/perl5/site_perl/x-timeshift/TimeshiftManaged/Snapshot.pm": "d-i/debian/hooks/target/usr/local/lib/common/perl5/site_perl/timeshift/TimeshiftManaged/Snapshot.pm",
   "d-i/debian/hooks/target/usr/local/libexec/rsyslog-x-openai-socket.tmpl": "d-i/debian/hooks/target/usr/local/libexec/desktop/rsyslog-openai-socket.tmpl",
-  "d-i/debian/hooks/target/usr/local/libexec/rsyslog-x-security-socket.tmpl": "d-i/debian/hooks/target/usr/local/libexec/desktop/rsyslog-security-socket.tmpl",
+  "d-i/debian/hooks/target/usr/local/libexec/rsyslog-x-security-socket.tmpl": "d-i/debian/hooks/target/usr/local/libexec/common/rsyslog-security-socket.tmpl",
   "d-i/debian/hooks/target/usr/local/libexec/x-apparmor-modes-run": "d-i/debian/hooks/target/usr/local/libexec/common/apparmor-modes-run",
   "d-i/debian/hooks/target/usr/local/libexec/x-boot-log.tmpl": "d-i/debian/hooks/target/usr/local/libexec/boot-log.tmpl",
   "d-i/debian/hooks/target/usr/local/libexec/x-clamav-signature-update": "d-i/debian/hooks/target/usr/local/libexec/desktop/clamav-signature-update",

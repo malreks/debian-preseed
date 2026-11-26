@@ -21,11 +21,6 @@ PROCESS_STOP_TIMEOUT_SECONDS = 2
 PROCESS_GRACEFUL_STOP_TIMEOUT_SECONDS = 15
 
 
-def veth_resolv_conf() -> str:
-    from .network_client import resolver_configuration
-    return resolver_configuration()
-
-
 # EOF on Bubblewrap's block-fd is insufficient authorization to start a payload.
 PEER_STARTUP_GATE = (
     "import os,sys; fd=int(sys.argv[1]); marker=os.read(fd,1); os.close(fd); "

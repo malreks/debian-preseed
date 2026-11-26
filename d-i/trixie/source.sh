@@ -623,6 +623,53 @@ source_monotonic_seconds() (
 source_effective_url() {
   awk -v initial="$1" 'function join(b,l, a,n,i,out,scheme,host,path,q) { if(l ~ /^[A-Za-z][A-Za-z0-9+.-]*:\/\//) return l; if(l ~ /^[A-Za-z][A-Za-z0-9+.-]*:/) return l; scheme=b; sub(/:.*/,"",scheme); host=b; sub(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//,"",host); sub(/\/.*/,"",host); if(l ~ /^\/\//) return scheme ":" l; sub(/[?#].*/,"",b); if(l ~ /^\//) path=l; else if(l ~ /^\?/) return b l; else {path=b; sub(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\/]+/,"",path); sub(/[^\/]*$/,"",path); path=path l}; q=path; sub(/^[^?#]*/,"",q); sub(/[?#].*/,"",path); n=split(path,a,"/"); out=""; for(i=1;i<=n;i++){if(a[i]=="" || a[i]==".") continue; if(a[i]=="..") sub(/\/[^\/]*$/,"",out); else out=out "/" a[i]}; return scheme "://" host out q } BEGIN {url=initial; count=0} {line=$0; sub(/^[ \t]+/,"",line); if(tolower(line) ~ /^location:/) {sub(/^[^:]*:[ \t]*/,"",line); sub(/\r$/,"",line); sub(/[ \t]+\[following\].*$/,"",line); sub(/[ \t]+$/,"",line); nexturl=join(url,line); if(nexturl != "") url=nexturl; count++}} END {if(count>50) exit 1; print url}' "$2";
 };
+source_url_authority() {
+  source_url_value=$1;
+  case "$source_url_value" in
+    http://*) source_url_scheme=http; source_url_authority_value=${source_url_value#http://} ;;
+    https://*) source_url_scheme=https; source_url_authority_value=${source_url_value#https://} ;;
+    *) source_error 'transport URL has an unsupported scheme'; return 1 ;;
+  esac;
+  source_url_authority_value=${source_url_authority_value%%/*};
+  source_url_authority_value=${source_url_authority_value%%[\?#]*};
+  case "$source_url_authority_value" in
+    ''|*@*|*\[*|*\]*|*[!A-Za-z0-9.:-]*)
+      source_error 'transport URL has an unsafe authority'; return 1 ;;
+  esac;
+  source_url_host=${source_url_authority_value%%:*};
+  if [ "$source_url_authority_value" != "$source_url_host" ]; then
+    source_url_port=${source_url_authority_value#*:};
+    case "$source_url_port" in ''|*[!0-9]*|??????????*) source_error 'transport URL has an invalid port'; return 1 ;; esac;
+    [ "$source_url_port" -ge 1 ] 2>__INSTALLER_PATH_DIR_DEV__/null || {
+      source_error 'transport URL has an invalid port'; return 1;
+    };
+    [ "$source_url_port" -le 65535 ] 2>__INSTALLER_PATH_DIR_DEV__/null || {
+      source_error 'transport URL has an invalid port'; return 1;
+    };
+  fi;
+  source_url_host=$(printf '%s' "$source_url_host" |
+    tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz');
+  case "$source_url_host" in
+    ''|.*|*.|*..*|*[!a-z0-9.-]*)
+      source_error 'transport URL has an invalid host'; return 1 ;;
+  esac;
+  printf '%s\n' "$source_url_host";
+};
+source_validate_effective_url() {
+  source_requested_url=$1;
+  source_effective_candidate=$2;
+  source_redirect_scope=$3;
+  source_url_authority "$source_requested_url" >/dev/null || return 1;
+  source_requested_scheme=${source_requested_url%%:*};
+  source_effective_scheme=${source_effective_candidate%%:*};
+  source_url_authority "$source_effective_candidate" >/dev/null || return 1;
+  if [ "$source_redirect_scope" = external ] ||
+      [ "$source_requested_scheme" = https ]; then
+    [ "$source_effective_scheme" = https ] || {
+      source_error 'transport redirect would downgrade HTTPS'; return 1;
+    };
+  fi;
+};
 source_seed_base_from_effective() (
   value=$1;
   value=${value%%\#*}; value=${value%%\?*};
@@ -655,8 +702,19 @@ source_http_get() (
   # does not authenticate peers, so it is supported for explicit HTTP only.
   # This wrapper remains the sole retry owner.
   source_wget_help=$(wget --help 2>&1) || exit 125;
+  source_validate_effective_url "$url" "$url" "$redirect_scope" || exit 1;
   case "$source_wget_help" in
-    *--no-config*) set -- wget --no-config -S -T "$read_timeout" -O "$temp" --tries=1 ;;
+    *--no-config*)
+      set -- wget --no-config -S -T "$read_timeout" -O "$temp" --tries=1;
+      case "$url" in
+        https://*)
+          case "$source_wget_help" in
+            *--https-only*) set -- "$@" --https-only ;;
+            *) source_error 'HTTPS requires a downloader that can reject insecure redirects'; exit 125 ;;
+          esac
+          ;;
+      esac
+      ;;
     *)
       case "$url" in https://*) source_error 'HTTPS requires certificate-verifying GNU wget and configured CA trust'; exit 125 ;; esac;
       set -- wget -S -T "$read_timeout" -O "$temp" ;;
@@ -694,6 +752,7 @@ source_http_get() (
     exit "$fetch_status";
   fi;
   resolved=$(source_effective_url "$url" "$headers") || { source_error 'cannot determine the effective preseed URL'; exit 1; };
+  source_validate_effective_url "$url" "$resolved" "$redirect_scope" || exit 1;
   chmod 0600 "$temp" && mv -f "$temp" "$destination" || exit 1;
   if [ -n "$effective" ]; then printf '%s\n' "$resolved" >"$effective"; chmod 0600 "$effective"; fi;
 );

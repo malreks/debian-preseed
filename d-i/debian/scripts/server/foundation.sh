@@ -36,6 +36,10 @@ server_artifacts=$(installer_repo_asset_path DIR_CATALOG_COMPILED \
 installer_stage_profile_asset "$server_artifacts" "$FILE_SERVER_ARTIFACTS" 0644
 installer_stage_profile_file hooks/target/etc/rsyslog.d/server/rsyslog.conf.tmpl "${DIR_ETC}/rsyslog.conf" 0644
 installer_stage_profile_file hooks/target/etc/rsyslog.d/server/20-server-security.conf.tmpl "${DIR_RSYSLOG_D}/20-server-security.conf" 0644
+installer_stage_profile_file hooks/target/etc/rsyslog.d/39-security-scanners.conf.tmpl "${DIR_RSYSLOG_D}/39-security-scanners.conf" 0644
+installer_stage_profile_file hooks/target/usr/local/libexec/common/rsyslog-security-socket.tmpl "${DIR_USR_LOCAL_LIBEXEC}/rsyslog-security-socket" 0755
+installer_stage_profile_file hooks/target/etc/systemd/common/system/rsyslog.service.d/30-security-scanner-socket.conf \
+  "${DIR_SYSTEMD_SYSTEM_RSYSLOG_DROPIN}/30-security-scanner-socket.conf" 0644
 installer_stage_profile_file hooks/target/etc/systemd/server/journald.conf.d/70-server-logging.conf "${DIR_JOURNALD_CONF_D}/70-server-logging.conf" 0644
 installer_stage_profile_file hooks/target/etc/tmpfiles.d/server/59-server-logs.conf.tmpl "${DIR_TMPFILES_D}/59-server-logs.conf" 0644
 installer_stage_profile_file hooks/target/usr/local/libexec/common/rsyslog-size-rotate.tmpl "${DIR_USR_LOCAL_LIBEXEC}/rsyslog-size-rotate" 0755

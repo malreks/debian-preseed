@@ -64,3 +64,86 @@ capture() {
   } >"$output_file" 2>&1 || printf 'status=%s\n' "$?" >>"$output_file"
   chmod 0600 "$output_file" 2>__INSTALLER_PATH_DIR_DEV__/null || true
 }
+
+# Capture a machine-readable JSON result without adding human diagnostics to
+# its byte stream.  The candidate is validated before publication and both the
+# JSON result and any stderr/status record are published with atomic renames.
+capture_json() {
+  output_name=$1
+  shift
+  output_file="${FIRSTBOOT_DATA_DIR}/${output_name}"
+  diagnostic_file="${output_file}.diagnostic"
+  # Invalidate a prior result before the fallible capture so a failed retry
+  # cannot leave stale machine-readable evidence looking current.
+  rm -f -- "$output_file" "$diagnostic_file" || return 1
+  candidate=$(mktemp "${output_file}.tmp.XXXXXX") || return 1
+  diagnostic_candidate=$(mktemp "${diagnostic_file}.tmp.XXXXXX") || {
+    rm -f -- "$candidate"
+    return 1
+  }
+
+  capture_status=0
+  if timeout --signal=TERM --kill-after=2s 20s "$@" \
+      >"$candidate" 2>"$diagnostic_candidate"; then
+    capture_status=0
+  else
+    capture_status=$?
+  fi
+
+  valid_json=0
+  if [ "$capture_status" -eq 0 ] &&
+      __INSTALLER_PATH_DIR_USR_BIN__/python3 -I -B - "$candidate" \
+        >__INSTALLER_PATH_DIR_DEV__/null 2>&1 <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    value = json.load(stream)
+if not isinstance(value, (dict, list)):
+    raise ValueError("JSON document must contain an object or array")
+PY
+  then
+    valid_json=1
+  fi
+
+  if [ "$valid_json" -eq 1 ]; then
+    chmod 0600 "$candidate" || {
+      rm -f -- "$candidate" "$diagnostic_candidate"
+      return 1
+    }
+    mv -fT -- "$candidate" "$output_file" || {
+      rm -f -- "$candidate" "$diagnostic_candidate"
+      return 1
+    }
+    if [ -s "$diagnostic_candidate" ]; then
+      printf 'status=0\n' >>"$diagnostic_candidate" || {
+        rm -f -- "$diagnostic_candidate"
+        return 1
+      }
+      chmod 0600 "$diagnostic_candidate" &&
+        mv -fT -- "$diagnostic_candidate" "$diagnostic_file" || {
+          rm -f -- "$diagnostic_candidate"
+          return 1
+        }
+    else
+      rm -f -- "$diagnostic_candidate" "$diagnostic_file"
+    fi
+    log_line capture info firstboot \
+      "output=${output_name} command=${1:-unknown} status=0 json=valid"
+    return 0
+  fi
+
+  printf 'status=%s\n' "$capture_status" >>"$diagnostic_candidate" || {
+    rm -f -- "$candidate" "$diagnostic_candidate"
+    return 1
+  }
+  rm -f -- "$candidate"
+  chmod 0600 "$diagnostic_candidate" &&
+    mv -fT -- "$diagnostic_candidate" "$diagnostic_file" || {
+      rm -f -- "$diagnostic_candidate"
+      return 1
+    }
+  log_line capture error firstboot \
+    "output=${output_name} command=${1:-unknown} status=${capture_status} json=invalid"
+  return 1
+}

@@ -262,10 +262,6 @@ sub _dispatch {
         @args == 0 or die "$action does not accept arguments\n";
         return $self->_run_scanner('debsecan-scan', 'debsecan');
     }
-    if ($action eq 'check-package-integrity') {
-        @args == 0 or die "$action does not accept arguments\n";
-        return $self->_run_scanner('debsums-scan', 'debsums', '-s');
-    }
     if ($action eq 'list-users') {
         @args == 0 or die "$action does not accept arguments\n";
         return $self->_print_users();

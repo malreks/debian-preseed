@@ -65,6 +65,9 @@ installer_stage_profile_file hooks/target/etc/apparmor/common/modes-common.conf 
 installer_stage_offline_unit_link "${DIR_SYSTEMD_SYSTEM}/apparmor-modes.service"
 
 installer_apt_install_target_policy "$TARGET_ROOT" install
+run_in_target 'create managed scanner logging group' __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+  getent group securitylogger >/dev/null 2>&1 || groupadd --system securitylogger
+'
 # The raw fallback is distinct from the writeback device; both identities come
 # from the frozen partman layout. Never activate swap in the installer here.
 : "${SWAP_FALLBACK_RAW_DEVICE:?missing raw swap partition}"

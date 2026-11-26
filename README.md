@@ -61,6 +61,23 @@ signals or automated remediation. Both files are root-owned, mode `0640`, and
 use the existing 2 MiB writer-driven rotation. `apps.log` receives only the
 private application-output socket; authentication fallback never writes there.
 
+Package integrity checks are installed with `debsums` in the universal package
+baseline. The packaged cron jobs remain disabled through the installed target's
+`/etc/default/debsums` setting `CRON_CHECK=never`. A monthly system timer checks
+only a fixed control-plane package set, skips packages that are not fully
+installed, and excludes versions marked `+localrepo` or currently held by the
+package manager. It uses low CPU and I/O priority and sends bounded findings
+through the protected scanner socket to `/var/log/managed/security/debsums/`.
+The installer stages these files after package selection and never runs the
+integrity helper during installation.
+
+The supplied historical AppArmor audit contains 748 denied records covering
+nine unique profile and path combinations. The current policy explicitly
+covers Chromium's system policy reads, the GLib desktop launcher, editor HSTS
+and proc mount metadata, l3afpad's inherited re-exec, and the local repository
+policy-lock module. The editor additions remain owner-scoped and read-only
+where applicable.
+
 The current [security repair and operating gates](docs/security-hardening.md)
 cover their recorded A01-A09 findings, rsyslog tmpfs, and the installer
 module/loading contract. Generation and the
@@ -90,13 +107,18 @@ supported for operator-controlled HTTP seeds; local-file sources are also
 supported. Its internal TLS implementation is not accepted as a verifying
 HTTPS client. Explicit d-i image construction can include
 `ca-certificates-udeb`; bootstrap does not silently install a downloader or
-trust packages. A local preseed uses its sibling payload products.
+trust packages. A local preseed uses its sibling payload products. Repository
+and seed HTTP sources remain supported for `preseed.cfg`, `source.sh`,
+`payload.manifest`, and `payload.tar.gz`, including redirects that stay on HTTP
+or upgrade to HTTPS. An HTTPS-started request refuses an HTTP downgrade, while
+external vendor downloads remain HTTPS-only.
 
 The generated preseed pins the downloaded source helper, archive and manifest.
 The helper is checked before execution, and payload bytes before archive
 parsing. These pins depend on the operator trusting the first preseed; they
 cannot authenticate a preseed acquired through an untrusted initial channel.
-Existing bounded redirect handling remains delegated to the downloader.
+The downloader follows bounded redirects, and the wrapper validates the
+effective scheme and authority before publication.
 Password/passphrase arguments, including the named d-i Wi-Fi
 passphrase aliases, are accepted during installation and take precedence over
 the protected initrd `/preseed.env` value. Tokens, access keys, bearer secrets,

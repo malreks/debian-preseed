@@ -1,0 +1,128 @@
+#!/bin/sh
+# Narrow, target-only integrity check. Do not run this helper during install.
+set -eu
+umask 077
+
+DEBSUMS=__INSTALLER_PATH_DIR_USR__/bin/debsums
+DPKG=__INSTALLER_PATH_DIR_USR__/bin/dpkg
+DPKG_QUERY=__INSTALLER_PATH_DIR_USR__/bin/dpkg-query
+FLOCK=__INSTALLER_PATH_DIR_USR__/bin/flock
+INSTALL=__INSTALLER_PATH_DIR_USR__/bin/install
+LOGGER=__INSTALLER_PATH_DIR_USR__/bin/logger
+MKTEMP=__INSTALLER_PATH_DIR_USR__/bin/mktemp
+TR=__INSTALLER_PATH_DIR_USR__/bin/tr
+TRUE=__INSTALLER_PATH_DIR_USR__/bin/true
+DPKG_ADMIN=__INSTALLER_PATH_DIR_VAR_LIB__/dpkg
+REPOSITORY_LOCK=__INSTALLER_PATH_DIR_VAR_LIB_SOFTWARE__/state/apt-repo-local.lock
+SOCKET=__INSTALLER_LOG_SCANNER_SOCKET__
+WORK=__INSTALLER_PATH_DIR_RUN__/debsums-check
+MAX_LINES=128
+
+# Keep the I/O surface explicit. This is a security/control-plane package set,
+# not a scan of every installed package or every target file.
+PACKAGES='apt apparmor auditd base-files base-passwd bash coreutils debsums dpkg libpam-modules libpam-runtime login nftables openssh-server polkitd rsyslog sudo systemd systemd-sysv util-linux'
+
+emit() {
+  "$LOGGER" -u "$SOCKET" -t debsums-scan -- "$1"
+}
+
+[ -S "$SOCKET" ] || exit 0
+[ -x "$DEBSUMS" ] || exit 0
+[ -x "$DPKG" ] && [ -x "$DPKG_QUERY" ] && [ -x "$FLOCK" ] && [ -x "$LOGGER" ] || exit 1
+
+# Do not contend with a live package transaction or local-repository rebuild.
+# The non-blocking probes are short and release the locks before the read-only
+# check begins. Do not create a repository lock file merely by observing it.
+probe_lock() {
+  lock_path=$1
+  [ -e "$lock_path" ] || return 0
+  [ ! -L "$lock_path" ] || return 1
+  "$FLOCK" -n "$lock_path" "$TRUE"
+}
+for lock_path in "$DPKG_ADMIN/lock" "$DPKG_ADMIN/lock-frontend" "$REPOSITORY_LOCK"; do
+  if ! probe_lock "$lock_path"; then
+    emit "event=skipped reason=package-manager-busy"
+    exit 0
+  fi
+done
+
+architecture=$("$DPKG" --print-architecture)
+case "$architecture" in
+  ''|*[!A-Za-z0-9_-]*) exit 1 ;;
+esac
+
+"$INSTALL" -d -m 0700 "$WORK"
+output=$("$MKTEMP" "$WORK/output.XXXXXX")
+trap 'rm -f -- "$output"' EXIT HUP INT TERM
+
+checked=0
+skipped=0
+findings=0
+errors=0
+for package in $PACKAGES; do
+  package_record=$("$DPKG_QUERY" -W -f='${Status}\t${Version}\n' "$package" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+  package_status=${package_record%%	*}
+  package_version=${package_record#*	}
+  if [ "$package_status" != 'install ok installed' ]; then
+    skipped=$((skipped + 1))
+    emit "package=$package result=skipped reason=not-installed"
+    continue
+  fi
+  case "$package_version" in
+    *+localrepo*)
+      skipped=$((skipped + 1))
+      emit "package=$package result=skipped reason=local-repository-package"
+      continue
+      ;;
+  esac
+
+  md5sums="$DPKG_ADMIN/info/$package.md5sums"
+  if [ ! -f "$md5sums" ] || [ -L "$md5sums" ]; then
+    md5sums="$DPKG_ADMIN/info/$package:$architecture.md5sums"
+  fi
+  if [ ! -f "$md5sums" ] || [ -L "$md5sums" ]; then
+    skipped=$((skipped + 1))
+    emit "package=$package result=skipped reason=no-md5sums"
+    continue
+  fi
+
+  checked=$((checked + 1))
+  if "$DEBSUMS" --changed --silent "$package" >"$output" 2>&1; then
+    status=0
+  else
+    status=$?
+  fi
+
+  package_lines=0
+  truncated=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    package_lines=$((package_lines + 1))
+    if [ "$package_lines" -gt "$MAX_LINES" ]; then
+      truncated=1
+      break
+    fi
+    safe_line=$(printf '%s' "$line" | LC_ALL=C "$TR" -cd '\011\040-\176')
+    [ -n "$safe_line" ] || safe_line='empty-output-line'
+    findings=$((findings + 1))
+    emit "package=$package result=detail text=$safe_line"
+  done <"$output"
+  if [ "$truncated" -eq 1 ]; then
+    emit "package=$package result=truncated limit=$MAX_LINES"
+  fi
+
+  case "$status" in
+    0)
+      [ "$package_lines" -eq 0 ] || emit "package=$package result=ok-with-diagnostics"
+      ;;
+    2)
+      emit "package=$package result=changed-or-missing status=2"
+      ;;
+    *)
+      errors=$((errors + 1))
+      emit "package=$package result=error status=$status"
+      ;;
+  esac
+done
+
+emit "event=completed checked=$checked skipped=$skipped findings=$findings errors=$errors"
+[ "$errors" -eq 0 ]

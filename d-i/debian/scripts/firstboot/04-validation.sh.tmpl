@@ -469,6 +469,8 @@ def classify(name, record, related):
             receipt = task_receipt()
         except FileNotFoundError:
             return 'failed', 'finite-task-receipt-missing'
+        except PermissionError:
+            return 'failed', 'finite-task-receipt-inaccessible'
         if (receipt.get('TAILSCALE_BOOTSTRAPPED') == 'false' and
                 receipt.get('TAILSCALE_STATUS') == 'pending-machine-approval'):
             return 'expected', 'enrollment-approval-pending-with-retry'
@@ -524,6 +526,8 @@ def classify(name, record, related):
                 receipt = task_receipt()
             except FileNotFoundError:
                 return 'failed', 'finite-task-receipt-missing'
+            except PermissionError:
+                return 'failed', 'finite-task-receipt-inaccessible'
             if (receipt.get('TAILSCALE_BOOTSTRAPPED') == 'true' and
                     receipt.get('TAILSCALE_STATUS') in {'already-joined', 'bootstrap-succeeded'}):
                 return 'verified', 'finite-task-completed'
@@ -575,9 +579,6 @@ def main():
     if len(extra) > 8192:
         raise ValueError('too-many-related-units')
     related = {**records, **(show(extra) if extra else {})}
-    if enabled_units() != (selected, templates):
-        print('selected_units_state=pending reason=inventory-changed')
-        return 75
     bad = False
     pending = False
     for name in sorted(templates):
@@ -2084,7 +2085,10 @@ if [ -x __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apparmor-modes-run ]; then
   check_command apparmor-modes-loaded __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/apparmor-modes-run --check-loaded
 fi
 if command -v aa-status >__INSTALLER_PATH_DIR_DEV__/null 2>&1; then
-  capture apparmor-status.json aa-status --pretty-json
+  if ! capture_json apparmor-status.json aa-status --pretty-json; then
+    record 'FAIL apparmor-status-json: invalid or unavailable machine-readable output'
+    failures=$((failures + 1))
+  fi
 fi
 
 if [ -r __INSTALLER_PATH_DIR_BOOT__/grub/grub.cfg ]; then

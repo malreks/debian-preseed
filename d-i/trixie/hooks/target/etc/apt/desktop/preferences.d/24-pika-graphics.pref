@@ -1,14 +1,10 @@
 # Existing desktop DRM/Mesa runtime and utility packages only. This pin does
 # not request packages or enable the excluded Vulkan ICDs/tools.
-# Match native Default-Release (990), so the higher available version wins
-# in either direction without forcing a downgrade of an installed version.
-# Keep that equality during pkgsel, before Default-Release is published.
+# Match native Default-Release (990) for the explicitly selected Debian
+# graphics stack. PikaOS remains ineligible unless an optional driver pin
+# names each package explicitly.
 Package: libdrm-common libdrm2 libdrm-amdgpu1 libdrm-intel1 libdrm-nouveau2 libdrm-radeon1 libgbm1 libgl1-mesa-dri libegl-mesa0 libglx-mesa0 libglapi-mesa mesa-libgallium mesa-utils mesa-utils-bin mesa-utils-extra src:glibc:any src:wayland:any libllvm21 libxml2-16
 Pin: release o=Debian,n=trixie
-Pin-Priority: 990
-
-Package: libdrm-common libdrm2 libdrm-amdgpu1 libdrm-intel1 libdrm-nouveau2 libdrm-radeon1 libgbm1 libgl1-mesa-dri libegl-mesa0 libglx-mesa0 libglapi-mesa mesa-libgallium mesa-utils mesa-utils-bin mesa-utils-extra
-Pin: release n=pika,c=cockatiel
 Pin-Priority: 990
 
 # Mesa 26 needs newer glibc, DRM and Wayland than native Trixie provides.

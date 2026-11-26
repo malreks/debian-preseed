@@ -18918,7 +18918,8 @@
       "consumer": {
         "module": "hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl",
         "source_members": [
-          "hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl"
+          "hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl",
+          "hooks/target/etc/tmpfiles.d/server/59-server-logs.conf.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -18948,6 +18949,7 @@
         "source_members": [
           "hooks/target/etc/rsyslog.d/39-security-scanners.conf.tmpl",
           "hooks/target/etc/tmpfiles.d/common/59-log-layout.conf.tmpl",
+          "hooks/target/etc/tmpfiles.d/server/59-server-logs.conf.tmpl",
           "hooks/target/usr/local/libexec/common/log-layout.tmpl",
           "hooks/target/usr/local/libexec/common/rsyslog-size-rotate.tmpl"
         ]
@@ -20503,8 +20505,10 @@
           "hooks/target/etc/apparmor.d/desktop/desktop-system-wrappers.tmpl",
           "hooks/target/etc/apparmor.d/desktop/desktop-wrappers.tmpl",
           "hooks/target/etc/rsyslog.d/39-security-scanners.conf.tmpl",
+          "hooks/target/etc/systemd/common/system/debsums-check.service.tmpl",
           "hooks/target/usr/local/lib/desktop/perl5/site_perl/labwc-security-action/LabwcSecurityAction/ScannerLog.pm.tmpl",
-          "hooks/target/usr/local/libexec/desktop/rsyslog-security-socket.tmpl",
+          "hooks/target/usr/local/libexec/common/debsums-check.tmpl",
+          "hooks/target/usr/local/libexec/common/rsyslog-security-socket.tmpl",
           "scripts/desktop/components/logging.sh.tmpl"
         ]
       },
@@ -23599,6 +23603,7 @@
           "hooks/target/usr/local/sbin/common/account-create",
           "scripts/common/filen-install.py",
           "scripts/common/filen.sh",
+          "scripts/common/system-foundation.sh",
           "scripts/desktop/android-platform-tools.sh",
           "scripts/desktop/calendar-install.py",
           "scripts/desktop/components/artifacts-identities.sh",
@@ -24064,6 +24069,7 @@
           "hooks/target/etc/apparmor.d/desktop/local/microsoft-edge-stable",
           "hooks/target/etc/apparmor.d/desktop/local/mullvad",
           "hooks/target/etc/apparmor.d/desktop/local/mullvad-browser",
+          "hooks/target/etc/apparmor.d/desktop/local/nvidia_modprobe",
           "hooks/target/etc/apparmor.d/desktop/local/vivaldi-bin",
           "hooks/target/etc/apparmor.d/desktop/local/vivaldi-stable",
           "hooks/target/etc/apparmor.d/desktop/opt.Bitwarden.bitwarden",
@@ -24168,12 +24174,14 @@
           "hooks/target/usr/local/libexec/common/apt-refresh-lists.tmpl",
           "hooks/target/usr/local/libexec/common/apt-repo-local.tmpl",
           "hooks/target/usr/local/libexec/common/dbus-broker-check",
+          "hooks/target/usr/local/libexec/common/debsums-check.tmpl",
           "hooks/target/usr/local/libexec/common/debugsys-initramfs",
           "hooks/target/usr/local/libexec/common/debugsys.py.tmpl",
           "hooks/target/usr/local/libexec/common/journal-check",
           "hooks/target/usr/local/libexec/common/network-online-check",
           "hooks/target/usr/local/libexec/common/nvidia-char-links",
           "hooks/target/usr/local/libexec/common/nvidia-tuning-policy",
+          "hooks/target/usr/local/libexec/common/rsyslog-security-socket.tmpl",
           "hooks/target/usr/local/libexec/common/swap-fallback-setup.tmpl",
           "hooks/target/usr/local/libexec/common/tmpfs-pre-clean.tmpl",
           "hooks/target/usr/local/libexec/common/tpm2-policy-check",
@@ -24196,7 +24204,6 @@
           "hooks/target/usr/local/libexec/desktop/podman-devops-host",
           "hooks/target/usr/local/libexec/desktop/rsyslog-app-run.tmpl",
           "hooks/target/usr/local/libexec/desktop/rsyslog-openai-socket.tmpl",
-          "hooks/target/usr/local/libexec/desktop/rsyslog-security-socket.tmpl",
           "hooks/target/usr/local/libexec/desktop/syncthing-configure",
           "hooks/target/usr/local/libexec/desktop/tailscale-netkit",
           "hooks/target/usr/local/libexec/desktop/tor-browser-run",
@@ -24206,6 +24213,7 @@
           "hooks/target/usr/local/sbin/common/fwops-mode",
           "hooks/target/usr/local/sbin/desktop/labwc-notify.tmpl",
           "scripts/common/scx-scheds.sh",
+          "scripts/common/source.sh",
           "scripts/desktop/components/artifacts-identities.sh",
           "scripts/desktop/components/core-renderers.sh.tmpl",
           "scripts/desktop/components/desktop-helpers.sh",
@@ -25356,6 +25364,34 @@
       ],
       "syntax": "absolute-normalized-target-path",
       "token": "__INSTALLER_PATH_DIR_FIRSTBOOT_BIN__"
+    },
+    {
+      "consumer": {
+        "module": "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl",
+        "source_members": [
+          "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl"
+        ]
+      },
+      "default_policy": "fail-closed",
+      "encoding": "UTF-8",
+      "final_assertion": "forbidden installer marker absent from every project-owned final target file",
+      "literal_members": [],
+      "must_be_absent_from_final_target": true,
+      "name": "INSTALLER_PATH_DIR_FIRSTBOOT_DATA",
+      "namespace": "PATH",
+      "owner": {
+        "function": "installer_runtime_path_placeholder_map",
+        "module": "scripts/common/modules/files-logging.sh",
+        "phase": "base-stage"
+      },
+      "producer_map": "installer_runtime_path_placeholder_map",
+      "publication_kind": "firstboot",
+      "required": true,
+      "source_family": [
+        "firstboot"
+      ],
+      "syntax": "absolute-normalized-target-path",
+      "token": "__INSTALLER_PATH_DIR_FIRSTBOOT_DATA__"
     },
     {
       "consumer": {
@@ -27646,6 +27682,7 @@
           "hooks/target/etc/systemd/common/journald.conf.d/syslog.conf",
           "hooks/target/etc/systemd/common/system/apt-refresh-lists.service.tmpl",
           "hooks/target/etc/systemd/common/system/apt-repo-local-refresh.service",
+          "hooks/target/etc/systemd/common/system/debsums-check.service.tmpl",
           "hooks/target/etc/systemd/common/system/debugsys-boot-report.service.tmpl",
           "hooks/target/etc/systemd/common/system/grub-btrfs-refresh.path",
           "hooks/target/etc/systemd/common/system/hardware-tuning.service.tmpl",
@@ -27669,6 +27706,7 @@
           "hooks/target/etc/tmpfiles.d/desktop/52-mullvad-tailscale-coordinator.conf",
           "hooks/target/etc/tmpfiles.d/desktop/55-podman-devops.conf",
           "hooks/target/etc/tmpfiles.d/desktop/61-openai-chatgpt.conf.tmpl",
+          "hooks/target/etc/tmpfiles.d/server/59-server-logs.conf.tmpl",
           "hooks/target/etc/wpa_supplicant/wpa_supplicant.conf",
           "hooks/target/etc/zram-writeback/policy.conf.tmpl",
           "hooks/target/usr/libexec/install-tools/bootprofile-apply.tmpl",
@@ -27701,6 +27739,7 @@
           "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/sandbox.py",
           "hooks/target/usr/local/libexec/common/apt-mok-prehook",
           "hooks/target/usr/local/libexec/common/dbus-broker-maintain",
+          "hooks/target/usr/local/libexec/common/debsums-check.tmpl",
           "hooks/target/usr/local/libexec/common/debugsys-initramfs",
           "hooks/target/usr/local/libexec/common/debugsys.py.tmpl",
           "hooks/target/usr/local/libexec/common/incus-host",
@@ -30844,6 +30883,7 @@
           "scripts/firstboot/assets/var/lib/firstboot/bin/secondboot-cleanup",
           "scripts/firstboot/assets/var/lib/firstboot/bin/tailscale-up",
           "scripts/firstboot/firstboot.sh",
+          "scripts/firstboot/logging.sh",
           "scripts/late/account.sh",
           "scripts/late/crowdsec.sh",
           "scripts/late/crypto-bootstrap.py.tmpl",
@@ -31488,6 +31528,7 @@
           "hooks/target/etc/systemd/common/system/clamav-daemon.service.d/40-logging.conf.tmpl",
           "hooks/target/etc/systemd/common/system/clamav-freshclam.service.d/40-logging.conf.tmpl",
           "hooks/target/etc/systemd/common/system/clamav-signature-update.service.tmpl",
+          "hooks/target/etc/systemd/common/system/debsums-check.service.tmpl",
           "hooks/target/etc/systemd/common/system/debugsys-boot-report.service.tmpl",
           "hooks/target/etc/systemd/common/system/filen-sync@.service.tmpl",
           "hooks/target/etc/systemd/common/system/grub-btrfs-refresh.path",
@@ -33054,7 +33095,8 @@
           "scripts/late/btrfs-family.sh",
           "scripts/late/dbus-broker.sh",
           "scripts/late/devops/gitbuild.sh",
-          "scripts/late/network.sh"
+          "scripts/late/network.sh",
+          "scripts/late/software.sh.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -33227,6 +33269,7 @@
           "hooks/target/etc/systemd/common/system/apparmor.service.d/20-cache.conf",
           "hooks/target/etc/systemd/common/system/apt-refresh-lists.service.tmpl",
           "hooks/target/etc/systemd/common/system/clamav-signature-update.service.tmpl",
+          "hooks/target/etc/systemd/common/system/debsums-check.service.tmpl",
           "hooks/target/etc/systemd/common/system/debugsys-boot-report.service.tmpl",
           "hooks/target/etc/systemd/common/system/fail2ban.service.d/40-runtime.conf",
           "hooks/target/etc/systemd/common/system/filen-sync@.service.tmpl",
@@ -33438,6 +33481,7 @@
           "hooks/target/usr/local/libexec/common/crowdsec-bouncer-verify",
           "hooks/target/usr/local/libexec/common/dbus-broker-check",
           "hooks/target/usr/local/libexec/common/dbus-broker-maintain",
+          "hooks/target/usr/local/libexec/common/debsums-check.tmpl",
           "hooks/target/usr/local/libexec/common/debugsys-initramfs",
           "hooks/target/usr/local/libexec/common/debugsys.py.tmpl",
           "hooks/target/usr/local/libexec/common/filen-sync",
@@ -33826,6 +33870,7 @@
           "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/profiles.py.tmpl",
           "hooks/target/usr/local/libexec/common/apt-repo-local-normalize-sources",
           "hooks/target/usr/local/libexec/common/apt-repo-local.tmpl",
+          "hooks/target/usr/local/libexec/common/debsums-check.tmpl",
           "scripts/late/software.sh.tmpl"
         ]
       },
@@ -33953,6 +33998,7 @@
           "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/profiles.py.tmpl",
           "hooks/target/usr/local/lib/desktop/python3/dist-packages/labwc_managed_app/sandbox.py",
           "hooks/target/usr/local/libexec/common/apt-repo-local-normalize-sources",
+          "hooks/target/usr/local/libexec/common/debsums-check.tmpl",
           "hooks/target/usr/local/libexec/common/debugsys.py.tmpl",
           "hooks/target/usr/local/libexec/common/incus-host",
           "hooks/target/usr/local/libexec/common/journal-sealing",
@@ -35818,7 +35864,8 @@
       "consumer": {
         "module": "scripts/firstboot/04-validation.sh.tmpl",
         "source_members": [
-          "scripts/firstboot/04-validation.sh.tmpl"
+          "scripts/firstboot/04-validation.sh.tmpl",
+          "scripts/firstboot/assets/etc/apparmor.d/firstboot.tmpl"
         ]
       },
       "default_policy": "fail-closed",
@@ -109405,7 +109452,7 @@
     }
   ],
   "format": 2,
-  "source_fingerprint": "90ad9a5a800b866dfabe4c3b8b52de4a59586a9613dbfdf5317a0f2b5b0b7203",
+  "source_fingerprint": "08ad2d01e17f8d11d2d1eeba1e1985109a14e1467c52a26278195da332910ee0",
   "source_root": "d-i/debian",
   "token_grammar": "__[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*__ with exact closing delimiters",
   "version": "2026-11-17"

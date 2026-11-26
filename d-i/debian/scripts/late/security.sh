@@ -1897,6 +1897,15 @@ configure_target_apparmor_auditd() {
   install -d -m 0700 ${TARGET_ROOT}${DIR_ETC}/security
   [ -e ${TARGET_ROOT}${DIR_ETC}/security/opasswd ] || : > ${TARGET_ROOT}${DIR_ETC}/security/opasswd
   chmod 0600 ${TARGET_ROOT}${DIR_ETC}/security/opasswd
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/default/debsums)" \
+    "${DIR_ETC_DEFAULT}/debsums" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/usr/local/libexec/common/debsums-check.tmpl)" \
+    "${DIR_USR_LOCAL_LIBEXEC}/debsums-check" 0755
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/debsums-check.service.tmpl)" \
+    "${DIR_SYSTEMD_SYSTEM}/debsums-check.service" 0644
+  stage_target_asset "$(installer_repo_file_value hooks/target/etc/systemd/common/system/debsums-check.timer)" \
+    "${DIR_SYSTEMD_SYSTEM}/debsums-check.timer" 0644
+  installer_stage_offline_unit_link "${DIR_SYSTEMD_SYSTEM}/debsums-check.timer"
   stage_target_asset "$(installer_repo_file_value hooks/target/etc/apparmor.d/desktop/abstractions/app-veth-client)" "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/app-veth-client" 0644
   stage_target_asset "$(installer_repo_file_value hooks/target/etc/apparmor.d/common/abstractions/base.d/process-monitor)" "__INSTALLER_PATH_DIR_ETC__/apparmor.d/abstractions/base.d/process-monitor" 0644
   stage_target_system_apparmor_profiles
