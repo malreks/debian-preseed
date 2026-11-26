@@ -171,6 +171,23 @@ cat "$FIXTURE_WGET_SEED/$leaf" >"$destination"
                 'FIXTURE_WGET_CALLS': str(calls), 'FIXTURE_WGET_SEED': str(seed)}, calls
 
 class TransportTests(TransportFixture):
+    def test_authority_accepts_decimal_ports_without_octal_or_overflow_parsing(self):
+        for url in ('http://127.0.0.1:8000/path',
+                    'http://127.0.0.1:08000/path',
+                    'https://example.test:443/seed'):
+            with self.subTest(url=url):
+                result = self.shell('source_url_authority ' + shlex.quote(url))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), url.split('://', 1)[1].split(':', 1)[0])
+
+        for url in ('http://127.0.0.1:0/path',
+                    'http://127.0.0.1:65536/path',
+                    'http://127.0.0.1:123456/path'):
+            with self.subTest(url=url):
+                result = self.shell('source_url_authority ' + shlex.quote(url))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('invalid port', result.stderr)
+
     def test_source_cmdline_ignores_generic_credential_keys_without_echoing_values(self):
         for key in ('password', 'service_token', 'private_key', 'wireless_psk', 'api_secret'):
             with self.subTest(key=key):

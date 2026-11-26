@@ -639,14 +639,27 @@ source_url_authority() {
   source_url_host=${source_url_authority_value%%:*};
   if [ "$source_url_authority_value" != "$source_url_host" ]; then
     source_url_port=${source_url_authority_value#*:};
-    case "$source_url_port" in ''|*[!0-9]*|??????????*) source_error 'transport URL has an invalid port'; return 1 ;; esac;
+    case "$source_url_port" in ''|*[!0-9]*) source_error 'transport URL has an invalid port'; return 1 ;; esac;
+    case "$source_url_port" in ???????????*)
+      source_error 'transport URL has an invalid port'; return 1 ;;
+    esac;
+    # Normalize leading zeroes before the bounded decimal comparison.  The
+    # installer shell must accept ordinary values such as :08000 while never
+    # handing an oversized or octal-looking token to test(1).
+    source_url_port_decimal=$source_url_port;
+    while [ "${source_url_port_decimal#0}" != "$source_url_port_decimal" ]; do
+      source_url_port_decimal=${source_url_port_decimal#0};
+    done;
+    [ -n "$source_url_port_decimal" ] || {
+      source_error 'transport URL has an invalid port'; return 1;
+    };
+    case "$source_url_port_decimal" in ??????*)
+      source_error 'transport URL has an invalid port'; return 1 ;;
+    esac;
     # This function runs in the preseed's embedded bootstrap before the
     # target-path placeholder renderer is available.  `/dev/null` is the
     # installer-provided fixed device interface and must remain literal here.
-    [ "$source_url_port" -ge 1 ] 2>/dev/null || {
-      source_error 'transport URL has an invalid port'; return 1;
-    };
-    [ "$source_url_port" -le 65535 ] 2>/dev/null || {
+    [ "$source_url_port_decimal" -le 65535 ] 2>/dev/null || {
       source_error 'transport URL has an invalid port'; return 1;
     };
   fi;
