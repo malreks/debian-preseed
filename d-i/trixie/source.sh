@@ -640,10 +640,13 @@ source_url_authority() {
   if [ "$source_url_authority_value" != "$source_url_host" ]; then
     source_url_port=${source_url_authority_value#*:};
     case "$source_url_port" in ''|*[!0-9]*|??????????*) source_error 'transport URL has an invalid port'; return 1 ;; esac;
-    [ "$source_url_port" -ge 1 ] 2>__INSTALLER_PATH_DIR_DEV__/null || {
+    # This function runs in the preseed's embedded bootstrap before the
+    # target-path placeholder renderer is available.  `/dev/null` is the
+    # installer-provided fixed device interface and must remain literal here.
+    [ "$source_url_port" -ge 1 ] 2>/dev/null || {
       source_error 'transport URL has an invalid port'; return 1;
     };
-    [ "$source_url_port" -le 65535 ] 2>__INSTALLER_PATH_DIR_DEV__/null || {
+    [ "$source_url_port" -le 65535 ] 2>/dev/null || {
       source_error 'transport URL has an invalid port'; return 1;
     };
   fi;

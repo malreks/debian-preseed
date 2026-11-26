@@ -116,7 +116,7 @@
     "forky/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref": "cbfab4378813ab5b00cc2ff41274d5f5af11d36d402314ee599af40b4dac7874",
     "forky/hooks/target/etc/apt/server/preferences.d/x11.pref": "f1bf7d0bf738e3c897ca67827fdb54bd174c130c5ab94603e5e1d9e8044cbc7d",
     "forky/hooks/target/etc/apt/server/sources.list.d/custom/pikaos-optional.sources": "bc6c5e662148f654be43bb071fd60f753639465a4597caaac8625cdf9b9eda3a",
-    "forky/preseed.cfg": "096a391da8242b7bbd84c68d19d229fe6af6ed44411c4bf6683f86747eb568a5",
+    "forky/preseed.cfg": "b913b33a167cc3e77a77393718de191d345419d22ede375434be055ad4a952cf",
     "trixie/classes/class-auto/arch/amd64.cfg": "ef281a7ab7e72279590ddc47ce2b7841520501e173b503297a810593471e0563",
     "trixie/classes/class-auto/arch/arm64.cfg": "4c3cfb002099fb17b5930ab6c31d1eb6b7f4adcea66ecbaae2c401eb6cc410a4",
     "trixie/classes/class-auto/cpu/amd.cfg": "a118fd164dafc9fc1b2c86d4f9f9ff369d2407e7a1f1ba1ea0768d24f0c624c6",
@@ -226,18 +226,18 @@
     "trixie/hooks/target/etc/apt/server/preferences.d/optional/nvidia.pref": "cbfab4378813ab5b00cc2ff41274d5f5af11d36d402314ee599af40b4dac7874",
     "trixie/hooks/target/etc/apt/server/preferences.d/x11.pref": "94baeed7859a83e8e469cac8b91b58e1992e803584a8576215c5a1d89d0e42f5",
     "trixie/hooks/target/etc/apt/server/sources.list.d/custom/pikaos-optional.sources": "bc6c5e662148f654be43bb071fd60f753639465a4597caaac8625cdf9b9eda3a",
-    "trixie/preseed.cfg": "45688abfd4cbb30a853d75a1a163b24ae2155b6a69e565a8c8a0db47307b0cd0"
+    "trixie/preseed.cfg": "fcaa80107d1717d286dc92c3120f09e9bcf12c202fcccf1045878d3ed26a453f"
   },
   "members": 2468,
   "products": {
-    "payload.manifest": "fe5dc2397650c350d6fa647e621e940c38e3bdd79ca5b1f626fbb08683442fb2",
-    "payload.tar.gz": "516e19ddc99ccba86c27aac8e2f033759cd70e3b278c4ea72ebee904196c2c2a",
-    "source.sh": "78b3f148832c9d620df01728e1dc9176c945d08541ca237e9dba291d69763a29",
+    "payload.manifest": "9a64fa1d45e5d109f43f6f00fb4e265623d693ca130b5932463f7541055508c1",
+    "payload.tar.gz": "847b6418d210a5b064a642f61e83ffefc2b4841dfea4749c69d52ba1377e52a6",
+    "source.sh": "d4cd46aaf7a629eb7bc6c4fb44862f92dadb281f08054c4296b132c62cb25b1b",
     "support-matrix.json": "d328e8a1b482f4f07a8878786019f27abd57c75550b4cd172ce45f6bf7dbb1ef"
   },
-  "release": "28027bd1ec9650b60bad1b5778e7e67e1d69de29189b2a6a33f412ab1e733ad9",
+  "release": "c610c27bc765791f307b9038a851ee71c079661dd1444d2484ca205525fc4461",
   "runtime_acceptance": "unverified; no installer, native checks or tests executed",
-  "source_fingerprint": "7536059eba1f54697c7ccf6b1ab191580db97bbf695e938e04d6a47b171259fb",
+  "source_fingerprint": "c963c05e96926cba65a54aec841c69faccc9645f89bbd7dd4c2576c85ede11e1",
   "source_inputs": {
     "catalog/placeholder-registry.tsv": "e8811874bdd15445b7e12fd9db560315a82be093050c4ef8e07ca966809f4f41",
     "catalog/runtime-paths.tsv": "2ccf9fa8df4f5c17ecb603f2796d733fb53e4ccd077c95b86a7b2b53128f1475",
@@ -2307,7 +2307,7 @@
     "scripts/common/resolve-plan.awk": "095ffd5181cd150f0316145c889905735d81395969c6dd062d33cdabd70d1a3a",
     "scripts/common/scx-scheds.sh": "572b260ea9fd68f657a142208716a1467357ec7cc6a1c90d8752a780d15acfa9",
     "scripts/common/snander-install.py.tmpl": "934c3ea9b60fe90589f55cef0359a13b1094d52d61d1c6c660ce9f946f5c7b32",
-    "scripts/common/source.sh": "78b3f148832c9d620df01728e1dc9176c945d08541ca237e9dba291d69763a29",
+    "scripts/common/source.sh": "d4cd46aaf7a629eb7bc6c4fb44862f92dadb281f08054c4296b132c62cb25b1b",
     "scripts/common/ssh.sh": "0ebf6dee526afbb36c952b1c061a5cc23a97924a3f195fa78f69281fb96b82a4",
     "scripts/common/system-foundation.sh": "ac84ad5b7583244ff6e9011a6a66e4e39491a29f5f1a21d3c289c5fe1c6d5af1",
     "scripts/common/system-services.sh": "1b4b180eb8aebce594faf419ff82f9db0918d32bdcefa1d435f1a1e8a19d2666",
