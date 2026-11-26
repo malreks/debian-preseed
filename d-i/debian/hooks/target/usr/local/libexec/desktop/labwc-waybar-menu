@@ -25,7 +25,6 @@ import xml.etree.ElementTree as ET
 POPUPS = {
     "notifications": ("notifications", "notifications-menu.xml", "custom/notifications"),
     "power": ("power", "power-menu.xml", "custom/power"),
-    "tomat": ("tomat", "tomat-menu.xml", "custom/tomat"),
     "wayscriber": ("wayscriber", "wayscriber-menu.xml", "custom/wayscriber"),
 }
 MAX_CONFIG_BYTES = 256 * 1024

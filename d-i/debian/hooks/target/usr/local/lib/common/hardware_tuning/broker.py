@@ -25,6 +25,7 @@ from common import (AUTOSTART, AUTOSTART_UNIT, CONFIG, MAX_JSON, PROFILES, RANK,
 LOG = logging.getLogger("hardware-tuning")
 WORKER = "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-worker"
 POLICY = "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/hardware-tuning-policy"
+NVIDIA_POLICY = "__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/nvidia-tuning-policy"
 
 
 class LocalSeat:
@@ -128,6 +129,7 @@ class Broker:
         self.policy_error = ""
         self.policy_release: str | None = None
         self.child_outcome_unknown = False
+        self.nvidia_policy_ready = False
         # Boot autostart is activated only after this broker has sent READY=1.
         # Starting a BindsTo=hardware-tuning.service unit from initialize()
         # would wait on this still-starting Type=notify service and deadlock.
@@ -167,8 +169,27 @@ class Broker:
     async def worker(self, vendor: str, action: str, profile: str | None = None) -> dict:
         if vendor not in self.selection.vendors or action not in ("apply", "reset", "report", "health") or profile not in (*PROFILES, None):
             raise TuningError("invalid internal worker operation")
+        if vendor == "nvidia":
+            await self.prepare_nvidia_policy()
         args = [WORKER, vendor, action] + ([profile] if profile is not None else [])
-        return await self.child(args, 25)
+        try:
+            return await self.child(args, 25)
+        except TuningError as exc:
+            # A late NVIDIA character-device event can invalidate the exact
+            # AppArmor alias snapshot after preparation. Refresh once and
+            # retry the same read/write transaction. Other worker failures
+            # retain their original recovery semantics.
+            if vendor != "nvidia" or "policy unavailable or stale" not in str(exc):
+                raise
+            self.nvidia_policy_ready = False
+            await self.prepare_nvidia_policy()
+            return await self.child(args, 25)
+
+    async def prepare_nvidia_policy(self) -> None:
+        if "nvidia" not in self.selection.vendors or self.nvidia_policy_ready:
+            return
+        await self.child([NVIDIA_POLICY], 50)
+        self.nvidia_policy_ready = True
 
     async def policy(self, action: str) -> dict:
         if action not in {"status", "prepare-runtime", "prepare-boot", "activate", "stop", "disable", "recover"}:

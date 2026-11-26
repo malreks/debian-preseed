@@ -746,7 +746,7 @@ def live_policy_inputs():
     bad = dict(cfg, WLSUNSET_GAMMA='invalid')
     raises(ValueError,wlsunset.validate_config,bad)
     proxy = load('fixture_proxy_config', TARGET / 'usr/local/libexec/desktop/labwc-proxy-session')
-    payload = b'maxconn 1024\ntimeouts 1 5 30 60 180 180 15 60\nauth iponly\nallow * 127.0.0.1 * 80,443,5380 HTTP_CONNECT\ndeny *\nproxy -4 -a -i127.0.0.1 -p3128\n'
+    payload = b'maxconn 1024\ntimeouts 1 5 30 60 180 1800 15 60 15 5\nauth iponly\nallow * 127.0.0.1 * 80,443,5380 HTTP_CONNECT\ndeny *\nproxy -4 -a -i127.0.0.1 -p3128\n'
     proxy.validate_proxy_config(payload,3128)
     for bad in (payload+b'daemon\n',payload.replace(b'HTTP_CONNECT',b'HTTP'),payload.replace(b'127.0.0.1',b'0.0.0.0'),payload.replace(b'80,443',b'80,70000')):
         raises(ValueError,proxy.validate_proxy_config,bad,3128)

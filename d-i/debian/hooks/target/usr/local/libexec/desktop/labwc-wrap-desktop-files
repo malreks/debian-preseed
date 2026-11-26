@@ -38,6 +38,21 @@ DATABASE_TOOL = Path('__INSTALLER_PATH_DIR_USR__/bin/update-desktop-database')
 SAFE_ENV = {'PATH': '__INSTALLER_PATH_DIR_USR__/sbin:__INSTALLER_PATH_DIR_USR__/bin:/sbin:/bin', 'LC_ALL': 'C', 'HOME': '/nonexistent'}
 MAX_BYTES = 1024 * 1024
 DPKG_INFO = Path('__INSTALLER_PATH_DIR_VAR_LIB__/dpkg/info')
+# dpkg-query is meaningful only for package-owned filesystem roots.  Account
+# local and project-managed desktop entries are intentionally outside this
+# set.  Skipping those paths avoids a failing database lookup while preserving
+# package classification for normal Debian and /opt package files.
+PACKAGE_QUERY_ROOTS = (
+    Path('__INSTALLER_PATH_DIR_BIN__'),
+    Path('__INSTALLER_PATH_DIR_SBIN__'),
+    Path('__INSTALLER_PATH_DIR_LIB__'),
+    Path('__INSTALLER_PATH_DIR_USR_BIN__'),
+    Path('__INSTALLER_PATH_DIR_USR_SBIN__'),
+    Path('__INSTALLER_PATH_DIR_USR_LIB__'),
+    Path('__INSTALLER_PATH_DIR_USR_LIBEXEC__'),
+    Path('__INSTALLER_PATH_DIR_USR_SHARE__'),
+    Path('__INSTALLER_PATH_DIR_OPT__'),
+)
 WRAPPERS = {'electron': '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-electron-app', 'wayland': '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-app'}
 MANAGED_WRAPPER = '__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app'
 # These have existing dedicated sandbox/compatibility/logging entrypoints.
@@ -660,6 +675,10 @@ def query(arguments: list[str]) -> str:
 
 
 def package_for(path: Path) -> str | None:
+    path = Path(os.path.normpath(str(path)))
+    if not path.is_absolute() or not any(path == root or root in path.parents
+                                        for root in PACKAGE_QUERY_ROOTS):
+        return None
     # dpkg-query -S treats its argument as a glob: escape literal metacharacters.
     pattern = re.sub(r'([*?\[\\])', r'\\\1', str(path))
     result = subprocess.run(['__INSTALLER_PATH_DIR_USR__/bin/dpkg-query', '-S', '--', pattern], check=False,

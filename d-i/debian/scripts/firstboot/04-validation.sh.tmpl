@@ -1271,6 +1271,28 @@ printf "desktop_kanshi_verification enabled=%s\n" "$enabled"
     ' sh 2>__INSTALLER_PATH_DIR_DEV__/null || true
   )
   if bool_is_true "$desktop_nvidia_acceleration_available"; then
+    # Keep the kernel, userspace and optional GSP package on one Pika 580
+    # upstream version. Pascal/SM 6.1 does not consume GSP, but a stale
+    # Ubuntu-style nvidia-firmware-580-* package must never remain installed
+    # beside the Pika split package family.
+    check_command desktop-nvidia-580-package-branch \
+      __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+        expected=
+        for package in nvidia-driver-580 nvidia-driver-bin-580 nvidia-kernel-dkms-580 \
+          nvidia-kernel-common-580 nvidia-kernel-source-580 firmware-nvidia-gsp-580; do
+          status=$(dpkg-query -W -f="\${db:Status-Status}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          [ "$status" = installed ] || exit 1
+          version=$(dpkg-query -W -f="\${Version}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          case "$version" in *:*) version=${version#*:} ;; esac
+          branch=${version%%-*}
+          printf "%s\\n" "$branch" | grep -Eq "^580\\.[0-9]+\\.[0-9]+$" || exit 1
+          if [ -n "$expected" ] && [ "$branch" != "$expected" ]; then exit 1; fi
+          expected=$branch
+        done
+        stale=$(dpkg-query -W -f="\${binary:Package} \${db:Status-Status}\\n" \
+          "nvidia-firmware-580-*" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+        [ -z "$stale" ]
+      ' sh
     check_path desktop-nvidia-char-link-udev-rule __INSTALLER_PATH_DIR_UDEV_RULES__/71-nvidia-char-links.rules
     check_path desktop-nvidia-char-link-helper __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/nvidia-char-links
     check_path desktop-nvidia-char-link-service __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/nvidia-char-links.service

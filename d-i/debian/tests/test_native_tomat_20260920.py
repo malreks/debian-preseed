@@ -346,11 +346,7 @@ class MenuAndHookTests(unittest.TestCase):
                                        ('custom/notifications','notifications','on-click'), ('custom/power','power','on-click'),
                                        ('clock','calendar','on-click')]:
                 entry = bar[module]
-                if module == 'custom/tomat':
-                    self.assertNotIn('menu', entry)
-                    self.assertEqual(entry['on-click-release'], '/usr/local/libexec/labwc-waybar-run --menu=tomat')
-                else:
-                    self.assertEqual(entry['menu'], event)
+                self.assertEqual(entry['menu'], event)
                 self.assertNotIn(event, entry)
                 tree = ET.parse(payload_source_path(SKEL / 'waybar' / 'gtk' / (name + '-menu.xml')))
                 ids = [node.get('id') for node in tree.iter('object') if node.get('class') == 'GtkMenuItem' and node.get('id')]

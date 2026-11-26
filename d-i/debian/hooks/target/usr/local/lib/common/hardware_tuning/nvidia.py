@@ -169,14 +169,15 @@ class NVML:
             # execute() holds nvidia.lock before constructing this backend.
             # A replacement/late node requires root policy refresh before NVML
             # may perform even its initialization-time alias maintenance.
-            from nvidia_devices import snapshot
+            from nvidia_devices import same_device_nodes, snapshot
             directory = Path("__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy")
             if any((directory / name).exists() or (directory / name).is_symlink()
                    for name in ('nvidia-char.before', 'nvidia.json.before')):
                 raise TuningError("NVIDIA policy restoration is unproven; retained recovery requires review")
             prepared = trusted_json(Path("__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/nvidia.json"), 65536)
+            current_nodes = snapshot()
             if (not isinstance(prepared, dict) or prepared.get('version') != 1
-                    or prepared.get('nodes') != snapshot()
+                    or not same_device_nodes(prepared.get('nodes'), current_nodes)
                     or prepared.get('rules_sha256') != hashlib.sha256(read_text(
                         Path("__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/nvidia-char"), 65536
                     ).encode('utf-8')).hexdigest()):

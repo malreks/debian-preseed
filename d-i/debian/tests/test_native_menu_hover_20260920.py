@@ -1,4 +1,4 @@
-"""Six native menus plus the bounded Wayscriber popup owner.
+"""Native GTK menus plus the bounded Wayscriber popup owner.
 
 GTK is exercised through the existing shared-library ABI, not a compiled or
 patched Waybar. Backend calls are inspected/intercepted; no host control action,
@@ -150,9 +150,8 @@ class NativeMenuHoverTests(unittest.TestCase):
                                   '--', '/usr/local/bin/labwc-main-menu'])
                 apps = bar['group/apps']['drawer']
                 self.assertTrue(apps['click-to-reveal'])
-                self.assertNotIn('menu', bar['custom/tomat'])
-                self.assertEqual(bar['custom/tomat']['on-click-release'],
-                                 '/usr/local/libexec/labwc-waybar-run --menu=tomat')
+                self.assertEqual(bar['custom/tomat']['menu'], 'on-click')
+                self.assertNotIn('on-click-release', bar['custom/tomat'])
                 self.assertEqual(bar['custom/wayscriber']['menu'], 'on-click')
                 self.assertNotIn('on-click-release', bar['custom/wayscriber'])
 

@@ -45,7 +45,10 @@ def validate_proxy_config(raw: bytes, port: int) -> None:
         raise ValueError('unsupported foreground CONNECT proxy configuration')
     maximum, timeouts, auth, allow, deny, listener = lines
     if (len(maximum) != 2 or not maximum[1].isdecimal() or not 1 <= int(maximum[1]) <= 65535
-            or len(timeouts) != 9 or any(not value.isdecimal() or not 1 <= int(value) <= 86400 for value in timeouts[1:])
+            # The rendered policy contract supplies all ten 3proxy timeout
+            # fields.  Accepting the older eight-field shape caused every
+            # browser proxy to fail closed before Chromium could start.
+            or len(timeouts) != 11 or any(not value.isdecimal() or not 1 <= int(value) <= 86400 for value in timeouts[1:])
             or auth != ['auth','iponly'] or deny != ['deny','*']
             or len(allow) != 6 or allow[:4] != ['allow','*','127.0.0.1','*'] or allow[-1] != 'HTTP_CONNECT'
             or listener != ['proxy','-4','-a','-i127.0.0.1','-p'+str(port)]):

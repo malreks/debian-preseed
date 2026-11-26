@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import signal
@@ -114,7 +115,7 @@ def main() -> int:
             raise ValueError("untrusted policy preparation module")
     sys.path.insert(0, str(LIBRARY))
     from common import atomic_json
-    from nvidia_devices import snapshot
+    from nvidia_devices import same_device_nodes, snapshot
     protected(POLICY)
     protected(STATE)
     lock = os.open(STATE / 'nvidia.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
@@ -151,7 +152,7 @@ def main() -> int:
         try:
             publish(include, rules)
             reload_policy()
-            if snapshot() != nodes:
+            if not same_device_nodes(nodes, snapshot()):
                 raise ValueError("NVIDIA nodes changed during policy preparation")
             atomic_json(record, {'version': 1, 'nodes': nodes,
                                 'rules_sha256': hashlib.sha256(rules).hexdigest()}, mode=0o644)
@@ -187,7 +188,13 @@ if __name__ == '__main__':
         raise RuntimeError('policy preparation interrupted by signal ' + str(number))
     signal.signal(signal.SIGTERM, interrupted)
     try:
-        raise SystemExit(main())
+        result = main()
+        if result == 0:
+            print(json.dumps({'ok': True, 'result': {'prepared': True}}, separators=(',', ':')))
+        else:
+            print(json.dumps({'ok': False, 'error': f'policy preparation returned status {result}'},
+                             separators=(',', ':')))
+        raise SystemExit(result)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-        print('nvidia-tuning-policy: ' + str(error), file=sys.stderr)
+        print(json.dumps({'ok': False, 'error': str(error)[:8192]}, separators=(',', ':')))
         raise SystemExit(1)

@@ -9,6 +9,7 @@ import signal
 import stat
 import subprocess
 import sys
+import syslog
 
 
 COMPOSITOR_SELECTORS = frozenset({
@@ -207,13 +208,26 @@ def compositor_environment(source, home, policy, *, dev_root=Path("__INSTALLER_P
         meta = node.lstat()
         if (meta.st_dev, meta.st_ino, meta.st_rdev) != identity:
             raise ValueError("compositor DRM device replaced during selection")
-    print("labwc-compositor: policy_gpu=" + mode + " intel_pci=" + pci +
-          " backend_devices=" + environment.get("WLR_DRM_DEVICES", "auto") +
-          " render_device=" + environment.get("WLR_RENDER_DRM_DEVICE", "auto") +
-          " renderer=" + environment["WLR_RENDERER"] +
-          " egl_modifiers=" + ("disabled" if environment.get("WLR_EGL_NO_MODIFIERS") == "1" else "default") +
-          " drm_modifiers=" + ("disabled" if environment.get("WLR_DRM_NO_MODIFIERS") == "1" else "default"),
-          file=sys.stderr, flush=True)
+    message = ("policy_gpu=" + mode + " intel_pci=" + pci +
+               " backend_devices=" + environment.get("WLR_DRM_DEVICES", "auto") +
+               " render_device=" + environment.get("WLR_RENDER_DRM_DEVICE", "auto") +
+               " renderer=" + environment["WLR_RENDERER"] +
+               " egl_modifiers=" + ("disabled" if environment.get("WLR_EGL_NO_MODIFIERS") == "1" else "default") +
+               " drm_modifiers=" + ("disabled" if environment.get("WLR_DRM_NO_MODIFIERS") == "1" else "default"))
+    # This is one bounded record per compositor start.  Send it through the
+    # local syslog socket so routine policy diagnostics do not become journal
+    # service output.  Failure to deliver an informational record must never
+    # block compositor startup.
+    try:
+        syslog.openlog("labwc-session-check", syslog.LOG_PID | syslog.LOG_NDELAY, syslog.LOG_USER)
+        syslog.syslog(syslog.LOG_INFO, message)
+    except (OSError, ValueError):
+        pass
+    finally:
+        try:
+            syslog.closelog()
+        except (OSError, ValueError):
+            pass
     return environment
 
 

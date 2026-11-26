@@ -1,7 +1,8 @@
 [Unit]
 Description=Prepare verified NVIDIA device alias policy for hardware tuning
 Requires=apparmor.service
-After=apparmor.service apparmor-modes.service systemd-modules-load.service systemd-udev-trigger.service
+Wants=nvidia-char-links.service
+After=apparmor.service apparmor-modes.service systemd-modules-load.service systemd-udev-trigger.service nvidia-char-links.service
 Before=hardware-tuning.service
 ConditionPathExists=__INSTALLER_PATH_DIR_ETC__/hardware-tuning/nvidia.json
 StartLimitIntervalSec=60s

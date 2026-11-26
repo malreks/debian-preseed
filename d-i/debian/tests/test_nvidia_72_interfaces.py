@@ -19,8 +19,10 @@ class Nvidia580VendorSourceTests(unittest.TestCase):
     def test_pika_driver_and_source_packages_are_selected(self):
         for suite in ("forky", "trixie"):
             text = payload_read_text(SEED.parent / suite / "classes/class-select/optional/nvidia-legacy.cfg")
+            self.assertIn("nvidia-driver-580", text)
             self.assertIn("nvidia-kernel-dkms-580", text)
             self.assertIn("nvidia-kernel-source-580", text)
+            self.assertIn("firmware-nvidia-gsp-580", text)
             self.assertNotIn("nvidia-dkms-580", text)
 
     def test_installer_leaves_pika_native_kernel_compatibility_untouched(self):

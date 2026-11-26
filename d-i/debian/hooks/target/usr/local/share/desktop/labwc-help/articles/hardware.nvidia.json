@@ -19,6 +19,10 @@
       "text": "Inspect the display controller and its 'Kernel driver in use' line locally. The output can reveal hardware identifiers; redact them before sharing. Check the selected host profile and boot logs if the intended driver is unavailable."
     },
     {
+      "type": "paragraph",
+      "text": "For a Quadro P520, nvidia-smi reporting Driver 580.196.07 and CUDA Version 13.0 describes the driver's CUDA user-mode compatibility, not a CUDA 13 toolkit or the GPU's compile target. Pascal/SM 6.1 uses the legacy Pika 580 branch and CUDA 12.x toolkits. GSP Firmware Version N/A is expected because Pascal does not use GSP."
+    },
+    {
       "type": "warning",
       "text": "Do not replace the managed driver branch with arbitrary vendor packages, rebuild drivers from source, or remove module-signature policy to bypass a failure. Driver changes and reboot recovery require an administrator and a known working recovery path."
     }

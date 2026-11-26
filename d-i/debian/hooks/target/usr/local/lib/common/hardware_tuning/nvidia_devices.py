@@ -7,6 +7,33 @@ import re
 import stat
 
 
+def same_device_nodes(expected: object, actual: object) -> bool:
+    """Compare NVIDIA policy identities by path and device number.
+
+    Driver node recreation legitimately changes ``st_ino`` (and sometimes the
+    containing filesystem device) while the character major/minor interface
+    remains the same.  The AppArmor include and ``/dev/char`` aliases authorize
+    that stable interface, so inode churn must not invalidate a prepared lease.
+    Malformed records still fail closed.
+    """
+    def identities(value: object) -> list[tuple[str, int]] | None:
+        if not isinstance(value, list):
+            return None
+        result: list[tuple[str, int]] = []
+        for row in value:
+            if (not isinstance(row, list) or len(row) != 4
+                    or not isinstance(row[0], str) or not row[0]
+                    or type(row[3]) is not int or row[3] < 0):
+                return None
+            result.append((row[0], row[3]))
+        return sorted(result)
+
+    expected_identities = identities(expected)
+    actual_identities = identities(actual)
+    return (expected_identities is not None and actual_identities is not None
+            and expected_identities == actual_identities)
+
+
 def snapshot(dev: Path = Path("__INSTALLER_PATH_DIR_DEV__")) -> list[list]:
     descriptors = []
     result = []

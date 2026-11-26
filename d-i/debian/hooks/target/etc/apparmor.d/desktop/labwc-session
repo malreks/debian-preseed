@@ -425,6 +425,9 @@ profile labwc-session-check __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-sessi
   #include <abstractions/native-gpu-selection>
   include if exists <abstractions/dbus-session-strict>
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-session-check r,
+  # compositor policy diagnostics use the local datagram syslog socket. The
+  # rsyslog rule routes this exact program name to the managed labwc file.
+  __INSTALLER_PATH_DIR_DEV__/log rw,
   __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf r,
   __INSTALLER_PATH_DIR_ETC__/xdg/labwc/{environment,environment.d/} r,
   __INSTALLER_PATH_DIR_ETC__/xdg/labwc/environment.d/*.env r,

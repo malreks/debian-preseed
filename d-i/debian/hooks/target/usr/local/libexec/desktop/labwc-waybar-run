@@ -33,7 +33,7 @@ ALIASES = {
     "pavucontrol": "__INSTALLER_PATH_DIR_USR__/bin/pavucontrol",
 }
 MENU_BUTTONS = frozenset({
-    "notifications", "power", "tomat", "wayscriber",
+    "notifications", "power", "wayscriber",
 })
 BLOCKED_ENVIRONMENT = (
     "LD_PRELOAD", "LD_AUDIT", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONHOME",

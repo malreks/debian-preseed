@@ -339,7 +339,22 @@ installer_pci_has_display_device() {
 }
 
 installer_nvidia_gpu_detected() {
-  installer_pci_has_display_vendor 0x10de
+  # The generic class is the open-kernel/CUDA-13 path and is not valid for
+  # Pascal. A Quadro P520 must use optional/nvidia-legacy and the signed Pika
+  # proprietary 580 packages instead.
+  installer_pci_has_display_vendor 0x10de || return 1
+  pci_devices_root=${INSTALLER_PCI_DEVICES_ROOT:-/sys/bus/pci/devices}
+  for dev_path in "$pci_devices_root"/*; do
+    [ -d "$dev_path" ] || continue
+    [ -r "$dev_path/vendor" ] && [ -r "$dev_path/device" ] && [ -r "$dev_path/class" ] || continue
+    dev_vendor=$(installer_read_first_line "$dev_path/vendor" 2>/dev/null || true)
+    dev_device=$(installer_read_first_line "$dev_path/device" 2>/dev/null || true)
+    dev_class=$(installer_read_first_line "$dev_path/class" 2>/dev/null || true)
+    case "$dev_class:$dev_vendor:$dev_device" in
+      0x03*:0x10de:0x1d34|0x03*:0x10DE:0x1D34) return 1 ;;
+    esac
+  done
+  return 0
 }
 
 installer_nvidia_legacy_gpu_detected() {
