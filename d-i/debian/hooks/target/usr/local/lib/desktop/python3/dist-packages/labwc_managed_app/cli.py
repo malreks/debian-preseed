@@ -27,7 +27,7 @@ from .profiles import APPS, WAYLAND_COMPAT_APPS
 from .compat_protocol import (Outcome, ProtocolError, RequiredComponentError, activation_arguments,
                               INFRASTRUCTURE_RESULT, STARTUP_RESULT)
 from .runtime import MANAGED_DEFAULTS_PATH, current_user_home, current_user_runtime_dir, fail, require_primary_gpg
-from .sandbox import run_persistent_sandbox, run_pure_privacy, run_tor_ram
+from .sandbox import run_persistent_sandbox, run_pure_privacy, run_temporary_profile, run_tor_ram
 from .session import (
     redirect_bitwarden_to_session_unit,
     redirect_native_from_private_users,
@@ -188,7 +188,7 @@ def _argument_parser(*, wayland_compat: bool) -> argparse.ArgumentParser:
     else:
         program_name = "labwc-app"
         application_choices = tuple(sorted(set(APPS).difference(WAYLAND_COMPAT_APPS)))
-        mode_choices = ("auto", "launch", "intel", "nvidia", "pure-privacy")
+        mode_choices = ("auto", "launch", "intel", "nvidia", "pure-privacy", "temporary")
 
     parser = argparse.ArgumentParser(prog=program_name)
     parser.add_argument("mode", choices=mode_choices)
@@ -251,7 +251,7 @@ def main(
             MANAGED_DEFAULTS_PATH
         )
         mode = default_mode if options.mode == "auto" else options.mode
-        validate_acceleration_mode(mode, acceleration_availability)
+        validate_acceleration_mode("launch" if mode == "temporary" else mode, acceleration_availability)
 
         with event_context(mode=mode):
             app = APPS[options.application]
@@ -265,7 +265,7 @@ def main(
                 )
 
             validate_required_runtime_files(options.application)
-            if mode != "pure-privacy":
+            if mode not in {"pure-privacy", "temporary"}:
                 home_dir = current_user_home()
                 ensure_managed_runtime_state(options.application, home_dir)
                 if options.application == "discord":
@@ -276,6 +276,12 @@ def main(
             if mode == "pure-privacy":
                 emit("sandbox-starting", sandbox="ephemeral")
                 result = run_pure_privacy(options.application, options.args)
+                emit("completed", status=result)
+                return result
+
+            if mode == "temporary":
+                emit("sandbox-starting", sandbox="temporary-profile")
+                result = run_temporary_profile(options.application, options.args)
                 emit("completed", status=result)
                 return result
 

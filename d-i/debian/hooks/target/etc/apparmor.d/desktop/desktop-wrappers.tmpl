@@ -3619,17 +3619,6 @@ profile labwc-sync-application-launchers __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/la
 
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-sync-application-launchers rix,
   __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files r,
-  __INSTALLER_PATH_DIR_USR__/bin/{dpkg,dpkg-query} rix,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/ rix,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/{status,info/*.list} r,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/info/ rix,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/triggers/ rix,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/triggers/File r,
-  # dpkg-query opens this exact directory with O_DIRECTORY while package
-  # updates are in progress. Search remains scoped and read-only.
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/updates/ rix,
-  __INSTALLER_PATH_DIR_OPT__/*/resources/app.asar r,
-  __INSTALLER_PATH_DIR_USR__/{lib,share}/*/resources/app.asar r,
   __INSTALLER_PATH_DIR_USR__/bin/desktop-file-validate pux,
   owner @{HOME}/.config/ rw,
   owner @{HOME}/.config/mimeapps.list rw,
@@ -4594,6 +4583,36 @@ profile labwc-generic-app __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-{electron,w
   owner @{HOME}/ r,
   owner @{HOME}/.local/bin/{,**} r,
   owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,systemd/private,wayland-*} rw,
+  # Temporary Profile launches Bubblewrap directly instead of entering the
+  # persistent systemd/veth path. Keep namespace construction in a child
+  # domain and give that child only disposable HOME/runtime write paths.
+  signal (send, receive) set=(kill, term) peer=labwc-generic-app//generic-bwrap,
+  ptrace (read) peer=labwc-generic-app//generic-bwrap,
+  __INSTALLER_PATH_DIR_USR__/bin/bwrap rCx -> generic-bwrap,
+  profile generic-bwrap flags=(attach_disconnected, mediate_deleted) {
+    #include <abstractions/bwrap-common>
+    #include <abstractions/bwrap-desktop-runtime>
+    #include <abstractions/desktop-graphics>
+    include if exists <abstractions/wayland>
+    include if exists <abstractions/dbus-session-strict>
+    include if exists <abstractions/user-tmp>
+    # The temporary profile receives a read-only system root. Its command
+    # comes from a validated desktop Exec and remains inside this child domain.
+    __INSTALLER_PATH_DIR_BIN__/{,**} rix,
+    __INSTALLER_PATH_DIR_SBIN__/{,**} rix,
+    __INSTALLER_PATH_DIR_LIB__/{,**} mr,
+    __INSTALLER_PATH_DIR_USR__/{,**} rix,
+    __INSTALLER_PATH_DIR_USR_LOCAL__/{,**} rix,
+    __INSTALLER_PATH_DIR_OPT__/{,**} rix,
+    __INSTALLER_PATH_DIR_ETC__/{,**} r,
+    __INSTALLER_PATH_DIR_VAR__/{,**} r,
+    owner /home/user/ rw,
+    owner /home/user/** rwklm,
+    owner __INSTALLER_PATH_DIR_RUN_USER__/[0-9]*/{bus,wayland-*,pipewire-*,pulse/native} rw,
+    owner /tmp/ rw,
+    owner /tmp/** rwklm,
+    signal (send, receive) set=(kill, term) peer=labwc-generic-app,
+  }
   include if exists <local/usr.local.bin.labwc-generic-app>
 }
 
@@ -4628,6 +4647,7 @@ profile labwc-wrap-desktop-files __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-
   __INSTALLER_PATH_DIR_USR_SHARE__/applications/{,**} r,
   __INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications/{,**} rw,
   __INSTALLER_PATH_DIR_VAR_LIB__/labwc-desktop-files/{,**} rw,
+  __INSTALLER_PATH_DIR_VAR_LOG__/dpkg.log r,
   /{,var/}run/lock/labwc-desktop-files.lock rwk,
   include if exists <local/usr.local.libexec.labwc-wrap-desktop-files>
 }
@@ -4871,15 +4891,6 @@ profile labwc-main-menu __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu fla
   #include <abstractions/wrapper-terminal>
   include if exists <abstractions/dbus-session-strict>
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-main-menu rix,
-  __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files r,
-  __INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf r,
-  __INSTALLER_PATH_DIR_USR__/bin/{dpkg,dpkg-query} rix,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/ rix,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/{status,info/*.list} r,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/info/ rix,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/triggers/ rix,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/triggers/File r,
-  __INSTALLER_PATH_DIR_VAR_LIB__/dpkg/updates/ rix,
   __INSTALLER_PATH_DIR_OPT__/*/resources/app.asar r,
   __INSTALLER_PATH_DIR_USR__/{lib,share}/*/resources/app.asar r,
   __INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-computer-management rPx -> labwc-computer-management,

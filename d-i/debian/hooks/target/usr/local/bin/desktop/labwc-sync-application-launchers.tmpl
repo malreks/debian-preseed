@@ -42,7 +42,6 @@ MANAGED_FILE_MODE = 0o600
 MAX_DESKTOP_FILE_BYTES = 65536
 CHATGPT_MANAGED_APP = "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/chatgpt"
 WAYLAND_COMPAT_MANAGED_APP = "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-wayland-compat-app"
-WAYLAND_COMPAT_APPS = {"discord", "zoom"}
 DEDICATED_MANAGED_APPS = {
     "chatgpt": CHATGPT_MANAGED_APP,
 }
@@ -591,7 +590,11 @@ def find_desktop_file(desktop_names: tuple[str, ...]) -> tuple[str, str] | None:
     # Directory precedence wins over alternative vendor desktop IDs. Never
     # feed our generated account-local files back into the synchronizer.
     # Prefer the original vendor entry over a project fallback template.
-    for directory in (SYSTEM_APPLICATION_DIR, LOCAL_APPLICATION_DIR):
+    # Project-managed copies in /usr/local/share/applications shadow vendor
+    # entries without modifying /usr/share/applications. Prefer that copy for
+    # the explicit launcher set and never make the display path depend on a
+    # package query.
+    for directory in (LOCAL_APPLICATION_DIR, SYSTEM_APPLICATION_DIR):
         for desktop_name in desktop_names:
             source_path = os.path.join(directory, desktop_name)
             try:
@@ -715,11 +718,15 @@ def synchronize_catalog(account_home: str, desktop_dir: str, uid: int, gid: int,
     """
     policy = desktop_policy()
     defaults = configured_defaults()
-    enabled = available_actions(('IntelAccelerated', 'NvidiaAccelerated'), availability)
+    enabled = available_actions(tuple(
+        action for action in policy['ACTION_SPECS'] if action != 'PurePrivacy'), availability)
     known_names = {name for config in policy['APP_CONFIG'] for name in config['desktop_names']}
     effective: dict[str, pathlib.Path] = {}
     # Account entries include the fixed app aliases published just above.
-    for directory in (desktop_dir, LOCAL_APPLICATION_DIR, SYSTEM_APPLICATION_DIR):
+    # Account-local entries and project-managed /usr/local entries are the
+    # synchronizer's inputs. Vendor /usr/share entries are consumed directly
+    # by GIO/Fuzzel and must not trigger a full account catalog rewrite.
+    for directory in (desktop_dir, LOCAL_APPLICATION_DIR):
         root = pathlib.Path(directory)
         if not root.is_dir():
             continue
@@ -799,8 +806,12 @@ def synchronize_catalog(account_home: str, desktop_dir: str, uid: int, gid: int,
                 kind = next(kind for kind, wrapper in policy['WRAPPERS'].items() if wrapper == words[0])
                 prefix = defaults[kind]
             elif source.parent != pathlib.Path(desktop_dir):
-                executable = shlex.split(entry['Exec'])[0]
-                prefix = policy['launch_prefix'](source, executable, entry['Exec'], defaults)
+                # This path is account/dock reconciliation, not package
+                # classification. The package hook has already published the
+                # managed /usr/local copy. Keep a deterministic Wayland
+                # fallback for user-created entries. Package classification is
+                # confined to the package-event publication hook.
+                prefix = defaults['wayland']
             updated = policy['rewrite_desktop'](text, prefix, name=name, actions=enabled,
                                                 managed_default=defaults['managed'])
             parser = parse_desktop(updated)
@@ -957,7 +968,8 @@ def main() -> int:
             config["action_app"],
             config["field_code"],
             available_actions(
-                ("IntelAccelerated", "NvidiaAccelerated"),
+                tuple(action for action in desktop_policy()['ACTION_SPECS']
+                      if action != 'PurePrivacy'),
                 acceleration_availability,
             ),
             tuple(config.get("policy_actions", ())),

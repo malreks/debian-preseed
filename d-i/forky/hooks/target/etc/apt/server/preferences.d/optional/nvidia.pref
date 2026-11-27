@@ -1,29 +1,42 @@
-# Current NVIDIA driver from its signed upstream Debian 13 repository.
-# Select the open kernel module and its matching Wayland/compute userspace.
-# Full X.Org and Vulkan ICD policy remains in the immediate x11.pref.
+# Exact NVIDIA 620.70.10 Wayland package policy from the signed Debian 13
+# NVIDIA CUDA repository. Every selected vendor package is concrete and
+# version-pinned. No driver meta package can satisfy the DKMS recommendation.
+Package: firmware-nvidia-gsp:any nvidia-kernel-open-dkms:any nvidia-kernel-support:any nvidia-modprobe:any nvidia-smi:any nvidia-egl-icd:any libegl-nvidia0:any libgles-nvidia1:any libgles-nvidia2:any libnvidia-allocator1:any libnvidia-cfg1:any libnvidia-eglcore:any libnvidia-glvkspirv:any libnvidia-gpucomp:any libnvidia-ml1:any libcuda1:any libnvidia-ptxjitcompiler1:any libnvidia-pkcs11-openssl3:any libnvcuvid1:any
+Pin: version 620.70.10-1
+Pin-Priority: 1001
 
-Package: *
-Pin: release o=NVIDIA,l=NVIDIA CUDA
-Pin-Priority: 100
+# Wayland EGL bridges are versioned independently from the driver branch.
+Package: libnvidia-egl-wayland21:any
+Pin: version 1.0.2-1
+Pin-Priority: 1001
 
-Package: nvidia-kernel-open-dkms nvidia-driver-cuda nvidia-kernel-support nvidia-modprobe nvidia-persistenced nvidia-powerd nvidia-opencl-icd nvidia-egl-icd firmware-nvidia-gsp libnvidia* libcuda1 libcudadebugger1 libnvcuvid1 libnvoptix1 libegl-nvidia0 libgles-nvidia1 libgles-nvidia2 libglx-nvidia0
-Pin: release o=NVIDIA,l=NVIDIA CUDA
-Pin-Priority: 900
+Package: libnvidia-egl-gbm1:any
+Pin: version 1.1.4-2
+Pin-Priority: 1001
 
-# Prefer the render-node/PRIME-corrected EGLWayland 1 compatibility library.
-# Desktop roles enable Pika Cockatiel; no Pika source is enabled for servers.
-# Priority 990 permits a newer native version without forcing a downgrade.
-Package: libnvidia-egl-wayland1
-Pin: release n=pika,c=cockatiel
+# The VA-API bridge is Debian-owned and exact-pinned to the selected suite.
+Package: nvidia-vaapi-driver:any
+Pin: version 0.0.18-1
 Pin-Priority: 990
 
-# Keep the disabled Pop!_OS fallback excluded.
-Package: *
-Pin: origin apt.pop-os.org
+# Hard dependencies of the selected open DKMS package stay on Debian Forky.
+Package: dkms:any g++:any
+Pin: release o=Debian,n=forky
+Pin-Priority: 990
+
+# Reject the X.Org, GLX, Vulkan, CUDA-optional, and daemon branches. This
+# also blocks the alternatives offered through Recommends by open DKMS.
+Package: nvidia-driver:any nvidia-driver-cuda:any nvidia-driver-libs:any nvidia-driver-bin:any xserver-xorg-video-nvidia:any nvidia-vulkan-icd:any nvidia-vulkan-common:any nvidia-opencl-icd:any nvidia-opencl-common:any nvidia-libopencl1:any nvidia-persistenced:any nvidia-powerd:any libglx-nvidia0:any libnvidia-glcore:any nvidia-xconfig:any nvidia-settings:any
+Pin: version *
 Pin-Priority: -1
 
-# Cockatiel is installer-only. Specific Cockatiel package records above
-# remain eligible; every other Cockatiel package is unavailable to pkgsel.
+# Fail closed on every unlisted NVIDIA or firmware branch. The exact package
+# stanzas above are the only eligible NVIDIA repository records.
+Package: nvidia*:any libnvidia*:any libcuda*:any libcudadebugger*:any libegl-nvidia*:any libgles-nvidia*:any libglx-nvidia*:any libnvcuvid*:any libnvoptix*:any firmware-nvidia*:any xserver-xorg-video-nvidia:any glx-alternative-nvidia:any
+Pin: version *
+Pin-Priority: -1
+
+# Keep the disabled Ubuntu-based fallback excluded.
 Package: *
-Pin: release n=pika,c=cockatiel
+Pin: origin apt.pop-os.org
 Pin-Priority: -1

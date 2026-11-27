@@ -226,6 +226,8 @@ def managed_network_command(mode: str, arguments: list[str], *, kind: str = "way
     Match installed executable paths, never desktop names or user data. This
     covers package updates and URI handlers before launcher synchronization.
     """
+    if mode == "temporary":
+        return None
     executable = os.path.realpath(arguments[0])
     for name, policy in APPS.items():
         if not policy.get("persistent_sandbox", False) and name not in {"qbittorrent", "agenda", "calix"}:
@@ -259,6 +261,60 @@ def managed_network_command(mode: str, arguments: list[str], *, kind: str = "way
     if name is not None:
         return ["__INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/app-veth-run", kind, mode, name, "--", *arguments]
     return None
+
+
+def run_temporary_generic(arguments: list[str], environment: dict[str, str], mode: str) -> int:
+    """Launch an arbitrary desktop Exec in a disposable bwrap profile.
+
+    This path intentionally keeps the host network namespace and omits the
+    veth/proxy worker. Only the profile state is ephemeral, with tmpfs HOME,
+    XDG roots and /tmp. The effective desktop Exec remains an argv list.
+    """
+    uid = os.getuid()
+    gid = os.getgid()
+    runtime = current_user_runtime_dir()
+    display = environment.get("WAYLAND_DISPLAY", "wayland-0")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", display):
+        fail("invalid temporary profile Wayland display")
+    wayland = current_user_runtime_socket("temporary profile Wayland socket", display)
+    bus = Path(runtime) / "bus"
+    if not bus.is_socket() or bus.is_symlink() or bus.stat().st_uid != uid:
+        fail("temporary profile session bus is unavailable or unsafe")
+    bwrap = require_root_owned_executable("bubblewrap", "__INSTALLER_PATH_DIR_USR__/bin/bwrap")
+    home = "/home/user"
+    sandbox_runtime = f"/run/user/{uid}"
+    env = dict(environment)
+    env.update({
+        "HOME": home,
+        "USER": current_user_name(),
+        "LOGNAME": current_user_name(),
+        "XDG_RUNTIME_DIR": sandbox_runtime,
+        "XDG_CONFIG_HOME": f"{home}/.config",
+        "XDG_CACHE_HOME": f"{home}/.cache",
+        "XDG_DATA_HOME": f"{home}/.local/share",
+        "XDG_STATE_HOME": f"{home}/.local/state",
+        "TMPDIR": f"{home}/.tmp",
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={sandbox_runtime}/bus",
+    })
+    command = [
+        bwrap, "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid",
+        "--unshare-ipc", "--unshare-uts", "--uid", str(uid), "--gid", str(gid),
+        "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
+        "--tmpfs", home, "--tmpfs", "/tmp", "--tmpfs", sandbox_runtime,
+        "--bind", wayland, f"{sandbox_runtime}/{display}",
+        "--bind", str(bus), f"{sandbox_runtime}/bus",
+        "--chdir", home, "--cap-drop", "ALL", "--clearenv",
+    ]
+    if mode in {"intel", "nvidia"}:
+        selected_gpu = gpu.select(mode)
+        if selected_gpu is not None:
+            selected_gpu.add_binds(command)
+    for name, value in sorted(env.items()):
+        if "\x00" in name or "\x00" in value or "\n" in value or "\r" in value:
+            fail("temporary profile environment contains an invalid value")
+        command.extend(("--setenv", name, value))
+    command.extend(("--", *arguments))
+    return os.spawnvpe(os.P_WAIT, command[0], command, env)
 
 
 def configured_worker_environment(environment: dict[str, str]) -> dict[str, str]:
@@ -584,7 +640,7 @@ def transient_argv(kind: str, mode: str, arguments: list[str], environment: dict
 
 def main(kind: str, argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog=WRAPPERS[kind])
-    parser.add_argument("mode", choices=("auto", "launch", "intel", "nvidia"))
+    parser.add_argument("mode", choices=("auto", "launch", "intel", "nvidia", "temporary"))
     parser.add_argument("command", nargs=argparse.REMAINDER)
     options = parser.parse_args(argv)
     arguments = options.command
@@ -610,7 +666,8 @@ def main(kind: str, argv: list[str] | None = None) -> int:
         if len(parsed) != 2 or parsed[0] != WRAPPERS[kind] or parsed[1] not in {"launch", "intel", "nvidia"}:
             fail(f"invalid default command for {kind} applications")
         mode = parsed[1]
-    validate_acceleration_mode(mode, availability)
+    gpu_mode = "launch" if mode == "temporary" else mode
+    validate_acceleration_mode(gpu_mode, availability)
     arguments = unwrap_env(arguments, environment)
     if not arguments:
         fail("desktop entry has no executable after env assignments")
@@ -627,7 +684,7 @@ def main(kind: str, argv: list[str] | None = None) -> int:
     environment.update(MANAGED_NATIVE_OPENGL_ENVIRONMENT)
     # A vendor env prefix cannot replace the requested closed debug profile.
     diagnostics.apply(environment)
-    environment.update(INTEL_ACCELERATION_ENV if mode == "intel" else NVIDIA_ACCELERATION_ENV if mode == "nvidia" else {})
+    environment.update(INTEL_ACCELERATION_ENV if gpu_mode == "intel" else NVIDIA_ACCELERATION_ENV if gpu_mode == "nvidia" else {})
     network_command = managed_network_command(mode, arguments, kind=kind)
     application_arguments = list(arguments) if network_command is not None else None
     if network_command is not None:
@@ -635,7 +692,7 @@ def main(kind: str, argv: list[str] | None = None) -> int:
     elif kind == "electron":
         arguments = electron_command(arguments)
     if network_command is None:
-        selected_gpu = gpu.select(mode)
+        selected_gpu = gpu.select(gpu_mode)
         if selected_gpu is not None:
             selected_gpu.apply_environment(environment)
             if kind == "electron":
@@ -654,6 +711,8 @@ def main(kind: str, argv: list[str] | None = None) -> int:
         "__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-desktop-appearance", "__INSTALLER_PATH_DIR_USR__/bin/timeshift-launcher",
     }:
         require_primary_gpg()
+    if mode == "temporary":
+        return run_temporary_generic(arguments, environment, gpu_mode)
     try:
         systemd_run = require_root_owned_executable("systemd-run", "__INSTALLER_PATH_DIR_USR__/bin/systemd-run")
         os.execve(systemd_run, transient_argv(kind, mode, arguments, environment,

@@ -31,6 +31,8 @@ STATE_DIR = Path('__INSTALLER_PATH_DIR_VAR_LIB__/labwc-desktop-files')
 MANIFEST = STATE_DIR / 'overrides.json'
 PENDING = STATE_DIR / 'pending.json'
 SOURCE_STATE = STATE_DIR / 'source-state.json'
+DPKG_EVENT_STATE = STATE_DIR / 'dpkg-event.json'
+DPKG_LOG = Path('__INSTALLER_PATH_DIR_VAR_LOG__/dpkg.log')
 DATABASE_DIRTY = STATE_DIR / 'database-dirty'
 LOCK = Path('__INSTALLER_PATH_DIR_RUN__/lock/labwc-desktop-files.lock')
 VALIDATOR = Path('__INSTALLER_PATH_DIR_USR__/bin/desktop-file-validate')
@@ -260,6 +262,7 @@ APP_CONFIG = (
 )
 
 ACTION_SPECS = {
+    "TemporaryProfile": ("temporary", "Temporary Profile"),
     "IntelAccelerated": ("intel", "IntelAccelerated"),
     "NvidiaAccelerated": ("nvidia", "NvidiaAccelerated"),
     "PurePrivacy": ("pure-privacy", "PurePrivacy"),
@@ -267,6 +270,13 @@ ACTION_SPECS = {
 
 
 def managed_exec(mode: str, app_name: str, field_code: str) -> str:
+    if mode == "temporary":
+        # The disposable profile uses bwrap with the host network namespace.
+        # Keep the existing private XWayland compatibility entrypoint as the
+        # only path for Discord and Zoom.
+        if app_name in WAYLAND_COMPAT_APPS:
+            return f"{WAYLAND_COMPAT_MANAGED_APP} launch {app_name} {field_code}"
+        return f"__INSTALLER_PATH_DIR_USR_LOCAL_BIN__/labwc-app temporary {app_name} {field_code}"
     if app_name == "qbittorrent" and mode != "pure-privacy":
         # The dedicated wrapper owns storage, peer policy and its user service.
         selector = f" --acceleration={mode}" if mode in {"intel", "nvidia"} else ""
@@ -398,8 +408,9 @@ def acceleration_actions(*, owner_uid: int = 0, text: str | None = None) -> tupl
             values[key] = words[0] == 'true'
     if len(values) != 2:
         raise ValueError('acceleration availability must be configured')
-    return tuple(action for mode, action in (('intel', 'IntelAccelerated'), ('nvidia', 'NvidiaAccelerated'))
-                 if values[f'LABWC_{mode.upper()}_ACCELERATION_AVAILABLE'])
+    return ('TemporaryProfile', *tuple(
+        action for mode, action in (('intel', 'IntelAccelerated'), ('nvidia', 'NvidiaAccelerated'))
+        if values[f'LABWC_{mode.upper()}_ACCELERATION_AVAILABLE']))
 
 
 def managed_exec_recognized(value: str) -> bool:
@@ -604,7 +615,9 @@ def rewrite_desktop(text: str, prefix: str, *, name: str = '',
         for action, display_name, command in config.get('policy_actions', ()):
             commands[action] = (display_name, command)
         for action in actions:
-            if action not in {'IntelAccelerated', 'NvidiaAccelerated'}:
+            if action == 'TemporaryProfile' and config['action_app'] in WAYLAND_COMPAT_APPS:
+                continue
+            if action not in {'IntelAccelerated', 'NvidiaAccelerated', 'TemporaryProfile'}:
                 raise ValueError('unsupported acceleration action')
             commands[action] = (ACTION_SPECS[action][1],
                                 managed_exec(ACTION_SPECS[action][0], config['action_app'], config['field_code']).strip())
@@ -615,7 +628,7 @@ def rewrite_desktop(text: str, prefix: str, *, name: str = '',
         original = original_generic_exec(main['Exec']) or main['Exec']
         default_command = original if managed_exec_recognized(original) else prefix + ' -- ' + original
         for action in actions:
-            if action not in {'IntelAccelerated', 'NvidiaAccelerated'}:
+            if action not in {'IntelAccelerated', 'NvidiaAccelerated', 'TemporaryProfile'}:
                 raise ValueError('unsupported acceleration action')
             commands[action] = (ACTION_SPECS[action][1],
                                 words[0] + ' ' + ACTION_SPECS[action][0] + ' -- ' + original)
@@ -814,7 +827,8 @@ def generate_overrides(defaults: dict[str, str], names: set[str] | None = None) 
             previous[name] = digest
     current: dict[str, str] = {} if names is None else {name: value for name, value in previous.items() if name not in names}
     cache: dict[str, bool] = {}
-    enabled_actions = acceleration_actions()
+    package_desktops: dict[str, set[str]] = {}
+    acceleration_action_set = acceleration_actions()
     changed = False
     for directory in APPLICATION_DIRS:
         if not directory.exists():
@@ -835,6 +849,7 @@ def generate_overrides(defaults: dict[str, str], names: set[str] | None = None) 
                 if owned_override(OUTPUT_DIR / name, previous.get(name)):
                     current[name] = previous[name]
                 continue
+            enabled_actions = acceleration_action_set
             try:
                 if rewrite_desktop(text, defaults['wayland'], name=path.name, actions=enabled_actions, managed_default=defaults['managed']) == text:
                     continue
@@ -846,6 +861,8 @@ def generate_overrides(defaults: dict[str, str], names: set[str] | None = None) 
             package = package_for(path)
             if package is None:
                 continue
+            if names is None:
+                package_desktops.setdefault(package, set()).add(name)
             if package not in cache:
                 cache[package] = is_electron(package)
             output = rewrite_desktop(text, defaults['electron' if cache[package] else 'wayland'], name=path.name, actions=enabled_actions, managed_default=defaults['managed'])
@@ -896,6 +913,8 @@ def generate_overrides(defaults: dict[str, str], names: set[str] | None = None) 
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
+    if names is None:
+        seed_dpkg_event_state(package_desktops)
     return changed
 
 
@@ -1162,17 +1181,115 @@ def archive_output(arguments: list[str]):
         yield output
 
 
-def directory_state() -> str:
-    # dpkg replaces files by rename, changing the containing directory. Include
-    # nested application directories without opening every desktop file.
-    rows = []
-    for path in APPLICATION_DIRS:
-        rows.append((str(path), path.stat().st_mtime_ns if path.exists() else None))
-        for root, directories, _files in os.walk(path, followlinks=False):
-            directories[:] = sorted(name for name in directories if not (Path(root) / name).is_symlink())
-            if Path(root) != path:
-                rows.append((root, Path(root).stat().st_mtime_ns))
-    return json.dumps(rows) + '\n'
+def load_dpkg_event_state() -> dict:
+    if not DPKG_EVENT_STATE.exists():
+        return {'offset': 0, 'device': None, 'inode': None, 'packages': {}}
+    trusted_file(DPKG_EVENT_STATE, size_limit=4 * MAX_BYTES)
+    value = json.loads(DPKG_EVENT_STATE.read_text(encoding='utf-8'))
+    if (not isinstance(value, dict) or not isinstance(value.get('offset'), int)
+            or value['offset'] < 0 or not isinstance(value.get('packages'), dict)):
+        raise ValueError('invalid dpkg event state')
+    packages = value['packages']
+    if any(not isinstance(name, str) or not isinstance(names, list)
+           or any(not isinstance(item, str) for item in names)
+           for name, names in packages.items()):
+        raise ValueError('invalid dpkg package desktop index')
+    return value
+
+
+def seed_dpkg_event_state(package_desktops: dict[str, set[str]]) -> None:
+    """Certify the full catalog and establish a bounded direct-dpkg cursor."""
+    state = {
+        'offset': 0,
+        'device': None,
+        'inode': None,
+        'packages': {package: sorted(names) for package, names in sorted(package_desktops.items())},
+    }
+    try:
+        metadata = DPKG_LOG.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0
+                or metadata.st_mode & 0o022 or metadata.st_size > 16 * MAX_BYTES):
+            raise ValueError('unsafe dpkg event log')
+        state.update(offset=metadata.st_size, device=metadata.st_dev, inode=metadata.st_ino)
+    payload = json.dumps(state, sort_keys=True) + '\n'
+    write_atomic(DPKG_EVENT_STATE, payload,
+                 DPKG_EVENT_STATE.lstat() if DPKG_EVENT_STATE.exists() else None)
+
+
+def dpkg_event_delta() -> tuple[set[str], dict] | None:
+    """Read only the new dpkg log records for a direct dpkg invocation."""
+    try:
+        metadata = DPKG_LOG.lstat()
+    except FileNotFoundError:
+        return None
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0
+            or metadata.st_mode & 0o022 or metadata.st_size > 16 * MAX_BYTES):
+        raise ValueError('unsafe dpkg event log')
+    state_exists = DPKG_EVENT_STATE.exists()
+    state = load_dpkg_event_state()
+    if not state_exists:
+        # The initial provisioning pass seeds the package index. If a direct
+        # dpkg invocation reaches this hook first, skip historical records and
+        # establish a bounded cursor instead of replaying the whole log.
+        return set(), {
+            'offset': metadata.st_size,
+            'device': metadata.st_dev,
+            'inode': metadata.st_ino,
+            'packages': {},
+        }
+    offset = state['offset']
+    if state.get('device') is None and state.get('inode') is None and offset == 0:
+        return set(), {
+            'offset': metadata.st_size,
+            'device': metadata.st_dev,
+            'inode': metadata.st_ino,
+            'packages': state['packages'],
+        }
+    if (state.get('device') != metadata.st_dev or state.get('inode') != metadata.st_ino
+            or offset > metadata.st_size):
+        offset = 0
+    descriptor = os.open(DPKG_LOG, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.lseek(descriptor, offset, os.SEEK_SET)
+        payload = os.read(descriptor, 16 * MAX_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    if len(payload) > 16 * MAX_BYTES:
+        raise ValueError('dpkg event log delta exceeds its bound')
+    complete_length = payload.rfind(b'\n') + 1
+    lines = payload[:complete_length].decode('utf-8', errors='strict').splitlines()
+    packages = {name: list(names) for name, names in state['packages'].items()}
+    changed: set[str] = set()
+    pattern = re.compile(
+        r'^\S+\s+\S+\s+(?:status\s+(?:installed|not-installed|config-files)|'
+        r'install|upgrade|remove|purge)\s+([a-z0-9][a-z0-9+.-]*(?::[a-z0-9-]+)?)\s*')
+    for line in lines:
+        match = pattern.match(line)
+        if not match:
+            continue
+        package = match.group(1)
+        changed.update(packages.get(package, ()))
+        names: set[str] = set()
+        for listing in (DPKG_INFO / (package + '.list'),
+                        *DPKG_INFO.glob(package + ':*.list')):
+            if listing.is_file():
+                trusted_file(listing, size_limit=16 * MAX_BYTES)
+                names.update(desktop_names(listing.read_text(encoding='utf-8').splitlines()))
+        if names:
+            packages[package] = sorted(names)
+        else:
+            packages.pop(package, None)
+        changed.update(names)
+    next_state = {
+        'offset': offset + complete_length,
+        'device': metadata.st_dev,
+        'inode': metadata.st_ino,
+        'packages': packages,
+    }
+    return changed, next_state
 
 
 def pending_names(path: Path) -> set[str]:
@@ -1188,14 +1305,13 @@ def pending_names(path: Path) -> set[str]:
 
 def main(argv: list[str] | None = None) -> int:
     apt_pending = STATE_DIR / 'apt-packages.json'
-    dpkg_directory_state = STATE_DIR / 'dpkg-directory.json'
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--force', action='store_true', help='bypass the source-state cache')
     parser.add_argument('--post-invoke', action='store_true', help='final synchronous dpkg reconciliation')
     hooks = parser.add_mutually_exclusive_group()
     hooks.add_argument('--apt-pre', action='store_true', help='collect only changed desktop package paths')
     hooks.add_argument('--apt-post', action='store_true', help='reconcile this APT transaction once')
-    hooks.add_argument('--dpkg-post', action='store_true', help='cheap direct-dpkg desktop change check')
+    hooks.add_argument('--dpkg-post', action='store_true', help='reconcile desktop entries named by new dpkg log events')
     options = parser.parse_args(argv)
     if os.geteuid() != 0:
         raise ValueError('desktop package hook must run as root')
@@ -1218,20 +1334,30 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     if options.apt_post and not apt_pending.exists():
         return 0
-    if options.dpkg_post:
-        if apt_pending.exists():
-            return 0  # APT's final hook runs after all unpack/configure calls.
-        if dpkg_directory_state.exists():
-            trusted_file(dpkg_directory_state)
-            if dpkg_directory_state.read_text(encoding='utf-8') == directory_state():
-                return 0
+    if options.dpkg_post and apt_pending.exists():
+        return 0  # APT's final hook runs after all unpack/configure calls.
     os.umask(0o077)
+    STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    trusted_directory(STATE_DIR)
     lock = os.open(LOCK, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
     with os.fdopen(lock, 'r+') as handle:
         metadata = os.fstat(handle.fileno())
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_nlink != 1 or metadata.st_mode & 0o022:
             raise ValueError('unsafe desktop hook lock')
         fcntl.flock(handle, fcntl.LOCK_EX)
+        dpkg_names = None
+        dpkg_event_state = None
+        if options.dpkg_post:
+            delta = dpkg_event_delta()
+            if delta is None:
+                return 0
+            dpkg_names, dpkg_event_state = delta
+            if not dpkg_names:
+                # Advance the log cursor without touching launcher output.
+                payload = json.dumps(dpkg_event_state, sort_keys=True) + '\n'
+                write_atomic(DPKG_EVENT_STATE, payload,
+                             DPKG_EVENT_STATE.lstat() if DPKG_EVENT_STATE.exists() else None)
+                return 0
         if options.apt_pre:
             STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
             trusted_directory(STATE_DIR)
@@ -1241,13 +1367,23 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if options.apt_post:
             names = pending_names(apt_pending)
-        reconcile(force=options.force, post_invoke=options.post_invoke or options.apt_post or options.dpkg_post, names=names)
+            # APT already supplied the exact changed desktop names through
+            # its package-action FD. Advance the direct-dpkg log cursor too,
+            # so the next standalone dpkg invocation does not replay this
+            # transaction.
+            delta = dpkg_event_delta()
+            if delta is not None:
+                dpkg_event_state = delta[1]
+        if options.dpkg_post:
+            reconcile(force=True, post_invoke=True, names=dpkg_names)
+        else:
+            reconcile(force=options.force, post_invoke=options.post_invoke or options.apt_post, names=names)
         if options.apt_post:
             apt_pending.unlink()
-        directory_payload = directory_state()
-        if not dpkg_directory_state.exists() or dpkg_directory_state.read_text(encoding='utf-8') != directory_payload:
-            write_atomic(dpkg_directory_state, directory_payload,
-                         dpkg_directory_state.lstat() if dpkg_directory_state.exists() else None)
+        if dpkg_event_state is not None:
+            payload = json.dumps(dpkg_event_state, sort_keys=True) + '\n'
+            write_atomic(DPKG_EVENT_STATE, payload,
+                         DPKG_EVENT_STATE.lstat() if DPKG_EVENT_STATE.exists() else None)
     return 0
 
 

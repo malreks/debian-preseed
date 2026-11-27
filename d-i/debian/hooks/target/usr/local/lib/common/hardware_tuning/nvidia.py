@@ -13,7 +13,7 @@ import stat
 import subprocess
 import time
 from pathlib import Path
-from common import Knob, TuningError, UnsupportedControl, trusted_json, read_text
+from common import Knob, TuningError, UnsupportedControl, trusted_json, read_bytes
 
 SETTINGS = {
     "POWER_LIMIT_MW": ("default", "default", "keep", "min"),
@@ -178,9 +178,9 @@ class NVML:
             current_nodes = snapshot()
             if (not isinstance(prepared, dict) or prepared.get('version') != 1
                     or not same_device_nodes(prepared.get('nodes'), current_nodes)
-                    or prepared.get('rules_sha256') != hashlib.sha256(read_text(
+                    or prepared.get('rules_sha256') != hashlib.sha256(read_bytes(
                         Path("__INSTALLER_PATH_DIR_RUN__/hardware-tuning-policy/nvidia-char"), 65536
-                    ).encode('utf-8')).hexdigest()):
+                    )).hexdigest()):
                 raise TuningError("NVIDIA device policy is unavailable or stale; preparation is required")
         try:
             self.lib = library if library is not None else C.CDLL("libnvidia-ml.so.1")

@@ -1,6 +1,7 @@
-# Thin, synchronous final trigger. The helper owns locking, the content gate,
-# journal recovery and reconciliation; systemd.path is only supplementary.
+# Thin, synchronous final trigger. The helper compares its durable desktop
+# identity index and classifies only new/replaced/removed entries, then owns
+# locking, journal recovery and reconciliation; systemd.path is supplementary.
 # Package-owned __INSTALLER_PATH_DIR_USR_SHARE__/applications entries are read-only inputs.
 # During bootstrap the helper/defaults may not exist yet; desktop provisioning
 # invokes it once explicitly after installing and rendering those assets.
-post-invoke=if [ -x __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files ] && [ -x __INSTALLER_PATH_DIR_USR__/bin/python3 ] && [ -x __INSTALLER_PATH_DIR_USR__/bin/dpkg-query ]; then __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files --dpkg-post; fi
+post-invoke=if [ -x __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files ] && [ -x __INSTALLER_PATH_DIR_USR__/bin/python3 ]; then __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/labwc-wrap-desktop-files --dpkg-post; fi

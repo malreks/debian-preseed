@@ -1,84 +1,69 @@
-# Managed by the installer apt-setup preferences generator.
-# Pascal uses the signed Pika 580 binary packages below. Every Pika
-# allow is an exact package name. The final wildcard is deny-only and
-# keeps every unlisted Cockatiel package unavailable to APT.
+# Exact NVIDIA 580 Wayland package policy.
+# Every selected Pika package below is a concrete package with an exact
+# reviewed version. No NVIDIA driver meta package is selected. The Pika
+# alternative package is a hard dependency of every 580 concrete library and
+# supplies only the vendor registration links required by those libraries.
 
-# The open-kernel branch is incompatible with the proprietary Pascal
-# driver even when its package is published by the same source.
-Package: nvidia-open-driver-580:any nvidia-open-kernel-dkms-580:any nvidia-kernel-open-580:any nvidia-kernel-dkms-open-580:any
+# The Pika kernel package's hard dependency closure. The closed-kernel aliases
+# are provided by the concrete source/support/common packages below.
+Package: nvidia-alternative-580:any nvidia-support-580:any firmware-nvidia-gsp-580:any nvidia-kernel-dkms-580:any nvidia-kernel-source-580:any nvidia-kernel-support-580:any nvidia-kernel-common-580:any nvidia-modprobe-580:any nvidia-smi-580:any nvidia-suspend-common-580:any nvidia-egl-common-580:any nvidia-egl-icd-580:any libegl-nvidia0-580:any libgles-nvidia1-580:any libgles-nvidia2-580:any libnvidia-allocator1-580:any libnvidia-eglcore-580:any libnvidia-glvkspirv-580:any libnvidia-gpucomp-580:any libnvidia-ml1-580:any libnvcuvid1-580:any libcuda1-580:any libnvidia-ptxjitcompiler1-580:any libnvidia-pkcs11-openssl3-580:any
+Pin: version *580.196.07-101pika2
+Pin-Priority: 1001
+
+# These Wayland EGL bridges are versioned independently from the 580 driver.
+Package: libnvidia-egl-wayland1:any
+Pin: version 1:1.1.24-101pika1
+Pin-Priority: 1001
+
+Package: libnvidia-egl-gbm1:any
+Pin: version 1.1.4-101pika1
+Pin-Priority: 1001
+
+# The 580 EGL runtime requires libgbm1 >= 26.2.5. Pika's Mesa runtime is an
+# exact-version family: libgbm1, libglx-mesa0, libegl-mesa0 and the DRI loader
+# all require the matching mesa-libgallium/libmesa-stable build. Pin the full
+# runtime closure together so Qt6, GLVND and NVIDIA cannot resolve mixed Mesa
+# builds. Development packages and the mesa-stable meta package stay excluded.
+Package: libgbm1:any libgl1-mesa-dri:any libegl-mesa0:any libglx-mesa0:any mesa-libgallium:any libmesa-stable:any libgl1-mesa-glx:any libgles2-mesa:any libegl1-mesa:any libwayland-egl1-mesa:any
+Pin: version 26.3.1-101pika1
+Pin-Priority: 1001
+
+# Trixie keeps Forky indexed for this reviewed graphics compatibility closure.
+# Pin the dependency families explicitly because the server role has no generic
+# desktop Mesa compatibility drop-in.
+Package: src:glibc:any src:libdrm:any src:wayland:any libllvm21
+Pin: release o=Debian,n=forky
+Pin-Priority: 990
+
+# The VA-API bridge is Debian-owned and exact-pinned to the selected suite.
+Package: nvidia-vaapi-driver:any
+Pin: version 0.0.13-1
+Pin-Priority: 990
+
+# APT dependencies of the selected kernel source and Pika alternative.
+# These are Debian support packages, kept on the authenticated suite.
+Package: dkms:any debhelper-compat:any module-assistant:any glx-alternative-nvidia:any glx-alternative-mesa:any glx-diversions:any update-glx:any
+Pin: release o=Debian,n=trixie
+Pin-Priority: 990
+
+# Explicitly reject the X.Org, GLX-driver, Vulkan, CUDA-optional, and daemon
+# branches. Rejection is version-independent and also blocks future records.
+Package: nvidia-driver-580:any nvidia-driver-bin-580:any nvidia-driver-libs-580:any nvidia-xconfig-580:any nvidia-settings-580:any xserver-xorg-video-nvidia-580:any nvidia-vulkan-icd-580:any nvidia-vulkan-common-580:any firmware-nvidia-gsp-580-server:any nvidia-persistenced-580:any nvidia-powerd-580:any nvidia-cuda-mps-580:any nvidia-opencl-common-580:any nvidia-opencl-icd-580:any nvidia-libopencl1-580:any libgl1-nvidia-glvnd-glx-580:any libglx-nvidia0-580:any libnvidia-glcore-580:any
 Pin: version *
 Pin-Priority: -1
 
-# Exact Pika binaries required by the selected 580 class and its
-# package dependencies. This closure includes the class packages and
-# their package-manager dependencies/recommends. Every Pika allow is
-# an exact package name. The final wildcard is deny-only and keeps
-# every unlisted Cockatiel package unavailable to APT.
-
-Package: nvidia-alternative-580:any nvidia-driver-580:any nvidia-driver-bin-580:any nvidia-driver-libs-580:any nvidia-egl-icd-580:any nvidia-egl-common-580:any nvidia-kernel-dkms-580:any nvidia-kernel-common-580:any
-Pin: release n=pika,c=cockatiel
-Pin-Priority: 990
-
-Package: nvidia-kernel-source-580:any nvidia-kernel-support-580:any nvidia-modprobe-580:any nvidia-powerd-580:any nvidia-settings-580:any nvidia-smi-580:any nvidia-support-580:any nvidia-suspend-common-580:any
-Pin: release n=pika,c=cockatiel
-Pin-Priority: 990
-
-Package: nvidia-cuda-mps-580:any nvidia-opencl-common-580:any nvidia-opencl-icd-580:any nvidia-libopencl1-580:any nvidia-persistenced-580:any nvidia-vdpau-driver-580:any nvidia-vulkan-common-580:any nvidia-vulkan-icd-580:any
-Pin: release n=pika,c=cockatiel
-Pin-Priority: 990
-
-Package: nvidia-xconfig-580:any xserver-xorg-video-nvidia-580:any firmware-nvidia-gsp-580:any libcuda1-580:any libcudadebugger1-580:any libegl-nvidia0-580:any libgl1-nvidia-glvnd-glx-580:any libgles-nvidia1-580:any
-Pin: release n=pika,c=cockatiel
-Pin-Priority: 990
-
-Package: libgles-nvidia2-580:any libglx-nvidia0-580:any libnvcuvid1-580:any libnvidia-allocator1-580:any libnvidia-api1-580:any libnvidia-cfg1-580:any libnvidia-eglcore-580:any libnvidia-encode1-580:any
-Pin: release n=pika,c=cockatiel
-Pin-Priority: 990
-
-Package: libnvidia-fbc1-580:any libnvidia-glcore-580:any libnvidia-glvkspirv-580:any libnvidia-gpucomp-580:any libnvidia-ml1-580:any libnvidia-ngx1-580:any libnvidia-nvvm4-580:any libnvidia-nvvm70-580:any
-Pin: release n=pika,c=cockatiel
-Pin-Priority: 990
-
-Package: libnvidia-opticalflow1-580:any libnvidia-pkcs11-openssl3-580:any libnvidia-present-580:any libnvidia-ptxjitcompiler1-580:any libnvidia-rtcore-580:any libnvidia-vksc-core-580:any libnvoptix1-580:any
-Pin: release n=pika,c=cockatiel
-Pin-Priority: 990
-
-# These bridges are independently versioned Pika packages used by the
-# selected EGL/GBM stack.
-Package: libnvidia-egl-wayland1:any libnvidia-egl-gbm1:any
-Pin: release n=pika,c=cockatiel
-Pin-Priority: 990
-
-# The VA-API bridge and firmware decoder remain Debian-owned.
-Package: nvidia-vaapi-driver:any firmware-nvidia-graphics:any
-Pin: release o=Debian
-Pin-Priority: 990
-
-# Fail closed on every other NVIDIA/CUDA package and origin. The
-# exact records above are evaluated before this deny-only family guard.
+# Fail closed on every unlisted NVIDIA/CUDA/firmware branch. Exact package
+# stanzas above are the only eligible Pika records.
 Package: nvidia*:any libnvidia*:any libcuda*:any libcudadebugger*:any libegl-nvidia*:any libgles-nvidia*:any libglx-nvidia*:any libnvcuvid*:any libnvoptix*:any firmware-nvidia*:any
 Pin: version *
 Pin-Priority: -1
-
-# Pika Mesa/DRM runtime packages are required only by this exact
-# legacy graphics class. They are not a repository-wide allow.
-Package: libgbm1:any libgl1-mesa-dri:any libegl-mesa0:any libglx-mesa0:any libglapi-mesa:any mesa-libgallium:any libmesa-stable:any libdrm-common:any libdrm2:any
-Pin: release n=pika,c=cockatiel
-Pin-Priority: 990
-
-# Trixie Mesa 26 dependencies are selected from the authenticated
-# Debian Forky archive, never from Pika.
-Package: src:glibc:any src:wayland:any libllvm21:any libxml2-16:any
-Pin: release o=Debian,n=forky
-Pin-Priority: 990
 
 # Keep the disabled Ubuntu-based fallback excluded.
 Package: *
 Pin: origin apt.pop-os.org
 Pin-Priority: -1
 
-# Cockatiel is enabled only for this selected class. Every other Pika
-# package remains ineligible for dependency resolution.
+# Cockatiel is enabled only for the exact package records above.
 Package: *
 Pin: release n=pika,c=cockatiel
 Pin-Priority: -1

@@ -1271,15 +1271,69 @@ printf "desktop_kanshi_verification enabled=%s\n" "$enabled"
     ' sh 2>__INSTALLER_PATH_DIR_DEV__/null || true
   )
   if bool_is_true "$desktop_nvidia_acceleration_available"; then
-    # Keep the kernel, userspace and optional GSP package on one Pika 580
-    # upstream version. Pascal/SM 6.1 does not consume GSP, but a stale
-    # Ubuntu-style nvidia-firmware-580-* package must never remain installed
-    # beside the Pika split package family.
-    check_command desktop-nvidia-580-package-branch \
-      __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+    desktop_nvidia_open_kernel_status=$(dpkg-query -W -f="\${db:Status-Status}" \
+      nvidia-kernel-open-dkms 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+    if [ "$desktop_nvidia_open_kernel_status" = installed ]; then
+      # Keep the generic open-kernel installation on one exact NVIDIA
+      # repository version. Recommends must never select an X.Org driver meta
+      # package or its GLX/Vulkan, OpenCL, persistence, or power branches.
+      check_command desktop-nvidia-open-package-branch \
+        __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
+        for package in firmware-nvidia-gsp nvidia-kernel-open-dkms \
+          nvidia-kernel-support nvidia-modprobe nvidia-smi nvidia-egl-icd \
+          libegl-nvidia0 libgles-nvidia1 libgles-nvidia2 \
+          libnvidia-allocator1 libnvidia-cfg1 libnvidia-eglcore \
+          libnvidia-glvkspirv libnvidia-gpucomp libnvidia-ml1 libcuda1 \
+          libnvidia-ptxjitcompiler1 libnvidia-pkcs11-openssl3 libnvcuvid1; do
+          status=$(dpkg-query -W -f="\${db:Status-Status}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          [ "$status" = installed ] || exit 1
+          version=$(dpkg-query -W -f="\${Version}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          [ "$version" = 620.70.10-1 ] || exit 1
+        done
+        for package_version in \
+          "libnvidia-egl-wayland21=1.0.2-1" \
+          "libnvidia-egl-gbm1=1.1.4-2"; do
+          package=${package_version%%=*}
+          expected_version=${package_version#*=}
+          status=$(dpkg-query -W -f="\${db:Status-Status}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          [ "$status" = installed ] || exit 1
+          version=$(dpkg-query -W -f="\${Version}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          [ "$version" = "$expected_version" ] || exit 1
+        done
+        case "__INSTALLER_FIRSTBOOT_SUITE__" in
+          forky) expected_vaapi_version=0.0.18-1 ;;
+          trixie) expected_vaapi_version=0.0.13-1 ;;
+          *) exit 1 ;;
+        esac
+        status=$(dpkg-query -W -f="\${db:Status-Status}" nvidia-vaapi-driver 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+        [ "$status" = installed ] || exit 1
+        version=$(dpkg-query -W -f="\${Version}" nvidia-vaapi-driver 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+        [ "$version" = "$expected_vaapi_version" ] || exit 1
+        for package in nvidia-driver nvidia-driver-cuda nvidia-driver-libs \
+          nvidia-driver-bin xserver-xorg-video-nvidia nvidia-vulkan-icd \
+          nvidia-vulkan-common nvidia-opencl-icd nvidia-opencl-common \
+          nvidia-libopencl1 nvidia-persistenced nvidia-powerd \
+          libglx-nvidia0 libnvidia-glcore nvidia-xconfig nvidia-settings; do
+          status=$(dpkg-query -W -f="\${db:Status-Status}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+          [ "$status" != installed ] || exit 1
+        done
+      ' sh
+    else
+      # Keep the explicit split kernel/userspace set on one Pika 580 upstream
+      # version. Do not accept the driver meta packages or any X.Org, GLX-driver,
+      # or Vulkan ICD branch. GSP firmware remains only because the Pika DKMS
+      # package declares it as a hard dependency. Pascal does not use it.
+      check_command desktop-nvidia-580-package-branch \
+        __INSTALLER_PATH_DIR_BIN__/sh -eu -c '
         expected=
-        for package in nvidia-driver-580 nvidia-driver-bin-580 nvidia-kernel-dkms-580 \
-          nvidia-kernel-common-580 nvidia-kernel-source-580 firmware-nvidia-gsp-580; do
+        for package in nvidia-alternative-580 nvidia-support-580 firmware-nvidia-gsp-580 \
+          nvidia-kernel-dkms-580 nvidia-kernel-source-580 nvidia-kernel-support-580 \
+          nvidia-kernel-common-580 nvidia-modprobe-580 nvidia-smi-580 \
+          nvidia-suspend-common-580 nvidia-egl-common-580 nvidia-egl-icd-580 \
+          libegl-nvidia0-580 libgles-nvidia1-580 libgles-nvidia2-580 \
+          libnvidia-allocator1-580 libnvidia-eglcore-580 libnvidia-glvkspirv-580 \
+          libnvidia-gpucomp-580 libnvidia-ml1-580 libnvcuvid1-580 \
+          libcuda1-580 libnvidia-ptxjitcompiler1-580 libnvidia-pkcs11-openssl3-580; do
           status=$(dpkg-query -W -f="\${db:Status-Status}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
           [ "$status" = installed ] || exit 1
           version=$(dpkg-query -W -f="\${Version}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
@@ -1289,10 +1343,47 @@ printf "desktop_kanshi_verification enabled=%s\n" "$enabled"
           if [ -n "$expected" ] && [ "$branch" != "$expected" ]; then exit 1; fi
           expected=$branch
         done
+        for package_version in \
+          "libnvidia-egl-wayland1=1:1.1.24-101pika1" \
+          "libnvidia-egl-gbm1=1.1.4-101pika1"; do
+          package=${package_version%%=*}
+          expected_version=${package_version#*=}
+          status=$(dpkg-query -W -f="\${db:Status-Status}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          [ "$status" = installed ] || exit 1
+          version=$(dpkg-query -W -f="\${Version}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          [ "$version" = "$expected_version" ] || exit 1
+        done
+        for package in libgbm1 libgl1-mesa-dri libegl-mesa0 libglx-mesa0 \
+          mesa-libgallium libmesa-stable; do
+          status=$(dpkg-query -W -f="\${db:Status-Status}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          [ "$status" = installed ] || exit 1
+          version=$(dpkg-query -W -f="\${Version}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+          [ "$version" = "26.3.1-101pika1" ] || exit 1
+        done
+        case "__INSTALLER_FIRSTBOOT_SUITE__" in
+          forky) expected_vaapi_version=0.0.18-1 ;;
+          trixie) expected_vaapi_version=0.0.13-1 ;;
+          *) exit 1 ;;
+        esac
+        status=$(dpkg-query -W -f="\${db:Status-Status}" nvidia-vaapi-driver 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+        [ "$status" = installed ] || exit 1
+        version=$(dpkg-query -W -f="\${Version}" nvidia-vaapi-driver 2>__INSTALLER_PATH_DIR_DEV__/null) || exit 1
+        [ "$version" = "$expected_vaapi_version" ] || exit 1
+        for package in nvidia-driver-580 nvidia-driver-bin-580 nvidia-driver-libs-580 \
+          nvidia-xconfig-580 nvidia-settings-580 xserver-xorg-video-nvidia-580 \
+          nvidia-vulkan-icd-580 nvidia-vulkan-common-580 nvidia-persistenced-580 \
+          nvidia-powerd-580 nvidia-cuda-mps-580 nvidia-opencl-common-580 \
+          nvidia-opencl-icd-580 nvidia-libopencl1-580 \
+          libgl1-nvidia-glvnd-glx-580 libglx-nvidia0-580 libnvidia-glcore-580; do
+          status=$(dpkg-query -W -f="\${db:Status-Status}" "$package" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
+          [ "$status" != installed ] || exit 1
+        done
         stale=$(dpkg-query -W -f="\${binary:Package} \${db:Status-Status}\\n" \
           "nvidia-firmware-580-*" 2>__INSTALLER_PATH_DIR_DEV__/null || true)
         [ -z "$stale" ]
       ' sh
+    fi
+    unset desktop_nvidia_open_kernel_status
     check_path desktop-nvidia-char-link-udev-rule __INSTALLER_PATH_DIR_UDEV_RULES__/71-nvidia-char-links.rules
     check_path desktop-nvidia-char-link-helper __INSTALLER_PATH_DIR_USR_LOCAL_LIBEXEC__/nvidia-char-links
     check_path desktop-nvidia-char-link-service __INSTALLER_PATH_DIR_SYSTEMD_SYSTEM__/nvidia-char-links.service

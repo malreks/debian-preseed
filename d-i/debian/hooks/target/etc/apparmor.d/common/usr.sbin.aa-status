@@ -18,8 +18,11 @@ profile aa-status-reader __INSTALLER_PATH_DIR_USR__/{bin,sbin}/aa-status flags=(
   @{sys}/module/apparmor/ r,
   @{sys}/module/apparmor/parameters/enabled r,
   __INSTALLER_PATH_DIR_VAR_LIB__/installer-state/logs/firstboot/data/ r,
-  __INSTALLER_PATH_DIR_VAR_LIB__/installer-state/logs/firstboot/data/apparmor-status.json rwk,
-  __INSTALLER_PATH_DIR_VAR_LIB__/installer-state/logs/firstboot/data/apparmor-status.json.* rwk,
+  # aa-status writes its inherited output descriptor.  Keep this exact
+  # artifact and its bounded atomic-write siblings writable without granting
+  # reads, locking, or access to other first-boot data.
+  __INSTALLER_PATH_DIR_VAR_LIB__/installer-state/logs/firstboot/data/apparmor-status.json w,
+  __INSTALLER_PATH_DIR_VAR_LIB__/installer-state/logs/firstboot/data/apparmor-status.json.* w,
   capability sys_ptrace,
   ptrace (read),
 

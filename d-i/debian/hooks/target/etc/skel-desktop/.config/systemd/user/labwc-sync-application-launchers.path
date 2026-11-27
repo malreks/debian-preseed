@@ -15,9 +15,9 @@ ConditionEnvironment=LABWC_SESSION_OWNER=desktop
 [Path]
 PathChanged=%h/.config/autostart
 PathChanged=%h/.config/autostart/bitwarden.desktop
-PathChanged=__INSTALLER_PATH_DIR_USR_LOCAL_SHARE__/applications
-PathChanged=__INSTALLER_PATH_DIR_USR_SHARE__/applications
-PathChanged=__INSTALLER_PATH_DIR_ETC__/labwc/desktop.conf
+# Package-owned and project-managed system entries are reconciled by the
+# apt/dpkg event hook. The user synchronizer watches only account-owned input.
+PathChanged=%h/.local/share/applications
 Unit=labwc-sync-application-launchers.service
 
 [Install]

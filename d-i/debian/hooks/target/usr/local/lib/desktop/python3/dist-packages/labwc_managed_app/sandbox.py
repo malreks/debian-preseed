@@ -2072,6 +2072,85 @@ def _run_persistent_sandbox_with_resources(
             stop_dbus_proxies(proxy_processes)
 
 
+def run_temporary_profile(app_name: str, extra_args: list[str], *, mode: str = "temporary") -> int:
+    """Run one disposable bwrap profile with ordinary host networking.
+
+    The profile owns a tmpfs HOME, XDG state/cache/data roots and /tmp. The
+    host network namespace and the current user's Wayland/D-Bus sockets remain
+    available, while no application state is written back to the account.
+    """
+    if app_name in WAYLAND_COMPAT_APPS:
+        fail(f"{app_name} must use the dedicated private XWayland compatibility entrypoint")
+    if mode not in {"temporary", "launch", "intel", "nvidia"}:
+        fail(f"unsupported temporary profile mode: {mode}")
+    acceleration_mode = "launch" if mode == "temporary" else mode
+    env = build_environment(app_name, acceleration_mode)
+    argv = build_argv(app_name, acceleration_mode, extra_args)
+    if mode in {"intel", "nvidia"}:
+        from . import gpu
+        selected_gpu = gpu.select(mode)
+        if selected_gpu is not None:
+            selected_gpu.apply_environment(env)
+
+    uid = os.getuid()
+    gid = os.getgid()
+    host_runtime = os.environ.get("XDG_RUNTIME_DIR", f"__INSTALLER_PATH_DIR_RUN_USER__/{uid}")
+    validate_absolute_path("temporary profile runtime", host_runtime)
+    wayland_display = env.get("WAYLAND_DISPLAY", "wayland-0")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", wayland_display):
+        fail("invalid temporary profile Wayland display")
+    wayland_source = current_user_runtime_socket("temporary profile Wayland socket", wayland_display)
+    bus_source = os.path.join(host_runtime, "bus")
+    try:
+        bus_metadata = os.lstat(bus_source)
+    except OSError as exc:
+        fail(f"temporary profile session bus is unavailable: {exc}")
+    if (stat.S_ISLNK(bus_metadata.st_mode) or not stat.S_ISSOCK(bus_metadata.st_mode)
+            or bus_metadata.st_uid != uid):
+        fail("temporary profile session bus has unsafe metadata")
+
+    bwrap = require_root_owned_executable("bubblewrap", "__INSTALLER_PATH_DIR_USR__/bin/bwrap")
+    sandbox_home = "/home/user"
+    sandbox_runtime = f"/run/user/{uid}"
+    env.update({
+        "HOME": sandbox_home,
+        "USER": current_user_name(),
+        "LOGNAME": current_user_name(),
+        "XDG_RUNTIME_DIR": sandbox_runtime,
+        "XDG_CONFIG_HOME": f"{sandbox_home}/.config",
+        "XDG_CACHE_HOME": f"{sandbox_home}/.cache",
+        "XDG_DATA_HOME": f"{sandbox_home}/.local/share",
+        "XDG_STATE_HOME": f"{sandbox_home}/.local/state",
+        "TMPDIR": f"{sandbox_home}/.tmp",
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={sandbox_runtime}/bus",
+    })
+    command = [
+        bwrap, "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid",
+        "--unshare-ipc", "--unshare-uts", "--uid", str(uid), "--gid", str(gid),
+        "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
+        "--tmpfs", sandbox_home, "--tmpfs", "/tmp", "--tmpfs", sandbox_runtime,
+        "--bind", wayland_source, f"{sandbox_runtime}/{wayland_display}",
+        "--bind", bus_source, f"{sandbox_runtime}/bus",
+        "--chdir", sandbox_home, "--cap-drop", "ALL", "--clearenv",
+    ]
+    if mode in {"intel", "nvidia"}:
+        add_gpu_device_binds(command, mode)
+    for name, value in sorted(env.items()):
+        if "\x00" in name or "\x00" in value or "\n" in value or "\r" in value:
+            fail("temporary profile environment contains an invalid value")
+        command.extend(("--setenv", name, value))
+    command.append("--")
+    command.extend(argv)
+    try:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, check=False)
+        return result.returncode
+    finally:
+        # No profile bytes are intentionally created outside the tmpfs mounts.
+        # Keep the cleanup explicit for any bwrap bookkeeping left in the
+        # invoking environment.
+        pass
+
+
 def run_persistent_sandbox(app_name: str, mode: str, extra_args: list[str]) -> int:
     if app_name in WAYLAND_COMPAT_APPS:
         fail(

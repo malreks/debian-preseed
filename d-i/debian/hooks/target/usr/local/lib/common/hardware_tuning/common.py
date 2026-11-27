@@ -129,6 +129,23 @@ def read_text(path: Path, maximum: int = 16384) -> str:
     return data.decode("ascii").strip()
 
 
+def read_bytes(path: Path, maximum: int = 16384) -> bytes:
+    """Read a bounded root-controlled regular file without normalizing bytes."""
+    if type(maximum) is not int or not 1 <= maximum <= MAX_JSON:
+        raise TuningError("invalid binary attribute size limit")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(descriptor, "rb") as stream:
+        metadata = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0
+                or metadata.st_gid != 0 or metadata.st_mode & 0o022
+                or metadata.st_nlink != 1):
+            raise TuningError(f"untrusted regular file: {path}")
+        data = stream.read(maximum + 1)
+    if len(data) > maximum:
+        raise TuningError(f"oversized binary attribute: {path}")
+    return data
+
+
 def integer(value: Any, low: int, high: int) -> int:
     if type(value) is int:
         result = value
